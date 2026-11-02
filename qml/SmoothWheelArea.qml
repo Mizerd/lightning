@@ -65,6 +65,8 @@ WheelHandler {
         return v === undefined ? true : !!v
     }
 
+    readonly property bool gliding: root.ticker.running
+
     property real glideTargetY: 0
     property int glideDirection: 0
 

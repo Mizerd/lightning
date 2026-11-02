@@ -201,7 +201,7 @@ Rectangle {
                 onContentYChanged: {
                     var delta = contentY - lastContentY
                     lastContentY = contentY
-                    if (moving)
+                    if (moving || contextWheel.active || contextWheel.gliding)
                         view.loadTowards(delta)
                     var row = indexAt(width / 2, contentY + height / 2)
                     if (row >= 0)
