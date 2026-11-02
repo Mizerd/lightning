@@ -57,6 +57,16 @@ Item {
     /// Pushes both fields to the model, which owns the day semantics and the
     /// parsing. An invalid entry leaves the previous range in force and says
     /// so, rather than silently showing everything.
+    // An unset QDateTime reaches QML as an invalid Date, whose toString() is
+    // "Invalid Date": testing its length called every empty tab filtered and
+    // answered "Nothing matches those filters" for a room with no links at all.
+    function dateIsSet(d) {
+        if (d === undefined || d === null)
+            return false
+        if (d instanceof Date)
+            return !isNaN(d.getTime())
+        return d.toString().length > 0
+    }
     function applyDates() {
         if (!model)
             return
@@ -346,8 +356,8 @@ Item {
                         return ""
                     if (root.model.query.length > 0
                         || root.model.senderFilter.length > 0
-                        || root.model.fromDate.toString().length > 0
-                        || root.model.toDate.toString().length > 0)
+                        || root.dateIsSet(root.model.fromDate)
+                        || root.dateIsSet(root.model.toDate))
                         return qsTr("Nothing matches those filters in the "
                                     + "history read so far.")
                     return root.model.complete
