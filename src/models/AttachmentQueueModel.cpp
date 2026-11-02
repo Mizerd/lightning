@@ -199,11 +199,15 @@ QString AttachmentQueueModel::detectMime(const QString &path)
     static const QStringList kGenericMediaContainers = {
         QStringLiteral("application/x-matroska"),
         QStringLiteral("application/vnd.ms-asf"),
+        QStringLiteral("video/x-ms-asf"),
         QStringLiteral("application/ogg"),
         QStringLiteral("application/x-riff"),
         QStringLiteral("application/x-iff"),
     };
     const QString proven = content.name();
+    if (proven == QLatin1String("video/quicktime") && byName.isValid()
+        && byName.name() == QLatin1String("video/mp4"))
+        return byName.name();
     if (kGenericMediaContainers.contains(proven) && byName.isValid()
         && (byName.name().startsWith(QLatin1String("video/"))
             || byName.name().startsWith(QLatin1String("audio/")))
