@@ -12104,7 +12104,18 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                     const auto goneIt = m_rooms.find(gone);
                     if (goneIt == m_rooms.end())
                         continue;
-                    goneIt->members.clear();
+                    QHash<QString, MemberInfo> names;
+                    names.reserve(goneIt->members.size());
+                    for (auto m = goneIt->members.constBegin();
+                         m != goneIt->members.constEnd(); ++m) {
+                        if (m->displayName.isEmpty())
+                            continue;
+                        MemberInfo kept;
+                        kept.userId = m.key();
+                        kept.displayName = m->displayName;
+                        names.insert(m.key(), kept);
+                    }
+                    goneIt->members = names;
                     Q_EMIT roomMembersEvicted(gone);
                 }
                 if (!event.value(QStringLiteral("partial")).toBool()
