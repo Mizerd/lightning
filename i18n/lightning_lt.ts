@@ -4610,7 +4610,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+133"/>
+        <location filename="../qml/ContextView.qml" line="+135"/>
         <source>Viewing an older message</source>
         <translation>Peržiūrima senesnė žinutė</translation>
     </message>
@@ -12857,7 +12857,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1050"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1051"/>
         <source>Today</source>
         <translation>Šiandien</translation>
     </message>
@@ -19521,38 +19521,38 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+573"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+574"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>„Lightning“ negalėjo sukurti šios paskyros vietinės saugyklos katalogo. Patikrinkite failų sistemos leidimus ir laisvą vietą.</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+956"/>
+        <location line="+957"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Nepavyko sukurti Rust SDK posistemės objekto.</translation>
     </message>
     <message>
-        <location line="-237"/>
-        <location line="+994"/>
+        <location line="-238"/>
+        <location line="+995"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>Šios paskyros vietinės saugyklos pavadinimas susiduria su kita paskyra, jau išsaugota šiame įrenginyje. Pirmiausia pašalinkite tą paskyrą, jei norite prisijungti naudodami šią paskyrą.</translation>
     </message>
     <message>
-        <location line="+232"/>
+        <location line="+233"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>Netinkamos vietinės šios paskyros saugyklos nepavyko perkelti. Patikrinkite failų sistemos leidimus ir bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-1061"/>
-        <location line="+146"/>
+        <location line="-1063"/>
+        <location line="+147"/>
         <location line="+152"/>
-        <location line="+916"/>
-        <location line="+82"/>
+        <location line="+917"/>
+        <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Nepavyko inicijuoti Rust SDK posistemės.</translation>
     </message>
     <message>
-        <location line="-1158"/>
+        <location line="-1160"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>Reikalingas namų serveris.</translation>
@@ -19641,7 +19641,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Prisijungti nepavyko. Patikrinkite savo duomenis ir serverio adresą, tada bandykite dar kartą.</translation>
     </message>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="-597"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="-598"/>
         <source>Enter a server, for example matrix.org.</source>
         <translation>Įveskite serverį, pavyzdžiui, matrix.org.</translation>
     </message>
@@ -19651,7 +19651,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Tai nėra serverio adresas. Įveskite tokį kaip matrix.org.</translation>
     </message>
     <message>
-        <location line="+1017"/>
+        <location line="+1018"/>
         <source>This sign-in belongs to another copy of Lightning on this computer. Sign in again.</source>
         <translation>Šis prisijungimas priklauso kitai Lightning kopijai šiame kompiuteryje. Prisijunkite dar kartą.</translation>
     </message>
@@ -19681,7 +19681,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Prisijungėte, bet „Lightning“ nepavyko atidaryti šios paskyros saugyklos šiame įrenginyje. Čia nieko neįrašyta.</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>Prisijungėte, bet „Lightning“ nepavyko išsaugoti šios paskyros šiame įrenginyje, todėl jos neatidarė.</translation>
     </message>
@@ -19701,7 +19701,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Prisijungėte, bet „Lightning“ nepavyko atidaryti šios paskyros šiame įrenginyje ir nepavyko pašalinti visko, ką pradėjo čia įrašyti. Prieš bandydami dar kartą patikrinkite žurnalą. (%1)</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+363"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
         <translation>Prieš iš naujo nustatydami vietinį „Lightning“ seansą, įveskite galiojantį namų serverį ir „Matrix“ vartotojo ID.</translation>
     </message>
@@ -19850,7 +19850,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nepavyko atlikti apklausos veiksmo.</translation>
     </message>
     <message>
-        <location line="-6394"/>
+        <location line="-6399"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Šios paskyros duomenis vis dar naudoja fonu veikiantis seansas. Palaukite akimirką ir bandykite dar kartą.</translation>
     </message>
@@ -19860,7 +19860,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Šios paskyros duomenys vis dar naudojami. Palaukite akimirką ir bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="+248"/>
+        <location line="+249"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
         <translation>Šios paskyros tinklo maršruto nepavyko pritaikyti, todėl Lightning jos neprijungs tiesiogiai. Patikrinkite tarpinį serverį nustatymuose.</translation>
     </message>
@@ -19880,7 +19880,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įveskite slaptažodį.</translation>
     </message>
     <message>
-        <location line="+5529"/>
+        <location line="+5533"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Nepavyko išsiųsti žinutės. Galite bandyti dar kartą naudodami žinutės veiksmą Bandyti iš naujo.</translation>
     </message>
@@ -32020,12 +32020,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+295"/>
-        <location line="+5109"/>
+        <location line="+5116"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5108"/>
+        <location filename="../qml/TimelinePane.qml" line="-5115"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -32118,12 +32118,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3659"/>
+        <location line="+3666"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-3648"/>
+        <location line="-3655"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Daugiau kambario veiksmų</translation>
@@ -32189,17 +32189,37 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atidarykite ankstesnį kambarį</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+78"/>
+        <source>Joining only adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room&apos;s info panel.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Could not join: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+2"/>
+        <source>This room is in %1. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This room is in a Space you have not joined. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Joining…</source>
         <translation type="unfinished">Prisijungiama…</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+20"/>
+        <source>Dismiss this notice for this Space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
         <source>Loaded</source>
         <translation>Pakrauta</translation>
     </message>
@@ -32809,13 +32829,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-5698"/>
+        <location line="-5705"/>
         <location line="+67"/>
         <source>View profile</source>
         <translation>Peržiūrėti profilį</translation>
     </message>
     <message>
-        <location line="+4929"/>
+        <location line="+4936"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Paveikslėliai (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32891,17 +32911,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Numeskite failus, kuriuos norite pridėti</translation>
     </message>
     <message>
-        <location line="-5191"/>
-        <source>Part of %1</source>
-        <translation>Erdvės %1 dalis</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Part of a space you have not joined</source>
-        <translation>Erdvės, prie kurios nesate prisijungę, dalis</translation>
-    </message>
-    <message>
-        <location line="+12"/>
+        <location line="-5178"/>
         <source>Join space</source>
         <translation>Prisijungti prie erdvės</translation>
     </message>
@@ -32914,11 +32924,6 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="-4"/>
         <source>Join the space this room belongs to</source>
         <translation>Prisijungti prie erdvės, kuriai priklauso šis kambarys</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <source>Dismiss this notice for this room</source>
-        <translation>Paslėpti šį pranešimą šiam kambariui</translation>
     </message>
 </context>
 <context>

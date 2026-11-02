@@ -4586,7 +4586,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+133"/>
+        <location filename="../qml/ContextView.qml" line="+135"/>
         <source>Viewing an older message</source>
         <translation>একটি পুরনো বার্তা দেখা হচ্ছে</translation>
     </message>
@@ -12806,7 +12806,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1050"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1051"/>
         <source>Today</source>
         <translation>আজ</translation>
     </message>
@@ -19443,38 +19443,38 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+573"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+574"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning এই অ্যাকাউন্টের জন্য তার স্থানীয় সংরক্ষণ ডিরেক্টরি তৈরি করতে পারেনি। ফাইল সিস্টেমের অনুমতি ও খালি জায়গা দেখুন।</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+956"/>
+        <location line="+957"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Rust SDK ব্যাকএন্ড হ্যান্ডেল তৈরি ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="-237"/>
-        <location line="+994"/>
+        <location line="-238"/>
+        <location line="+995"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>এই অ্যাকাউন্টের স্থানীয় সংরক্ষণ নাম এই ডিভাইসে ইতিমধ্যেই সংরক্ষিত অন্য একটি অ্যাকাউন্টের সঙ্গে সংঘর্ষ করছে। এটি দিয়ে সাইন ইন করতে চাইলে আগে ওই অ্যাকাউন্টটি সরান।</translation>
     </message>
     <message>
-        <location line="+232"/>
+        <location line="+233"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>এই অ্যাকাউন্টের একটি অব্যবহারযোগ্য স্থানীয় সংরক্ষণ সরিয়ে রাখা যায়নি। ফাইল সিস্টেমের অনুমতি দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-1061"/>
-        <location line="+146"/>
+        <location line="-1063"/>
+        <location line="+147"/>
         <location line="+152"/>
-        <location line="+916"/>
-        <location line="+82"/>
+        <location line="+917"/>
+        <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Rust SDK ব্যাকএন্ড চালু করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-1158"/>
+        <location line="-1160"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>একটি হোমসার্ভার আবশ্যক।</translation>
@@ -19563,7 +19563,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাইন-ইন ব্যর্থ হয়েছে। আপনার তথ্য ও সার্ভারের ঠিকানা পরীক্ষা করে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="-597"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="-598"/>
         <source>Enter a server, for example matrix.org.</source>
         <translation>একটি সার্ভার দিন, যেমন matrix.org।</translation>
     </message>
@@ -19573,7 +19573,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এটি সার্ভারের ঠিকানা নয়। matrix.org-এর মতো একটি দিন।</translation>
     </message>
     <message>
-        <location line="+1017"/>
+        <location line="+1018"/>
         <source>This sign-in belongs to another copy of Lightning on this computer. Sign in again.</source>
         <translation>এই সাইন-ইন এই কম্পিউটারে Lightning-এর অন্য একটি কপির। আবার সাইন ইন করুন।</translation>
     </message>
@@ -19603,7 +19603,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনি সাইন ইন করেছেন, কিন্তু Lightning এই ডিভাইসে এই অ্যাকাউন্টের স্টোরেজ খুলতে পারেনি। এখানে কিছুই সংরক্ষিত হয়নি।</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>আপনি সাইন ইন করেছেন, কিন্তু Lightning এই ডিভাইসে এই অ্যাকাউন্ট সংরক্ষণ করতে পারেনি, তাই এটি খোলেনি।</translation>
     </message>
@@ -19623,7 +19623,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনি সাইন ইন করেছেন, কিন্তু Lightning এই ডিভাইসে এই অ্যাকাউন্ট খুলতে পারেনি, এবং এখানে সংরক্ষণ শুরু করা সবকিছু সরাতে পারেনি। আবার চেষ্টার আগে লগ দেখুন। (%1)</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+363"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
         <translation>স্থানীয় Lightning সেশন রিসেট করার আগে একটি বৈধ হোমসার্ভার ও Matrix ব্যবহারকারী আইডি দিন।</translation>
     </message>
@@ -19772,7 +19772,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভোটের কাজ সম্পন্ন করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-6394"/>
+        <location line="-6399"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>এই অ্যাকাউন্টের ডেটা এখনও একটি ব্যাকগ্রাউন্ড সেশনে ব্যবহৃত হচ্ছে। একটু অপেক্ষা করে আবার চেষ্টা করুন।</translation>
     </message>
@@ -19782,7 +19782,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই অ্যাকাউন্টের ডেটা এখনও ব্যবহৃত হচ্ছে। একটু অপেক্ষা করে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+248"/>
+        <location line="+249"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
         <translation>এই অ্যাকাউন্টের নেটওয়ার্ক রুট প্রয়োগ করা যায়নি, তাই Lightning এটি সরাসরি সংযুক্ত করবে না। সেটিংসে প্রক্সি পরীক্ষা করুন।</translation>
     </message>
@@ -19802,7 +19802,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার পাসওয়ার্ড দিন।</translation>
     </message>
     <message>
-        <location line="+5529"/>
+        <location line="+5533"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>বার্তাটি পাঠানো যায়নি। বার্তার “আবার চেষ্টা করুন” ক্রিয়া থেকে আবার চেষ্টা করতে পারেন।</translation>
     </message>
@@ -31872,12 +31872,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+295"/>
-        <location line="+5109"/>
+        <location line="+5116"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5108"/>
+        <location filename="../qml/TimelinePane.qml" line="-5115"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
@@ -31970,12 +31970,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3659"/>
+        <location line="+3666"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
     <message>
-        <location line="-3648"/>
+        <location line="-3655"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>রুমের আরও কাজ</translation>
@@ -32041,17 +32041,37 @@ Note: importing keys does not verify this session.</source>
         <translation>আগের রুম খুলুন</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+78"/>
+        <source>Joining only adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room&apos;s info panel.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Could not join: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+2"/>
+        <source>This room is in %1. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This room is in a Space you have not joined. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Joining…</source>
         <translation type="unfinished">যোগ দেওয়া হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+20"/>
+        <source>Dismiss this notice for this Space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
         <source>Loaded</source>
         <translation>লোড হওয়া</translation>
     </message>
@@ -32653,13 +32673,13 @@ Note: importing keys does not verify this session.</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-5698"/>
+        <location line="-5705"/>
         <location line="+67"/>
         <source>View profile</source>
         <translation>প্রোফাইল দেখুন</translation>
     </message>
     <message>
-        <location line="+4929"/>
+        <location line="+4936"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32735,17 +32755,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সংযুক্ত করতে ফাইল ছেড়ে দিন</translation>
     </message>
     <message>
-        <location line="-5191"/>
-        <source>Part of %1</source>
-        <translation>%1 এর অংশ</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Part of a space you have not joined</source>
-        <translation>এমন একটি স্পেসের অংশ যেখানে আপনি যোগ দেননি</translation>
-    </message>
-    <message>
-        <location line="+12"/>
+        <location line="-5178"/>
         <source>Join space</source>
         <translation>স্পেসে যোগ দিন</translation>
     </message>
@@ -32758,11 +32768,6 @@ Note: importing keys does not verify this session.</source>
         <location line="-4"/>
         <source>Join the space this room belongs to</source>
         <translation>এই রুম যে স্পেসের অংশ তাতে যোগ দিন</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <source>Dismiss this notice for this room</source>
-        <translation>এই রুমের জন্য এই বিজ্ঞপ্তি বাতিল করুন</translation>
     </message>
 </context>
 <context>

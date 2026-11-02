@@ -4588,7 +4588,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+133"/>
+        <location filename="../qml/ContextView.qml" line="+135"/>
         <source>Viewing an older message</source>
         <translation>A ver uma mensagem mais antiga</translation>
     </message>
@@ -12815,7 +12815,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1050"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1051"/>
         <source>Today</source>
         <translation>Hoje</translation>
     </message>
@@ -19452,38 +19452,38 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+573"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+574"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>O Lightning não conseguiu criar a sua pasta de armazenamento local para esta conta. Verifique as permissões do sistema de ficheiros e o espaço livre.</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+956"/>
+        <location line="+957"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Falha ao criar o identificador do backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-237"/>
-        <location line="+994"/>
+        <location line="-238"/>
+        <location line="+995"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>O nome de armazenamento local desta conta colide com o de outra conta já guardada neste dispositivo. Remova essa conta primeiro se quiser iniciar sessão com esta.</translation>
     </message>
     <message>
-        <location line="+232"/>
+        <location line="+233"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>Não foi possível pôr de lado um armazenamento local inutilizável desta conta. Verifique as permissões do sistema de ficheiros e tente novamente.</translation>
     </message>
     <message>
-        <location line="-1061"/>
-        <location line="+146"/>
+        <location line="-1063"/>
+        <location line="+147"/>
         <location line="+152"/>
-        <location line="+916"/>
-        <location line="+82"/>
+        <location line="+917"/>
+        <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Não foi possível inicializar o backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1158"/>
+        <location line="-1160"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>É necessário um servidor.</translation>
@@ -19572,7 +19572,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Falha ao iniciar sessão. Verifique os seus dados e o endereço do servidor e tente novamente.</translation>
     </message>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="-597"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="-598"/>
         <source>Enter a server, for example matrix.org.</source>
         <translation>Introduza um servidor, por exemplo matrix.org.</translation>
     </message>
@@ -19582,7 +19582,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Isso não é um endereço de servidor. Introduza um como matrix.org.</translation>
     </message>
     <message>
-        <location line="+1017"/>
+        <location line="+1018"/>
         <source>This sign-in belongs to another copy of Lightning on this computer. Sign in again.</source>
         <translation>Esta sessão pertence a outra cópia do Lightning neste computador. Inicie sessão novamente.</translation>
     </message>
@@ -19612,7 +19612,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Iniciou sessão, mas o Lightning não conseguiu abrir o armazenamento desta conta neste dispositivo. Nada foi guardado aqui.</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>Iniciou sessão, mas o Lightning não conseguiu guardar esta conta neste dispositivo, por isso não a abriu.</translation>
     </message>
@@ -19632,7 +19632,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Iniciou sessão, mas o Lightning não conseguiu abrir esta conta neste dispositivo, e não conseguiu remover tudo o que começara a guardar aqui. Verifique o registo antes de tentar novamente. (%1)</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+363"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
         <translation>Introduza um servidor e um ID de utilizador Matrix válidos antes de repor a sessão local do Lightning.</translation>
     </message>
@@ -19781,7 +19781,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Não foi possível concluir a ação da sondagem.</translation>
     </message>
     <message>
-        <location line="-6394"/>
+        <location line="-6399"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Os dados desta conta ainda estão em uso por uma sessão em segundo plano. Aguarde um momento e tente novamente.</translation>
     </message>
@@ -19791,7 +19791,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Os dados desta conta ainda estão em uso. Aguarde um momento e tente novamente.</translation>
     </message>
     <message>
-        <location line="+248"/>
+        <location line="+249"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
         <translation>Não foi possível aplicar a rota de rede desta conta, por isso o Lightning não a vai ligar diretamente. Verifique o proxy nas Definições.</translation>
     </message>
@@ -19811,7 +19811,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Introduza a sua palavra-passe.</translation>
     </message>
     <message>
-        <location line="+5529"/>
+        <location line="+5533"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Não foi possível enviar a mensagem. Pode tentar de novo a partir da ação Tentar novamente da mensagem.</translation>
     </message>
@@ -31881,12 +31881,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+295"/>
-        <location line="+5109"/>
+        <location line="+5116"/>
         <source>Space</source>
         <translation>Espaço</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5108"/>
+        <location filename="../qml/TimelinePane.qml" line="-5115"/>
         <source>Home</source>
         <translation>Início</translation>
     </message>
@@ -31979,12 +31979,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3659"/>
+        <location line="+3666"/>
         <source>Room information</source>
         <translation>Informações da sala</translation>
     </message>
     <message>
-        <location line="-3648"/>
+        <location line="-3655"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Mais ações da sala</translation>
@@ -32050,17 +32050,37 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Abrir a sala anterior</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+78"/>
+        <source>Joining only adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room&apos;s info panel.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Could not join: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+2"/>
+        <source>This room is in %1. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This room is in a Space you have not joined. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Joining…</source>
         <translation type="unfinished">A entrar…</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+20"/>
+        <source>Dismiss this notice for this Space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
         <source>Loaded</source>
         <translation>Carregadas</translation>
     </message>
@@ -32662,13 +32682,13 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5698"/>
+        <location line="-5705"/>
         <location line="+67"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
     <message>
-        <location line="+4929"/>
+        <location line="+4936"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32744,17 +32764,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Largue ficheiros para os anexar</translation>
     </message>
     <message>
-        <location line="-5191"/>
-        <source>Part of %1</source>
-        <translation>Parte de %1</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Part of a space you have not joined</source>
-        <translation>Parte de um espaço em que você não entrou</translation>
-    </message>
-    <message>
-        <location line="+12"/>
+        <location line="-5178"/>
         <source>Join space</source>
         <translation>Entrar no espaço</translation>
     </message>
@@ -32767,11 +32777,6 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="-4"/>
         <source>Join the space this room belongs to</source>
         <translation>Entrar no espaço a que esta sala pertence</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <source>Dismiss this notice for this room</source>
-        <translation>Dispensar este aviso para esta sala</translation>
     </message>
 </context>
 <context>

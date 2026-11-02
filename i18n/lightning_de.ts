@@ -4588,7 +4588,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+133"/>
+        <location filename="../qml/ContextView.qml" line="+135"/>
         <source>Viewing an older message</source>
         <translation>Du siehst eine ältere Nachricht</translation>
     </message>
@@ -12815,7 +12815,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+312"/>
+        <location filename="../qml/MessageDelegate.qml" line="+313"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -19507,18 +19507,18 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die Daten dieses Kontos sind noch in Gebrauch. Warte einen Moment und versuche es erneut.</translation>
     </message>
     <message>
-        <location line="+168"/>
+        <location line="+169"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning konnte sein lokales Speicherverzeichnis für dieses Konto nicht erstellen. Prüfe die Dateisystemberechtigungen und den freien Speicherplatz.</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+956"/>
+        <location line="+957"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Das Rust-SDK-Backend-Handle konnte nicht erstellt werden.</translation>
     </message>
     <message>
-        <location line="-917"/>
+        <location line="-918"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
         <translation>Die Netzwerkroute dieses Kontos konnte nicht angewendet werden, daher verbindet Lightning es nicht direkt. Prüfe den Proxy in den Einstellungen.</translation>
     </message>
@@ -19549,21 +19549,21 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+82"/>
-        <location line="+994"/>
+        <location line="+995"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>Der lokale Speichername dieses Kontos kollidiert mit einem anderen Konto, das bereits auf diesem Gerät gespeichert ist. Entferne zuerst jenes Konto, wenn du dich mit diesem anmelden möchtest.</translation>
     </message>
     <message>
-        <location line="-829"/>
-        <location line="+146"/>
+        <location line="-830"/>
+        <location line="+147"/>
         <location line="+152"/>
-        <location line="+916"/>
-        <location line="+82"/>
+        <location line="+917"/>
+        <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Das Rust-SDK-Backend konnte nicht initialisiert werden.</translation>
     </message>
     <message>
-        <location line="-1158"/>
+        <location line="-1160"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>Ein Homeserver ist erforderlich.</translation>
@@ -19637,7 +19637,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Du hast dich angemeldet, aber Lightning konnte den Speicher dieses Kontos auf diesem Gerät nicht öffnen. Hier wurde nichts gespeichert.</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>Du hast dich angemeldet, aber Lightning konnte dieses Konto nicht auf diesem Gerät speichern und hat es daher nicht geöffnet.</translation>
     </message>
@@ -19662,7 +19662,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Du hast dich angemeldet, aber Lightning konnte dieses Konto auf diesem Gerät nicht öffnen und konnte nicht alles entfernen, was es hier zu speichern begonnen hatte. Prüfe das Protokoll, bevor du es erneut versuchst. (%1)</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+363"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
         <translation>Gib einen gültigen Homeserver und eine gültige Matrix-Benutzer-ID ein, bevor du die lokale Lightning-Sitzung zurücksetzt.</translation>
     </message>
@@ -31875,7 +31875,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+6695"/>
+        <location filename="../qml/TimelinePane.qml" line="+6702"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -31919,8 +31919,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5589"/>
-        <location line="+5109"/>
+        <location filename="../qml/TimelinePane.qml" line="-5596"/>
+        <location line="+5116"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -31998,7 +31998,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6175"/>
+        <location filename="../qml/TimelinePane.qml" line="-6182"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -32115,12 +32115,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3659"/>
+        <location line="+3666"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-3648"/>
+        <location line="-3655"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -32186,17 +32186,37 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Den vorherigen Raum öffnen</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+78"/>
+        <source>Joining only adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room&apos;s info panel.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Could not join: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+2"/>
+        <source>This room is in %1. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This room is in a Space you have not joined. Joining adds the Space to your sidebar; you can leave at any time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Joining…</source>
         <translation type="unfinished">Beitritt läuft …</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+20"/>
+        <source>Dismiss this notice for this Space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
         <source>Loaded</source>
         <translation>Geladen</translation>
     </message>
@@ -32744,17 +32764,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5191"/>
-        <source>Part of %1</source>
-        <translation>Teil von %1</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Part of a space you have not joined</source>
-        <translation>Teil eines Space, dem du nicht beigetreten bist</translation>
-    </message>
-    <message>
-        <location line="+12"/>
+        <location line="-5178"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>
@@ -32767,11 +32777,6 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="-4"/>
         <source>Join the space this room belongs to</source>
         <translation>Dem Space beitreten, zu dem dieser Raum gehört</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <source>Dismiss this notice for this room</source>
-        <translation>Diesen Hinweis für diesen Raum verwerfen</translation>
     </message>
 </context>
 <context>
