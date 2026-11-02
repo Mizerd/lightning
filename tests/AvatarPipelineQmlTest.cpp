@@ -1052,7 +1052,8 @@ private Q_SLOTS:
             h.client->succeed(h.client->fetches.at(fetchIndex).opId,
                               halfTransparentPng(64));
             QTRY_COMPARE_WITH_TIMEOUT(state(h), QStringLiteral("ready"), 5000);
-            QVERIFY(!skeleton->isVisible());
+            QVERIFY(!h.avatar->findChild<QQuickItem *>(
+                QStringLiteral("avatarSkeleton")));
             QVERIFY(!initials->isVisible());
 
             const QImage frame = h.window->grabWindow();
