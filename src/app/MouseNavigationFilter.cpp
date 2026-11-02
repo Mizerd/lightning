@@ -41,7 +41,16 @@ bool MouseNavigationFilter::windowHasOpenPopup(const QQuickWindow *window)
                 && popup->property("visible").toBool())
                 return true;
         }
-        return false;
+        break;
+    }
+    for (const QWindow *w : QGuiApplication::topLevelWindows()) {
+        if (!w->isVisible() || !w->inherits("QQuickPopupWindow"))
+            continue;
+        for (const QWindow *p = w->transientParent(); p;
+             p = p->transientParent()) {
+            if (p == window)
+                return true;
+        }
     }
     return false;
 }

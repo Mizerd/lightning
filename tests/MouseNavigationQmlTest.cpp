@@ -13,6 +13,7 @@
 
 #include <QtTest/QtTest>
 
+#include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -310,6 +311,30 @@ private Q_SLOTS:
         QVERIFY(!m_controller->hasOpenPopup(panel));
         click(Qt::BackButton, timelinePoint());
         QCOMPARE(m_controller->currentRoomId(), kDevs);
+    }
+
+    void nothingNavigatesWhileAMenuWindowIsOpen()
+    {
+        openThreeRooms();
+        QObject *menu =
+            m_root->findChild<QObject *>(QStringLiteral("roomListAddMenu"));
+        QVERIFY2(menu, "no room-list menu to open");
+        constexpr int kPopupWindow = 1;
+        QVERIFY(menu->setProperty("popupType", kPopupWindow));
+        QVERIFY(QMetaObject::invokeMethod(menu, "open"));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        bool windowShown = false;
+        for (const QWindow *w : QGuiApplication::topLevelWindows())
+            windowShown |= w->isVisible() && w->inherits("QQuickPopupWindow");
+        QVERIFY2(windowShown, "the menu did not open as its own window");
+        QVERIFY(m_controller->hasOpenPopup(item("mainScreen")));
+
+        QVERIFY(!m_controller->navigateRoomHistoryFromKeyboard(
+            item("mainScreen"), false));
+        QCOMPARE(m_controller->currentRoomId(), kDm);
+
+        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+        QTRY_VERIFY(!menu->property("visible").toBool());
     }
 
     void aBackPressThatDismissesAMenuOnlyDismissesIt()
