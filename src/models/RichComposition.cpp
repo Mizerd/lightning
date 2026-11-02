@@ -806,9 +806,14 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
     // Should unfolding ever cost text, the folded mirror is still every word.
     QTextDocument check;
     check.setMarkdown(out, dialect);
-    const QString box = comparableText(compose(check).plainBody)
+    QString box = comparableText(compose(check).plainBody)
             == comparableText(compose(document).plainBody)
         ? out : mirror;
+    // Qt pads an ordered marker to a column; the box reads as typed.
+    static const QRegularExpression paddedMarker(
+        QStringLiteral("^(\\s*\\d{1,9}[.)]) {2,}"),
+        QRegularExpression::MultilineOption);
+    box.replace(paddedMarker, QStringLiteral("\\1 "));
     // Text the reader never saw as formatted comes back as they wrote it. As
     // in Element's composer, what they applied here (a list) stays applied.
     return document.property(kOpenedLiterally).toBool()
