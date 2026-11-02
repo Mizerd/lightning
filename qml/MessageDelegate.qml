@@ -220,7 +220,7 @@ Item {
         (!roomActivityVisible || suppressedAsThreadRoot || dividerSuppressed
          || deletedFollower || !threadSearchVisible) ? 0
         : !threadFilterVisible ? 0
-        : isVirtualRow ? virtualRow.implicitHeight
+        : isVirtualRow ? virtualRowLoader.implicitHeight
         : isCallEvent ? callEventRow.implicitHeight + AppTheme.spacingS * 2
         : isThreadKeyWait ? threadKeyWaitRow.implicitHeight + AppTheme.spacingS * 2
         : isStateActivity ? (stateActivity.visible ? stateActivity.implicitHeight : 0)
@@ -1079,48 +1079,81 @@ Item {
         function onPolicyChanged() { root.refreshPreview() }
     }
 
-    Item {
-        id: virtualRow
-        visible: root.isVirtualRow
+    Loader {
+        id: virtualRowLoader
+        active: root.isVirtualRow
+        visible: active
         width: parent.width
-        implicitHeight: unreadDivider.visible ? 30
-                        : virtualLabel.active
-                        ? Math.max(30, virtualLabel.implicitHeight
-                                       + AppTheme.spacingS * 2)
-                        : 0
-        readonly property string dividerText:
-            model.eventType === 7 ? root.dayLabel(model.timestamp)
-            : model.eventType === 9 ? qsTr("Beginning of conversation")
-            : ""
-        // A Loader, never an always-created Label. Every QQuickText is born
-        // with ItemObservesViewport, and only setText() clears it, which
-        // returns early when the text is unchanged. One Label per row created
-        // with "" makes Qt walk the whole timeline tree on every contentY
-        // change. Rule: in a per-row delegate, a Label whose text can be "" at
-        // creation belongs in a Loader. This includes labels reading message
-        // fields, which are empty on virtual rows.
-        Loader {
-            id: virtualLabel
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: root.avatarGutterWidth
-            anchors.rightMargin: AppTheme.spacingS
-            active: root.isVirtualRow && model.eventType !== 8
-                    && !root.dividerSuppressed
-                    && virtualRow.dividerText.length > 0
-            sourceComponent: RowLayout {
-                objectName: "timelineDayDivider"
+        sourceComponent: Item {
+            id: virtualRow
+            implicitHeight: unreadDivider.visible ? 30
+                            : virtualLabel.active
+                            ? Math.max(30, virtualLabel.implicitHeight
+                                           + AppTheme.spacingS * 2)
+                            : 0
+            readonly property string dividerText:
+                model.eventType === 7 ? root.dayLabel(model.timestamp)
+                : model.eventType === 9 ? qsTr("Beginning of conversation")
+                : ""
+            // A Loader, never an always-created Label. Every QQuickText is born
+            // with ItemObservesViewport, and only setText() clears it, which
+            // returns early when the text is unchanged. One Label per row created
+            // with "" makes Qt walk the whole timeline tree on every contentY
+            // change. Rule: in a per-row delegate, a Label whose text can be "" at
+            // creation belongs in a Loader. This includes labels reading message
+            // fields, which are empty on virtual rows.
+            Loader {
+                id: virtualLabel
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: root.avatarGutterWidth
+                anchors.rightMargin: AppTheme.spacingS
+                active: root.isVirtualRow && model.eventType !== 8
+                        && !root.dividerSuppressed
+                        && virtualRow.dividerText.length > 0
+                sourceComponent: RowLayout {
+                    objectName: "timelineDayDivider"
+                    spacing: AppTheme.spacingM
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 1
+                        color: AppTheme.border
+                    }
+                    Label {
+                        objectName: "timelineDayDividerLabel"
+                        text: virtualRow.dividerText
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightStrong
+                        Accessible.name: text
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 1
+                        color: AppTheme.border
+                    }
+                }
+            }
+            RowLayout {
+                id: unreadDivider
+                objectName: "unreadDivider"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: root.avatarGutterWidth
+                anchors.rightMargin: AppTheme.spacingS
                 spacing: AppTheme.spacingM
+                visible: root.isVirtualRow && model.eventType === 8
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 1
-                    color: AppTheme.border
+                    color: AppTheme.unreadBadge
                 }
                 Label {
-                    objectName: "timelineDayDividerLabel"
-                    text: virtualRow.dividerText
-                    color: AppTheme.textMuted
+                    objectName: "unreadDividerLabel"
+                    text: qsTr("New messages")
+                    color: AppTheme.unreadDividerInk
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     font.weight: AppTheme.weightStrong
                     Accessible.name: text
@@ -1128,37 +1161,8 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 1
-                    color: AppTheme.border
+                    color: AppTheme.unreadBadge
                 }
-            }
-        }
-        RowLayout {
-            id: unreadDivider
-            objectName: "unreadDivider"
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: root.avatarGutterWidth
-            anchors.rightMargin: AppTheme.spacingS
-            spacing: AppTheme.spacingM
-            visible: root.isVirtualRow && model.eventType === 8
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: 1
-                color: AppTheme.unreadBadge
-            }
-            Label {
-                objectName: "unreadDividerLabel"
-                text: qsTr("New messages")
-                color: AppTheme.unreadDividerInk
-                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                font.weight: AppTheme.weightStrong
-                Accessible.name: text
-            }
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: 1
-                color: AppTheme.unreadBadge
             }
         }
     }
