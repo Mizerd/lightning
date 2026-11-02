@@ -408,6 +408,22 @@ private:
     }
 
 private Q_SLOTS:
+    // A refused (non-mxc) avatar URL is never fetched and never marked failed,
+    // so it used to stay a "loading" skeleton: a blank square, not the letter.
+    void aNonMxcAvatarUrlShowsTheLetterNotASkeleton()
+    {
+        for (const QString &url : { QStringLiteral("https://example.invalid/a.png"),
+                                    QStringLiteral("http://127.0.0.1:1/a.png"),
+                                    QStringLiteral("file:///etc/hostname") }) {
+            Harness h;
+            QVERIFY(prepareCore(h, true));
+            QVERIFY(loadAvatar(h, 40, url, QStringLiteral("Room"),
+                               QStringLiteral("!r:x")));
+            QCOMPARE(state(h), QStringLiteral("missing"));
+            QVERIFY2(h.client->fetches.isEmpty(), qPrintable(url));
+        }
+    }
+
     // Autoplay "Always": the still thumbnail shows first, then the original is
     // probed and plays, masked to the circle; the pixels actually change
     // across frames. Leaving the screen tears the animation down and returns

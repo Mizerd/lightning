@@ -136,8 +136,12 @@ Rectangle {
         if (!bridge && typeof app !== "undefined" && app && app.mediaBridge)
             bridge = app.mediaBridge
     }
+    // Only an mxc:// URI is ever fetched (MediaBridge::avatarSource refuses
+    // anything else without a failure mark), so an https:// or file URL left
+    // this "loading" for ever: a blank skeleton square where the letter
+    // belongs.
     readonly property bool hasImage:
-        mxc.length > 0 && bridge !== null && bridge !== undefined
+        mxc.indexOf("mxc://") === 0 && bridge !== null && bridge !== undefined
         && bridge.supported
     property string src: ""
 
