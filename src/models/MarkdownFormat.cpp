@@ -42,11 +42,60 @@ bool wrappedBy(const QString &text, const Selection &sel, const QString &marker)
         && text.mid(sel.end, len) == marker;
 }
 
+// Start index of the line containing pos.
+int lineStart(const QString &text, int pos)
+{
+    const int idx = text.lastIndexOf(QLatin1Char('\n'),
+                                     std::max(0, pos - 1));
+    return (pos <= 0 || idx < 0) ? 0 : idx + 1;
+}
+
+// The span of `marker` a bare caret stands in, or right after, on its line.
+// Italic is left out: `_` also sits inside words, so pairing it finds spans
+// that are not there.
+bool caretSpan(const QString &format, const QString &text, const Selection &sel,
+               int *open, int *close)
+{
+    if (sel.start != sel.end || format == QLatin1String("italic"))
+        return false;
+    const QString marker = inlineMarker(format);
+    int lineEnd = text.indexOf(QLatin1Char('\n'), sel.start);
+    if (lineEnd < 0)
+        lineEnd = text.size();
+    int from = lineStart(text, sel.start);
+    while (true) {
+        const int first = text.indexOf(marker, from);
+        if (first < 0 || first >= lineEnd)
+            return false;
+        const int second = text.indexOf(marker, first + marker.size());
+        if (second < 0 || second >= lineEnd)
+            return false;
+        if (sel.start > first && sel.start <= second + marker.size()) {
+            *open = first;
+            *close = second;
+            return true;
+        }
+        from = second + marker.size();
+    }
+}
+
 Result toggleInline(const QString &format, QString text, Selection sel)
 {
     const QString marker = inlineMarker(format);
     const int len = marker.size();
     Result out;
+    int open = 0;
+    int close = 0;
+    if (caretSpan(format, text, sel, &open, &close)) {
+        const int caret = sel.start - std::min(sel.start - open, len)
+            - std::max(0, std::min(sel.start - close, len));
+        text.remove(close, len);
+        text.remove(open, len);
+        out.text = text;
+        out.selectionStart = caret;
+        out.selectionEnd = caret;
+        return out;
+    }
     if (wrappedBy(text, sel, marker)) {
         text.remove(sel.end, len);
         text.remove(sel.start - len, len);
@@ -71,14 +120,6 @@ Result toggleInline(const QString &format, QString text, Selection sel)
     out.selectionStart = sel.start + len;
     out.selectionEnd = sel.end + len;
     return out;
-}
-
-// Start index of the line containing pos.
-int lineStart(const QString &text, int pos)
-{
-    const int idx = text.lastIndexOf(QLatin1Char('\n'),
-                                     std::max(0, pos - 1));
-    return (pos <= 0 || idx < 0) ? 0 : idx + 1;
 }
 
 // Start indices of every line the selection touches.
@@ -202,7 +243,12 @@ QVariantMap state(const QString &text, int selectionStart, int selectionEnd)
     QVariantMap flags;
     for (const auto &format : { QStringLiteral("bold"), QStringLiteral("italic"),
                                 QStringLiteral("strike"), QStringLiteral("code") })
-        flags.insert(format, wrappedBy(text, sel, inlineMarker(format)));
+    {
+        int open = 0;
+        int close = 0;
+        flags.insert(format, wrappedBy(text, sel, inlineMarker(format))
+                                 || caretSpan(format, text, sel, &open, &close));
+    }
     for (const auto &format : { QStringLiteral("list"), QStringLiteral("quote") })
         flags.insert(format,
                      allLinesPrefixed(text, coveredLineStarts(text, sel),

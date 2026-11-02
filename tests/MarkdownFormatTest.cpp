@@ -145,6 +145,38 @@ private slots:
         QVERIFY(link.value(QStringLiteral("link")).toBool());
     }
 
+    // Final retest N-1: with a bare caret in or right after a span, the toolbar
+    // showed the format on and the button inserted a second pair.
+    void aBareCaretInASpanTogglesItOff_data()
+    {
+        QTest::addColumn<QString>("format");
+        QTest::addColumn<int>("caret");
+        QTest::addColumn<int>("after");
+        QTest::newRow("inside") << QStringLiteral("code") << 6 << 5;
+        QTest::newRow("just inside end") << QStringLiteral("code") << 16 << 15;
+        QTest::newRow("after the span") << QStringLiteral("code") << 17 << 15;
+    }
+    void aBareCaretInASpanTogglesItOff()
+    {
+        QFETCH(QString, format);
+        QFETCH(int, caret);
+        QFETCH(int, after);
+        const QString text = QStringLiteral("`run <foo> ok xx`");
+        QVERIFY(MarkdownFormat::state(text, caret, caret).value(format).toBool());
+        const auto result = MarkdownFormat::toggle(format, text, caret, caret);
+        QCOMPARE(result.text, QStringLiteral("run <foo> ok xx"));
+        QCOMPARE(result.selectionStart, after);
+        QCOMPARE(result.selectionEnd, after);
+    }
+
+    void aBareCaretOutsideASpanStillInsertsAPair()
+    {
+        const QString text = QStringLiteral("`a` b");
+        const auto result = MarkdownFormat::toggle(QStringLiteral("code"), text, 5, 5);
+        QCOMPARE(result.text, QStringLiteral("`a` b``"));
+        QVERIFY(!MarkdownFormat::state(text, 5, 5).value(QStringLiteral("code")).toBool());
+    }
+
     void unknownFormatAndOutOfRangeSelectionAreSafe()
     {
         const auto r = toggle(QStringLiteral("sparkle"),
