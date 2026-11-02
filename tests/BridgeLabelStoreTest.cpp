@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QtTest>
 
 // BridgeLabelStore persists MSC2346 bridge labels across launches, so badges
@@ -28,6 +29,7 @@ private Q_SLOTS:
     void theCapEvictsAFutureStampedRowBeforeAFreshOne();
     void theCapDropsTheOldestRowsFirst();
     void aDeferredAnswerTouchesTheDiskOnlyWhenFlushed();
+    void anAsyncFlushWritesOffThreadAndADeleteCancelsAQueuedOne();
     void closingDropsDeferredAnswersSoASignOutCannotResurrectTheFile();
 
 private:
@@ -307,6 +309,30 @@ void BridgeLabelStoreTest::closingDropsDeferredAnswersSoASignOutCannotResurrectT
     QVERIFY2(!QFile::exists(path()),
              "a closed store wrote pending answers, which would put a signed-out "
              "account's room list back on disk");
+}
+
+void BridgeLabelStoreTest::anAsyncFlushWritesOffThreadAndADeleteCancelsAQueuedOne()
+{
+    BridgeLabelStore store;
+    QVERIFY(store.openFor(path()));
+    store.rememberDeferred(QStringLiteral("!a:example.org"), QString(), QString());
+    store.flushAsync();
+    QVERIFY(!store.isDirty());
+    QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(path()), 5000);
+    BridgeLabelStore reopened;
+    QVERIFY(reopened.openFor(path()));
+    QVERIFY(reopened.knows(QStringLiteral("!a:example.org")));
+
+    // Queue many writes, delete at once: whatever has not run must not
+    // resurrect the file afterwards.
+    for (int i = 0; i < 200; ++i) {
+        store.rememberDeferred(QStringLiteral("!r%1:example.org").arg(i), QString(), QString());
+        store.flushAsync();
+    }
+    QVERIFY(BridgeLabelStore::removeStore(path()));
+    QThreadPool::globalInstance()->waitForDone(10000);
+    QVERIFY2(!QFile::exists(path()),
+             "a write queued before the delete brought the file back");
 }
 
 QTEST_MAIN(BridgeLabelStoreTest)

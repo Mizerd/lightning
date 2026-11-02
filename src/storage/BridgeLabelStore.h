@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QHash>
 #include <QString>
 #include <QStringList>
@@ -79,6 +80,9 @@ public:
     // Writes the deferred answers, if any. close() drops them instead: a
     // closing store may be the one a sign-out is about to delete.
     bool flush();
+    // Same, but the write (an fsync) happens on a pool thread. Used by the
+    // GUI-thread timer; a delete of the store waits for and cancels it.
+    void flushAsync();
 
     QHash<QString, Entry> positiveLabels() const;
 
@@ -95,6 +99,7 @@ public:
 private:
     void load();
     bool save() const;
+    QByteArray serialize() const;
     void pruneToCap();
 
     QString m_filePath;

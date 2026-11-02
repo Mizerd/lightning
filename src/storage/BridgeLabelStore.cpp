@@ -7,7 +7,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QSaveFile>
+#include <QThreadPool>
 
 #include <algorithm>
 #include <limits>
@@ -23,6 +26,40 @@ constexpr auto kKeyLearnedAt = "t";
 qint64 nowSecs()
 {
     return QDateTime::currentSecsSinceEpoch();
+}
+
+QMutex &fileMutex()
+{
+    static QMutex m;
+    return m;
+}
+// Bumped by removeStore(): a write queued before a delete must not bring the
+// file back. Guarded by fileMutex().
+quint64 g_epoch = 0;
+// Newest serialization written, so a slow older one never overwrites it.
+quint64 g_written = 0;
+quint64 g_seq = 0;
+
+bool writeFile(const QString &path, const QByteArray &bytes, quint64 seq,
+               const quint64 *epoch)
+{
+    QMutexLocker lock(&fileMutex());
+    if (epoch && *epoch != g_epoch)
+        return false;
+    if (seq < g_written)
+        return true;
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    // Atomic, so a crash cannot leave a truncated file that load() discards
+    // whole.
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly))
+        return false;
+    out.write(bytes);
+    if (!out.commit())
+        return false;
+    QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner);
+    g_written = seq;
+    return true;
 }
 
 } // namespace
@@ -96,13 +133,8 @@ void BridgeLabelStore::load()
     pruneToCap();
 }
 
-bool BridgeLabelStore::save() const
+QByteArray BridgeLabelStore::serialize() const
 {
-    if (m_filePath.isEmpty())
-        return false;
-    const QFileInfo info(m_filePath);
-    QDir().mkpath(info.absolutePath());
-
     QJsonObject root;
     for (auto it = m_entries.constBegin(); it != m_entries.constEnd(); ++it) {
         QJsonObject row;
@@ -114,18 +146,36 @@ bool BridgeLabelStore::save() const
                    static_cast<double>(it.value().learnedAt));
         root.insert(it.key(), row);
     }
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
 
-    // Atomic, so a crash cannot leave a truncated file that load() discards
-    // whole.
-    QSaveFile out(m_filePath);
-    if (!out.open(QIODevice::WriteOnly))
+bool BridgeLabelStore::save() const
+{
+    if (m_filePath.isEmpty())
         return false;
-    out.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    if (!out.commit())
-        return false;
-    QFile::setPermissions(m_filePath,
-                          QFile::ReadOwner | QFile::WriteOwner);
-    return true;
+    quint64 seq;
+    {
+        QMutexLocker lock(&fileMutex());
+        seq = ++g_seq;
+    }
+    return writeFile(m_filePath, serialize(), seq, nullptr);
+}
+
+void BridgeLabelStore::flushAsync()
+{
+    if (!m_dirty || !isOpen())
+        return;
+    const QString path = m_filePath;
+    const QByteArray bytes = serialize();
+    quint64 seq, epoch;
+    {
+        QMutexLocker lock(&fileMutex());
+        seq = ++g_seq;
+        epoch = g_epoch;
+    }
+    m_dirty = false;
+    QThreadPool::globalInstance()->start(
+        [path, bytes, seq, epoch] { writeFile(path, bytes, seq, &epoch); });
 }
 
 void BridgeLabelStore::pruneToCap()
@@ -230,6 +280,9 @@ bool BridgeLabelStore::removeStore(const QString &filePath)
 {
     if (filePath.isEmpty())
         return false;
+    // Waits for a write in flight and cancels the ones still queued.
+    QMutexLocker lock(&fileMutex());
+    ++g_epoch;
     if (!QFile::exists(filePath))
         return true;
     return QFile::remove(filePath);

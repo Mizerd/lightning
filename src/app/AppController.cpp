@@ -1398,7 +1398,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_bridgeSaveTimer.setSingleShot(true);
     m_bridgeSaveTimer.setInterval(3000);
     connect(&m_bridgeSaveTimer, &QTimer::timeout, this,
-            [this] { m_bridgeLabels.flush(); });
+            [this] { m_bridgeLabels.flushAsync(); });
     m_inviteNoticeTimer.setSingleShot(true);
     connect(&m_inviteNoticeTimer, &QTimer::timeout, this,
             &AppController::processInviteNotices);
