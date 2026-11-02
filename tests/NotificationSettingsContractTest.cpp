@@ -80,6 +80,22 @@ private Q_SLOTS:
         QVERIFY(src.contains(QStringLiteral("troubleshoot troubleshooter")));
     }
 
+    void theRecoveryKeyOutlineEntryLandsOnACardTitledRecoveryKey()
+    {
+        const QString src = qml(QStringLiteral("SettingsScreen.qml"));
+        QVERIFY(!src.isEmpty());
+        QVERIFY(src.contains(QStringLiteral(
+            "{ label: qsTr(\"Recovery key\"),\n"
+            "              anchors: [\"recoveryKeyCard\", \"recoveryEntry\"] }")));
+        const QString card = QStringLiteral("objectName: \"recoveryKeyCard\"");
+        QCOMPARE(src.count(card), 1);
+        const int at = src.indexOf(card);
+        const int title = src.indexOf(
+            QStringLiteral("MenuSectionLabel { text: qsTr(\"Recovery key\") }"), at);
+        const int entry = src.indexOf(QStringLiteral("id: recoveryEntry"), at);
+        QVERIFY(title > at && title < entry);
+    }
+
     void menuBarCheckboxIsHonestWhereTheIconCarriesNotifications()
     {
         const QString src = qml(QStringLiteral("SettingsScreen.qml"));
