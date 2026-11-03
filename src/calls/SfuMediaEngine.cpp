@@ -64,6 +64,8 @@
 
 namespace {
 std::atomic<bool> g_shareHardwareEncoderFailed{false};
+std::atomic<bool> g_shareDmaBufCaptureFailed{false};
+constexpr const char kCaptureEpochKey[] = "lightning-capture-epoch";
 const QLatin1String kShareBackupSuffix("-vp8");
 
 Q_LOGGING_CATEGORY(lcSfuMedia, "lightning.calls.sfu")
@@ -1241,12 +1243,18 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
     const bool captureBusyError = captureResourceError
         && (error->code == GST_RESOURCE_ERROR_BUSY
             || reason.contains(QLatin1String("busy"), Qt::CaseInsensitive));
+    const bool captureFormatError =
+        type == GST_MESSAGE_ERROR && error
+        && element.startsWith(QLatin1String("capsrc"))
+        && SfuMediaEngine::isCaptureFormatError(error->domain, error->code,
+                                                reason);
     if (error)
         g_error_free(error);
     if (debug)
         g_free(debug);
     if (type == GST_MESSAGE_ERROR && engine) {
         QString publishCid;
+        int captureEpoch = 0;
         GstObject *walk = GST_MESSAGE_SRC(message);
         if (walk)
             gst_object_ref(walk);
@@ -1260,6 +1268,8 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 gchar *name = gst_object_get_name(walk);
                 publishCid = QString::fromUtf8(name ? name : "");
                 g_free(name);
+                captureEpoch = GPOINTER_TO_INT(
+                    g_object_get_data(G_OBJECT(walk), kCaptureEpochKey));
                 if (GST_IS_ELEMENT(walk))
                     engine->isolateFailedReceiveBin(GST_ELEMENT(walk));
                 gst_object_unref(parent);
@@ -1300,12 +1310,15 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 });
             } else {
                 marshal(engine, [engine, publishCid, captureSource, front,
-                                 captureResourceError, captureBusyError] {
+                                 captureResourceError, captureBusyError,
+                                 captureFormatError, captureEpoch] {
                     if (captureSource)
                         engine->handleCaptureError(publishCid, front);
                     engine->handlePublishError(publishCid,
                                                captureResourceError,
-                                               captureBusyError);
+                                               captureBusyError,
+                                               captureFormatError,
+                                               captureEpoch);
                 });
             }
         }
@@ -3967,17 +3980,52 @@ QString SfuMediaEngine::captureEntryFilter(bool gpu)
     // intersects to nothing there, so the DMA-BUF branch never matched and a
     // DMA-BUF-only compositor (niri offers BGRx/XR24 only) failed with "no
     // more input formats" (issue #56). Both spellings and both alpha
-    // variants are listed; a list entry no peer offers costs nothing.
+    // variants are listed. A compositor can still fixate a DMA-BUF format
+    // pipewiresrc cannot express ("unhandled format", issue #63); that share
+    // is retried in system memory, see retryShareCaptureInSystemMemory().
     return gpu
-        ? QStringLiteral("capsfilter caps=\"video/x-raw(memory:DMABuf),"
+        ? QStringLiteral("capsfilter name=capentry "
+                         "caps=\"video/x-raw(memory:DMABuf),"
                          "drm-format=(string){ AR24, XR24,"
                          " AR24:0x0000000000000000,"
                          " XR24:0x0000000000000000 },"
                          "pixel-aspect-ratio=(fraction)1/1;"
                          "video/x-raw,"
                          "pixel-aspect-ratio=(fraction)1/1\"")
-        : QStringLiteral("capsfilter caps=\"video/x-raw,"
-                         "pixel-aspect-ratio=(fraction)1/1\"");
+        : QStringLiteral("capsfilter caps=\"%1\"")
+              .arg(systemMemoryEntryCaps());
+}
+
+QString SfuMediaEngine::systemMemoryEntryCaps()
+{
+    return QStringLiteral("video/x-raw,pixel-aspect-ratio=(fraction)1/1");
+}
+
+bool SfuMediaEngine::isCaptureFormatError(quint32 domain, int code,
+                                          const QString &message)
+{
+    if (domain == GST_CORE_ERROR)
+        return code == GST_CORE_ERROR_NEGOTIATION;
+    if (domain == GST_STREAM_ERROR) {
+        return code == GST_STREAM_ERROR_FORMAT
+               || code == GST_STREAM_ERROR_FAILED
+               || code == GST_STREAM_ERROR_WRONG_TYPE
+               || code == GST_STREAM_ERROR_NOT_IMPLEMENTED;
+    }
+    // pipewiresrc reports a format it cannot express as RESOURCE/FAILED
+    // "stream error: unhandled format".
+    return message.contains(QLatin1String("format"), Qt::CaseInsensitive)
+           || message.contains(QLatin1String("negotiat"), Qt::CaseInsensitive);
+}
+
+bool SfuMediaEngine::shareDmaBufCaptureFailedForTest()
+{
+    return g_shareDmaBufCaptureFailed.load();
+}
+
+void SfuMediaEngine::clearShareDmaBufCaptureFailedForTest()
+{
+    g_shareDmaBufCaptureFailed.store(false);
 }
 
 GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
@@ -5193,10 +5241,11 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
 
     const bool tryJpeg =
         !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
+    const bool dmaBufEntry = useGpu && !g_shareDmaBufCaptureFailed.load();
     QString entryInUse = tryJpeg      ? cameraJpegEntry()
                          : portalCamera ? portalCameraEntry()
                          : !screenShare ? directCameraRawEntry()
-                                        : captureEntryFilter(useGpu);
+                                        : captureEntryFilter(dmaBufEntry);
     QString description = videoPipelineDescription(
         source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
             limits, encoder, selfView,
@@ -5215,7 +5264,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             gst_object_unref(bin);
             bin = nullptr;
         }
-        entryInUse = screenShare ? captureEntryFilter(useGpu)
+        entryInUse = screenShare ? captureEntryFilter(dmaBufEntry)
                                  : directCameraRawEntry();
         description = videoPipelineDescription(
             source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
@@ -5389,6 +5438,39 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                         return GST_PAD_PROBE_OK;
                     },
                     nullptr, nullptr);
+            }
+            if (GstElement *entry = screenShare
+                    ? gst_bin_get_by_name(GST_BIN(bin), "capentry")
+                    : nullptr) {
+                gst_object_unref(entry);
+                // basesrc posts its error before pushing EOS, so the retry is
+                // queued ahead of this; an EOS from a superseded attempt must
+                // neither reach webrtcbin nor end the share.
+                struct EosGuard {
+                    std::shared_ptr<PublishProbeState> state;
+                    GstElement *bin;
+                    SfuMediaEngine *engine;
+                    QString cid;
+                };
+                gst_pad_add_probe(
+                    srcPad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+                    [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+                        GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+                        const auto *guard = static_cast<EosGuard *>(data);
+                        if (!event || GST_EVENT_TYPE(event) != GST_EVENT_EOS
+                            || guard->state->captured.load() > 0)
+                            return GST_PAD_PROBE_OK;
+                        const int epoch = GPOINTER_TO_INT(g_object_get_data(
+                            G_OBJECT(guard->bin), kCaptureEpochKey));
+                        SfuMediaEngine *engine = guard->engine;
+                        const QString cid = guard->cid;
+                        marshal(engine, [engine, cid, epoch] {
+                            engine->handleCaptureEnded(cid, epoch);
+                        });
+                        return GST_PAD_PROBE_DROP;
+                    },
+                    new EosGuard{probeState, bin, this, cid},
+                    [](gpointer data) { delete static_cast<EosGuard *>(data); });
             }
             auto *held = new std::shared_ptr<PublishProbeState>(probeState);
             gst_pad_add_probe(
@@ -7756,12 +7838,13 @@ void SfuMediaEngine::handleTransportState(quintptr token, quint64 generation,
     Q_EMIT transportStateChanged(static_cast<int>(target), state);
 }
 
-void SfuMediaEngine::handleCaptureEnded(const QString &cid)
+void SfuMediaEngine::handleCaptureEnded(const QString &cid, int captureEpoch)
 {
     if (!m_active || !m_publishedBins.contains(cid))
         return;
     auto watch = m_publishWatch.find(cid);
-    if (watch == m_publishWatch.end() || !watch->state || watch->reported)
+    if (watch == m_publishWatch.end() || !watch->state || watch->reported
+        || (captureEpoch >= 0 && captureEpoch < watch->captureEpoch))
         return;
     const bool screenShare = watch->state->screenShare;
     watch->reported = true;
@@ -8173,7 +8256,9 @@ void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
 }
 
 void SfuMediaEngine::handlePublishError(const QString &cid,
-                                        bool resourceError, bool busyError)
+                                        bool resourceError, bool busyError,
+                                        bool captureFormatError,
+                                        int captureEpoch)
 {
     if (!m_active)
         return;
@@ -8186,9 +8271,14 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
     const auto watch = m_publishWatch.constFind(cid);
     if (watch == m_publishWatch.cend() || !watch->state || watch->reported)
         return;
+    if (captureEpoch >= 0 && captureEpoch < watch->captureEpoch)
+        return;
     if (watch->state->captured.load() > 0)
         return;
     const bool screenShare = watch->state->screenShare;
+    if (screenShare && captureFormatError
+        && retryShareCaptureInSystemMemory(cid))
+        return;
     m_publishWatch[cid].reported = true;
     qCWarning(lcSfuMedia)
         << "publish produced no capture buffers and errored; reporting it"
@@ -8197,6 +8287,44 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
         resourceError && !busyError && !screenShare
             ? QStringLiteral("camera_resource")
             : cameraPublishErrorCategory(screenShare, busyError));
+}
+
+namespace {
+void restartShareCaptureAsync(GstElement *bin, gpointer)
+{
+    GstElement *source = gst_bin_get_by_name(GST_BIN(bin), "capsrc");
+    if (!source)
+        return;
+    gst_element_set_state(source, GST_STATE_NULL);
+    gst_element_sync_state_with_parent(source);
+    gst_object_unref(source);
+}
+}
+
+bool SfuMediaEngine::retryShareCaptureInSystemMemory(const QString &cid)
+{
+    auto watch = m_publishWatch.find(cid);
+    GstElement *bin = m_publishedBins.value(cid, nullptr);
+    if (watch == m_publishWatch.end() || !bin || !GST_IS_BIN(bin)
+        || watch->captureEpoch > 0)
+        return false;
+    GstElement *entry = gst_bin_get_by_name(GST_BIN(bin), "capentry");
+    if (!entry)
+        return false;
+    GstCaps *caps = gst_caps_from_string(
+        systemMemoryEntryCaps().toUtf8().constData());
+    g_object_set(entry, "caps", caps, nullptr);
+    gst_caps_unref(caps);
+    gst_object_unref(entry);
+    g_shareDmaBufCaptureFailed.store(true);
+    watch->captureEpoch += 1;
+    g_object_set_data(G_OBJECT(bin), kCaptureEpochKey,
+                      GINT_TO_POINTER(watch->captureEpoch));
+    qCWarning(lcSfuMedia)
+        << "screen share capture could not negotiate a DMA-BUF format; "
+           "retrying it in system memory, as will every later share";
+    gst_element_call_async(bin, restartShareCaptureAsync, nullptr, nullptr);
+    return true;
 }
 
 void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,

@@ -3482,6 +3482,115 @@ true,-1, fds[0]);
         }
     }
 
+    void aCaptureFormatFailureIsToldApartFromAMissingSource()
+    {
+        QVERIFY(SfuMediaEngine::isCaptureFormatError(
+            GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_FAILED,
+            QStringLiteral("stream error: unhandled format")));
+        QVERIFY(SfuMediaEngine::isCaptureFormatError(
+            GST_STREAM_ERROR, GST_STREAM_ERROR_FAILED,
+            QStringLiteral("Internal data stream error.")));
+        QVERIFY(SfuMediaEngine::isCaptureFormatError(
+            GST_STREAM_ERROR, GST_STREAM_ERROR_FORMAT,
+            QStringLiteral("stream error: Format negotiation failed")));
+        QVERIFY(SfuMediaEngine::isCaptureFormatError(
+            GST_CORE_ERROR, GST_CORE_ERROR_NEGOTIATION, QString()));
+        QVERIFY(!SfuMediaEngine::isCaptureFormatError(
+            GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_NOT_FOUND,
+            QStringLiteral("target not found")));
+        QVERIFY(!SfuMediaEngine::isCaptureFormatError(
+            GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_BUSY,
+            QStringLiteral("Device is busy")));
+        QVERIFY(!SfuMediaEngine::isCaptureFormatError(
+            GST_CORE_ERROR, GST_CORE_ERROR_STATE_CHANGE, QString()));
+    }
+
+    void theSystemMemoryEntryTakesWhatTheGpuEntryCouldNot()
+    {
+        const QString gpu = SfuMediaEngine::captureEntryFilter(true);
+        const QString cpu = SfuMediaEngine::captureEntryFilter(false);
+        QVERIFY2(gpu.contains(QStringLiteral("name=capentry")), qPrintable(gpu));
+        QVERIFY2(!cpu.contains(QStringLiteral("name=")),
+                 "the CPU entry is named, so two in one bin cannot parse");
+        QCOMPARE(cpu, QStringLiteral("capsfilter caps=\"%1\"")
+                          .arg(SfuMediaEngine::systemMemoryEntryCaps()));
+
+        GstCaps *fallback = gst_caps_from_string(
+            SfuMediaEngine::systemMemoryEntryCaps().toUtf8().constData());
+        QVERIFY(fallback);
+        for (const char *offer :
+             { "video/x-raw,format=BGRx,pixel-aspect-ratio=1/1",
+               "video/x-raw,format=BGRA,pixel-aspect-ratio=1/1",
+               "video/x-raw,format=RGBx,pixel-aspect-ratio=1/1",
+               "video/x-raw,format=NV12,pixel-aspect-ratio=1/1" }) {
+            GstCaps *caps = gst_caps_from_string(offer);
+            QVERIFY2(gst_caps_can_intersect(fallback, caps), offer);
+            gst_caps_unref(caps);
+        }
+        GstCaps *dmabuf = gst_caps_from_string(
+            "video/x-raw(memory:DMABuf),format=DMA_DRM,"
+            "drm-format=XR24:0x0300000000606010");
+        QVERIFY2(!gst_caps_can_intersect(fallback, dmabuf),
+                 "the system-memory fallback admits a DMA-BUF");
+        gst_caps_unref(dmabuf);
+        gst_caps_unref(fallback);
+    }
+
+    void aGpuShareThatCannotNegotiateRetriesInSystemMemoryOnce()
+    {
+        if (!SfuMediaEngine::missingGpuShareElement().isEmpty()
+            || !SfuMediaEngine::gpuShareChainUsable())
+            QSKIP("no usable GL chain, so the share never takes the GPU entry");
+        SfuMediaEngine::clearShareDmaBufCaptureFailedForTest();
+        const auto restore = qScopeGuard(
+            [] { SfuMediaEngine::clearShareDmaBufCaptureFailedForTest(); });
+        const QString cid = QStringLiteral("cid-share");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(QStringLiteral(
+            "appsrc is-live=true format=time "
+            "caps=video/x-raw,format=BGRx,width=64,height=64,"
+            "framerate=30/1"));
+        QSignalSpy failed(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        engine.publishVideo(cid, true, 0);
+        QVERIFY(engine.hasPublishedBinForTest(cid));
+        QVERIFY2(engine.shareEncoderInUse().contains(QLatin1String("gpu")),
+                 qPrintable(engine.shareEncoderInUse()));
+        QVERIFY(engine.publishedBinPropertyForTest(
+                          cid, QStringLiteral("capentry"),
+                          QStringLiteral("caps"))
+                    .contains(QLatin1String("DMABuf")));
+
+        engine.handlePublishError(cid, false, false, true, 0);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(engine.shareCaptureEpochForTest(cid), 1);
+        QVERIFY(SfuMediaEngine::shareDmaBufCaptureFailedForTest());
+        const QString retried = engine.publishedBinPropertyForTest(
+            cid, QStringLiteral("capentry"), QStringLiteral("caps"));
+        QVERIFY2(!retried.isEmpty() && !retried.contains(QLatin1String("DMABuf")),
+                 qPrintable(retried));
+
+        engine.handlePublishError(cid, false, false, true, 0);
+        engine.handleCaptureEnded(cid, 0);
+        QTest::qWait(200);
+        QCOMPARE(failed.count(), 0);
+
+        engine.handlePublishError(cid, false, false, true, 1);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(), cid);
+
+        engine.stop();
+        engine.start();
+        engine.publishVideo(QStringLiteral("cid-next"), true, 0);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-next")));
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     QStringLiteral("cid-next"), QStringLiteral("capentry"),
+                     QStringLiteral("caps")),
+                 QString());
+        engine.stop();
+    }
+
     void theVideoCapsPinAFixedFramerate()
     {
         for (const bool screenShare : { true, false }) {

@@ -115,6 +115,17 @@ public:
     static QString h264DecoderElement();
     QString shareEncoderInUse() const { return m_shareEncoderInUse; }
     static QString captureEntryFilter(bool gpu);
+    /// Caps the GPU entry falls back to when its DMA-BUF branch cannot
+    /// negotiate with the compositor: system memory, any format.
+    static QString systemMemoryEntryCaps();
+    /// A capture error that a different memory or format choice can cure:
+    /// a negotiation or format failure, not a missing or revoked source.
+    static bool isCaptureFormatError(quint32 domain, int code,
+                                     const QString &message);
+    /// The share's GPU entry is retried on system memory once per share and
+    /// every later share starts there.
+    static bool shareDmaBufCaptureFailedForTest();
+    static void clearShareDmaBufCaptureFailedForTest();
     /// A screen capture's DMA-BUF buffer whose single memory is SHORTER than
     /// the frame its video meta describes, re-wrapped at the file
     /// descriptor's real size; nullptr when the buffer needs nothing (not a
@@ -329,7 +340,8 @@ public:
                                               const DeviceChoice &camera);
     void unpublish(const QString &cid);
 
-    void handleCaptureEnded(const QString &cid);
+    /// `captureEpoch` -1 is the current attempt.
+    void handleCaptureEnded(const QString &cid, int captureEpoch = -1);
 
     static constexpr int kCameraFirstFrameTimeoutMs = 8000;
     static constexpr int kPortalCameraFirstFrameTimeoutMs = 15000;
@@ -747,7 +759,14 @@ public Q_SLOTS:
     void handleTransportState(quintptr token, quint64 generation,
                               const QString &state);
     void handlePublishError(const QString &cid, bool resourceError = false,
-                            bool busyError = false);
+                            bool busyError = false,
+                            bool captureFormatError = false,
+                            int captureEpoch = -1);
+    bool retryShareCaptureInSystemMemory(const QString &cid);
+    int shareCaptureEpochForTest(const QString &cid) const
+    {
+        return m_publishWatch.value(cid).captureEpoch;
+    }
     void checkCameraFirstFrame(const QString &cid, quint64 generation);
 
     void handleMicLevel(double peakDb);
@@ -884,6 +903,8 @@ private:
     struct PublishWatch {
         std::shared_ptr<PublishProbeState> state;
         bool reported = false;
+        /// Bumped when the capture restarts; errors posted before it are stale.
+        int captureEpoch = 0;
     };
     QHash<QString, PublishWatch> m_publishWatch;
     std::unique_ptr<CallFrameCryptor> m_sendCryptor;
