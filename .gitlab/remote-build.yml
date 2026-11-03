@@ -64,10 +64,31 @@ test-nixos:
       CONF
     - nix develop -c dbus-uuidgen --ensure=/etc/machine-id
     - nix develop -c dbus-run-session -- ctest --test-dir build-test -j8 --timeout 1500 --repeat until-pass:2 --output-junit $PWD/out/ctest.xml --output-on-failure 2>&1 | tee out/ctest.log | tail -40 || true
+    - grep -q '100% tests passed' out/ctest.log
+  artifacts:
+    when: always
+    paths: [out/]
+    expire_in: 1 week
+
+test-rust:
+  image: nixos/nix:latest
+  tags: [saas-linux-2xlarge-amd64]
+  timeout: 1h
+  rules:
+    - if: $RUN_TESTS == "1"
+  variables:
+    NIX_CONFIG: "experimental-features = nix-command flakes"
+  cache:
+    key: remote-build
+    paths: [.ci-cargo/]
+    policy: pull
+  script:
+    - export CARGO_HOME=$PWD/.ci-cargo
+    - mkdir -p out
+    - nix develop -c cargo fetch --locked --manifest-path rust/Cargo.toml
     - nix develop -c cargo test --manifest-path rust/Cargo.toml -j32 2>&1 | tee out/cargo.log | grep -E '^test result|FAILED|panicked' | head -20 || true
     - "! grep -q 'test result: FAILED' out/cargo.log"
     - grep -q 'passed;' out/cargo.log
-    - grep -q '100% tests passed' out/ctest.log
   artifacts:
     when: always
     paths: [out/]

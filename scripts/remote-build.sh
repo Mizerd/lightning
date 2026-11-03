@@ -2,7 +2,7 @@
 # Build the pushed main on gitlab.com's 32 vCPU runner and fetch the binary.
 # Needs ~/.config/lightning/gitlab-trigger and gitlab-com-token.
 # Usage: scripts/remote-build.sh [ref] [--test]; the binary lands in
-# build-remote/. --test also runs ctest and cargo test; logs land there too.
+# build-remote/. --test also runs ctest and cargo test as parallel jobs; logs land there too.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ref=${1:-main}
@@ -36,8 +36,9 @@ while read -r job name state; do
         chmod +x build-remote/lightning-matrix
     elif [ "$name" = test-nixos ]; then
         curl -fsSL -K "$auth" "$api/jobs/$job/artifacts/out/ctest.log" -o build-remote/ctest.log || true
-        curl -fsSL -K "$auth" "$api/jobs/$job/artifacts/out/cargo.log" -o build-remote/cargo.log || true
         curl -fsSL -K "$auth" "$api/jobs/$job/trace" -o build-remote/test-job.log || true
+    elif [ "$name" = test-rust ]; then
+        curl -fsSL -K "$auth" "$api/jobs/$job/artifacts/out/cargo.log" -o build-remote/cargo.log || true
     fi
 done <<< "$jobs"
 [ "$status" = success ] || { echo "pipeline $status" >&2; exit 1; }
