@@ -826,6 +826,18 @@ QtObject {
                                    bridgedMediaFixture(controller, key, row.video),
                                    d));
             d.root->setProperty("rowOnScreen", true);
+            // The main timeline declares a retained band, which turns the
+            // pixmap cache off; without it a cached pixmap hides eviction.
+            QQmlComponent viewComponent(d.engine.get());
+            viewComponent.setData(
+                "import QtQml\nQtObject { property int mediaRetainFirstRow: 0 }",
+                QUrl());
+            QObject *view = viewComponent.create();
+            QVERIFY2(view, qPrintable(viewComponent.errorString()));
+            view->setParent(d.root);
+            QVERIFY(d.root->setProperty("timelineView", QVariant::fromValue(view)));
+            QVERIFY2(!d.root->property("mediaPixmapCacheAllowed").toBool(),
+                     row.what);
             const QByteArray png = solidPng(64, QColor(30, 120, 200));
             const auto fetchAndServe = [&](const QString &other) {
                 const int before = bridgeClient.mediaFetchCount(other);
