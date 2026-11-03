@@ -147,6 +147,7 @@ and docs/feature-contracts.md.
 - The SSO `/callback/<nonce>` redirect shape against a real homeserver's
   redirect validation; one live SSO sign-in settles it.
 - A LAN-only or split-horizon SFU now being refused by policy
-  (`focus_unroutable`).
+  (`focus_unroutable`), except one the user's own homeserver advertises
+  (docs/matrixrtc.md).
 - The scratch-directory lock protocol with two Lightning instances running
   side by side.

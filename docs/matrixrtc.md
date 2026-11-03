@@ -130,9 +130,13 @@ exists because another participant picks the focus. When a resolved address
 is non-public, the `/sfu/get` step re-reads the account's own
 `.well-known/matrix/client` foci; if the service URL is one of them, addresses
 of class `private`, `cgnat` or `ula` are accepted (split-horizon, a LAN or
-Tailscale deployment), and so is the LiveKit URL that service hands back.
-Loopback, link-local and every other class stay refused even there, and so do
-local-only names and private IP literals, which never pass discovery. That
+Tailscale deployment), and so is the LiveKit URL returned by a service that
+was itself accepted this way (a publicly resolving service gets no allowance
+for a LAN LiveKit host). Loopback, link-local (including 169.254.169.254) and
+every other class stay refused even there, and so do local-only names and
+private IP literals, which never pass discovery. ULA and CGNAT do include two
+cloud metadata endpoints (fd00:ec2::254, 100.100.100.200), reachable only
+through a name the own server advertises. That
 server already holds the user's access token, so trusting its choice of SFU
 grants it nothing new; a focus seen only in other members' memberships gets no
 exception.
