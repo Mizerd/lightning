@@ -4,6 +4,11 @@
 
 QString joinerror::describe(const QString &category)
 {
+    if (category == QLatin1String("unsupported")) {
+        return QCoreApplication::translate(
+            "RoomDiscoveryController",
+            "Joining a room by address is not supported by this backend.");
+    }
     if (category == QLatin1String("banned")) {
         return QCoreApplication::translate("RoomDiscoveryController",
                                            "You are banned from this room.");

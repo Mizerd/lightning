@@ -540,6 +540,7 @@ void MessageComposer::setThreadTargetRootId(const QString &rootEventId)
     m_replyingToMediaKey.clear();
     m_replyThreadRootId.clear();
     m_threadTargetRootId = rootEventId;
+    m_slashJoinOp = 0;
     m_text.clear();
     m_mentionRefs.clear();
     restoreDraft();
@@ -643,6 +644,7 @@ void MessageComposer::setRoomId(const QString &r)
         m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
     m_emoticonRefs.clear();
     m_roomId = r;
+    m_slashJoinOp = 0;
     m_text.clear();
     m_mentionRefs.clear();
     restoreDraft();
@@ -927,8 +929,9 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
     actions.join = [this](const QString &target) {
         m_slashJoinOp = m_client->joinRoomByIdOrAlias(target, QStringList());
         if (m_slashJoinOp == 0) {
-            setCommandError(
-                joinerror::describe(QStringLiteral("network")));
+            setCommandError(joinerror::describe(
+                m_client->supportsJoinByAddress() ? QStringLiteral("network")
+                                                  : QStringLiteral("unsupported")));
         }
     };
     actions.invite = [this](const QString &userId) {

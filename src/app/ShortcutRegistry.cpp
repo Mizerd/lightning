@@ -3,7 +3,10 @@
 #include "app/SettingsManager.h"
 
 #include <QKeyCombination>
+#include <QGuiApplication>
+#include <QInputMethod>
 #include <QKeySequence>
+#include <QLocale>
 #include <QStringList>
 
 namespace {
@@ -550,6 +553,15 @@ int unshiftedDigit(int key)
     default: return 0;
     }
 }
+
+bool keyboardLayoutIsUs()
+{
+    if (!qGuiApp || !qGuiApp->inputMethod())
+        return false;
+    const QLocale loc = qGuiApp->inputMethod()->locale();
+    return loc.language() == QLocale::English
+        && loc.territory() == QLocale::UnitedStates;
+}
 }
 
 QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
@@ -557,7 +569,8 @@ QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
 {
     QStringList candidates{sequenceFromKeyEvent(key, modifiers)};
     const int digit = unshiftedDigit(key);
-    if (digit != 0 && (modifiers & Qt::ShiftModifier))
+    const bool us = m_usShiftRow.value_or(keyboardLayoutIsUs());
+    if (us && digit != 0 && (modifiers & Qt::ShiftModifier))
         candidates << sequenceFromKeyEvent(digit, modifiers);
     for (const QString &seq : std::as_const(candidates)) {
         if (seq.isEmpty())

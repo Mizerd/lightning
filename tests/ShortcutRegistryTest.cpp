@@ -1084,6 +1084,7 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
+        registry.setUsShiftRowForTesting(true);
         const auto ctrlShift = Qt::ControlModifier | Qt::ShiftModifier;
 
         QCOMPARE(registry.editorActionForKey(Qt::Key_Asterisk, ctrlShift),
@@ -1097,6 +1098,23 @@ private Q_SLOTS:
         QVERIFY(registry.editorActionForKey(Qt::Key_Asterisk,
                                             Qt::ControlModifier).isEmpty());
         QVERIFY(registry.editorActionForKey(Qt::Key_Exclam, ctrlShift).isEmpty());
+    }
+
+    void shiftedSymbolsAreNotTranslatedOnNonUsLayouts()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        registry.setUsShiftRowForTesting(false);
+        const auto ctrlShift = Qt::ControlModifier | Qt::ShiftModifier;
+
+        QVERIFY(registry.editorActionForKey(Qt::Key_ParenLeft, ctrlShift)
+                != QStringLiteral("composer.quote"));
+        QVERIFY(registry.editorActionForKey(Qt::Key_ParenLeft, ctrlShift)
+                    .isEmpty());
+        QVERIFY(registry.editorActionForKey(Qt::Key_Asterisk, ctrlShift)
+                    .isEmpty());
+        QCOMPARE(registry.editorActionForKey(Qt::Key_8, ctrlShift),
+                 QStringLiteral("composer.list"));
     }
 
     void editorActionForKeyAnswersEveryEditorBindingAndNothingElse()

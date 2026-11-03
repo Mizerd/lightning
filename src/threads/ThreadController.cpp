@@ -358,6 +358,7 @@ void ThreadController::openThread(const QString &roomId,
     stopHistoryFill();
     ++m_traceGeneration;
     m_roomId = roomId;
+    m_slashJoinOp = 0;
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
     cancelReply();
@@ -396,6 +397,7 @@ void ThreadController::close()
     if (m_client && wasActive)
         m_client->closeThread();
     m_roomId.clear();
+    m_slashJoinOp = 0;
     m_rootEventId.clear();
     m_failureCategory.clear();
     m_model.setRoomId(QString{});
@@ -458,8 +460,10 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
                 m_slashJoinOp =
                     m_client->joinRoomByIdOrAlias(target, QStringList());
                 if (m_slashJoinOp == 0) {
-                    setCommandError(
-                        joinerror::describe(QStringLiteral("network")));
+                    setCommandError(joinerror::describe(
+                        m_client->supportsJoinByAddress()
+                            ? QStringLiteral("network")
+                            : QStringLiteral("unsupported")));
                 }
             };
             actions.invite = [this](const QString &userId) {

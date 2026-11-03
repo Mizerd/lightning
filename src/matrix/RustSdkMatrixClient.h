@@ -234,6 +234,7 @@ public:
                             const QString &eventId) override;
 
     bool supportsPolls() const override { return true; }
+    bool supportsJoinByAddress() const override { return true; }
     void sendPollResponse(const QString &roomId,
                           const QString &threadRootId,
                           const QString &pollStartEventId,

@@ -309,6 +309,7 @@ public:
     }
 
     virtual bool supportsPolls() const { return false; }
+    virtual bool supportsJoinByAddress() const { return false; }
     virtual void sendPollResponse(const QString &roomId,
                                   const QString &threadRootId,
                                   const QString &pollStartEventId,

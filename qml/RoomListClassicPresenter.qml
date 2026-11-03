@@ -38,6 +38,19 @@ Item {
         function onRowsInserted() { root.openAcceptedRoom() }
         function onModelReset() { root.openAcceptedRoom() }
     }
+    Timer {
+        interval: 30000
+        running: root.pendingAcceptRoomId !== ""
+        onTriggered: root.pendingAcceptRoomId = ""
+    }
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() { root.pendingAcceptRoomId = "" }
+    }
+    Connections {
+        target: app.accounts
+        function onActiveUserIdChanged() { root.pendingAcceptRoomId = "" }
+    }
 
     readonly property string conversationSectionLabel: {
         switch (app.roomList ? app.roomList.filterMode : 0) {

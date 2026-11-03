@@ -51,6 +51,7 @@ public:
     bool demoUnreadHidden() const { return m_demoHideUnread; }
 
     bool supportsPolls() const override { return m_screenshotDemoMode; }
+    bool supportsJoinByAddress() const override { return true; }
     void sendPollResponse(const QString &roomId, const QString &threadRootId,
                           const QString &pollStartEventId,
                           const QStringList &answerIds) override;
