@@ -234,11 +234,12 @@ Rectangle {
         360, root.hostContentWidth >= 0
              ? root.hostContentWidth
              : (bubble ? bubble.width : 360))
+    readonly property bool artKnown:
+        !root.isVoice && (root.artworkSource.length > 0
+                          || (root.thumbAvailable && !root.wireCoverFailed))
     readonly property bool largeCover:
-        !root.isVoice && root.width >= 280
+        root.artKnown && root.width >= 280
         && app.settings && app.settings.albumArtStyle !== "compact"
-        && (root.artworkSource.length > 0
-            || (root.thumbAvailable && !root.wireCoverFailed))
     readonly property bool hugeCover:
         root.largeCover && app.settings.albumArtStyle === "large"
     readonly property real tileSize:
@@ -268,7 +269,7 @@ Rectangle {
         columnSpacing: 8
         rowSpacing: 6
 
-        Item {
+        Loader {
             objectName: "audioArtSlot"
             Layout.alignment: cardGrid.huge ? (Qt.AlignTop | Qt.AlignHCenter)
                                             : Qt.AlignTop
@@ -276,52 +277,54 @@ Rectangle {
             Layout.column: 0
             Layout.rowSpan: cardGrid.big ? 2 : 1
             Layout.columnSpan: cardGrid.huge ? 6 : 1
-            visible: !root.isVoice
-            implicitWidth: root.tileSize
-            implicitHeight: root.tileSize
-            Rectangle {
-                id: coverArtBox
-                objectName: "audioCoverArtBox"
-                anchors.fill: parent
-                visible: !root.isVoice
-                radius: AppTheme.radiusSm
-                color: AppTheme.cardElevated
-                clip: true
-                Image {
-                    id: coverArtImage
-                    objectName: "audioCoverArtwork"
-                    anchors.fill: parent
-                    source: coverArtBox.visible ? root.artworkSource : ""
-                    onStatusChanged: root.noteCoverStatus(this)
-                    sourceSize.width: root.hugeCover ? 720 : (root.largeCover ? 320 : 96)
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: true
-                    opacity: status === Image.Ready ? 1 : 0
-                    Behavior on opacity {
-                        enabled: !AppTheme.reducedMotion
-                        NumberAnimation { duration: 220 }
-                    }
-                    Accessible.name: qsTr("Audio cover artwork")
-                }
+            active: root.artKnown
+            visible: active
+            sourceComponent: Item {
+                implicitWidth: root.tileSize
+                implicitHeight: root.tileSize
                 Rectangle {
+                    id: coverArtBox
+                    objectName: "audioCoverArtBox"
                     anchors.fill: parent
-                    radius: parent.radius
-                    color: "transparent"
-                    border.width: 1
-                    border.color: root.playing ? AppTheme.accent
-                                               : AppTheme.border
-                    Behavior on border.color {
-                        enabled: !AppTheme.reducedMotion
-                        ColorAnimation { duration: 180 }
+                    radius: AppTheme.radiusSm
+                    color: AppTheme.cardElevated
+                    clip: true
+                    Image {
+                        id: coverArtImage
+                        objectName: "audioCoverArtwork"
+                        anchors.fill: parent
+                        source: root.artworkSource
+                        onStatusChanged: root.noteCoverStatus(this)
+                        sourceSize.width: root.hugeCover ? 720 : (root.largeCover ? 320 : 96)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                        opacity: status === Image.Ready ? 1 : 0
+                        Behavior on opacity {
+                            enabled: !AppTheme.reducedMotion
+                            NumberAnimation { duration: 220 }
+                        }
+                        Accessible.name: qsTr("Audio cover artwork")
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: root.playing ? AppTheme.accent
+                                                   : AppTheme.border
+                        Behavior on border.color {
+                            enabled: !AppTheme.reducedMotion
+                            ColorAnimation { duration: 180 }
+                        }
                     }
                 }
-            }
-            CoverArtButton {
-                objectName: "audioCoverButton"
-                anchors.fill: parent
-                enabled: root.artworkSource.length > 0
-                onActivated: root.requestArtworkView()
+                CoverArtButton {
+                    objectName: "audioCoverButton"
+                    anchors.fill: parent
+                    enabled: root.artworkSource.length > 0
+                    onActivated: root.requestArtworkView()
+                }
             }
         }
         Item {

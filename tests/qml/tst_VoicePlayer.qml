@@ -659,7 +659,6 @@ TestCase {
         var title = find(row, "audioTitle")
         compare(title.text, "Short Test Song.mp3")
         var before = row.implicitHeight
-        var seekBefore = find(row, "audioSeekSlider").width
         voice.info = { "mk-row": { title: "Short Test Song", artist: "Band",
                                    artworkSource: tinyCover } }
         voice.clipInfoRevision++
@@ -668,6 +667,7 @@ TestCase {
         wait(50)
         compare(row.implicitHeight, before,
                 "the cover changed the row's height")
+        var seekBefore = find(row, "audioSeekSlider").width
         voice.load({ eventId: "$row", isVoice: false, loaded: true })
         wait(0)
         compare(row.implicitHeight, before)
@@ -781,10 +781,61 @@ TestCase {
         }
     }
 
-    function test_theCoverlessTileIsInert() {
+    function test_noKnownCoverDrawsNoTileInAnyStyle() {
+        var styles = ["compact", "card", "large"]
+        var compactHeight = -1
+        for (var i = 0; i < styles.length; ++i) {
+            settings.albumArtStyle = styles[i]
+            var row = createTemporaryObject(rowComponent, test,
+                                            { isVoice: false,
+                                              filename: "Long.flac" })
+            wait(0)
+            compare(find(row, "audioCoverArtBox"), null,
+                    "an empty cover tile in " + styles[i])
+            compare(find(row, "audioCoverButton"), null, styles[i])
+            verify(!find(row, "audioArtSlot").visible, styles[i])
+            var play = find(row, "audioPlayPauseButton")
+            verify(play.mapToItem(row, 0, 0).x < 12,
+                   "the controls still leave room for a tile in " + styles[i])
+            if (i === 0)
+                compactHeight = row.implicitHeight
+            compare(row.implicitHeight, compactHeight,
+                    "the row reserved art height in " + styles[i])
+        }
+    }
+
+    function test_anEventThumbnailReservesTheTileForEachStyle() {
+        var styles = ["compact", "card", "large"]
+        var sizes = [40, Math.round(AppTheme.scaled(96)), 360 - 12]
+        for (var i = 0; i < styles.length; ++i) {
+            settings.albumArtStyle = styles[i]
+            var row = createTemporaryObject(rowComponent, test,
+                                            { isVoice: false, width: 360,
+                                              thumbAvailable: true,
+                                              filename: "Long.flac" })
+            wait(0)
+            var box = find(row, "audioCoverArtBox")
+            verify(box && box.visible, "no tile in " + styles[i])
+            compare(box.width, sizes[i], styles[i])
+            compare(box.height, sizes[i], styles[i])
+            var bp = box.mapToItem(row, 0, 0)
+            verify(bp.x >= 0 && bp.x + box.width <= row.width
+                   && bp.y + box.height <= row.implicitHeight,
+                   "the tile leaves the card in " + styles[i])
+            var h = row.implicitHeight
+            voice.info = { "mk-row": { artworkSource: tinyCover } }
+            voice.clipInfoRevision++
+            wait(50)
+            compare(row.implicitHeight, h, "the art moved the row in " + styles[i])
+            voice.info = {}
+            voice.clipInfoRevision++
+        }
+    }
+
+    function test_aPendingEventCoverIsInert() {
         settings.albumArtStyle = "card"
         var row = createTemporaryObject(rowComponent, test,
-                                        { isVoice: false,
+                                        { isVoice: false, thumbAvailable: true,
                                           filename: "Song.mp3" })
         var asked = 0
         row.artworkViewRequested.connect(function() { asked++ })

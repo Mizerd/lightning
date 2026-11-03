@@ -98,6 +98,12 @@ AudioPlayerCard { objectName: "card" }
         QTest::qWait(50);
     }
 
+    static QQuickItem *coverBox(const Card &card)
+    {
+        return card.item->findChild<QQuickItem *>(
+            QStringLiteral("audioCoverArtBox"));
+    }
+
     static QRectF sceneRectOf(QQuickItem *item)
     {
         return QRectF(item->mapToScene(QPointF(0, 0)), item->size());
@@ -142,13 +148,13 @@ private Q_SLOTS:
 
         card.item->setProperty("artworkSource", QString());
         setLarge(card, true);
-        QTRY_COMPARE(tile->width(), 40.0);
-        QVERIFY(!sceneRectOf(play).intersects(sceneRectOf(tile)));
+        QTRY_VERIFY(!coverBox(card));
 
         card.item->setProperty("artworkSource",
             makeImage(QStringLiteral("n.png"), 600, 600).toString());
         card.item->setWidth(240);
-        QTRY_COMPARE(tile->width(), 40.0);
+        QTRY_VERIFY(coverBox(card));
+        QTRY_COMPARE(coverBox(card)->width(), 40.0);
     }
 
     void anEventCoverStandsInAndABrokenOneLooksLikeNone()
@@ -157,10 +163,7 @@ private Q_SLOTS:
         QVERIFY(bare.item != nullptr);
         bare.item->setProperty("isVoice", false);
         setLarge(bare, true);
-        auto *largeBare = bare.item->findChild<QQuickItem *>(
-            QStringLiteral("audioCoverArtBox"));
-        QVERIFY(largeBare);
-        QCOMPARE(largeBare->width(), 40.0);
+        QVERIFY2(!coverBox(bare), "a file with no known cover drew a tile");
         const qreal bareHeight = bare.item->implicitHeight();
 
         Card good = makeCard(QUrl(), 360);
@@ -188,11 +191,8 @@ private Q_SLOTS:
         setLarge(broken, true);
         broken.item->setProperty("wireCoverSource",
                                  QUrl::fromLocalFile(junk).toString());
-        auto *largeBroken = broken.item->findChild<QQuickItem *>(
-            QStringLiteral("audioCoverArtBox"));
-        QVERIFY(largeBroken);
         QTRY_VERIFY(broken.item->property("wireCoverFailed").toBool());
-        QCOMPARE(largeBroken->width(), 40.0);
+        QTRY_VERIFY(!coverBox(broken));
         QCOMPARE(broken.item->property("artworkSource").toString(), QString());
         QCOMPARE(broken.item->implicitHeight(), bareHeight);
     }
@@ -202,9 +202,8 @@ private Q_SLOTS:
         Card bare = makeCard(QUrl(), 360);
         QVERIFY(bare.item != nullptr);
         bare.item->setProperty("isVoice", false);
-        QVERIFY(bare.box != nullptr);
         setLarge(bare, false);
-        QVERIFY(bare.box->isVisible());
+        QVERIFY(!coverBox(bare));
         const qreal rowHeight = bare.item->implicitHeight();
         QVERIFY(rowHeight > 0);
 
@@ -235,8 +234,11 @@ private Q_SLOTS:
         Card card = makeCard(QUrl(), 360);
         QVERIFY(card.item != nullptr);
         card.item->setProperty("isVoice", true);
-        QVERIFY(card.box != nullptr);
-        QVERIFY(!card.box->isVisible());
+        card.item->setProperty("artworkSource",
+            makeImage(QStringLiteral("v.png"), 100, 100).toString());
+        card.item->setProperty("thumbAvailable", true);
+        QTest::qWait(50);
+        QVERIFY(!coverBox(card));
     }
 
     void aPositionFloorsAndATotalRounds()
