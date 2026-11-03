@@ -1888,8 +1888,8 @@ private Q_SLOTS:
         const QString block = panel.mid(at, 3200);
         for (const char *needle : { "app.localization.rightToLeft",
                                     "Math.max(0, contentWidth - width)",
-                                    "onWidthChanged: Qt.callLater(showStart)",
-                                    "onContentWidthChanged: Qt.callLater(showStart)",
+                                    "onWidthChanged: showStart()",
+                                    "onContentWidthChanged: showStart()",
                                     "function onLanguageChanged()" })
             QVERIFY2(block.contains(QLatin1String(needle)), needle);
     }
