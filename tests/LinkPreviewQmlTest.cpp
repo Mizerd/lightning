@@ -309,6 +309,42 @@ private Q_SLOTS:
         QVERIFY(mouseAreas > 0);
         QCOMPARE(d.warnings, QStringList{});
     }
+
+    void theCardBuildsOnlyTheStateItShows()
+    {
+        AppController controller(AppController::MockBackend);
+        Delegate d;
+        QVERIFY(createDelegate(controller, baseFixture(controller), d));
+        const auto has = [&d](const char *name) {
+            return d.root->findChild<QObject *>(QLatin1String(name)) != nullptr;
+        };
+
+        QVERIFY(has("linkPreviewConsentRow"));
+        QVERIFY(!has("linkPreviewSkeleton"));
+        QVERIFY(!has("linkPreviewRetryButton"));
+        QVERIFY(!has("linkPreviewCardAnimation"));
+
+        QVariantMap loaded;
+        loaded.insert(QStringLiteral("state"), QStringLiteral("loaded"));
+        loaded.insert(QStringLiteral("host"),
+                      QStringLiteral("www.lightning-matrix.org"));
+        loaded.insert(QStringLiteral("title"), QStringLiteral("Lightning"));
+        d.root->setProperty("preview", QVariant::fromValue(loaded));
+        QTRY_VERIFY(!has("linkPreviewConsentRow"));
+        QVERIFY(!has("linkPreviewLoadButton"));
+        QVERIFY(!has("linkPreviewSkeleton"));
+        QVERIFY(!has("linkPreviewRetryButton"));
+        QVERIFY(has("linkPreviewCardAnimation"));
+
+        QVariantMap failed;
+        failed.insert(QStringLiteral("state"), QStringLiteral("failed"));
+        failed.insert(QStringLiteral("retryable"), true);
+        d.root->setProperty("preview", QVariant::fromValue(failed));
+        QTRY_VERIFY(!has("linkPreviewCardAnimation"));
+        QVERIFY(has("linkPreviewRetryButton"));
+        QVERIFY(!has("linkPreviewConsentRow"));
+        QCOMPARE(d.warnings, QStringList{});
+    }
 };
 
 QTEST_MAIN(LinkPreviewQmlTest)

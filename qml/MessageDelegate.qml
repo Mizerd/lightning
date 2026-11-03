@@ -4552,268 +4552,280 @@ Item {
                                      : AppTheme.spacingS
                 spacing: 4
 
-                RowLayout {
-                    id: consentRow
-                    objectName: "linkPreviewConsentRow"
-                    visible: card.st === "requires_action"
+                Loader {
+                    active: card.st === "requires_action"
+                    visible: active
                     Layout.fillWidth: true
-                    spacing: AppTheme.spacing6
+                    sourceComponent: RowLayout {
+                        id: consentRow
+                        objectName: "linkPreviewConsentRow"
+                        spacing: AppTheme.spacing6
 
-                    readonly property string fullPrivacyText:
-                        qsTr("Your homeserver loads this preview, so the linked site does not see your IP address. If your server cannot, Lightning loads it directly and the site does see your IP.")
-                    ToolTip.text: consentRow.fullPrivacyText
-                    ToolTip.visible: consentHover.hovered
-                    ToolTip.delay: 400
-                    HoverHandler { id: consentHover }
+                        readonly property string fullPrivacyText:
+                            qsTr("Your homeserver loads this preview, so the linked site does not see your IP address. If your server cannot, Lightning loads it directly and the site does see your IP.")
+                        ToolTip.text: consentRow.fullPrivacyText
+                        ToolTip.visible: consentHover.hovered
+                        ToolTip.delay: 400
+                        HoverHandler { id: consentHover }
 
-                    Icon {
-                        name: "link"
-                        size: 14
-                        color: AppTheme.textMuted
-                        Layout.alignment: Qt.AlignVCenter
+                        Icon {
+                            name: "link"
+                            size: 14
+                            color: AppTheme.textMuted
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+
+                            Label {
+                                objectName: "linkPreviewConsentHost"
+                                text: card.p.host || ""
+                                color: AppTheme.link
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightStrong
+                                elide: Label.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                objectName: "linkPreviewConsentNotice"
+                                readonly property bool routed:
+                                    typeof app !== "undefined" && !!app && !!app.networkRoute
+                                    && !!app.networkRoute.route
+                                    && (app.networkRoute.route.kind || "none") !== "none"
+                                text: routed
+                                      ? (root.roomEncrypted
+                                         ? qsTr("Your server sees this URL — never direct")
+                                         : qsTr("Your server loads it — never direct"))
+                                      : root.roomEncrypted
+                                      ? qsTr("Your server sees this URL — or directly, your IP")
+                                      : qsTr("Your server loads it — or directly, your IP")
+                                color: root.roomEncrypted ? AppTheme.warning
+                                                          : AppTheme.textMuted
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                                wrapMode: Text.WordWrap
+                                elide: Label.ElideNone
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        AppButton {
+                            objectName: "linkPreviewLoadButton"
+                            text: qsTr("Show")
+                            size: "sm"
+                            minWidth: 0
+                            Accessible.name: qsTr("Show link preview")
+                            Layout.alignment: Qt.AlignVCenter
+                            onClicked: app.linkPreviews.requestPreviewForEvent(
+                                           root.previewRoomId, root.actionKey)
+                        }
                     }
+                }
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
+                Loader {
+                    active: card.st === "loading"
+                    visible: active
+                    Layout.fillWidth: true
+                    sourceComponent: ColumnLayout {
+                        objectName: "linkPreviewSkeleton"
+                        spacing: 5
+                        Skeleton {
+                            active: root.rowOnScreen && card.st === "loading"
+                            Layout.preferredWidth: Math.min(240, card.width * 0.6)
+                            Layout.preferredHeight: 12
+                        }
+                        Skeleton {
+                            active: root.rowOnScreen && card.st === "loading"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 10
+                        }
+                        Skeleton {
+                            active: root.rowOnScreen && card.st === "loading"
+                            Layout.preferredWidth: Math.min(300, card.width * 0.8)
+                            Layout.preferredHeight: 10
+                        }
+                        Skeleton {
+                            active: root.rowOnScreen && card.st === "loading"
+                            Layout.preferredWidth: Math.min(140, card.width * 0.35)
+                            Layout.preferredHeight: 9
+                        }
+                    }
+                }
 
+                Loader {
+                    active: card.st === "failed"
+                    visible: active
+                    Layout.fillWidth: true
+                    sourceComponent: ColumnLayout {
+                        spacing: 4
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing6
+                            Icon {
+                                name: "error"
+                                size: 15
+                                color: AppTheme.textMuted
+                            }
+                            Label {
+                                text: qsTr("Preview unavailable")
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                Layout.fillWidth: true
+                            }
+                        }
+                        AppButton {
+                            objectName: "linkPreviewRetryButton"
+                            visible: card.p.retryable === true
+                            text: qsTr("Retry")
+                            onClicked: app.linkPreviews.retryForEvent(
+                                           root.previewRoomId, root.actionKey)
+                        }
+                    }
+                }
+
+                Loader {
+                    active: card.st === "loaded"
+                    visible: active
+                    Layout.fillWidth: true
+                    sourceComponent: ColumnLayout {
+                        spacing: 3
+
+                        Rectangle {
+                            id: cardMedia
+                            visible: ((card.p.imageMxc || "").length > 0
+                                      || (card.p.imageSource || "").length > 0)
+                                     && !(card.p.gifOversized === true)
+                                     && card.p.isDirectMedia !== true
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? Math.min(180,
+                                (card.p.imageHeight > 0 && card.p.imageWidth > 0)
+                                ? width * (card.p.imageHeight / card.p.imageWidth)
+                                : 140) : 0
+                            color: AppTheme.embedSurface
+                            radius: AppTheme.radiusSm
+                            clip: true
+                            HoverHandler { id: cardMediaHover }
+                            Image {
+                                id: thumb
+                                anchors.fill: parent
+                                visible: !cardAnimation.visible
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                cache: root.mediaPixmapCacheAllowed
+                                property int resolveTick: 0
+                                source: {
+                                    var _tick = resolveTick
+                                    if (!root.mediaPixmapRetained)
+                                        return ""
+                                    return card.previewStatic.length > 0
+                                        ? card.previewStatic
+                                        : (card.p.imageMxc || "").length > 0
+                                        && app.mediaBridge.supported
+                                        ? app.mediaBridge.mxcImageSource(card.p.imageMxc, 480)
+                                        : ""
+                                }
+                                Connections {
+                                    target: app.mediaBridge
+                                    enabled: (card.p.imageMxc || "").length > 0
+                                    function onMediaCached(cacheKey) {
+                                        if (cacheKey.endsWith(":" + card.p.imageMxc))
+                                            thumb.resolveTick++
+                                    }
+                                }
+                            }
+                            AnimatedImage {
+                                id: cardAnimation
+                                objectName: "linkPreviewCardAnimation"
+                                anchors.fill: parent
+                                visible: card.previewAnimation.length > 0
+                                         && status === AnimatedImage.Ready
+                                source: cardMedia.visible && root.mediaPixmapRetained
+                                        ? card.previewAnimation : ""
+                                fillMode: Image.PreserveAspectFit
+                                playing: MotionPolicy.plays(cardMediaHover.hovered)
+                                         && root.rowOnScreen
+                                         && !MotionPolicy.suspended
+                                asynchronous: true
+                                cache: false
+                                AnimationFileHold {}
+                            }
+                            Rectangle {
+                                visible: card.p.isGif === true
+                                anchors.left: parent.left
+                                anchors.bottom: parent.bottom
+                                anchors.margins: 4
+                                radius: 3
+                                color: AppTheme.overlayScrim
+                                width: gifLabel.implicitWidth + 8
+                                height: gifLabel.implicitHeight + 4
+                                Label {
+                                    id: gifLabel
+                                    anchors.centerIn: parent
+                                    text: qsTr("GIF")
+                                    color: AppTheme.scrimInk
+                                    font.pixelSize: AppTheme.fontMicro
+                                    font.weight: Font.Bold
+                                }
+                            }
+                        }
+
+                        Loader {
+                            active: card.p.isDirectMedia === true
+                            visible: active
+                            Layout.fillWidth: true
+                            sourceComponent: Label {
+                                objectName: "linkPreviewMediaSummary"
+                                // Sender-chosen file name: never markup.
+                                textFormat: Text.PlainText
+                                text: root.linkMediaSummary()
+                                color: AppTheme.text
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightStrong
+                                elide: Label.ElideMiddle
+                            }
+                        }
                         Label {
-                            objectName: "linkPreviewConsentHost"
-                            text: card.p.host || ""
-                            color: AppTheme.link
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                            font.weight: AppTheme.weightStrong
+                            visible: card.p.isDirectMedia !== true
+                                     && (card.p.siteName || "").length > 0
+                            text: card.p.siteName || ""
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                             elide: Label.ElideRight
                             Layout.fillWidth: true
                         }
                         Label {
-                            objectName: "linkPreviewConsentNotice"
-                            readonly property bool routed:
-                                typeof app !== "undefined" && !!app && !!app.networkRoute
-                                && !!app.networkRoute.route
-                                && (app.networkRoute.route.kind || "none") !== "none"
-                            text: routed
-                                  ? (root.roomEncrypted
-                                     ? qsTr("Your server sees this URL — never direct")
-                                     : qsTr("Your server loads it — never direct"))
-                                  : root.roomEncrypted
-                                  ? qsTr("Your server sees this URL — or directly, your IP")
-                                  : qsTr("Your server loads it — or directly, your IP")
-                            color: root.roomEncrypted ? AppTheme.warning
-                                                      : AppTheme.textMuted
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                            wrapMode: Text.WordWrap
-                            elide: Label.ElideNone
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    AppButton {
-                        objectName: "linkPreviewLoadButton"
-                        text: qsTr("Show")
-                        size: "sm"
-                        minWidth: 0
-                        Accessible.name: qsTr("Show link preview")
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: app.linkPreviews.requestPreviewForEvent(
-                                       root.previewRoomId, root.actionKey)
-                    }
-                }
-
-                ColumnLayout {
-                    objectName: "linkPreviewSkeleton"
-                    visible: card.st === "loading"
-                    Layout.fillWidth: true
-                    spacing: 5
-                    Skeleton {
-                        active: root.rowOnScreen && card.st === "loading"
-                        Layout.preferredWidth: Math.min(240, card.width * 0.6)
-                        Layout.preferredHeight: 12
-                    }
-                    Skeleton {
-                        active: root.rowOnScreen && card.st === "loading"
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 10
-                    }
-                    Skeleton {
-                        active: root.rowOnScreen && card.st === "loading"
-                        Layout.preferredWidth: Math.min(300, card.width * 0.8)
-                        Layout.preferredHeight: 10
-                    }
-                    Skeleton {
-                        active: root.rowOnScreen && card.st === "loading"
-                        Layout.preferredWidth: Math.min(140, card.width * 0.35)
-                        Layout.preferredHeight: 9
-                    }
-                }
-
-                ColumnLayout {
-                    visible: card.st === "failed"
-                    Layout.fillWidth: true
-                    spacing: 4
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: AppTheme.spacing6
-                        Icon {
-                            name: "error"
-                            size: 15
-                            color: AppTheme.textMuted
-                        }
-                        Label {
-                            text: qsTr("Preview unavailable")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                            Layout.fillWidth: true
-                        }
-                    }
-                    AppButton {
-                        objectName: "linkPreviewRetryButton"
-                        visible: card.p.retryable === true
-                        text: qsTr("Retry")
-                        onClicked: app.linkPreviews.retryForEvent(
-                                       root.previewRoomId, root.actionKey)
-                    }
-                }
-
-                ColumnLayout {
-                    visible: card.st === "loaded"
-                    Layout.fillWidth: true
-                    spacing: 3
-
-                    Rectangle {
-                        id: cardMedia
-                        visible: ((card.p.imageMxc || "").length > 0
-                                  || (card.p.imageSource || "").length > 0)
-                                 && !(card.p.gifOversized === true)
-                                 && card.p.isDirectMedia !== true
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: visible ? Math.min(180,
-                            (card.p.imageHeight > 0 && card.p.imageWidth > 0)
-                            ? width * (card.p.imageHeight / card.p.imageWidth)
-                            : 140) : 0
-                        color: AppTheme.embedSurface
-                        radius: AppTheme.radiusSm
-                        clip: true
-                        HoverHandler { id: cardMediaHover }
-                        Image {
-                            id: thumb
-                            anchors.fill: parent
-                            visible: !cardAnimation.visible
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                            cache: root.mediaPixmapCacheAllowed
-                            property int resolveTick: 0
-                            source: {
-                                var _tick = resolveTick
-                                if (!root.mediaPixmapRetained)
-                                    return ""
-                                return card.previewStatic.length > 0
-                                    ? card.previewStatic
-                                    : (card.p.imageMxc || "").length > 0
-                                    && app.mediaBridge.supported
-                                    ? app.mediaBridge.mxcImageSource(card.p.imageMxc, 480)
-                                    : ""
-                            }
-                            Connections {
-                                target: app.mediaBridge
-                                enabled: (card.p.imageMxc || "").length > 0
-                                function onMediaCached(cacheKey) {
-                                    if (cacheKey.endsWith(":" + card.p.imageMxc))
-                                        thumb.resolveTick++
-                                }
-                            }
-                        }
-                        AnimatedImage {
-                            id: cardAnimation
-                            objectName: "linkPreviewCardAnimation"
-                            anchors.fill: parent
-                            visible: card.previewAnimation.length > 0
-                                     && status === AnimatedImage.Ready
-                            source: cardMedia.visible && root.mediaPixmapRetained
-                                    ? card.previewAnimation : ""
-                            fillMode: Image.PreserveAspectFit
-                            playing: MotionPolicy.plays(cardMediaHover.hovered)
-                                     && root.rowOnScreen
-                                     && !MotionPolicy.suspended
-                            asynchronous: true
-                            cache: false
-                            AnimationFileHold {}
-                        }
-                        Rectangle {
-                            visible: card.p.isGif === true
-                            anchors.left: parent.left
-                            anchors.bottom: parent.bottom
-                            anchors.margins: 4
-                            radius: 3
-                            color: AppTheme.overlayScrim
-                            width: gifLabel.implicitWidth + 8
-                            height: gifLabel.implicitHeight + 4
-                            Label {
-                                id: gifLabel
-                                anchors.centerIn: parent
-                                text: qsTr("GIF")
-                                color: AppTheme.scrimInk
-                                font.pixelSize: AppTheme.fontMicro
-                                font.weight: Font.Bold
-                            }
-                        }
-                    }
-
-                    Loader {
-                        active: card.p.isDirectMedia === true
-                        visible: active
-                        Layout.fillWidth: true
-                        sourceComponent: Label {
-                            objectName: "linkPreviewMediaSummary"
-                            // Sender-chosen file name: never markup.
-                            textFormat: Text.PlainText
-                            text: root.linkMediaSummary()
-                            color: AppTheme.text
+                            visible: card.p.isDirectMedia !== true
+                                     && (card.p.title || "").length > 0
+                            text: card.p.title || ""
+                            color: AppTheme.embedText
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.weight: AppTheme.weightStrong
-                            elide: Label.ElideMiddle
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
+                            elide: Label.ElideRight
+                            Layout.fillWidth: true
                         }
-                    }
-                    Label {
-                        visible: card.p.isDirectMedia !== true
-                                 && (card.p.siteName || "").length > 0
-                        text: card.p.siteName || ""
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                        elide: Label.ElideRight
-                        Layout.fillWidth: true
-                    }
-                    Label {
-                        visible: card.p.isDirectMedia !== true
-                                 && (card.p.title || "").length > 0
-                        text: card.p.title || ""
-                        color: AppTheme.embedText
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                        font.weight: AppTheme.weightStrong
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 2
-                        elide: Label.ElideRight
-                        Layout.fillWidth: true
-                    }
-                    Label {
-                        visible: card.p.isDirectMedia !== true
-                                 && (card.p.description || "").length > 0
-                        text: card.p.description || ""
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                        lineHeight: AppTheme.lineHeightBody
-                        lineHeightMode: Text.ProportionalHeight
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 3
-                        elide: Label.ElideRight
-                        Layout.fillWidth: true
-                    }
-                    Label {
-                        text: card.p.host || ""
-                        color: AppTheme.link
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                        elide: Label.ElideRight
-                        Layout.fillWidth: true
+                        Label {
+                            visible: card.p.isDirectMedia !== true
+                                     && (card.p.description || "").length > 0
+                            text: card.p.description || ""
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 3
+                            elide: Label.ElideRight
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            text: card.p.host || ""
+                            color: AppTheme.link
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                            elide: Label.ElideRight
+                            Layout.fillWidth: true
+                        }
                     }
                 }
             }
