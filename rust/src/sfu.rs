@@ -76,7 +76,8 @@ use crate::rooms::{classify_room_error, require_client};
 #[cfg(not(feature = "test-loopback-foci"))]
 use crate::rooms::public_ip;
 use crate::rtc::{
-    public_hostname, resolve_public_host, resolve_public_hosts, HostRefusal,
+    focus_is_advertised, own_homeserver_transports, public_hostname,
+    resolve_focus_hosts, HostRefusal, LivekitTransport,
 };
 #[cfg(feature = "test-loopback-foci")]
 use crate::rtc::{loopback_hostname, test_focus_ip};
@@ -143,8 +144,73 @@ fn resolve_refusal_category(refusal: HostRefusal) -> &'static str {
     match refusal {
         HostRefusal::PrivateName => "focus_private_name",
         HostRefusal::Unresolved => "focus_unresolved",
-        HostRefusal::NonPublicAddress => "focus_unroutable",
+        HostRefusal::NonPublicAddress(_) => "focus_unroutable",
     }
+}
+
+#[derive(Debug)]
+struct FocusFailure {
+    category: String,
+    address_class: Option<&'static str>,
+    own_focus: bool,
+}
+
+impl From<String> for FocusFailure {
+    fn from(category: String) -> Self {
+        Self { category, address_class: None, own_focus: false }
+    }
+}
+
+impl FocusFailure {
+    fn refused(refusal: HostRefusal, own_focus: bool) -> Self {
+        let address_class = match refusal {
+            HostRefusal::NonPublicAddress(class) => Some(class),
+            _ => None,
+        };
+        Self {
+            category: resolve_refusal_category(refusal).to_owned(),
+            address_class,
+            own_focus,
+        }
+    }
+
+    fn fields(&self, event: &mut serde_json::Value) {
+        event["category"] = json!(self.category);
+        if let Some(class) = self.address_class {
+            event["address_class"] = json!(class);
+            event["own_focus"] = json!(self.own_focus);
+        }
+    }
+}
+
+/// Resolves a focus host. A non-public answer is re-checked against the foci
+/// the user's own homeserver advertises, since only those may live on a LAN.
+async fn resolve_focus<F, Fut>(
+    service_url: &str,
+    host: &str,
+    port: u16,
+    own_transports: F,
+) -> Result<(Vec<std::net::SocketAddr>, bool), FocusFailure>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Vec<LivekitTransport>>,
+{
+    let resolve = |own: bool| async move {
+        match tokio::time::timeout(SFU_TIMEOUT, resolve_focus_hosts(host, port, own)).await {
+            Ok(result) => result.map_err(|refusal| FocusFailure::refused(refusal, own)),
+            Err(_) => Err(FocusFailure::from("focus_resolve_timeout".to_owned())),
+        }
+    };
+    let failure = match resolve(false).await {
+        Ok(addresses) => return Ok((addresses, false)),
+        Err(failure) => failure,
+    };
+    if failure.address_class.is_some()
+        && focus_is_advertised(service_url, &own_transports().await)
+    {
+        return resolve(true).await.map(|addresses| (addresses, true));
+    }
+    Err(failure)
 }
 
 fn classify_io_error(err: &std::io::Error) -> &'static str {
@@ -242,6 +308,8 @@ pub(crate) struct SfuCredentials {
     /// Short-lived SFU authorization. Never logged, never crosses the FFI.
     pub jwt: String,
     pub can_publish: Option<bool>,
+    /// Issued by a focus the user's own homeserver advertises.
+    pub own_infrastructure: bool,
 }
 
 fn jwt_can_publish(jwt: &str) -> Option<bool> {
@@ -308,12 +376,17 @@ async fn fetch_openid_token(client: &matrix_sdk::Client)
     }))
 }
 
-async fn fetch_sfu_credentials(
+async fn fetch_sfu_credentials<F, Fut>(
     service_url: &str,
     room_id: &str,
     device_id: &str,
     openid_token: &serde_json::Value,
-) -> Result<SfuCredentials, String> {
+    own_transports: F,
+) -> Result<SfuCredentials, FocusFailure>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Vec<LivekitTransport>>,
+{
     let body = serde_json::to_vec(&json!({
         "room": room_id,
         "openid_token": openid_token,
@@ -331,8 +404,9 @@ async fn fetch_sfu_credentials(
     // The focus host is chosen by another participant, and this request
     // carries the user's OpenID token, device id and room id, so it uses a
     // dedicated client:
-    //   * the name is resolved here, all addresses must be public, and the
-    //     first is pinned, so a private record or rebinding cannot reach the
+    //   * the name is resolved here, all addresses must be public (a focus the
+    //     user's own homeserver advertises may also be LAN), and the first is
+    //     pinned, so a private record or rebinding cannot reach the
     //     loopback;
     //   * redirects are refused (the SDK client would follow cross-host and
     //     replay the body, e.g. to http://169.254.169.254/);
@@ -343,11 +417,9 @@ async fn fetch_sfu_credentials(
         .map(ToOwned::to_owned)
         .ok_or_else(|| "invalid_transport".to_owned())?;
     let port = url.port_or_known_default().unwrap_or(443);
-    let pinned = tokio::time::timeout(SFU_TIMEOUT, resolve_public_host(&host, port))
-        .await
-        .ok()
-        .flatten()
-        .ok_or_else(|| "invalid_transport".to_owned())?;
+    let (addresses, own_infrastructure) =
+        resolve_focus(service_url, &host, port, own_transports).await?;
+    let pinned = addresses[0];
     let mut http_builder = reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
@@ -360,7 +432,7 @@ async fn fetch_sfu_credentials(
     if std::env::var_os("SSL_CERT_FILE").is_some() {
         let certs = rustls_native_certs::load_native_certs();
         if certs.certs.is_empty() || !certs.errors.is_empty() {
-            return Err("invalid_request".to_owned());
+            return Err("invalid_request".to_owned().into());
         }
         for cert in certs.certs {
             http_builder = http_builder.add_root_certificate(
@@ -388,13 +460,13 @@ async fn fetch_sfu_credentials(
             429 => "rate_limited".to_owned(),
             500..=599 => "server_error".to_owned(),
             _ => "unknown".to_owned(),
-        });
+        }.into());
     }
     if response
         .content_length()
         .is_some_and(|len| len > MAX_SFU_RESPONSE as u64)
     {
-        return Err("invalid".to_owned());
+        return Err("invalid".to_owned().into());
     }
     let mut bytes = Vec::with_capacity(1024);
     let mut stream = response;
@@ -404,7 +476,7 @@ async fn fetch_sfu_credentials(
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())?
     {
         if bytes.len() + chunk.len() > MAX_SFU_RESPONSE {
-            return Err("invalid".to_owned());
+            return Err("invalid".to_owned().into());
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -426,7 +498,7 @@ async fn fetch_sfu_credentials(
         .to_owned();
 
     let can_publish = jwt_can_publish(&jwt);
-    Ok(SfuCredentials { url: url_ok, jwt, can_publish })
+    Ok(SfuCredentials { url: url_ok, jwt, can_publish, own_infrastructure })
 }
 
 const LEAVE_FLUSH_MARGIN_MS: u64 = 250;
@@ -604,19 +676,21 @@ async fn run_session(
 
     let host = url.host_str().unwrap_or_default().to_owned();
     let port = url.port_or_known_default().unwrap_or(443);
+    let own_infrastructure = credentials.own_infrastructure;
     let addresses = match tokio::time::timeout(
         SFU_TIMEOUT,
-        resolve_public_hosts(&host, port),
+        resolve_focus_hosts(&host, port, own_infrastructure),
     )
     .await
     {
         Ok(Ok(addresses)) => addresses,
         Ok(Err(refusal)) => {
-            emit(json!({
+            let mut event = json!({
                 "type": "sfu_state", "generation": generation,
-                "state": "failed",
-                "category": resolve_refusal_category(refusal),
-            }));
+                "state": "failed", "stage": "signal",
+            });
+            FocusFailure::refused(refusal, own_infrastructure).fields(&mut event);
+            emit(event);
             return;
         }
         Err(_) => {
@@ -1121,8 +1195,9 @@ pub(crate) fn connect_many(
         let task = bridge.runtime.spawn(async move {
             let result = match openid.get_or_try_init(|| fetch_openid_token(&client)).await {
                 Ok(token) => fetch_sfu_credentials(
-                    &service_url, &room_id, &device_id, token).await,
-                Err(category) => Err(category.clone()),
+                    &service_url, &room_id, &device_id, token,
+                    || own_homeserver_transports(&client)).await,
+                Err(category) => Err(FocusFailure::from(category.clone())),
             };
             match result {
                 Ok(credentials) => {
@@ -1150,13 +1225,15 @@ pub(crate) fn connect_many(
                                 media_capable, credentials, service_host_hash,
                                 rx, leave_rx).await;
                 }
-                Err(category) => {
+                Err(failure) => {
                     if current.load(Ordering::SeqCst) != generation { return; }
-                    enqueue(&events, json!({
+                    let mut event = json!({
                         "type": "sfu_state", "generation": generation,
                         "connection_id": connection_id, "op_id": op_id,
-                        "state": "failed", "category": category,
-                    }));
+                        "state": "failed", "stage": "credentials",
+                    });
+                    failure.fields(&mut event);
+                    enqueue(&events, event);
                 }
             }
         });
@@ -1603,8 +1680,120 @@ mod tests {
                    "focus_private_name");
         assert_eq!(resolve_refusal_category(HostRefusal::Unresolved),
                    "focus_unresolved");
-        assert_eq!(resolve_refusal_category(HostRefusal::NonPublicAddress),
+        assert_eq!(resolve_refusal_category(HostRefusal::NonPublicAddress("ula")),
                    "focus_unroutable");
+    }
+
+    fn own(urls: &[&str]) -> Vec<LivekitTransport> {
+        urls.iter()
+            .map(|url| LivekitTransport { service_url: (*url).to_owned(), alias: None })
+            .collect()
+    }
+
+    async fn credentials_for(service_url: &str, advertised: &[&str])
+        -> (Result<SfuCredentials, FocusFailure>, bool)
+    {
+        let asked = std::cell::Cell::new(false);
+        let result = fetch_sfu_credentials(
+            service_url, "!room:example.org", "DEVICE", &json!({}),
+            || { asked.set(true); std::future::ready(own(advertised)) }).await;
+        (result, asked.get())
+    }
+
+    #[tokio::test]
+    async fn a_credentials_refusal_names_its_reason_instead_of_invalid_transport() {
+        let (result, asked) = credentials_for("https://10.0.0.5/", &[]).await;
+        let failure = result.expect_err("a private focus is refused");
+        assert_eq!(failure.category, "focus_unroutable");
+        assert_eq!(failure.address_class, Some("private"));
+        assert!(!failure.own_focus);
+        assert!(asked, "a non-public answer must consult the own homeserver");
+
+        let (result, _) = credentials_for(
+            "https://10.0.0.5/", &["https://sfu.example.org/"]).await;
+        assert_eq!(result.expect_err("another focus is not ours").category,
+                   "focus_unroutable");
+
+        let mut event = json!({});
+        FocusFailure::refused(HostRefusal::NonPublicAddress("cgnat"), true)
+            .fields(&mut event);
+        assert_eq!(event, json!({"category": "focus_unroutable",
+                                 "address_class": "cgnat", "own_focus": true}));
+        let mut event = json!({});
+        FocusFailure::refused(HostRefusal::Unresolved, false).fields(&mut event);
+        assert_eq!(event, json!({"category": "focus_unresolved"}));
+
+        for malformed in ["not a url", "https://"] {
+            let (result, asked) = credentials_for(malformed, &[]).await;
+            assert_eq!(result.expect_err(malformed).category, "invalid_transport");
+            assert!(!asked);
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(feature = "test-loopback-foci"))]
+    async fn a_local_name_is_refused_as_a_name_without_asking_the_homeserver() {
+        let (result, asked) = credentials_for(
+            "https://sfu.internal/", &["https://sfu.internal/"]).await;
+        let failure = result.expect_err("a local-only name is refused");
+        assert_eq!(failure.category, "focus_private_name");
+        assert_eq!(failure.address_class, None);
+        assert!(!asked);
+    }
+
+    #[tokio::test]
+    async fn only_the_own_homeserver_may_advertise_a_lan_focus() {
+        for (host, class) in [("10.0.0.5", "private"), ("100.100.1.2", "cgnat"),
+                              ("fd7a:115c:a1e0::1", "ula")] {
+            let url = format!("https://{}/", if host.contains(':') {
+                format!("[{host}]") } else { host.to_owned() });
+            let refused = resolve_focus(&url, host, 443,
+                || std::future::ready(own(&["https://other.example.org/"]))).await;
+            let failure = refused.expect_err(host);
+            assert_eq!((failure.address_class, failure.own_focus),
+                       (Some(class), false), "{host}");
+
+            let (addresses, own_infrastructure) = resolve_focus(&url, host, 443,
+                || std::future::ready(own(&[url.as_str()]))).await
+                .unwrap_or_else(|_| panic!("{host} is ours"));
+            assert!(own_infrastructure, "{host}");
+            assert_eq!(addresses[0].port(), 443);
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(feature = "test-loopback-foci"))]
+    async fn the_own_homeserver_still_cannot_aim_at_loopback_or_link_local() {
+        for (host, class) in [("127.0.0.1", "loopback"), ("::1", "loopback"),
+                              ("169.254.169.254", "link_local"),
+                              ("fe80::1", "link_local"),
+                              ("64:ff9b::a00:5", "nat64_non_public")] {
+            let url = format!("https://{}/", if host.contains(':') {
+                format!("[{host}]") } else { host.to_owned() });
+            let failure = resolve_focus(&url, host, 443,
+                || std::future::ready(own(&[url.as_str()]))).await
+                .expect_err(host);
+            assert_eq!(failure.category, "focus_unroutable", "{host}");
+            assert_eq!(failure.address_class, Some(class), "{host}");
+            assert!(failure.own_focus, "{host}");
+        }
+    }
+
+    #[test]
+    #[cfg(not(feature = "test-loopback-foci"))]
+    fn the_signal_host_is_relaxed_only_for_own_infrastructure() {
+        let lan: Vec<std::net::SocketAddr> = vec!["10.0.0.5:443".parse().unwrap()];
+        assert_eq!(crate::rtc::focus_address_refusal("sfu.example.org", &lan, false),
+                   Some("private"));
+        assert_eq!(crate::rtc::focus_address_refusal("sfu.example.org", &lan, true), None);
+        let mixed: Vec<std::net::SocketAddr> =
+            vec!["93.184.216.34:443".parse().unwrap(), "[::1]:443".parse().unwrap()];
+        assert_eq!(crate::rtc::focus_address_refusal("sfu.example.org", &mixed, true),
+                   Some("loopback"));
+        let nat64: Vec<std::net::SocketAddr> =
+            vec!["[64:ff9b::5db8:d822]:443".parse().unwrap()];
+        assert_eq!(crate::rtc::focus_address_refusal("sfu.example.org", &nat64, false),
+                   None);
     }
 
     #[test]

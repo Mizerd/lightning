@@ -173,15 +173,44 @@ pub(crate) fn test_focus_ip(ip: std::net::IpAddr) -> bool {
 pub(crate) enum HostRefusal {
     PrivateName,
     Unresolved,
-    /// At least one resolved address is not public. The whole name is refused
-    /// (see docs/matrixrtc.md): a public A record beside a loopback AAAA is the
-    /// rebinding shape this guards against.
-    NonPublicAddress,
+    /// At least one resolved address is not public, named by its
+    /// `address_class`. The whole name is refused (see docs/matrixrtc.md): a
+    /// public A record beside a loopback AAAA is the rebinding shape this
+    /// guards against.
+    NonPublicAddress(&'static str),
 }
 
-pub(crate) async fn resolve_public_hosts(
+/// Address classes accepted for a focus the user's own homeserver advertises:
+/// split-horizon LAN, Tailscale/CGNAT and ULA deployments. Loopback and
+/// link-local stay refused even there.
+const OWN_INFRASTRUCTURE_CLASSES: [&str; 3] = ["private", "cgnat", "ula"];
+
+pub(crate) fn focus_address_refusal(
+    host: &str,
+    addresses: &[std::net::SocketAddr],
+    own_infrastructure: bool,
+) -> Option<&'static str> {
+    #[cfg(not(feature = "test-loopback-foci"))]
+    let _ = host;
+    addresses.iter().map(|address| address.ip()).find_map(|ip| {
+        #[cfg(feature = "test-loopback-foci")]
+        let allowed = if loopback_hostname(host) { ip.is_loopback() }
+                      else { test_focus_ip(ip) };
+        #[cfg(not(feature = "test-loopback-foci"))]
+        let allowed = public_ip(ip);
+        let class = crate::rooms::address_class(ip);
+        if allowed || (own_infrastructure && OWN_INFRASTRUCTURE_CLASSES.contains(&class)) {
+            None
+        } else {
+            Some(class)
+        }
+    })
+}
+
+pub(crate) async fn resolve_focus_hosts(
     host: &str,
     port: u16,
+    own_infrastructure: bool,
 ) -> Result<Vec<std::net::SocketAddr>, HostRefusal> {
     #[cfg(feature = "test-loopback-foci")]
     if !public_hostname(host) && !loopback_hostname(host) {
@@ -198,25 +227,38 @@ pub(crate) async fn resolve_public_hosts(
     if addresses.is_empty() {
         return Err(HostRefusal::Unresolved);
     }
-    #[cfg(feature = "test-loopback-foci")]
-    if !addresses.iter().all(|address| {
-        if loopback_hostname(host) { address.ip().is_loopback() }
-        else { test_focus_ip(address.ip()) }
-    }) {
-        return Err(HostRefusal::NonPublicAddress);
-    }
-    #[cfg(not(feature = "test-loopback-foci"))]
-    if !addresses.iter().all(|address| public_ip(address.ip())) {
-        return Err(HostRefusal::NonPublicAddress);
+    if let Some(class) = focus_address_refusal(host, &addresses, own_infrastructure) {
+        return Err(HostRefusal::NonPublicAddress(class));
     }
     Ok(addresses)
 }
 
+/// The foci the user's own homeserver advertises in its `.well-known`, the only
+/// source trusted to name a non-public focus.
+pub(crate) async fn own_homeserver_transports(
+    client: &matrix_sdk::Client,
+) -> Vec<LivekitTransport> {
+    match transports_endpoint::get(client, DISCOVERY_TIMEOUT).await {
+        Ok(answer) if (200..300).contains(&answer.status) => answer
+            .transports
+            .iter()
+            .filter_map(parse_transport)
+            .take(MAX_TRANSPORTS)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+pub(crate) fn focus_is_advertised(service_url: &str, own: &[LivekitTransport]) -> bool {
+    own.iter().any(|transport| same_focus_url(&transport.service_url, service_url))
+}
+
+#[cfg(test)]
 pub(crate) async fn resolve_public_host(
     host: &str,
     port: u16,
 ) -> Option<std::net::SocketAddr> {
-    resolve_public_hosts(host, port)
+    resolve_focus_hosts(host, port, false)
         .await
         .ok()
         .and_then(|addresses| addresses.into_iter().next())

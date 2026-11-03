@@ -10909,6 +10909,17 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                            << "reason=" << event.value(QStringLiteral("reason")).toInt()
                            << "action=" << event.value(QStringLiteral("action")).toInt();
         }
+        if (type == QLatin1String("sfu_state")
+            && event.contains(QStringLiteral("address_class"))) {
+            qCWarning(lcRust) << "sfu focus address refused connection="
+                              << event.value(QStringLiteral("connection_id")).toInt()
+                              << "stage=" << event.value(QStringLiteral("stage")).toString()
+                              << "category=" << event.value(QStringLiteral("category")).toString()
+                              << "addressClass="
+                              << event.value(QStringLiteral("address_class")).toString()
+                              << "advertisedByOwnHomeserver="
+                              << event.value(QStringLiteral("own_focus")).toBool();
+        }
         if (event.value(QStringLiteral("connection_id")).toInt() != 0)
             return true;
     }

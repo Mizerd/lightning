@@ -125,6 +125,25 @@ address (split-horizon DNS), is no longer supported; the engine reports
 not apply this policy, so a room whose focus is LAN-only will work in Element
 and not here.
 
+**Except a focus the user's OWN homeserver advertises (issue #64).** The guard
+exists because another participant picks the focus. When a resolved address
+is non-public, the `/sfu/get` step re-reads the account's own
+`.well-known/matrix/client` foci; if the service URL is one of them, addresses
+of class `private`, `cgnat` or `ula` are accepted (split-horizon, a LAN or
+Tailscale deployment), and so is the LiveKit URL that service hands back.
+Loopback, link-local and every other class stay refused even there, and so do
+local-only names and private IP literals, which never pass discovery. That
+server already holds the user's access token, so trusting its choice of SFU
+grants it nothing new; a focus seen only in other members' memberships gets no
+exception.
+
+The refusal is reported by its own category at both steps — `/sfu/get` used to
+collapse it into `invalid_transport` — and the address is logged only by CLASS
+(`sfu focus address refused stage= category= addressClass=
+advertisedByOwnHomeserver=`), never the address. A NAT64 `64:ff9b::/96`
+address is judged by the IPv4 address it embeds, so an IPv6-only network with
+DNS64 reaches a public focus; the local-use `64:ff9b:1::/48` is refused.
+
 The legacy SFU identity (`rtc_identity`) is **derived** as `{user}:{device}`
 from the envelope's sender, never read directly from the content's
 `membershipID`. Reading the field as a bare identity let any member publish
@@ -144,9 +163,9 @@ There is **no hardcoded SFU anywhere in Lightning**, and no dependency on
 `call.element.io` or any other hosted instance. Resolution order matches
 element-call's own:
 
-1. The homeserver's authenticated MSC4143 endpoint,
-   `GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`, which
-   answers `{"rtc_transports": [...]}`.
+1. The account's own server's `.well-known/matrix/client`
+   `org.matrix.msc4143.rtc_foci` (or `m.rtc_foci`), fetched without a token
+   (`transports_endpoint` in `rust/src/rtc.rs`).
 2. Otherwise the focus the **existing participants advertise** in their own
    membership `foci_preferred`. This is what `focus_selection:
    "oldest_membership"` means, and it is how every pre-endpoint deployment
@@ -154,10 +173,6 @@ element-call's own:
    server with no MSC4143 endpoint.
 3. Otherwise nothing. A user-configured URL is the intended third step and
    is **not implemented yet**.
-
-An earlier MatrixRTC draft advertised foci through `.well-known/matrix/client`
-as `org.matrix.msc4143.rtc_foci`. Current Element does not read it, so
-Lightning deliberately does **not** implement it — it would be a dead path.
 
 Only `type: "livekit"` transports are understood, and a transport URL must be
 **`https:`** with a host; an `http:` SFU would downgrade the channel that

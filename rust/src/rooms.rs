@@ -260,13 +260,14 @@ pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
             // not loopback, multicast, fc00::/7 or fe80::/10 as v6, yet an AF_INET6
             // socket to it reaches the IPv4 host, so an `AAAA ::ffff:127.0.0.1` record
             // could aim a preview at loopback, RFC1918 or 169.254.169.254 (on every
-            // redirect hop too). Also refused: the deprecated `::a.b.c.d` form and
-            // NAT64's 64:ff9b::/96, which also embed an IPv4 destination.
+            // redirect hop too). The deprecated `::a.b.c.d` form and NAT64's
+            // 64:ff9b::/96 embed an IPv4 destination and are judged by it; NAT64's
+            // local-use 64:ff9b:1::/48 has no fixed embedding and is refused.
             if let Some(v4) = v.to_ipv4_mapped() {
                 return public_ip(std::net::IpAddr::V4(v4));
             }
-            if v.segments()[0] == 0x0064 && v.segments()[1] == 0xff9b {
-                return false;
+            if let Some(nat64) = nat64_embedded(v) {
+                return nat64.is_some_and(|v4| public_ip(std::net::IpAddr::V4(v4)));
             }
             if let Some(v4) = v.to_ipv4() {
                 return public_ip(std::net::IpAddr::V4(v4));
@@ -278,6 +279,62 @@ pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
                 || (s[0] & 0xffc0) == 0xfec0
                 || s[0] == 0x2002
                 || (s[0] == 0x2001 && s[1] == 0x0000))
+        }
+    }
+}
+
+/// `None` outside 64:ff9b::/16; `Some(None)` inside it without a well-known
+/// /96 embedding (RFC 6052, RFC 8215).
+fn nat64_embedded(v: std::net::Ipv6Addr) -> Option<Option<std::net::Ipv4Addr>> {
+    let s = v.segments();
+    if s[0] != 0x0064 || s[1] != 0xff9b {
+        return None;
+    }
+    if s[2..6].iter().any(|segment| *segment != 0) {
+        return Some(None);
+    }
+    let o = v.octets();
+    Some(Some(std::net::Ipv4Addr::new(o[12], o[13], o[14], o[15])))
+}
+
+/// A log-safe name for why `public_ip` refuses an address; `"public"` when it
+/// does not. Never carries the address itself.
+pub(crate) fn address_class(ip: std::net::IpAddr) -> &'static str {
+    if public_ip(ip) {
+        return "public";
+    }
+    match ip {
+        std::net::IpAddr::V4(v) => {
+            let o = v.octets();
+            if v.is_unspecified() || o[0] == 0 { "unspecified" }
+            else if v.is_loopback() { "loopback" }
+            else if v.is_private() { "private" }
+            else if o[0] == 100 && (64..=127).contains(&o[1]) { "cgnat" }
+            else if v.is_link_local() { "link_local" }
+            else if v.is_multicast() { "multicast" }
+            else { "reserved" }
+        }
+        std::net::IpAddr::V6(v) => {
+            if let Some(v4) = v.to_ipv4_mapped() {
+                return match address_class(std::net::IpAddr::V4(v4)) {
+                    "public" => "reserved",
+                    class => class,
+                };
+            }
+            if let Some(nat64) = nat64_embedded(v) {
+                return if nat64.is_some() { "nat64_non_public" } else { "nat64_local_use" };
+            }
+            let s = v.segments();
+            if v.is_unspecified() { "unspecified" }
+            else if v.is_loopback() { "loopback" }
+            else if v.is_multicast() { "multicast" }
+            else if (s[0] & 0xfe00) == 0xfc00 { "ula" }
+            else if (s[0] & 0xffc0) == 0xfe80 { "link_local" }
+            else if (s[0] & 0xffc0) == 0xfec0 { "site_local" }
+            else if s[0] == 0x2002 { "6to4" }
+            else if s[0] == 0x2001 && s[1] == 0 { "teredo" }
+            else if v.to_ipv4().is_some() { "v4_compatible" }
+            else { "reserved" }
         }
     }
 }
@@ -6226,6 +6283,48 @@ mod tests {
         assert!(!public_ip("feff::1".parse().unwrap()));
         assert!(public_ip("2001:4860:4860::8888".parse().unwrap()));
         assert!(public_ip("2003:e0::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn nat64_addresses_are_judged_by_the_ipv4_they_embed() {
+        for public in ["64:ff9b::5db8:d822", "64:ff9b::93.184.216.34",
+                       "64:ff9b::808:808"] {
+            assert!(public_ip(public.parse().unwrap()), "{public}");
+        }
+        for private in ["64:ff9b::7f00:1", "64:ff9b::a00:5", "64:ff9b::c0a8:101",
+                        "64:ff9b::a9fe:a9fe", "64:ff9b::6440:1", "64:ff9b::",
+                        "64:ff9b::e000:1", "64:ff9b:1::5db8:d822",
+                        "64:ff9b:1:0:5db8:d822::", "64:ff9b:0:0:1::5db8:d822"] {
+            assert!(!public_ip(private.parse().unwrap()), "{private}");
+        }
+    }
+
+    #[test]
+    fn address_class_names_every_refusal_and_agrees_with_public_ip() {
+        let cases = [
+            ("93.184.216.34", "public"), ("2001:4860:4860::8888", "public"),
+            ("64:ff9b::5db8:d822", "public"), ("::ffff:93.184.216.34", "public"),
+            ("0.0.0.0", "unspecified"), ("::", "unspecified"),
+            ("127.0.0.1", "loopback"), ("::1", "loopback"),
+            ("10.1.2.3", "private"), ("172.16.0.1", "private"),
+            ("192.168.1.10", "private"), ("100.64.0.1", "cgnat"),
+            ("100.127.255.254", "cgnat"), ("169.254.169.254", "link_local"),
+            ("fe80::1", "link_local"), ("224.0.0.1", "multicast"),
+            ("ff02::1", "multicast"), ("240.0.0.1", "reserved"),
+            ("255.255.255.255", "reserved"), ("fd7a:115c:a1e0::1", "ula"),
+            ("fc00::1", "ula"), ("fec0::1", "site_local"),
+            ("2002:c0a8:101::1", "6to4"),
+            ("2001:0:4136:e378:8000:63bf:3fff:fdd2", "teredo"),
+            ("::ffff:10.0.0.1", "private"), ("::ffff:127.0.0.1", "loopback"),
+            ("64:ff9b::a00:5", "nat64_non_public"),
+            ("64:ff9b:1::5db8:d822", "nat64_local_use"),
+            ("::127.0.0.1", "v4_compatible"),
+        ];
+        for (literal, class) in cases {
+            let ip: std::net::IpAddr = literal.parse().unwrap();
+            assert_eq!(address_class(ip), class, "{literal}");
+            assert_eq!(public_ip(ip), class == "public", "{literal}");
+        }
     }
 
     #[test]
