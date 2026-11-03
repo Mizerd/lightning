@@ -549,7 +549,19 @@ Rectangle {
                         }
                     }
                 }
-                onWidthChanged: Qt.callLater(revealSelected)
+                function showStart() {
+                    contentX = app.localization.rightToLeft
+                             ? Math.max(0, contentWidth - width) : 0
+                    revealSelected()
+                }
+                onWidthChanged: Qt.callLater(showStart)
+                onContentWidthChanged: Qt.callLater(showStart)
+                Connections {
+                    target: app.localization
+                    function onLanguageChanged() {
+                        Qt.callLater(chipsFlick.showStart)
+                    }
+                }
                 WheelHandler {
                     acceptedDevices: PointerDevice.Mouse
                     onWheel: (event) => {

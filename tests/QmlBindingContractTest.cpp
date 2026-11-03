@@ -1879,6 +1879,20 @@ private Q_SLOTS:
                      handler);
         }
     }
+
+    void theFilterChipsOpenAtTheirStartInRightToLeft()
+    {
+        const QString panel = read(QStringLiteral("RoomsPanel.qml"));
+        const int at = panel.indexOf(QLatin1String("objectName: \"roomFilterChipsFlick\""));
+        QVERIFY(at >= 0);
+        const QString block = panel.mid(at, 3200);
+        for (const char *needle : { "app.localization.rightToLeft",
+                                    "Math.max(0, contentWidth - width)",
+                                    "onWidthChanged: Qt.callLater(showStart)",
+                                    "onContentWidthChanged: Qt.callLater(showStart)",
+                                    "function onLanguageChanged()" })
+            QVERIFY2(block.contains(QLatin1String(needle)), needle);
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)
