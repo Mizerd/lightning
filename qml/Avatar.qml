@@ -350,6 +350,10 @@ Rectangle {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
+        // Decode and bake at the drawn size: the 224 px bitmap is drawn at 24-48 px,
+        // and letting the GPU minify it leaves the edge stair-stepped.
+        sourceSize.width: Math.ceil(width > 0 ? width : root.size)
+        sourceSize.height: Math.ceil(height > 0 ? height : root.size)
         layer.enabled: root.showingFallback && root.motionMaskable
         layer.effect: MultiEffect {
             maskEnabled: true
