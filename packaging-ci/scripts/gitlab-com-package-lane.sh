@@ -11,8 +11,9 @@
 #   GITLAB_COM_PIPELINE_ID    optional: collect from this finished pipeline
 #                             instead of triggering one
 #
-# PUBLISH_PACKAGES and RELEASE_VERSION are passed through, so a release
-# pipeline gets an official (key-embedding) build. Nothing is published there.
+# PUBLISH_PACKAGES, RELEASE_ACTION and RELEASE_VERSION are passed through, so a
+# release gets an official (key-embedding) build; the lane's resolve-source runs
+# validate-release-request.sh on them. Nothing is published there.
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,7 +24,9 @@ ROOT="$(project_dir)"
 : "${GITLAB_COM_API:=https://gitlab.com/api/v4}"
 : "${GITLAB_COM_PROJECT_ID:=88402223}"
 : "${GITLAB_COM_REF:=main}"
-: "${GITLAB_COM_TIMEOUT_S:=14400}"
+# Above the lane's critical path: resolve 15m, build 3h, snap 1h, its validator
+# 1h, plus queueing.
+: "${GITLAB_COM_TIMEOUT_S:=25200}"
 require_var GITLAB_COM_READ_TOKEN
 require_var SOURCE_REF
 [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]] || die "SOURCE_REF must be a full commit SHA"
@@ -32,8 +35,10 @@ require_var SOURCE_REF
 API="$GITLAB_COM_API/projects/$GITLAB_COM_PROJECT_ID"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-# Tokens reach curl through a 0600 config file, never the command line.
-( umask 077; printf 'header = "PRIVATE-TOKEN: %s"\n' "$GITLAB_COM_READ_TOKEN" >"$WORK/auth" )
+# Tokens reach curl through a 0600 config file, never the command line. An
+# Authorization header, unlike PRIVATE-TOKEN, is dropped when the artifact
+# download redirects to object storage.
+( umask 077; printf 'header = "Authorization: Bearer %s"\n' "$GITLAB_COM_READ_TOKEN" >"$WORK/auth" )
 api() { curl -fsS --retry 5 --retry-all-errors --max-time 120 -K "$WORK/auth" "$API/$1"; }
 
 # Every package the release publishes, by the job that validated it.
@@ -64,11 +69,32 @@ if [[ -z "$pipeline" ]]; then
         --data-urlencode "variables[RUN_TESTS]=0" \
         --data-urlencode "variables[SOURCE_REF]=$SOURCE_REF" \
         --data-urlencode "variables[PUBLISH_PACKAGES]=${PUBLISH_PACKAGES:-false}" \
+        --data-urlencode "variables[RELEASE_ACTION]=${RELEASE_ACTION:-}" \
         --data-urlencode "variables[RELEASE_VERSION]=${RELEASE_VERSION:-}" \
         "$API/trigger/pipeline" | jq -er .id)"
 fi
 [[ "$pipeline" =~ ^[0-9]+$ ]] || die "no gitlab.com pipeline id"
 printf 'gitlab.com package lane: pipeline %s\n' "$pipeline"
+
+# An adopted pipeline must have been asked for exactly what this run needs.
+api "pipelines/$pipeline/variables" >"$WORK/variables.json"
+var() { jq -r --arg k "$1" '[.[] | select(.key == $k) | .value][0] // ""' "$WORK/variables.json"; }
+[[ "$(var PACKAGE_LANE)" == 1 ]] || die "pipeline $pipeline was not a package lane run"
+[[ "$(var PUBLISH_PACKAGES)" == "${PUBLISH_PACKAGES:-false}" || \
+   ( -z "$(var PUBLISH_PACKAGES)" && "${PUBLISH_PACKAGES:-false}" == false ) ]] || \
+    die "pipeline $pipeline ran with PUBLISH_PACKAGES=$(var PUBLISH_PACKAGES)"
+[[ "$(var RELEASE_VERSION)" == "${RELEASE_VERSION:-}" ]] || \
+    die "pipeline $pipeline ran with RELEASE_VERSION=$(var RELEASE_VERSION)"
+for narrowing in PACKAGE_ARCH PACKAGE_FORMATS; do
+    [[ "$(var "$narrowing")" == "" || "$(var "$narrowing")" == all ]] || \
+        die "pipeline $pipeline was narrowed by $narrowing=$(var "$narrowing")"
+done
+[[ -z "$(var SOURCE_REF)" || "$(var SOURCE_REF)" == "$SOURCE_REF" ]] || \
+    die "pipeline $pipeline ran with SOURCE_REF=$(var SOURCE_REF)"
+for forbidden in LIGHTNING_SOURCE_FROM_CHECKOUT LIGHTNING_REPOSITORY; do
+    [[ -z "$(jq -r --arg k "$forbidden" '.[] | select(.key == $k) | .key' "$WORK/variables.json")" ]] || \
+        die "pipeline $pipeline overrides $forbidden"
+done
 
 deadline=$(( $(date +%s) + GITLAB_COM_TIMEOUT_S ))
 while :; do
@@ -83,7 +109,11 @@ done
 pipeline_sha="$(api "pipelines/$pipeline" | jq -er .sha)"
 [[ "$pipeline_sha" == "$SOURCE_REF" ]] || die "gitlab.com pipeline $pipeline built $pipeline_sha, not $SOURCE_REF"
 
-api "pipelines/$pipeline/jobs?per_page=100" >"$WORK/jobs.json"
+curl -fsS --retry 5 --retry-all-errors --max-time 120 -K "$WORK/auth" -D "$WORK/jobs.headers" \
+    -o "$WORK/jobs.json" "$API/pipelines/$pipeline/jobs?per_page=100"
+total="$(tr -d '\r' <"$WORK/jobs.headers" | awk -F': ' 'tolower($1) == "x-total" { print $2 }')"
+[[ "$total" =~ ^[0-9]+$ ]] && (( total <= 100 )) || die "pipeline $pipeline lists '$total' jobs; expected at most one page"
+(( $(jq length "$WORK/jobs.json") == total )) || die "pipeline $pipeline's job list is incomplete"
 # A release may not pass with any job red, canaries included.
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
     red="$(jq -r '[.[] | select(.status != "success") | .name] | join(" ")' "$WORK/jobs.json")"
@@ -103,6 +133,8 @@ for name in "${LANE_JOBS[@]}"; do
     while IFS= read -r -d '' pkg; do
         base="$(basename "$pkg")"
         [[ -f "$pkg.sha256" ]] || die "$name: $base has no .sha256"
+        read -r _ named <"$pkg.sha256"
+        [[ "${named#\*}" == "$base" ]] || die "$name: $base.sha256 names '$named'"
         ( cd "$(dirname "$pkg")" && sha256sum -c --quiet "$base.sha256" ) || die "$name: $base does not match its .sha256"
         [[ ! -e "$ROOT/dist/$base" ]] || die "$base was collected twice"
         install -m 0644 "$pkg" "$pkg.sha256" "$ROOT/dist/"

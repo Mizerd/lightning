@@ -34,11 +34,12 @@ variables:
     RUST_TOOLCHAIN: "1.93.0"
     RUSTUP_VERSION: "1.29.1"
   # configure-build.sh keeps cargo, its target dir and ccache under /cache.
-  # Protected and unprotected refs keep separate caches (no `unprotect`).
   cache:
     key: pkg-$CI_JOB_NAME
     paths: [.ci-pkgcache/]
     when: always
+  after_script:
+    - if [ -d /cache/ccache ]; then CCACHE_DIR=/cache/ccache ccache --show-stats || true; fi
   artifacts:
     name: "lightning-$CI_JOB_NAME-$CI_PIPELINE_ID"
     when: always
@@ -54,11 +55,13 @@ variables:
     expire_in: 7 days
     paths: [dist/]
 
-# An official (PUBLISH_PACKAGES=true) build never reads a cache: it compiles cold.
+# An official (PUBLISH_PACKAGES=true) build does not link the restored cache
+# in as /cache, so it compiles cold. -T: an existing /cache fails the job
+# rather than nesting the link inside it.
 .pkg-cache-dir: &pkg-cache-dir
   - >-
     if [ "$PUBLISH_PACKAGES" != true ]; then
-    mkdir -p .ci-pkgcache && ln -sfn "$CI_PROJECT_DIR/.ci-pkgcache" /cache; fi
+    mkdir -p .ci-pkgcache && ln -sfnT "$CI_PROJECT_DIR/.ci-pkgcache" /cache; fi
 
 # RUSTUP_TRIPLE and RUSTUP_INIT_SHA256 come from the job's architecture.
 .pkg-rustup: &pkg-rustup
@@ -197,8 +200,13 @@ resolve-source:
   needs: []
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates git jq
+    # openssl: validate-release-request.sh checks the update-signing public key.
+    - apt-get install -y --no-install-recommends ca-certificates git jq openssl
   script:
+    # The update-signing private key never reaches gitlab.com.
+    - test -z "${UPDATE_SIGNING_KEY_B64:-}"
+    # A release run needs the same inputs, keys and default branch as at home.
+    - ./packaging-ci/scripts/validate-release-request.sh
     - ./packaging-ci/scripts/fetch-lightning-source.sh
     - ./packaging-ci/scripts/resolve-version.sh
     - ./packaging-ci/scripts/write-resolved-env.sh

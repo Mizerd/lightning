@@ -122,7 +122,8 @@ jq -n \
     --arg closest_tag "$CLOSEST_TAG" \
     --arg exact_tag "$EXACT_TAG" \
     --arg repository "$EXPECTED_REPOSITORY" \
-    '{repository:$repository, requested_ref:$requested_ref, resolved_sha:$resolved_sha,
+    --arg fetched_from "$( [[ "${LIGHTNING_SOURCE_FROM_CHECKOUT:-false}" == true ]] && echo mirror-checkout || echo canonical )" \
+    '{repository:$repository, fetched_from:$fetched_from, requested_ref:$requested_ref, resolved_sha:$resolved_sha,
       commit_time:$commit_time, closest_tag:$closest_tag, exact_tag:$exact_tag,
       dirty:false}' >"$DIST_DIR/source-info.json"
 
