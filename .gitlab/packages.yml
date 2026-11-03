@@ -13,8 +13,9 @@ variables:
   LIGHTNING_REPOSITORY: "https://gitlab.smetonis.net/Mizerd/lightning.git"
   SOURCE_REF: $CI_COMMIT_SHA
 
+# Not interruptible: a later pipeline on the same ref must never cancel a
+# release build through auto-cancel.
 .pkg-job:
-  interruptible: true
   variables:
     # The source is this mirror's own checkout; SOURCE_REF must name it.
     LIGHTNING_SOURCE_FROM_CHECKOUT: "true"
