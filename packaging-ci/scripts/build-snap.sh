@@ -5,7 +5,7 @@
 # already carries the app, Qt, plugins and QML modules.
 #
 # Input:  dist/lightning-appdir-<LOGICAL_VERSION>.tar.zst (build-appimage)
-# Output: dist/lightning_<LOGICAL_VERSION>_amd64.snap
+# Output: dist/lightning_<LOGICAL_VERSION>_<arch>.snap
 set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib.sh
@@ -13,11 +13,12 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(project_dir)
 cd "$ROOT"
 load_versions
+load_host_arch
 
 APPDIR_TAR="dist/lightning-appdir-${LOGICAL_VERSION}.tar.zst"
 SNAP_WORK="$ROOT/work/snap"
 TREE="$SNAP_WORK/prime"
-OUT="dist/lightning_${LOGICAL_VERSION}_amd64.snap"
+OUT="dist/lightning_${LOGICAL_VERSION}_${SNAP_ARCH}.snap"
 TEMPLATE="$ROOT/packaging-ci/packaging/snap/snap.yaml.in"
 
 test -f "$APPDIR_TAR" || die "missing $APPDIR_TAR (build-appimage artifact)"
@@ -120,7 +121,7 @@ done
 #
 # Only the base snap's C/C++ runtime may come from outside the payload
 # (libresolv ships with glibc).
-BASE_SNAP_LIBS="ld-linux-x86-64.so.2 libc.so.6 libm.so.6 libdl.so.2 \
+BASE_SNAP_LIBS="$DYNAMIC_LOADER libc.so.6 libm.so.6 libdl.so.2 \
 libpthread.so.0 librt.so.1 libresolv.so.2 libstdc++.so.6 libgcc_s.so.1"
 
 # Walked transitively: libqxcb reaches libSM and libgstopengl reaches libGL
@@ -348,8 +349,8 @@ chmod 0755 "$TREE/bin/lightning-launch"
 
 # Snap metadata + desktop integration.
 mkdir -p "$TREE/meta/gui"
-sed -e "s|@VERSION@|$LOGICAL_VERSION|" "$TEMPLATE" > "$TREE/meta/snap.yaml"
-grep -q '@VERSION@' "$TREE/meta/snap.yaml" && die "unsubstituted snap.yaml"
+sed -e "s|@VERSION@|$LOGICAL_VERSION|" -e "s|@ARCH@|$SNAP_ARCH|" "$TEMPLATE" > "$TREE/meta/snap.yaml"
+grep -qE '@(VERSION|ARCH)@' "$TREE/meta/snap.yaml" && die "unsubstituted snap.yaml"
 sed -e 's|^Exec=.*$|Exec=lightning|' \
     -e 's|^Icon=.*$|Icon=${SNAP}/meta/gui/lightning.png|' \
     "$TREE/usr/share/applications/lightning.desktop" \

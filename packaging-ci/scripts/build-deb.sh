@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
+load_host_arch
 
 LIGHTNING_INSTALL_TYPE=linux-deb "$SCRIPT_DIR/configure-build.sh"
 
@@ -33,11 +34,11 @@ install -d "$PKGROOT/usr/share/doc/lightning"
 gzip -9nc "$ROOT/work/changelog" >"$PKGROOT/usr/share/doc/lightning/changelog.gz"
 
 # dpkg-shlibdeps needs a source-package debian/control, not the binary one.
-cat >"$ROOT/work/debian/control" <<'EOF'
+cat >"$ROOT/work/debian/control" <<EOF
 Source: lightning
 
 Package: lightning
-Architecture: amd64
+Architecture: $DEB_ARCH
 EOF
 # Analyse both ELFs so a new dependency of the update helper is declared too.
 SHLIBS_OUT="$ROOT/work/shlibdeps.out"
@@ -76,7 +77,7 @@ IMAGE_DEPENDS="qt6-image-formats-plugins"
 IMAGE_RECOMMENDS="kimageformat6-plugins"
 
 {
-    cat "$ROOT/packaging-ci/packaging/deb/control"
+    sed "s/^Architecture: .*/Architecture: $DEB_ARCH/" "$ROOT/packaging-ci/packaging/deb/control"
     printf 'Version: %s\n' "$DEB_VERSION"
     printf 'Depends: %s, %s, %s, %s\n' \
         "$SHLIBS" "$QML_DEPENDS" "$CALL_DEPENDS" "$IMAGE_DEPENDS"
@@ -91,7 +92,7 @@ install -m0755 "$ROOT/packaging-ci/packaging/deb/postrm" "$CONTROL/postrm"
 # Debian 13 deb cannot install on Ubuntu 24.04; each distro gets its own lane.
 # DEB_SUFFIX comes from the CI job (empty for Debian, keeping its filename
 # stable) so the two lanes' artifacts never collide.
-PACKAGE="$ROOT/dist/lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_amd64.deb"
+PACKAGE="$ROOT/dist/lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_${DEB_ARCH}.deb"
 dpkg-deb --build --root-owner-group "$PKGROOT" "$PACKAGE"
 write_sha256 "$PACKAGE"
 printf 'Built %s\n' "$PACKAGE"

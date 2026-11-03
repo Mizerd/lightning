@@ -6,12 +6,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
+load_host_arch
 shopt -s nullglob
 packages=("$ROOT"/dist/*.deb)
 (( ${#packages[@]} == 1 )) || die "expected exactly one DEB package"
 package="${packages[0]}"
 # Suffix-aware: each lane must validate its own deb, never the other lane's.
-expected="lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_amd64.deb"
+expected="lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_${DEB_ARCH}.deb"
 [[ "$(basename "$package")" == "$expected" ]] || die "unexpected DEB filename"
 [[ ! -e "$ROOT/work/lightning" ]] || die "validation must not receive a source checkout"
 command -v nix >/dev/null 2>&1 && die "Nix must be absent from the validation environment"

@@ -9,10 +9,11 @@ FORMAT="$1"
 [[ "$FORMAT" =~ ^(deb|rpm)$ ]] || die "unsupported package format: $FORMAT"
 ROOT="$(project_dir)"
 load_versions
+load_host_arch
 
 case "$FORMAT" in
-    deb) PACKAGE_VERSION="$DEB_VERSION"; PACKAGE_ARCHITECTURE="amd64" ;;
-    rpm) PACKAGE_VERSION="${RPM_VERSION}-${RPM_RELEASE}"; PACKAGE_ARCHITECTURE="x86_64" ;;
+    deb) PACKAGE_VERSION="$DEB_VERSION"; PACKAGE_ARCHITECTURE="$DEB_ARCH" ;;
+    rpm) PACKAGE_VERSION="${RPM_VERSION}-${RPM_RELEASE}"; PACKAGE_ARCHITECTURE="$RPM_ARCH" ;;
 esac
 
 mapfile -t artifacts < <(find "$ROOT/dist" -maxdepth 1 -type f \

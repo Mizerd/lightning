@@ -9,10 +9,11 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(project_dir)
 cd "$ROOT"
 load_versions
+load_host_arch
 
 count=$(find dist -maxdepth 1 -name '*.snap' | wc -l)
 [ "$count" = 1 ] || die "expected exactly one .snap in dist, found $count"
-snap_file="dist/lightning_${LOGICAL_VERSION}_amd64.snap"
+snap_file="dist/lightning_${LOGICAL_VERSION}_${SNAP_ARCH}.snap"
 test -f "$snap_file" || die "expected snap name $snap_file"
 test ! -e work/lightning || die "validation must not see a source checkout"
 command -v nix >/dev/null 2>&1 && die "validation image must not provide nix"

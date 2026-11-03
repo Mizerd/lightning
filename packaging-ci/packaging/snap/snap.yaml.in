@@ -1,5 +1,5 @@
-# snap.yaml template; build-snap.sh substitutes @VERSION@ and packs the
-# AppImage job's bundled AppDir with mksquashfs.
+# snap.yaml template; build-snap.sh substitutes @VERSION@ and @ARCH@, and packs
+# the AppImage job's bundled AppDir with mksquashfs.
 #
 # Not snapcraft: it needs a running snapd, which the runner fleet cannot
 # provide, and core24's Qt (6.4) is older than Lightning's minimum (6.5).
@@ -21,7 +21,7 @@ base: core24
 grade: stable
 confinement: strict
 architectures:
-  - amd64
+  - @ARCH@
 apps:
   lightning:
     command: bin/lightning-launch

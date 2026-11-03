@@ -3,10 +3,18 @@ workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "web"
 
+# PACKAGE_LANE=1 runs the package lane instead of the dev build.
+include:
+  - local: .gitlab/packages.yml
+
 build-nixos:
   image: nixos/nix:latest
   tags: [saas-linux-2xlarge-amd64]
   timeout: 2h 50m
+  rules:
+    - if: $PACKAGE_LANE == "1"
+      when: never
+    - when: on_success
   variables:
     NIX_CONFIG: "experimental-features = nix-command flakes"
     CARGO_PROFILE_RELEASE_LTO: thin

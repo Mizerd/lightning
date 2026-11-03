@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
+load_host_arch
 # RPM_LANE=release (the default) validates build-rpm's release .rpm in dist/.
 # RPM_LANE=copr validates build-rpm-opensuse's package in dist/opensuse/: the
 # COPR spec compiled on openSUSE Leap 16.0, keyless and never published.
@@ -16,14 +17,14 @@ case "$RPM_LANE" in
         packages=("$ROOT"/dist/*.rpm)
         (( ${#packages[@]} == 1 )) || die "expected exactly one RPM package"
         package="${packages[0]}"
-        expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"
+        expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.${RPM_ARCH}.rpm"
         [[ "$(basename "$package")" == "$expected" ]] || die "unexpected RPM filename"
         ;;
     copr)
         packages=("$ROOT"/dist/opensuse/*.rpm)
         (( ${#packages[@]} == 1 )) || die "expected exactly one openSUSE RPM package"
         package="${packages[0]}"
-        [[ "$(basename "$package")" == lightning-matrix-"$BASE_VERSION"*.x86_64.rpm ]] || \
+        [[ "$(basename "$package")" == lightning-matrix-"$BASE_VERSION"*."$RPM_ARCH".rpm ]] || \
             die "unexpected openSUSE RPM filename: $(basename "$package")"
         ;;
     *) die "RPM_LANE must be release or copr, not '$RPM_LANE'" ;;

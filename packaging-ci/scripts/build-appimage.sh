@@ -6,7 +6,7 @@
 # linuxdeploy's base-system excludelist (glibc, GL, X11, Wayland).
 #
 # Outputs:
-#   dist/Lightning-<LOGICAL_VERSION>-x86_64.AppImage
+#   dist/Lightning-<LOGICAL_VERSION>-<arch>.AppImage
 #   dist/lightning-appdir-<LOGICAL_VERSION>.tar.zst   (consumed by build-snap)
 set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -17,21 +17,29 @@ cd "$ROOT"
 
 LIGHTNING_INSTALL_TYPE=linux-appimage "$SCRIPT_DIR/configure-build.sh"
 load_versions
+load_host_arch
 
 STAGE="$ROOT/work/stage"
 APPDIR="$ROOT/work/appdir"
 TOOLS="$ROOT/work/appimage-tools"
-OUT="dist/Lightning-${LOGICAL_VERSION}-x86_64.AppImage"
+OUT="dist/Lightning-${LOGICAL_VERSION}-${APPIMAGE_ARCH}.AppImage"
 
 # Pinned bundling tools (dated upstream releases, checksum-verified).
-LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20240109-1/linuxdeploy-x86_64.AppImage"
-LINUXDEPLOY_SHA256=c86d6540f1df31061f02f539a2d3445f8d7f85cc3994eee1e74cd1ac97b76df0
-PLUGIN_QT_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20240109-1/linuxdeploy-plugin-qt-x86_64.AppImage"
-PLUGIN_QT_SHA256=f53349093d333a6558c560844c1a0f64a3b6bd077bf02740af3ad3dbb8827433
+LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20240109-1/linuxdeploy-${APPIMAGE_ARCH}.AppImage"
+PLUGIN_QT_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20240109-1/linuxdeploy-plugin-qt-${APPIMAGE_ARCH}.AppImage"
 # appimagetool packs (see PRUNE below). Pinned to a release tag: the
 # `continuous` tag moves, and upstream republishing it failed the build.
-APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
-APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-${APPIMAGE_ARCH}.AppImage"
+case "$APPIMAGE_ARCH" in
+    x86_64)
+        LINUXDEPLOY_SHA256=c86d6540f1df31061f02f539a2d3445f8d7f85cc3994eee1e74cd1ac97b76df0
+        PLUGIN_QT_SHA256=f53349093d333a6558c560844c1a0f64a3b6bd077bf02740af3ad3dbb8827433
+        APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 ;;
+    aarch64)
+        LINUXDEPLOY_SHA256=77d4d5918b5c9c7620dd74465c717ea59e8655eb83410cd86ebd24cec38c4679
+        PLUGIN_QT_SHA256=93dd6710425f6c3f362f6edb5e867982acf30c7589e100cff15d5c9bcf9ac930
+        APPIMAGETOOL_SHA256=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158 ;;
+esac
 
 fetch_tool() {
     local url=$1 sha=$2 out=$3
@@ -80,7 +88,7 @@ export QMAKE=$(command -v qmake6)
 # GStreamer plugins are dlopen'd, so linuxdeploy cannot discover them from
 # ELF NEEDED entries. Without them every call is refused by the engine's
 # element probe.
-GST_PLUGIN_SRC="/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
+GST_PLUGIN_SRC="/usr/lib/$MULTIARCH/gstreamer-1.0"
 GST_PLUGIN_DEST="$APPDIR/usr/lib/gstreamer-1.0"
 # Fatal rather than skipped: the job installs the plugins, so absence means
 # the job changed.
@@ -226,8 +234,8 @@ GST_SCANNER_DEST="$APPDIR/usr/libexec/gstreamer-1.0"
 gst_scanner_src=""
 for candidate in \
     "/usr/libexec/gstreamer-1.0/gst-plugin-scanner" \
-    "/usr/lib/x86_64-linux-gnu/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner" \
-    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/gst-plugin-scanner"; do
+    "/usr/lib/$MULTIARCH/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner" \
+    "/usr/lib/$MULTIARCH/gstreamer-1.0/gst-plugin-scanner"; do
     if [[ -x "$candidate" ]]; then
         gst_scanner_src="$candidate"
         break
@@ -249,8 +257,8 @@ printf 'Staged gst-plugin-scanner from %s\n' "$gst_scanner_src"
 # the direct PipeWire audio fallback). These are SPA modules, separate from
 # GStreamer's libgstaudioresample: neither ELF dependency walks nor an element
 # factory probe discover them. Other SPA directories are not needed here.
-SPA_SRC="/usr/lib/x86_64-linux-gnu/spa-0.2"
-PW_MODULE_SRC="/usr/lib/x86_64-linux-gnu/pipewire-0.3"
+SPA_SRC="/usr/lib/$MULTIARCH/spa-0.2"
+PW_MODULE_SRC="/usr/lib/$MULTIARCH/pipewire-0.3"
 for spa_subdir in support videoconvert audioconvert; do
     [[ -d "$SPA_SRC/$spa_subdir" ]] || \
         die "SPA plugin directory $SPA_SRC/$spa_subdir is missing (install libspa-0.2-modules)"
@@ -307,8 +315,8 @@ QT_IMAGE_PLUGIN_DEST="$APPDIR/usr/plugins/imageformats"
 # kimageformat6-plugins is unpacked into /opt/kimageformats rather than
 # installed, which keeps its heavy dependencies and unwanted plugins out of the
 # image.
-QT_IMAGE_PLUGIN_SRC_QT="/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats"
-QT_IMAGE_PLUGIN_SRC_KF="/opt/kimageformats/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats"
+QT_IMAGE_PLUGIN_SRC_QT="/usr/lib/$MULTIARCH/qt6/plugins/imageformats"
+QT_IMAGE_PLUGIN_SRC_KF="/opt/kimageformats/usr/lib/$MULTIARCH/qt6/plugins/imageformats"
 # name:source-directory, named individually (no globs).
 QT_IMAGE_REQUIRED_PLUGINS=(
     "libqwebp.so:$QT_IMAGE_PLUGIN_SRC_QT"
@@ -331,7 +339,7 @@ printf 'Qt image-format plugins staged: %d (%s)\n' \
 # The pinned linuxdeploy-plugin-qt ignores the Wayland entries in
 # EXTRA_QT_PLUGINS, so these are hand-staged. Without libxdg-shell.so Qt falls
 # back to XWayland, where screen shares capture a black root window.
-QT_PLUGIN_SRC_BASE="/usr/lib/x86_64-linux-gnu/qt6/plugins"
+QT_PLUGIN_SRC_BASE="/usr/lib/$MULTIARCH/qt6/plugins"
 QT_WAYLAND_REQUIRED_PLUGINS=(
     "wayland-shell-integration/libxdg-shell.so"
 )
@@ -535,7 +543,7 @@ HOOK
     --icon-file "$APPDIR/usr/share/icons/hicolor/192x192/apps/lightning.png" \
     --executable "$APPDIR/usr/bin/lightning-matrix" \
     --executable "$APPDIR/usr/bin/lightning-updater" \
-    --library /lib/x86_64-linux-gnu/libgpg-error.so.0 \
+    --library /lib/$MULTIARCH/libgpg-error.so.0 \
     "${LINUXDEPLOY_PLUGIN_ARGS[@]}" \
     --plugin qt
 
@@ -699,7 +707,7 @@ done
 printf 'third-party licences: %s payload objects, %s Debian packages, %s files, %s bytes\n' \
     "$harvest_total" "${#HARVEST_PKGS[@]}" "$harvest_copied" "$harvest_bytes"
 
-ARCH=x86_64 "$TOOLS/appimagetool" --no-appstream "$APPDIR" "$OUT"
+ARCH="$APPIMAGE_ARCH" "$TOOLS/appimagetool" --no-appstream "$APPDIR" "$OUT"
 
 test -s "$OUT" || die "AppImage not produced at $OUT"
 

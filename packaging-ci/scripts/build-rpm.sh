@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
+load_host_arch
 
 # One .rpm for Fedora and openSUSE: no Qt private-ABI import (validate-rpm.sh
 # asserts it on the package).
@@ -25,7 +26,7 @@ mapfile -t packages < <(find "$TOPDIR/RPMS" -type f -name '*.rpm' -print)
 (( ${#packages[@]} == 1 )) || die "expected exactly one binary RPM"
 # The package is lightning-matrix; the published file keeps its established
 # name so the signed manifest, the website and the docs need no change.
-PACKAGE="$ROOT/dist/lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"
+PACKAGE="$ROOT/dist/lightning-${RPM_VERSION}-${RPM_RELEASE}.${RPM_ARCH}.rpm"
 cp "${packages[0]}" "$PACKAGE"
 write_sha256 "$PACKAGE"
 printf 'Built %s\n' "$PACKAGE"

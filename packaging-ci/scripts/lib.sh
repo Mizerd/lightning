@@ -28,6 +28,20 @@ load_versions() {
     source "$root/dist/version.env"
 }
 
+# Each format's spelling of the architecture this job runs on; every package
+# is built natively, never cross-compiled.
+load_host_arch() {
+    case "$(uname -m)" in
+        x86_64)
+            DEB_ARCH=amd64 RPM_ARCH=x86_64 APPIMAGE_ARCH=x86_64 SNAP_ARCH=amd64
+            MULTIARCH=x86_64-linux-gnu DYNAMIC_LOADER=ld-linux-x86-64.so.2 ;;
+        aarch64)
+            DEB_ARCH=arm64 RPM_ARCH=aarch64 APPIMAGE_ARCH=aarch64 SNAP_ARCH=arm64
+            MULTIARCH=aarch64-linux-gnu DYNAMIC_LOADER=ld-linux-aarch64.so.1 ;;
+        *) die "unsupported build architecture: $(uname -m)" ;;
+    esac
+}
+
 json_value() {
     local file="$1" key="$2"
     jq -er --arg key "$key" '.[$key]' "$file"

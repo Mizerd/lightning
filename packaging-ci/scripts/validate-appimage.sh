@@ -9,10 +9,11 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(project_dir)
 cd "$ROOT"
 load_versions
+load_host_arch
 
 count=$(find dist -maxdepth 1 -name '*.AppImage' | wc -l)
 [ "$count" = 1 ] || die "expected exactly one AppImage in dist, found $count"
-app="dist/Lightning-${LOGICAL_VERSION}-x86_64.AppImage"
+app="dist/Lightning-${LOGICAL_VERSION}-${APPIMAGE_ARCH}.AppImage"
 test -f "$app" || die "expected AppImage name $app"
 test ! -e work/lightning || die "validation must not see a source checkout"
 command -v nix >/dev/null 2>&1 && die "validation image must not provide nix"
@@ -157,7 +158,7 @@ abi_check() {   # family floor ceiling
         || die "the AppImage now needs ${family}_$floor, above the ${family}_$ceiling that docs/install.md promises (required by: $needed_by). Hosts between the two will not start it; raise docs/install.md and this ceiling together, or find what raised it."
 }
 echo "ELF objects read: $elf_objects" > dist/appimage-abi-floor.txt
-# Not checked above; an x86_64 payload should carry none.
+# Not checked above; a 64-bit payload should carry none.
 elf32=$(awk -F'|' -v t="$tree/" '$2 ~ /ELF 32-bit/ {
     if (index($1, t) == 1) $1 = substr($1, length(t) + 1); print $1 }' \
     "$audit/file-types.txt")

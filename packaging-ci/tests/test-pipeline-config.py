@@ -1254,7 +1254,7 @@ for needle in ('RPM_LANE="${RPM_LANE:-release}"', '"$ROOT"/dist/opensuse/*.rpm',
                "'GIPHY configured: no'", "'KLIPY configured: no'"):
     check(needle in _rpm_validate, f"validate-rpm.sh copr lane: {needle}")
 # The copr lane must not loosen the release lane: its exact filename stays.
-check('expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"' in _rpm_validate,
+check('expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.${RPM_ARCH}.rpm"' in _rpm_validate,
       "validate-rpm.sh still demands the release .rpm's exact filename")
 
 # --- 3. every format asks the shipped artifact ------------------------------
