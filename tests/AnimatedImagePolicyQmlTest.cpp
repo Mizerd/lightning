@@ -125,6 +125,18 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
+struct BridgedMediaRow {
+    const char *what;
+    bool video;
+    const char *picture;
+    const char *skeleton;
+};
+
+QQuickItem *childNamed(QQuickItem *root, const char *name)
+{
+    return root->findChild<QQuickItem *>(QString::fromLatin1(name));
+}
+
 class SettingsShim : public QObject
 {
     Q_OBJECT
@@ -771,44 +783,30 @@ QtObject {
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    struct BridgedMediaRow {
-        const char *what;
-        bool video;
-        const char *picture;
-        const char *skeleton;
-    };
-
-    static QQuickItem *childNamed(QQuickItem *root, const char *name)
-    {
-        return root->findChild<QQuickItem *>(QString::fromLatin1(name));
-    }
-
-    static QVariantMap bridgedMediaFixture(AppController &controller,
-                                           const QString &key, bool video)
-    {
-        QVariantMap fixture = baseFixture(controller);
-        fixture.insert(QStringLiteral("eventId"), key);
-        fixture.insert(video ? QStringLiteral("isVideo") : QStringLiteral("isImage"),
-                       true);
-        fixture.insert(QStringLiteral("body"),
-                       video ? QStringLiteral("clip.mp4")
-                             : QStringLiteral("photo.png"));
-        fixture.insert(QStringLiteral("mediaMimetype"),
-                       video ? QStringLiteral("video/mp4")
-                             : QStringLiteral("image/png"));
-        fixture.insert(QStringLiteral("mediaWidth"), 320);
-        fixture.insert(QStringLiteral("mediaHeight"), 200);
-        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
-        fixture.insert(QStringLiteral("mediaThumbAvailable"), true);
-        fixture.insert(QStringLiteral("mediaKey"), key);
-        return fixture;
-    }
-
     // The bridge's 32 MiB byte cache evicts pictures that are still drawn.
     // Neither a later re-cache of the same key nor a return to the retained
     // band may leave a loading placeholder where the picture was.
     void aDrawnBridgedPictureSurvivesEvictionAndReCaching()
     {
+        const auto bridgedMediaFixture = [](AppController &controller,
+                                                const QString &key, bool video) {
+            QVariantMap fixture = baseFixture(controller);
+            fixture.insert(QStringLiteral("eventId"), key);
+            fixture.insert(video ? QStringLiteral("isVideo") : QStringLiteral("isImage"),
+                           true);
+            fixture.insert(QStringLiteral("body"),
+                           video ? QStringLiteral("clip.mp4")
+                                 : QStringLiteral("photo.png"));
+            fixture.insert(QStringLiteral("mediaMimetype"),
+                           video ? QStringLiteral("video/mp4")
+                                 : QStringLiteral("image/png"));
+            fixture.insert(QStringLiteral("mediaWidth"), 320);
+            fixture.insert(QStringLiteral("mediaHeight"), 200);
+            fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+            fixture.insert(QStringLiteral("mediaThumbAvailable"), true);
+            fixture.insert(QStringLiteral("mediaKey"), key);
+            return fixture;
+        };
         const QList<BridgedMediaRow> rows = {
             { "image", false, "messageStillImage", "imageSkeleton" },
             { "video poster", true, "videoPosterImage", "videoPosterSkeleton" },
