@@ -14,6 +14,7 @@ build-nixos:
   cache:
     key: remote-build
     paths: [.ci-cargo/]
+    unprotect: true
   script:
     - export CARGO_HOME=$PWD/.ci-cargo
     - nix develop -c cargo fetch --locked --manifest-path rust/Cargo.toml
@@ -40,20 +41,27 @@ test-nixos:
     CCACHE_BASEDIR: $CI_PROJECT_DIR
     CCACHE_NOHASHDIR: "true"
     CCACHE_MAXSIZE: 4G
+    SCCACHE_DIR: $CI_PROJECT_DIR/.ci-sccache
+    SCCACHE_CACHE_SIZE: 4G
+    CARGO_INCREMENTAL: "0"
   cache:
     - key: remote-build
       paths: [.ci-cargo/]
       policy: pull
+      unprotect: true
     - key: test-ccache
-      paths: [.ci-ccache/]
+      paths: [.ci-ccache/, .ci-sccache/]
       when: always
+      unprotect: true
   script:
     - export CARGO_HOME=$PWD/.ci-cargo
+    - export RUSTC_WRAPPER=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#sccache)/bin/sccache
     - nix develop -c cargo fetch --locked --manifest-path rust/Cargo.toml
     - nix develop -c cmake -S . -B build-test -G Ninja -DENABLE_RUST_SDK_BACKEND=ON -DCMAKE_CXX_FLAGS=-g0 -DCMAKE_C_FLAGS=-g0 "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--strip-debug" -DCMAKE_JOB_POOLS=lk=12 -DCMAKE_JOB_POOL_LINK=lk
     - nix develop -c ccache -z
     - nix develop -c cmake --build build-test -j32
     - nix develop -c ccache -s
+    - $RUSTC_WRAPPER --show-stats | grep -E 'Cache hits|Cache misses|Non-cacheable' || true
     - mkdir -p out
     - export QT_QPA_PLATFORM=offscreen HOME=$PWD/.ci-home XDG_RUNTIME_DIR=$PWD/.ci-run; mkdir -p $HOME $XDG_RUNTIME_DIR; chmod 700 $XDG_RUNTIME_DIR
     - mkdir -p $PWD/.ci-fonts
@@ -95,6 +103,7 @@ test-rust:
     key: remote-build
     paths: [.ci-cargo/]
     policy: pull
+    unprotect: true
   script:
     - export CARGO_HOME=$PWD/.ci-cargo
     - mkdir -p out
