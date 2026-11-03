@@ -964,7 +964,7 @@ validate-rpm-opensuse:
     - when: never
   extends: .trusted-pipeline
   stage: validate
-  image: registry.opensuse.org/opensuse/tumbleweed@sha256:c6b3ce17382064218b6a41514f248ef72ad4ae66da40b12ebba9e83582f33139 # opensuse/tumbleweed 20260924
+  image: registry.opensuse.org/opensuse/tumbleweed@sha256:a525f485f8d9564f4bbb619a7057d3da2153688a87859307dff06b6979c403e5 # opensuse/tumbleweed 20261102; upstream deletes old snapshots, so this pin rots in weeks
   tags: [dnf, rpm, package]
   needs:
     - job: resolve-source

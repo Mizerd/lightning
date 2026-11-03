@@ -2272,6 +2272,30 @@ check('"${LIGHTNING_REQUIRE_MACOS_ASSET:-false}" == true' in _wm_src
       and "may not publish without it" in _wm_src,
       "write-manifest.sh refuses to publish without the macOS bundle when required")
 
+# The gitlab.com package lane builds on exactly the images the release
+# pipeline pins, so a repin on either side alone fails here.
+def _image_pins(path):
+    with open(path) as fh:
+        lane = yaml.safe_load(fh)
+    pins = {}
+    for job in lane.values():
+        image = job.get("image") if isinstance(job, dict) else None
+        if isinstance(image, dict):
+            image = image.get("name")
+        if isinstance(image, str) and "@sha256:" in image:
+            repo, digest = image.split("@sha256:", 1)
+            pins.setdefault(repo, set()).add(digest.split()[0])
+    return pins
+
+
+_lane_pins = _image_pins(os.path.join(HERE, "..", "..", ".gitlab", "packages.yml"))
+_release_pins = _image_pins(CI)
+check(len(_lane_pins) >= 5,
+      f"the package lane pins its images by digest ({len(_lane_pins)} repositories)")
+for _repo, _digests in sorted(_lane_pins.items()):
+    check(_digests <= _release_pins.get(_repo, set()),
+          f"every {_repo} digest the package lane pins is one the release pipeline pins")
+
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
     sys.exit(1)
