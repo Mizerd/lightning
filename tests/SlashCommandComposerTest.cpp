@@ -137,6 +137,8 @@ public:
         return 1;
     }
     quint64 joinOp = 1;
+    bool joinByAddress = false;
+    bool supportsJoinByAddress() const override { return joinByAddress; }
     quint64 joinRoomByIdOrAlias(const QString &target, const QStringList &) override
     {
         calls.append(QStringLiteral("join|%1").arg(target));
@@ -376,6 +378,12 @@ private Q_SLOTS:
 
         m_client->joinOp = 0;
         m_composer->setText(QStringLiteral("/join #gone:example.org"));
+        m_composer->send();
+        QVERIFY(m_composer->commandError().contains(
+            QStringLiteral("not supported by this backend")));
+
+        m_client->joinByAddress = true;
+        m_composer->setText(QStringLiteral("/join #down:example.org"));
         m_composer->send();
         QVERIFY(m_composer->commandError().contains(
             QStringLiteral("Could not reach the server")));

@@ -2,6 +2,7 @@
 
 #include "app/SettingsManager.h"
 
+#include <QCoreApplication>
 #include <QKeyCombination>
 #include <QGuiApplication>
 #include <QInputMethod>
@@ -556,7 +557,10 @@ int unshiftedDigit(int key)
 
 bool keyboardLayoutIsUs()
 {
-    if (!qGuiApp || !qGuiApp->inputMethod())
+    // qGuiApp is a bare cast of QCoreApplication::instance(), so it is non-null
+    // under a Core-only application and inputMethod() then dereferences null.
+    const QCoreApplication *app = QCoreApplication::instance();
+    if (!app || !app->inherits("QGuiApplication") || !qGuiApp->inputMethod())
         return false;
     const QLocale loc = qGuiApp->inputMethod()->locale();
     return loc.language() == QLocale::English
