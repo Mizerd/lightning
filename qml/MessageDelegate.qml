@@ -5232,13 +5232,16 @@ Item {
                 color: AppTheme.overlayScrim
                 width: placeholderGifLabel.implicitWidth + 8
                 height: placeholderGifLabel.implicitHeight + 4
-                Label {
+                Loader {
                     id: placeholderGifLabel
                     anchors.centerIn: parent
-                    text: qsTr("GIF")
-                    color: AppTheme.scrimInk
-                    font.pixelSize: AppTheme.fontMicro
-                    font.weight: Font.Bold
+                    active: imageBox.isGif
+                    sourceComponent: Label {
+                        text: qsTr("GIF")
+                        color: AppTheme.scrimInk
+                        font.pixelSize: AppTheme.fontMicro
+                        font.weight: Font.Bold
+                    }
                 }
             }
 
@@ -5276,24 +5279,26 @@ Item {
                 onRevealRequested: root.setMediaHidden(false)
             }
 
-            Rectangle {
-                objectName: "svgPreviewBadge"
-                visible: root.isSvgImage && !root.mediaHidden
-                         && img.status === Image.Ready
+            Loader {
+                active: root.isSvgImage
+                visible: !root.mediaHidden && img.status === Image.Ready
                 anchors.left: parent.left
                 anchors.bottom: parent.bottom
                 anchors.margins: 5
-                radius: 3
-                color: AppTheme.overlayScrim
-                width: svgBadgeLabel.implicitWidth + 8
-                height: svgBadgeLabel.implicitHeight + 4
-                Label {
-                    id: svgBadgeLabel
-                    anchors.centerIn: parent
-                    text: "SVG"
-                    color: AppTheme.scrimInk
-                    font.pixelSize: AppTheme.fontMicro
-                    font.weight: Font.Bold
+                sourceComponent: Rectangle {
+                    objectName: "svgPreviewBadge"
+                    radius: 3
+                    color: AppTheme.overlayScrim
+                    width: svgBadgeLabel.implicitWidth + 8
+                    height: svgBadgeLabel.implicitHeight + 4
+                    Label {
+                        id: svgBadgeLabel
+                        anchors.centerIn: parent
+                        text: "SVG"
+                        color: AppTheme.scrimInk
+                        font.pixelSize: AppTheme.fontMicro
+                        font.weight: Font.Bold
+                    }
                 }
             }
 
