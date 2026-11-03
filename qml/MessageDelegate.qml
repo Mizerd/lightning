@@ -607,8 +607,37 @@ Item {
     }
     Component.onDestruction: releaseHoveredActions()
     onRowOnScreenChanged: {
-        if (!rowOnScreen)
+        if (!rowOnScreen) {
             messageActionBarLoader.latched = false
+            releaseClosedPopups()
+        }
+    }
+    function releaseClosedPopups() {
+        if (moreMenuItem && !moreMenuItem.visible) {
+            var menu = moreMenuItem
+            moreMenuItem = null
+            menu.destroy()
+        }
+        if (detailsDialogItem && !detailsDialogItem.visible) {
+            var details = detailsDialogItem
+            detailsDialogItem = null
+            details.destroy()
+        }
+        if (confirmDialogItem && !confirmDialogItem.visible) {
+            var confirm = confirmDialogItem
+            confirmDialogItem = null
+            confirm.destroy()
+        }
+        if (editHistoryDialogItem && !editHistoryDialogItem.visible) {
+            var history = editHistoryDialogItem
+            editHistoryDialogItem = null
+            history.destroy()
+        }
+        if (eventSourceDialogItem && !eventSourceDialogItem.visible) {
+            var source = eventSourceDialogItem
+            eventSourceDialogItem = null
+            source.destroy()
+        }
     }
 
     objectName: "messageDelegateRoot"
