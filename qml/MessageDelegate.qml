@@ -3295,20 +3295,26 @@ Item {
                             name: modelData.displayName
                             colorKey: modelData.userId
                         }
-                        ToolTip {
-                            visible: receiptRow.hoverIndex === chip.chipIndex
-                            delay: 400
-                            timeout: 0
-                            contentItem: Label {
-                                textFormat: Text.PlainText
-                                text: {
-                                    var t = receiptRow.readTimeText(modelData.tsMs)
-                                    var n = modelData.displayName
-                                            || modelData.userId
-                                    return t.length > 0 ? n + "\n" + t : n
+                        Loader {
+                            anchors.fill: parent
+                            active: receiptHover.hovered
+                            sourceComponent: Item {
+                                ToolTip {
+                                    visible: receiptRow.hoverIndex === chip.chipIndex
+                                    delay: 400
+                                    timeout: 0
+                                    contentItem: Label {
+                                        textFormat: Text.PlainText
+                                        text: {
+                                            var t = receiptRow.readTimeText(modelData.tsMs)
+                                            var n = modelData.displayName
+                                                    || modelData.userId
+                                            return t.length > 0 ? n + "\n" + t : n
+                                        }
+                                        color: AppTheme.textPrimary
+                                        font.pixelSize: AppTheme.fontCaption
+                                    }
                                 }
-                                color: AppTheme.textPrimary
-                                font.pixelSize: AppTheme.fontCaption
                             }
                         }
                     }
@@ -3372,15 +3378,21 @@ Item {
                         font.pixelSize: AppTheme.fontMicro
                         font.weight: AppTheme.weightBold
                     }
-                    ToolTip {
-                        visible: receiptRow.hoverIndex === overflowPill.pillIndex
-                        delay: 400
-                        timeout: 0
-                        contentItem: Label {
-                            textFormat: Text.PlainText
-                            text: receiptRow.overflowNames()
-                            color: AppTheme.textPrimary
-                            font.pixelSize: AppTheme.fontCaption
+                    Loader {
+                        anchors.fill: parent
+                        active: receiptHover.hovered
+                        sourceComponent: Item {
+                            ToolTip {
+                                visible: receiptRow.hoverIndex === overflowPill.pillIndex
+                                delay: 400
+                                timeout: 0
+                                contentItem: Label {
+                                    textFormat: Text.PlainText
+                                    text: receiptRow.overflowNames()
+                                    color: AppTheme.textPrimary
+                                    font.pixelSize: AppTheme.fontCaption
+                                }
+                            }
                         }
                     }
                 }
