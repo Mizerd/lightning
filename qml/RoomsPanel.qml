@@ -554,12 +554,12 @@ Rectangle {
                              ? Math.max(0, contentWidth - width) : 0
                     revealSelected()
                 }
-                onWidthChanged: Qt.callLater(showStart)
-                onContentWidthChanged: Qt.callLater(showStart)
+                onWidthChanged: showStart()
+                onContentWidthChanged: showStart()
                 Connections {
                     target: app.localization
                     function onLanguageChanged() {
-                        Qt.callLater(chipsFlick.showStart)
+                        chipsFlick.showStart()
                     }
                 }
                 WheelHandler {
