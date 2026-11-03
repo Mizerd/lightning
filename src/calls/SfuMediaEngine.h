@@ -116,8 +116,7 @@ public:
     static QString h264DecoderElement();
     QString shareEncoderInUse() const { return m_shareEncoderInUse; }
     static QString captureEntryFilter(bool gpu);
-    /// Caps the GPU entry falls back to when its DMA-BUF branch cannot
-    /// negotiate with the compositor: system memory, any format.
+    /// System memory, any format: the CPU entry, and the GPU entry's other half.
     static QString systemMemoryEntryCaps();
     static QString gpuEntryCaps();
     /// The GPU path's named entry, starting in system memory.
@@ -135,8 +134,7 @@ public:
     /// starts it again, under the bin's state lock. False, touching nothing,
     /// when the bin is no longer a live member of a playing pipeline.
     static bool restartShareCapture(GstElement *bin, ShareCaptureRetry &retry);
-    /// Set once a share's DMA-BUF capture fails to negotiate; every later
-    /// share then starts in system memory.
+    /// Set once a share's DMA-BUF capture fails to negotiate.
     static bool shareDmaBufCaptureFailedForTest();
     static void clearShareDmaBufCaptureFailedForTest();
     static void setPipewirePluginVersionForTest(const QString &version);
