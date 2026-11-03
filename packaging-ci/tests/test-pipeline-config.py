@@ -2298,6 +2298,10 @@ for _repo, _digests in sorted(_lane_pins.items()):
         continue
     check(_digests <= _release_pins.get(_repo, set()),
           f"every {_repo} digest the package lane pins is one the release pipeline pins")
+with open(os.path.join(HERE, "..", "..", ".gitlab", "packages.yml"), encoding="utf-8") as _f:
+    _lane_windows_tags = re.findall(r"/windows-builder@sha256:[0-9a-f]{64}\s+#\s*(\S+)", _f.read())
+check(_lane_windows_tags and set(_lane_windows_tags) == {WINDOWS_IMAGE.split(":", 1)[1]},
+      f"the package lane's windows-builder digest is labelled with the release pipeline's tag ({_lane_windows_tags})")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
