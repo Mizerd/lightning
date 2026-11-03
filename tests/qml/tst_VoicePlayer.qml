@@ -102,6 +102,7 @@ TestCase {
         function prefetchPlayable(k, s) {}
         function mxcImageSource(uri, edge) { return "" }
         function cachedSource(k) { return "" }
+        function mediaSource(k, v) { return "" }
     }
     QtObject {
         id: appStub
@@ -715,9 +716,11 @@ TestCase {
         wait(50)
         var box = find(row, "audioCoverArtBox")
         var play = find(row, "audioPlayPauseButton")
-        compare(box.width, 240)
-        compare(box.height, 240)
+        compare(box.width, row.width - 12, "the art does not fill the card")
+        compare(box.height, box.width)
         var bp = box.mapToItem(row, 0, 0)
+        compare(bp.x, 6)
+        compare(bp.x + box.width, row.width - 6)
         var pp = play.mapToItem(row, 0, 0)
         verify(pp.y >= bp.y + box.height, "the controls are not below the art")
         var h = row.implicitHeight
@@ -727,6 +730,25 @@ TestCase {
         row.width = 240
         wait(50)
         compare(box.width, 40, "a narrow row keeps the compact tile")
+    }
+
+    function test_theLargeStyleFillsABubbleAndReservesItsSquareBeforeTheArt() {
+        settings.albumArtStyle = "large"
+        var row = createTemporaryObject(rowComponent, test,
+                                        { isVoice: false, width: 360,
+                                          inBubble: true, thumbAvailable: true,
+                                          filename: "Song.mp3" })
+        wait(0)
+        var box = find(row, "audioCoverArtBox")
+        compare(box.width, 360, "the art does not fill the bubble")
+        compare(box.height, 360)
+        var h = row.implicitHeight
+        verify(h >= 360 + 12, "the square was not reserved: " + h)
+        voice.info = { "mk-row": { artworkSource: tinyCover } }
+        voice.clipInfoRevision++
+        wait(50)
+        compare(box.width, 360)
+        compare(row.implicitHeight, h, "the art arriving moved the row")
     }
 
     function test_clickingTheCoverAsksForTheEnlargedArtAndOnlyThat() {

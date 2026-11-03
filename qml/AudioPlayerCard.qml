@@ -242,7 +242,7 @@ Rectangle {
     readonly property bool hugeCover:
         root.largeCover && app.settings.albumArtStyle === "large"
     readonly property real tileSize:
-        root.hugeCover ? Math.max(40, Math.min(root.width - 12, 240))
+        root.hugeCover ? Math.max(40, root.width - (root.inBubble ? 0 : 12))
                        : (root.largeCover ? Math.round(AppTheme.scaled(96)) : 40)
     implicitHeight: cardGrid.implicitHeight + 12
     color: root.inBubble ? "transparent" : AppTheme.embedSurface
@@ -293,7 +293,7 @@ Rectangle {
                     anchors.fill: parent
                     source: coverArtBox.visible ? root.artworkSource : ""
                     onStatusChanged: root.noteCoverStatus(this)
-                    sourceSize.width: root.hugeCover ? 480 : (root.largeCover ? 320 : 96)
+                    sourceSize.width: root.hugeCover ? 720 : (root.largeCover ? 320 : 96)
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: true
