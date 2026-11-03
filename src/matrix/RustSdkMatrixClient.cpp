@@ -5267,7 +5267,8 @@ void RustSdkMatrixClient::openEventContext(const QString &roomId,
     }
     clearContextTimelineState();
     m_contextTracker.request(contextTimelineId(roomId, eventId));
-    qCInfo(lcRust) << "event context open";
+    qCInfo(lcRust) << "event context open target="
+                   << matrix::e2ee::redactId(eventId);
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray eventBytes = eventId.toUtf8();
     const QString result = takeRustString(mx_rust_context_open(
@@ -5300,6 +5301,7 @@ void RustSdkMatrixClient::paginateEventContext(const QString &roomId,
     }
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray eventBytes = eventId.toUtf8();
+    qCInfo(lcRust) << "event context paginate forward=" << forward;
     const QString result = takeRustString(mx_rust_context_paginate(
         m_rustHandle, roomBytes.constData(), eventBytes.constData(), forward));
     if (!result.isEmpty())

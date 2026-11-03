@@ -863,8 +863,8 @@ void MockMatrixClient::deliverHeldEventContext()
         return;
     const QString id = contextTimelineId(roomId, eventId);
     QList<TimelineEvent> window;
-    for (int i = qMax(0, hit - kContextRadius);
-         i <= qMin(int(roomTimeline.size()) - 1, hit + kContextRadius); ++i) {
+    for (int i = qMax(0, hit - m_contextRadius);
+         i <= qMin(int(roomTimeline.size()) - 1, hit + m_contextRadius); ++i) {
         TimelineEvent e = roomTimeline.at(i);
         e.roomId = id;
         window.append(e);

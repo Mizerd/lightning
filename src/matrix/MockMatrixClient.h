@@ -134,7 +134,7 @@ public:
     { return m_lastThreadSendReplyTo; }
     // Event context view: opt-in so suites written against the history walk
     // keep their behaviour. The window is a slice of the room's own mock
-    // timeline around the event (kContextRadius each side).
+    // timeline around the event (kContextRadius each side by default).
     bool supportsEventContext() const override { return m_eventContextEnabled; }
     void setEventContextEnabled(bool enabled) { m_eventContextEnabled = enabled; }
     void openEventContext(const QString &roomId, const QString &eventId) override;
@@ -148,6 +148,7 @@ public:
     void setHoldEventContext(bool hold) { m_holdEventContext = hold; }
     void deliverHeldEventContext();
     static constexpr int kContextRadius = 2;
+    void setEventContextRadius(int radius) { m_contextRadius = radius; }
     void sendThreadReplyTo(const QString &roomId,
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
@@ -402,6 +403,7 @@ private:
     QString m_openThreadTimelineId;
     bool m_eventContextEnabled = false;
     bool m_holdEventContext = false;
+    int m_contextRadius = kContextRadius;
     QString m_openContextTimelineId;
     QString m_heldContextRoom;
     QString m_heldContextEvent;

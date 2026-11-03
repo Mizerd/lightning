@@ -11234,6 +11234,83 @@ false);
         QCOMPARE(mock->eventContextPaginateCount(), 1);
     }
 
+    void aRowPrependedToTheContextViewLeavesTheReaderInPlace()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        const auto events = textFixture(roomId, 120, QStringLiteral("ctx"),
+                                        QStringLiteral("body"));
+        const QString target = events.at(80).eventId;
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        mock->setEventContextRadius(40);
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, target));
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        QVERIFY(overlay != nullptr);
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+        QTRY_VERIFY(list->property("count").toInt() > 60);
+        QTRY_VERIFY(overlay->property("targetPositioned").toBool());
+        QTest::qWait(200);
+
+        const auto readerRow = [&](QString *stableId, double *offset) {
+            int row = -1;
+            const qreal x = list->property("contentX").toReal() + list->width() / 2;
+            const qreal y = list->property("contentY").toReal() + 1;
+            if (!QMetaObject::invokeMethod(list, "indexAt", Q_RETURN_ARG(int, row),
+                                           Q_ARG(qreal, x), Q_ARG(qreal, y))
+                || row < 0)
+                return -1;
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, row));
+            if (!item)
+                return -1;
+            *stableId = context->model()->stableIdAt(row);
+            *offset = item->y() - list->property("contentY").toReal();
+            return row;
+        };
+        QString readerId;
+        double readerOffset = 0;
+        const int readerBefore = readerRow(&readerId, &readerOffset);
+        QVERIFY2(readerBefore >= 20,
+                 qPrintable(QStringLiteral("reader not mid-list: row %1")
+                                .arg(readerBefore)));
+
+        const QString contextId = MatrixClient::contextTimelineId(roomId, target);
+        for (int i = 0; i < 5; ++i) {
+            TimelineEvent e = events.first();
+            e.eventId = QStringLiteral("$front%1").arg(i);
+            e.itemId = QStringLiteral("uid-front%1").arg(i);
+            e.roomId = contextId;
+            Q_EMIT mock->eventsPrepended(contextId, { e });
+        }
+        QTest::qWait(300);
+
+        const int row = context->model()->rowForStableId(readerId);
+        QCOMPARE(row, readerBefore + 5);
+        QQuickItem *item = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, item),
+                                          Q_ARG(int, row)));
+        QVERIFY2(item != nullptr, "the reader's row was scrolled out of the view");
+        const double offset = item->y() - list->property("contentY").toReal();
+        QVERIFY2(qAbs(offset - readerOffset) <= 1.0,
+                 qPrintable(QStringLiteral("reader moved %1 px")
+                                .arg(offset - readerOffset)));
+    }
+
+
     void aContextViewBarStaysDismissedUntilTheNextJump()
     {
         AppController controller(AppController::MockBackend);
