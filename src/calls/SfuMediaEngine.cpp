@@ -49,6 +49,7 @@
 #include <QThread>
 #include <QUrl>
 #include <QVariantMap>
+#include <QVersionNumber>
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
 
@@ -65,6 +66,7 @@
 namespace {
 std::atomic<bool> g_shareHardwareEncoderFailed{false};
 std::atomic<bool> g_shareDmaBufCaptureFailed{false};
+QString g_pipewirePluginVersionForTest;
 constexpr const char kCaptureRetryKey[] = "lightning-capture-retry";
 
 int captureRetryStamp(GObject *bin)
@@ -4008,6 +4010,26 @@ QString SfuMediaEngine::systemMemoryEntryCaps()
     return QStringLiteral("video/x-raw,pixel-aspect-ratio=(fraction)1/1");
 }
 
+bool SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(
+    const QString &version)
+{
+    const QVersionNumber parsed = QVersionNumber::fromString(version);
+    return !parsed.isNull() && parsed >= QVersionNumber(1, 5, 81);
+}
+
+QString SfuMediaEngine::pipewirePluginVersion()
+{
+    if (!g_pipewirePluginVersionForTest.isEmpty())
+        return g_pipewirePluginVersionForTest;
+    GstPlugin *plugin =
+        gst_registry_find_plugin(gst_registry_get(), "pipewire");
+    if (!plugin)
+        return {};
+    const QString version = QString::fromUtf8(gst_plugin_get_version(plugin));
+    gst_object_unref(plugin);
+    return version;
+}
+
 bool SfuMediaEngine::isCaptureFormatError(quint32 domain, int code,
                                           const QString &message,
                                           const QString &debug)
@@ -4037,6 +4059,11 @@ bool SfuMediaEngine::shareDmaBufCaptureFailedForTest()
 void SfuMediaEngine::clearShareDmaBufCaptureFailedForTest()
 {
     g_shareDmaBufCaptureFailed.store(false);
+}
+
+void SfuMediaEngine::setPipewirePluginVersionForTest(const QString &version)
+{
+    g_pipewirePluginVersionForTest = version;
 }
 
 GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
@@ -5252,7 +5279,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
 
     const bool tryJpeg =
         !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
-    const bool dmaBufEntry = useGpu && !g_shareDmaBufCaptureFailed.load();
+    const bool dmaBufEntry = useGpu && !g_shareDmaBufCaptureFailed.load()
+        && pipewireSrcKeepsFormatOnRenegotiation(pipewirePluginVersion());
     QString entryInUse = tryJpeg      ? cameraJpegEntry()
                          : portalCamera ? portalCameraEntry()
                          : !screenShare ? directCameraRawEntry()
@@ -5455,7 +5483,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     : nullptr) {
                 gst_object_unref(entry);
                 auto retry = std::make_shared<ShareCaptureRetry>();
-                probeState->captureRetry = retry;
                 m_publishWatch[cid].retry = retry;
                 g_object_set_data_full(
                     G_OBJECT(bin), kCaptureRetryKey,
@@ -5502,9 +5529,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     if (n == 1) {
                         state->firstCaptureMs.store(monotonicMs()
                                                     - state->startedMs);
-                        if (state->captureRetry
-                            && state->captureRetry->noteCaptured())
-                            g_shareDmaBufCaptureFailed.store(true);
                         if (GstCaps *caps = gst_pad_get_current_caps(pad)) {
                             gchar *text = gst_caps_to_string(caps);
                             qCInfo(lcSfuMedia)
@@ -8352,6 +8376,7 @@ bool SfuMediaEngine::retryShareCaptureInSystemMemory(const QString &cid)
     if (watch == m_publishWatch.cend() || !watch->retry || !bin
         || !GST_IS_BIN(bin) || !watch->retry->begin())
         return false;
+    g_shareDmaBufCaptureFailed.store(true);
     qCWarning(lcSfuMedia)
         << "screen share capture could not negotiate a DMA-BUF format; "
            "retrying it in system memory";

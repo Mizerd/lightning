@@ -119,6 +119,11 @@ public:
     /// Caps the GPU entry falls back to when its DMA-BUF branch cannot
     /// negotiate with the compositor: system memory, any format.
     static QString systemMemoryEntryCaps();
+    /// pipewiresrc before 1.5.81 drops its possible caps after the first
+    /// Format, so a compositor that re-announces one (KWin fixing a DMA-BUF
+    /// modifier) fails it with "unhandled format".
+    static bool pipewireSrcKeepsFormatOnRenegotiation(const QString &version);
+    static QString pipewirePluginVersion();
     /// A negotiation or format failure of the capture source. basesrc's
     /// generic STREAM/FAILED counts only when its debug names not-negotiated.
     static bool isCaptureFormatError(quint32 domain, int code,
@@ -128,10 +133,11 @@ public:
     /// starts it again, under the bin's state lock. False, touching nothing,
     /// when the bin is no longer a live member of a playing pipeline.
     static bool restartShareCapture(GstElement *bin, ShareCaptureRetry &retry);
-    /// Set once a share retried in system memory captures a frame; every
-    /// later share then starts there.
+    /// Set once a share's DMA-BUF capture fails to negotiate; every later
+    /// share then starts in system memory.
     static bool shareDmaBufCaptureFailedForTest();
     static void clearShareDmaBufCaptureFailedForTest();
+    static void setPipewirePluginVersionForTest(const QString &version);
     /// A screen capture's DMA-BUF buffer whose single memory is SHORTER than
     /// the frame its video meta describes, re-wrapped at the file
     /// descriptor's real size; nullptr when the buffer needs nothing (not a
@@ -889,7 +895,6 @@ private:
         std::atomic<qint64> firstEncodedMs{-1};
         qint64 startedMs = 0;
         bool screenShare = false;
-        std::shared_ptr<ShareCaptureRetry> captureRetry;
 
         QMutex keepMutex;
         GstBuffer *lastFrame = nullptr;

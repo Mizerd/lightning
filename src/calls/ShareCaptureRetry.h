@@ -27,14 +27,7 @@ public:
     /// has been joined: anything it posted still carries the old stamp.
     void publish() { m_published.store(m_requested.load()); }
 
-    /// Streaming thread. True exactly once: the first buffer of a restart.
-    bool noteCaptured()
-    {
-        return m_published.load() > 0 && !m_confirmed.exchange(true);
-    }
-
 private:
     std::atomic<int> m_requested{0};
     std::atomic<int> m_published{0};
-    std::atomic<bool> m_confirmed{false};
 };

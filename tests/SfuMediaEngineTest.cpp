@@ -3527,7 +3527,6 @@ true,-1, fds[0]);
         ShareCaptureRetry retry;
         QCOMPARE(retry.stamp(), 0);
         QVERIFY(!retry.isStale(retry.stamp()));
-        QVERIFY(!retry.noteCaptured());
 
         const int oldError = retry.stamp();
         QVERIFY(retry.begin());
@@ -3538,7 +3537,6 @@ true,-1, fds[0]);
         QVERIFY(retry.isStale(oldError));
         QVERIFY(retry.isStale(oldEos));
         QVERIFY(retry.isStale(oldSecondaryError));
-        QVERIFY(!retry.noteCaptured());
         QVERIFY(!retry.begin());
 
         retry.publish();
@@ -3549,8 +3547,6 @@ true,-1, fds[0]);
         QVERIFY(retry.isStale(oldEos));
         QVERIFY(!retry.begin());
 
-        QVERIFY(retry.noteCaptured());
-        QVERIFY(!retry.noteCaptured());
     }
 
     void aShareCaptureRestartIsAbandonedOnceTheBinIsTornDown()
@@ -3643,7 +3639,6 @@ true,-1, fds[0]);
         gst_object_unref(source);
         QCOMPARE(flow, GST_FLOW_OK);
         QTRY_VERIFY(captured.load() > 0);
-        QVERIFY(retry.noteCaptured());
 
         gst_element_set_state(pipeline, GST_STATE_NULL);
         gst_object_unref(pipeline);
@@ -3686,8 +3681,11 @@ true,-1, fds[0]);
             || !SfuMediaEngine::gpuShareChainUsable())
             QSKIP("no usable GL chain, so the share never takes the GPU entry");
         SfuMediaEngine::clearShareDmaBufCaptureFailedForTest();
-        const auto restore = qScopeGuard(
-            [] { SfuMediaEngine::clearShareDmaBufCaptureFailedForTest(); });
+        SfuMediaEngine::setPipewirePluginVersionForTest(QStringLiteral("1.6.6"));
+        const auto restore = qScopeGuard([] {
+            SfuMediaEngine::clearShareDmaBufCaptureFailedForTest();
+            SfuMediaEngine::setPipewirePluginVersionForTest(QString());
+        });
         const QString cid = QStringLiteral("cid-share");
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
@@ -3713,8 +3711,8 @@ true,-1, fds[0]);
                                cid, QStringLiteral("capentry"),
                                QStringLiteral("caps"))
                          .contains(QLatin1String("DMABuf")));
-        QVERIFY2(!SfuMediaEngine::shareDmaBufCaptureFailedForTest(),
-                 "latched before the retry captured a frame");
+        QVERIFY2(SfuMediaEngine::shareDmaBufCaptureFailedForTest(),
+                 "a failed DMA-BUF negotiation was not remembered");
 
         engine.handlePublishError(cid, false, false, true, 0);
         engine.handleCaptureEnded(cid, 0);
@@ -3729,12 +3727,56 @@ true,-1, fds[0]);
         engine.start();
         engine.publishVideo(QStringLiteral("cid-next"), true, 0);
         QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-next")));
-        QVERIFY2(engine.publishedBinPropertyForTest(
-                           QStringLiteral("cid-next"),
-                           QStringLiteral("capentry"), QStringLiteral("caps"))
-                     .contains(QLatin1String("DMABuf")),
-                 "a retry that never captured took DMA-BUF from later shares");
+        QVERIFY2(!engine.publishedBinPropertyForTest(
+                            QStringLiteral("cid-next"),
+                            QStringLiteral("capentry"), QStringLiteral("caps"))
+                      .contains(QLatin1String("DMABuf")),
+                 "a later share offered DMA-BUF again after it had failed");
         engine.stop();
+    }
+
+    void onlyAPipewireSrcThatKeepsItsFormatsIsOfferedDmaBuf()
+    {
+        QVERIFY(!SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(
+            QStringLiteral("1.4.2")));
+        QVERIFY(!SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(
+            QStringLiteral("1.4.10")));
+        QVERIFY(!SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(
+            QStringLiteral("1.5.80")));
+        QVERIFY(SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(
+            QStringLiteral("1.5.81")));
+        QVERIFY(SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(
+            QStringLiteral("1.6.6")));
+        QVERIFY(!SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(
+            QString()));
+
+        if (!SfuMediaEngine::missingGpuShareElement().isEmpty()
+            || !SfuMediaEngine::gpuShareChainUsable())
+            QSKIP("no usable GL chain, so the share never takes the GPU entry");
+        SfuMediaEngine::clearShareDmaBufCaptureFailedForTest();
+        const auto restore = qScopeGuard(
+            [] { SfuMediaEngine::setPipewirePluginVersionForTest(QString()); });
+        const auto entryFor = [](const QString &version) {
+            SfuMediaEngine::setPipewirePluginVersionForTest(version);
+            SfuMediaEngine engine;
+            engine.setTestSourceMode(true);
+            engine.setVideoSourceForTest(QStringLiteral(
+                "appsrc is-live=true format=time "
+                "caps=video/x-raw,format=BGRx,width=64,height=64,"
+                "framerate=30/1"));
+            engine.start();
+            engine.publishVideo(QStringLiteral("cid-share"), true, 0);
+            const QString caps = engine.publishedBinPropertyForTest(
+                QStringLiteral("cid-share"), QStringLiteral("capentry"),
+                QStringLiteral("caps"));
+            engine.stop();
+            return caps;
+        };
+        QVERIFY(entryFor(QStringLiteral("1.6.6"))
+                    .contains(QLatin1String("DMABuf")));
+        QVERIFY2(!entryFor(QStringLiteral("1.4.10"))
+                      .contains(QLatin1String("DMABuf")),
+                 "pipewiresrc 1.4 was offered DMA-BUF");
     }
 
     void theVideoCapsPinAFixedFramerate()
