@@ -3484,25 +3484,169 @@ true,-1, fds[0]);
 
     void aCaptureFormatFailureIsToldApartFromAMissingSource()
     {
+        const QString internal = QStringLiteral("Internal data stream error.");
         QVERIFY(SfuMediaEngine::isCaptureFormatError(
             GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_FAILED,
-            QStringLiteral("stream error: unhandled format")));
+            QStringLiteral("stream error: unhandled format"), QString()));
         QVERIFY(SfuMediaEngine::isCaptureFormatError(
-            GST_STREAM_ERROR, GST_STREAM_ERROR_FAILED,
-            QStringLiteral("Internal data stream error.")));
+            GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_FAILED,
+            QStringLiteral("stream error: no more input formats"), QString()));
+        QVERIFY(SfuMediaEngine::isCaptureFormatError(
+            GST_STREAM_ERROR, GST_STREAM_ERROR_FAILED, internal,
+            QStringLiteral("streaming stopped, reason not-negotiated (-4)")));
         QVERIFY(SfuMediaEngine::isCaptureFormatError(
             GST_STREAM_ERROR, GST_STREAM_ERROR_FORMAT,
-            QStringLiteral("stream error: Format negotiation failed")));
+            QStringLiteral("stream error: Format negotiation failed"),
+            QString()));
         QVERIFY(SfuMediaEngine::isCaptureFormatError(
-            GST_CORE_ERROR, GST_CORE_ERROR_NEGOTIATION, QString()));
+            GST_CORE_ERROR, GST_CORE_ERROR_NEGOTIATION, QString(), QString()));
+
+        QVERIFY(!SfuMediaEngine::isCaptureFormatError(
+            GST_STREAM_ERROR, GST_STREAM_ERROR_FAILED, internal,
+            QStringLiteral("streaming stopped, reason error (-5)")));
+        QVERIFY(!SfuMediaEngine::isCaptureFormatError(
+            GST_STREAM_ERROR, GST_STREAM_ERROR_FAILED, internal, QString()));
+        QVERIFY(!SfuMediaEngine::isCaptureFormatError(
+            GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_FAILED,
+            QStringLiteral("stream error: target not found"), QString()));
+        QVERIFY(!SfuMediaEngine::isCaptureFormatError(
+            GST_LIBRARY_ERROR, GST_LIBRARY_ERROR_FAILED,
+            QStringLiteral("unhandled format"), QString()));
         QVERIFY(!SfuMediaEngine::isCaptureFormatError(
             GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_NOT_FOUND,
-            QStringLiteral("target not found")));
+            QStringLiteral("target not found"), QString()));
         QVERIFY(!SfuMediaEngine::isCaptureFormatError(
             GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_BUSY,
-            QStringLiteral("Device is busy")));
+            QStringLiteral("Device is busy"), QString()));
         QVERIFY(!SfuMediaEngine::isCaptureFormatError(
-            GST_CORE_ERROR, GST_CORE_ERROR_STATE_CHANGE, QString()));
+            GST_CORE_ERROR, GST_CORE_ERROR_STATE_CHANGE, QString(), QString()));
+    }
+
+    void aSupersededCaptureAttemptStaysStaleUntilItsSourceHasStopped()
+    {
+        ShareCaptureRetry retry;
+        QCOMPARE(retry.stamp(), 0);
+        QVERIFY(!retry.isStale(retry.stamp()));
+        QVERIFY(!retry.noteCaptured());
+
+        const int oldError = retry.stamp();
+        QVERIFY(retry.begin());
+        // What the old attempt posts between the retry and the restart.
+        const int oldEos = retry.stamp();
+        const int oldSecondaryError = retry.stamp();
+        QCOMPARE(oldEos, 0);
+        QVERIFY(retry.isStale(oldError));
+        QVERIFY(retry.isStale(oldEos));
+        QVERIFY(retry.isStale(oldSecondaryError));
+        QVERIFY(!retry.noteCaptured());
+        QVERIFY(!retry.begin());
+
+        retry.publish();
+        const int newError = retry.stamp();
+        QCOMPARE(newError, 1);
+        QVERIFY(!retry.isStale(newError));
+        QVERIFY(!retry.isStale(-1));
+        QVERIFY(retry.isStale(oldEos));
+        QVERIFY(!retry.begin());
+
+        QVERIFY(retry.noteCaptured());
+        QVERIFY(!retry.noteCaptured());
+    }
+
+    void aShareCaptureRestartIsAbandonedOnceTheBinIsTornDown()
+    {
+        QVERIFY(ShareCaptureRetry::mayRestart(true, true));
+        QVERIFY(!ShareCaptureRetry::mayRestart(false, true));
+        QVERIFY(!ShareCaptureRetry::mayRestart(true, false));
+
+        const char *description =
+            "appsrc name=capsrc is-live=true format=time "
+            "caps=video/x-raw,format=BGRx,width=64,height=64,framerate=30/1 "
+            "! capsfilter name=capentry "
+            "caps=\"video/x-raw(memory:DMABuf),pixel-aspect-ratio=1/1\" "
+            "! fakesink sync=false async=false";
+        const auto makeBin = [description](GstElement *pipeline) {
+            GError *error = nullptr;
+            GstElement *bin = gst_parse_bin_from_description(description,
+                                                             FALSE, &error);
+            if (error)
+                g_error_free(error);
+            if (bin)
+                gst_bin_add(GST_BIN(pipeline), bin);
+            return bin;
+        };
+        const auto stateOf = [](GstElement *bin, const char *name) {
+            GstElement *element = gst_bin_get_by_name(GST_BIN(bin), name);
+            GstState state = GST_STATE_VOID_PENDING;
+            if (element) {
+                gst_element_get_state(element, &state, nullptr, GST_SECOND);
+                gst_object_unref(element);
+            }
+            return state;
+        };
+        const auto entryCaps = [](GstElement *bin) {
+            GstElement *entry = gst_bin_get_by_name(GST_BIN(bin), "capentry");
+            GstCaps *caps = nullptr;
+            g_object_get(entry, "caps", &caps, nullptr);
+            gchar *text = caps ? gst_caps_to_string(caps) : nullptr;
+            const QString out = QString::fromUtf8(text ? text : "");
+            g_free(text);
+            if (caps)
+                gst_caps_unref(caps);
+            gst_object_unref(entry);
+            return out;
+        };
+
+        GstElement *pipeline = gst_pipeline_new("restart-test");
+        GstElement *live = makeBin(pipeline);
+        GstElement *gone = makeBin(pipeline);
+        QVERIFY(live && gone);
+        gst_object_ref(gone);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        QCOMPARE(stateOf(live, "capsrc"), GST_STATE_PLAYING);
+
+        ShareCaptureRetry goneRetry;
+        QVERIFY(goneRetry.begin());
+        gst_bin_remove(GST_BIN(pipeline), gone);
+        gst_element_set_state(gone, GST_STATE_NULL);
+        QVERIFY(!SfuMediaEngine::restartShareCapture(gone, goneRetry));
+        QCOMPARE(goneRetry.stamp(), 0);
+        QCOMPARE(stateOf(gone, "capsrc"), GST_STATE_NULL);
+        QVERIFY(entryCaps(gone).contains(QLatin1String("DMABuf")));
+        gst_object_unref(gone);
+
+        ShareCaptureRetry retry;
+        QVERIFY(retry.begin());
+        QVERIFY(SfuMediaEngine::restartShareCapture(live, retry));
+        QCOMPARE(retry.stamp(), 1);
+        QCOMPARE(stateOf(live, "capsrc"), GST_STATE_PLAYING);
+        QVERIFY2(!entryCaps(live).contains(QLatin1String("DMABuf")),
+                 qPrintable(entryCaps(live)));
+
+        std::atomic<int> captured{0};
+        GstElement *source = gst_bin_get_by_name(GST_BIN(live), "capsrc");
+        GstPad *pad = gst_element_get_static_pad(source, "src");
+        gst_pad_add_probe(
+            pad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            },
+            &captured, nullptr);
+        gst_object_unref(pad);
+        GstBuffer *frame = gst_buffer_new_allocate(nullptr, 64 * 64 * 4,
+                                                   nullptr);
+        GST_BUFFER_PTS(frame) = 0;
+        GstFlowReturn flow = GST_FLOW_ERROR;
+        g_signal_emit_by_name(source, "push-buffer", frame, &flow);
+        gst_buffer_unref(frame);
+        gst_object_unref(source);
+        QCOMPARE(flow, GST_FLOW_OK);
+        QTRY_VERIFY(captured.load() > 0);
+        QVERIFY(retry.noteCaptured());
+
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
     }
 
     void theSystemMemoryEntryTakesWhatTheGpuEntryCouldNot()
@@ -3565,11 +3709,12 @@ true,-1, fds[0]);
         engine.handlePublishError(cid, false, false, true, 0);
         QCOMPARE(failed.count(), 0);
         QCOMPARE(engine.shareCaptureEpochForTest(cid), 1);
-        QVERIFY(SfuMediaEngine::shareDmaBufCaptureFailedForTest());
-        const QString retried = engine.publishedBinPropertyForTest(
-            cid, QStringLiteral("capentry"), QStringLiteral("caps"));
-        QVERIFY2(!retried.isEmpty() && !retried.contains(QLatin1String("DMABuf")),
-                 qPrintable(retried));
+        QTRY_VERIFY(!engine.publishedBinPropertyForTest(
+                               cid, QStringLiteral("capentry"),
+                               QStringLiteral("caps"))
+                         .contains(QLatin1String("DMABuf")));
+        QVERIFY2(!SfuMediaEngine::shareDmaBufCaptureFailedForTest(),
+                 "latched before the retry captured a frame");
 
         engine.handlePublishError(cid, false, false, true, 0);
         engine.handleCaptureEnded(cid, 0);
@@ -3584,10 +3729,11 @@ true,-1, fds[0]);
         engine.start();
         engine.publishVideo(QStringLiteral("cid-next"), true, 0);
         QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-next")));
-        QCOMPARE(engine.publishedBinPropertyForTest(
-                     QStringLiteral("cid-next"), QStringLiteral("capentry"),
-                     QStringLiteral("caps")),
-                 QString());
+        QVERIFY2(engine.publishedBinPropertyForTest(
+                           QStringLiteral("cid-next"),
+                           QStringLiteral("capentry"), QStringLiteral("caps"))
+                     .contains(QLatin1String("DMABuf")),
+                 "a retry that never captured took DMA-BUF from later shares");
         engine.stop();
     }
 

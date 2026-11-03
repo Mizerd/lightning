@@ -22,6 +22,7 @@
 #include "calls/StreamInfoStats.h"
 #include "calls/CaptureDeviceSelection.h"
 #include "calls/ShareAudioSources.h"
+#include "calls/ShareCaptureRetry.h"
 #include "calls/noise/NoiseSuppressor.h"
 #include "calls/WebrtcRetirer.h"
 
@@ -118,12 +119,17 @@ public:
     /// Caps the GPU entry falls back to when its DMA-BUF branch cannot
     /// negotiate with the compositor: system memory, any format.
     static QString systemMemoryEntryCaps();
-    /// A capture error that a different memory or format choice can cure:
-    /// a negotiation or format failure, not a missing or revoked source.
+    /// A negotiation or format failure of the capture source. basesrc's
+    /// generic STREAM/FAILED counts only when its debug names not-negotiated.
     static bool isCaptureFormatError(quint32 domain, int code,
-                                     const QString &message);
-    /// The share's GPU entry is retried on system memory once per share and
-    /// every later share starts there.
+                                     const QString &message,
+                                     const QString &debug);
+    /// Stops the share's capture, swaps its entry to system memory and
+    /// starts it again, under the bin's state lock. False, touching nothing,
+    /// when the bin is no longer a live member of a playing pipeline.
+    static bool restartShareCapture(GstElement *bin, ShareCaptureRetry &retry);
+    /// Set once a share retried in system memory captures a frame; every
+    /// later share then starts there.
     static bool shareDmaBufCaptureFailedForTest();
     static void clearShareDmaBufCaptureFailedForTest();
     /// A screen capture's DMA-BUF buffer whose single memory is SHORTER than
@@ -765,7 +771,8 @@ public Q_SLOTS:
     bool retryShareCaptureInSystemMemory(const QString &cid);
     int shareCaptureEpochForTest(const QString &cid) const
     {
-        return m_publishWatch.value(cid).captureEpoch;
+        const auto retry = m_publishWatch.value(cid).retry;
+        return retry ? retry->requested() : 0;
     }
     void checkCameraFirstFrame(const QString &cid, quint64 generation);
 
@@ -882,6 +889,7 @@ private:
         std::atomic<qint64> firstEncodedMs{-1};
         qint64 startedMs = 0;
         bool screenShare = false;
+        std::shared_ptr<ShareCaptureRetry> captureRetry;
 
         QMutex keepMutex;
         GstBuffer *lastFrame = nullptr;
@@ -903,8 +911,7 @@ private:
     struct PublishWatch {
         std::shared_ptr<PublishProbeState> state;
         bool reported = false;
-        /// Bumped when the capture restarts; errors posted before it are stale.
-        int captureEpoch = 0;
+        std::shared_ptr<ShareCaptureRetry> retry;
     };
     QHash<QString, PublishWatch> m_publishWatch;
     std::unique_ptr<CallFrameCryptor> m_sendCryptor;

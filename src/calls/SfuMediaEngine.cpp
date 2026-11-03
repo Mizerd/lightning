@@ -65,7 +65,14 @@
 namespace {
 std::atomic<bool> g_shareHardwareEncoderFailed{false};
 std::atomic<bool> g_shareDmaBufCaptureFailed{false};
-constexpr const char kCaptureEpochKey[] = "lightning-capture-epoch";
+constexpr const char kCaptureRetryKey[] = "lightning-capture-retry";
+
+int captureRetryStamp(GObject *bin)
+{
+    const auto *retry = static_cast<std::shared_ptr<ShareCaptureRetry> *>(
+        g_object_get_data(bin, kCaptureRetryKey));
+    return retry && *retry ? (*retry)->stamp() : 0;
+}
 const QLatin1String kShareBackupSuffix("-vp8");
 
 Q_LOGGING_CATEGORY(lcSfuMedia, "lightning.calls.sfu")
@@ -1246,8 +1253,9 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
     const bool captureFormatError =
         type == GST_MESSAGE_ERROR && error
         && element.startsWith(QLatin1String("capsrc"))
-        && SfuMediaEngine::isCaptureFormatError(error->domain, error->code,
-                                                reason);
+        && SfuMediaEngine::isCaptureFormatError(
+            error->domain, error->code, reason,
+            QString::fromUtf8(debug ? debug : ""));
     if (error)
         g_error_free(error);
     if (debug)
@@ -1268,8 +1276,7 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 gchar *name = gst_object_get_name(walk);
                 publishCid = QString::fromUtf8(name ? name : "");
                 g_free(name);
-                captureEpoch = GPOINTER_TO_INT(
-                    g_object_get_data(G_OBJECT(walk), kCaptureEpochKey));
+                captureEpoch = captureRetryStamp(G_OBJECT(walk));
                 if (GST_IS_ELEMENT(walk))
                     engine->isolateFailedReceiveBin(GST_ELEMENT(walk));
                 gst_object_unref(parent);
@@ -4002,20 +4009,24 @@ QString SfuMediaEngine::systemMemoryEntryCaps()
 }
 
 bool SfuMediaEngine::isCaptureFormatError(quint32 domain, int code,
-                                          const QString &message)
+                                          const QString &message,
+                                          const QString &debug)
 {
     if (domain == GST_CORE_ERROR)
         return code == GST_CORE_ERROR_NEGOTIATION;
     if (domain == GST_STREAM_ERROR) {
+        if (code == GST_STREAM_ERROR_FAILED)
+            return debug.contains(QLatin1String("not-negotiated"));
         return code == GST_STREAM_ERROR_FORMAT
-               || code == GST_STREAM_ERROR_FAILED
-               || code == GST_STREAM_ERROR_WRONG_TYPE
-               || code == GST_STREAM_ERROR_NOT_IMPLEMENTED;
+               || code == GST_STREAM_ERROR_WRONG_TYPE;
     }
-    // pipewiresrc reports a format it cannot express as RESOURCE/FAILED
-    // "stream error: unhandled format".
-    return message.contains(QLatin1String("format"), Qt::CaseInsensitive)
-           || message.contains(QLatin1String("negotiat"), Qt::CaseInsensitive);
+    if (domain == GST_RESOURCE_ERROR) {
+        return message.contains(QLatin1String("unhandled format"),
+                                Qt::CaseInsensitive)
+               || message.contains(QLatin1String("no more input formats"),
+                                   Qt::CaseInsensitive);
+    }
+    return false;
 }
 
 bool SfuMediaEngine::shareDmaBufCaptureFailedForTest()
@@ -5443,12 +5454,21 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     ? gst_bin_get_by_name(GST_BIN(bin), "capentry")
                     : nullptr) {
                 gst_object_unref(entry);
-                // basesrc posts its error before pushing EOS, so the retry is
-                // queued ahead of this; an EOS from a superseded attempt must
-                // neither reach webrtcbin nor end the share.
+                auto retry = std::make_shared<ShareCaptureRetry>();
+                probeState->captureRetry = retry;
+                m_publishWatch[cid].retry = retry;
+                g_object_set_data_full(
+                    G_OBJECT(bin), kCaptureRetryKey,
+                    new std::shared_ptr<ShareCaptureRetry>(retry),
+                    [](gpointer data) {
+                        delete static_cast<std::shared_ptr<ShareCaptureRetry> *>(
+                            data);
+                    });
+                // An EOS before the first buffer must not reach webrtcbin: the
+                // capture may still be restarted in place.
                 struct EosGuard {
                     std::shared_ptr<PublishProbeState> state;
-                    GstElement *bin;
+                    std::shared_ptr<ShareCaptureRetry> retry;
                     SfuMediaEngine *engine;
                     QString cid;
                 };
@@ -5460,8 +5480,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                         if (!event || GST_EVENT_TYPE(event) != GST_EVENT_EOS
                             || guard->state->captured.load() > 0)
                             return GST_PAD_PROBE_OK;
-                        const int epoch = GPOINTER_TO_INT(g_object_get_data(
-                            G_OBJECT(guard->bin), kCaptureEpochKey));
+                        const int epoch = guard->retry->stamp();
                         SfuMediaEngine *engine = guard->engine;
                         const QString cid = guard->cid;
                         marshal(engine, [engine, cid, epoch] {
@@ -5469,7 +5488,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                         });
                         return GST_PAD_PROBE_DROP;
                     },
-                    new EosGuard{probeState, bin, this, cid},
+                    new EosGuard{probeState, retry, this, cid},
                     [](gpointer data) { delete static_cast<EosGuard *>(data); });
             }
             auto *held = new std::shared_ptr<PublishProbeState>(probeState);
@@ -5483,6 +5502,9 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     if (n == 1) {
                         state->firstCaptureMs.store(monotonicMs()
                                                     - state->startedMs);
+                        if (state->captureRetry
+                            && state->captureRetry->noteCaptured())
+                            g_shareDmaBufCaptureFailed.store(true);
                         if (GstCaps *caps = gst_pad_get_current_caps(pad)) {
                             gchar *text = gst_caps_to_string(caps);
                             qCInfo(lcSfuMedia)
@@ -7844,7 +7866,7 @@ void SfuMediaEngine::handleCaptureEnded(const QString &cid, int captureEpoch)
         return;
     auto watch = m_publishWatch.find(cid);
     if (watch == m_publishWatch.end() || !watch->state || watch->reported
-        || (captureEpoch >= 0 && captureEpoch < watch->captureEpoch))
+        || (watch->retry && watch->retry->isStale(captureEpoch)))
         return;
     const bool screenShare = watch->state->screenShare;
     watch->reported = true;
@@ -8271,7 +8293,7 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
     const auto watch = m_publishWatch.constFind(cid);
     if (watch == m_publishWatch.cend() || !watch->state || watch->reported)
         return;
-    if (captureEpoch >= 0 && captureEpoch < watch->captureEpoch)
+    if (watch->retry && watch->retry->isStale(captureEpoch))
         return;
     if (watch->state->captured.load() > 0)
         return;
@@ -8289,41 +8311,63 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
             : cameraPublishErrorCategory(screenShare, busyError));
 }
 
-namespace {
-void restartShareCaptureAsync(GstElement *bin, gpointer)
+bool SfuMediaEngine::restartShareCapture(GstElement *bin,
+                                         ShareCaptureRetry &retry)
 {
-    GstElement *source = gst_bin_get_by_name(GST_BIN(bin), "capsrc");
-    if (!source)
-        return;
+    // Held across the restart so a teardown's NULL transition of this bin
+    // cannot interleave and leave the source PLAYING in a disposed bin.
+    GST_STATE_LOCK(bin);
+    GstObject *parent = gst_object_get_parent(GST_OBJECT(bin));
+    const bool live = ShareCaptureRetry::mayRestart(
+        GST_STATE_TARGET(bin) == GST_STATE_PLAYING, parent != nullptr);
+    if (parent)
+        gst_object_unref(parent);
+    GstElement *source =
+        live ? gst_bin_get_by_name(GST_BIN(bin), "capsrc") : nullptr;
+    GstElement *entry =
+        source ? gst_bin_get_by_name(GST_BIN(bin), "capentry") : nullptr;
+    if (!entry) {
+        if (source)
+            gst_object_unref(source);
+        GST_STATE_UNLOCK(bin);
+        return false;
+    }
     gst_element_set_state(source, GST_STATE_NULL);
-    gst_element_sync_state_with_parent(source);
-    gst_object_unref(source);
-}
-}
-
-bool SfuMediaEngine::retryShareCaptureInSystemMemory(const QString &cid)
-{
-    auto watch = m_publishWatch.find(cid);
-    GstElement *bin = m_publishedBins.value(cid, nullptr);
-    if (watch == m_publishWatch.end() || !bin || !GST_IS_BIN(bin)
-        || watch->captureEpoch > 0)
-        return false;
-    GstElement *entry = gst_bin_get_by_name(GST_BIN(bin), "capentry");
-    if (!entry)
-        return false;
     GstCaps *caps = gst_caps_from_string(
         systemMemoryEntryCaps().toUtf8().constData());
     g_object_set(entry, "caps", caps, nullptr);
     gst_caps_unref(caps);
+    retry.publish();
+    gst_element_sync_state_with_parent(source);
     gst_object_unref(entry);
-    g_shareDmaBufCaptureFailed.store(true);
-    watch->captureEpoch += 1;
-    g_object_set_data(G_OBJECT(bin), kCaptureEpochKey,
-                      GINT_TO_POINTER(watch->captureEpoch));
+    gst_object_unref(source);
+    GST_STATE_UNLOCK(bin);
+    return true;
+}
+
+bool SfuMediaEngine::retryShareCaptureInSystemMemory(const QString &cid)
+{
+    const auto watch = m_publishWatch.constFind(cid);
+    GstElement *bin = m_publishedBins.value(cid, nullptr);
+    if (watch == m_publishWatch.cend() || !watch->retry || !bin
+        || !GST_IS_BIN(bin) || !watch->retry->begin())
+        return false;
     qCWarning(lcSfuMedia)
         << "screen share capture could not negotiate a DMA-BUF format; "
-           "retrying it in system memory, as will every later share";
-    gst_element_call_async(bin, restartShareCaptureAsync, nullptr, nullptr);
+           "retrying it in system memory";
+    gst_element_call_async(
+        bin,
+        [](GstElement *element, gpointer data) {
+            auto &retry =
+                *static_cast<std::shared_ptr<ShareCaptureRetry> *>(data);
+            if (!restartShareCapture(element, *retry))
+                qCInfo(lcSfuMedia) << "screen share capture restart "
+                                      "abandoned: the share was torn down";
+        },
+        new std::shared_ptr<ShareCaptureRetry>(watch->retry),
+        [](gpointer data) {
+            delete static_cast<std::shared_ptr<ShareCaptureRetry> *>(data);
+        });
     return true;
 }
 

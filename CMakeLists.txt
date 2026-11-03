@@ -1082,6 +1082,7 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/WebrtcRetirer.cpp
         src/calls/CaptureDeviceSelection.h
         src/calls/CaptureClock.h
+        src/calls/ShareCaptureRetry.h
         src/calls/CaptureDeviceSelection.cpp
         src/calls/RtpVp8Payloader.h
         src/calls/RtpVp8Payloader.cpp
