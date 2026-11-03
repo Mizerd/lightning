@@ -12351,22 +12351,22 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+77"/>
+        <location line="+78"/>
         <source>The voice message could not be sent.</source>
         <translation>Balso žinutės išsiųsti nepavyko.</translation>
     </message>
     <message>
-        <location line="-100"/>
+        <location line="-101"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>Balso žinutė yra didesnė nei serverio įkėlimo limitas (%1).</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
     <message>
-        <location line="+308"/>
+        <location line="+309"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Ši žinutė per ilga, kad ją būtų galima išsiųsti (%1 KB; riba – apie %2 KB). Sutrumpinkite ją arba padalykite į kelias žinutes.</translation>
     </message>
@@ -16991,7 +16991,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+74"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>Pokalbių dar nėra. kambariai, prie kurių prisijungiate, ir erdvės, kurioms jie priklauso, bus rodomi čia.</translation>
     </message>
@@ -17664,6 +17664,11 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <name>RoomDiscoveryController</name>
     <message>
         <location filename="../src/app/JoinErrorText.cpp" line="+8"/>
+        <source>Joining a room by address is not supported by this backend.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>You are banned from this room.</source>
         <translation>Jūs esate užblokuotas šiame kambaryje.</translation>
     </message>
@@ -18871,7 +18876,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+166"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+179"/>
         <source>Invites</source>
         <translation>Kvietimai</translation>
     </message>
@@ -26585,7 +26590,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ShortcutRegistry</name>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+149"/>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+152"/>
         <source>Dialogs</source>
         <translation>Dialogai</translation>
     </message>
@@ -26605,7 +26610,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Užverti veiklos langą, spartųjį perjungiklį arba nustatymus</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+496"/>
         <source>Use a single key combination for dialog navigation.</source>
         <translation>Naršymui dialoguose naudokite vieną klavišų derinį.</translation>
     </message>
@@ -26625,7 +26630,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Veiklos lange, sparčiajame perjungiklyje arba nustatymuose vietoj to vykdoma „%1“.</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-500"/>
         <source>Focus the message box</source>
         <translation>Fokusuoti žinutės laukelį</translation>
     </message>
@@ -26670,7 +26675,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+314"/>
         <source>Use a single key combination for message selection.</source>
         <translation>Žinučių pasirinkimui naudokite vieną klavišų kombinaciją.</translation>
     </message>
@@ -26685,7 +26690,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kol fokusas yra laiko juostoje, vietoj to vykdoma „%1“.</translation>
     </message>
     <message>
-        <location line="-723"/>
+        <location line="-733"/>
         <source>Application</source>
         <translation>Taikymas</translation>
     </message>
@@ -27095,7 +27100,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>pereina prie naujausios žinutės</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+279"/>
         <location line="+86"/>
         <source>Unknown action.</source>
         <translation>Nežinomas veiksmas.</translation>
@@ -27166,7 +27171,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kol žinučių laukelis yra sufokusuotas, vietoj jo veikia „%1“.</translation>
     </message>
     <message>
-        <location line="-729"/>
+        <location line="-739"/>
         <source>Settings navigation</source>
         <translation>Naršymas nustatymuose</translation>
     </message>
@@ -27191,7 +27196,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Pereiti į kitą nustatymų poskyrį</translation>
     </message>
     <message>
-        <location line="+474"/>
+        <location line="+484"/>
         <source>Use a single key combination for Settings navigation.</source>
         <translation>Naršymui nustatymuose naudokite vieną klavišų derinį.</translation>
     </message>
@@ -27211,7 +27216,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Nustatymuose vietoj to vykdoma „%1“.</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-643"/>
         <source>Scroll Settings up half a page</source>
         <translation>Slinkti nustatymus puse puslapio aukštyn</translation>
     </message>
@@ -31357,7 +31362,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
@@ -32036,12 +32041,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+295"/>
-        <location line="+5121"/>
+        <location line="+5142"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5120"/>
+        <location filename="../qml/TimelinePane.qml" line="-5141"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -32134,12 +32139,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3671"/>
+        <location line="+3692"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-3660"/>
+        <location line="-3681"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Daugiau kambario veiksmų</translation>
@@ -32385,7 +32390,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
-        <location line="+2564"/>
+        <location line="+2585"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -32845,13 +32850,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-5710"/>
+        <location line="-5731"/>
         <location line="+67"/>
         <source>View profile</source>
         <translation>Peržiūrėti profilį</translation>
     </message>
     <message>
-        <location line="+4941"/>
+        <location line="+4962"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Paveikslėliai (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32927,7 +32932,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Numeskite failus, kuriuos norite pridėti</translation>
     </message>
     <message>
-        <location line="-5182"/>
+        <location line="-5203"/>
         <source>Join space</source>
         <translation>Prisijungti prie erdvės</translation>
     </message>

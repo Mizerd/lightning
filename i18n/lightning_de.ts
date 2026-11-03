@@ -12309,22 +12309,22 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+77"/>
+        <location line="+78"/>
         <source>The voice message could not be sent.</source>
         <translation>Die Sprachnachricht konnte nicht gesendet werden.</translation>
     </message>
     <message>
-        <location line="-100"/>
+        <location line="-101"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>Die Sprachnachricht ist größer als das Upload-Limit des Servers (%1).</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Upload fehlgeschlagen. Erneut versuchen oder entfernen.</translation>
     </message>
     <message>
-        <location line="+308"/>
+        <location line="+309"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Diese Nachricht ist zu lang zum Senden (%1 KB; das Limit liegt bei etwa %2 KB). Kürze sie oder teile sie auf mehrere Nachrichten auf.</translation>
     </message>
@@ -16936,7 +16936,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+74"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>Noch keine Unterhaltungen. Räume, denen du beitrittst, und die Spaces, zu denen sie gehören, erscheinen hier.</translation>
     </message>
@@ -17605,6 +17605,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <name>RoomDiscoveryController</name>
     <message>
         <location filename="../src/app/JoinErrorText.cpp" line="+8"/>
+        <source>Joining a room by address is not supported by this backend.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>You are banned from this room.</source>
         <translation>Du wurdest aus diesem Raum gebannt.</translation>
     </message>
@@ -18807,7 +18812,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+44"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+57"/>
         <source>People</source>
         <translation>Personen</translation>
     </message>
@@ -26498,7 +26503,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>ShortcutRegistry</name>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+149"/>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+152"/>
         <source>Dialogs</source>
         <translation>Dialoge</translation>
     </message>
@@ -26518,7 +26523,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Aktivität, Schnellauswahl oder Einstellungen schließen</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+496"/>
         <source>Use a single key combination for dialog navigation.</source>
         <translation>Verwende eine einzelne Tastenkombination zur Dialognavigation.</translation>
     </message>
@@ -26538,7 +26543,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>In Aktivität, Schnellauswahl oder Einstellungen wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-500"/>
         <source>Focus the message box</source>
         <translation>Nachrichtenfeld fokussieren</translation>
     </message>
@@ -26583,7 +26588,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+314"/>
         <source>Use a single key combination for message selection.</source>
         <translation>Für die Nachrichtenauswahl eine einzelne Tastenkombination verwenden.</translation>
     </message>
@@ -26598,7 +26603,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Solange die Zeitleiste den Fokus hat, wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
-        <location line="-723"/>
+        <location line="-733"/>
         <source>Application</source>
         <translation>Anwendung</translation>
     </message>
@@ -27008,7 +27013,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>das Springen zur neuesten Nachricht</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+279"/>
         <location line="+86"/>
         <source>Unknown action.</source>
         <translation>Unbekannte Aktion.</translation>
@@ -27079,7 +27084,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Solange das Nachrichtenfeld den Fokus hat, wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
-        <location line="-729"/>
+        <location line="-739"/>
         <source>Settings navigation</source>
         <translation>Navigation in den Einstellungen</translation>
     </message>
@@ -27104,7 +27109,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Zum nächsten Unterabschnitt der Einstellungen springen</translation>
     </message>
     <message>
-        <location line="+474"/>
+        <location line="+484"/>
         <source>Use a single key combination for Settings navigation.</source>
         <translation>Verwende eine einzelne Tastenkombination zur Navigation in den Einstellungen.</translation>
     </message>
@@ -27124,7 +27129,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>In den Einstellungen wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-643"/>
         <source>Scroll Settings up half a page</source>
         <translation>Einstellungen eine halbe Seite nach oben scrollen</translation>
     </message>
@@ -31224,7 +31229,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Anhänge werden von diesem Backend nicht unterstützt.</translation>
@@ -31891,7 +31896,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+6707"/>
+        <location filename="../qml/TimelinePane.qml" line="+6728"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -31935,8 +31940,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5601"/>
-        <location line="+5121"/>
+        <location filename="../qml/TimelinePane.qml" line="-5622"/>
+        <location line="+5142"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32014,7 +32019,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6187"/>
+        <location filename="../qml/TimelinePane.qml" line="-6208"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -32131,12 +32136,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3671"/>
+        <location line="+3692"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-3660"/>
+        <location line="-3681"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -32382,7 +32387,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Suche konnte nicht abgeschlossen werden.</translation>
     </message>
     <message>
-        <location line="+2564"/>
+        <location line="+2585"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -32780,7 +32785,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5182"/>
+        <location line="-5203"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>

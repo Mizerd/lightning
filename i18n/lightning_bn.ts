@@ -12300,22 +12300,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+77"/>
+        <location line="+78"/>
         <source>The voice message could not be sent.</source>
         <translation>ভয়েস বার্তাটি পাঠানো যায়নি।</translation>
     </message>
     <message>
-        <location line="-100"/>
+        <location line="-101"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>ভয়েস বার্তাটি সার্ভারের আপলোড সীমার চেয়ে বড় (%1)।</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>আপলোড ব্যর্থ। আবার চেষ্টা করুন বা সরান।</translation>
     </message>
     <message>
-        <location line="+308"/>
+        <location line="+309"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>এই বার্তাটি পাঠানোর জন্য খুব বড় (%1 KB; সীমা প্রায় %2 KB)। এটি ছোট করুন অথবা কয়েকটি বার্তায় ভাগ করুন।</translation>
     </message>
@@ -16927,7 +16927,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+74"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>এখনো কোনো কথোপকথন নেই। আপনি যে রুমগুলিতে যোগদান করেন এবং সেগুলি যে স্পেসগুলির অন্তর্গত সেগুলি এখানে দেখাবে৷</translation>
     </message>
@@ -17596,6 +17596,11 @@ Signing out and signing in again is the only fix.</source>
     <name>RoomDiscoveryController</name>
     <message>
         <location filename="../src/app/JoinErrorText.cpp" line="+8"/>
+        <source>Joining a room by address is not supported by this backend.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>You are banned from this room.</source>
         <translation>এই রুম থেকে আপনাকে নিষিদ্ধ করা হয়েছে।</translation>
     </message>
@@ -18798,7 +18803,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+166"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+179"/>
         <source>Invites</source>
         <translation>আমন্ত্রণ</translation>
     </message>
@@ -26489,7 +26494,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ShortcutRegistry</name>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+149"/>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+152"/>
         <source>Dialogs</source>
         <translation>ডায়ালগ</translation>
     </message>
@@ -26509,7 +26514,7 @@ Note: importing keys does not verify this session.</source>
         <translation>কার্যকলাপ, দ্রুত সুইচার বা সেটিংস বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+496"/>
         <source>Use a single key combination for dialog navigation.</source>
         <translation>ডায়ালগে নেভিগেশনের জন্য একটি কী সমন্বয় ব্যবহার করুন।</translation>
     </message>
@@ -26529,7 +26534,7 @@ Note: importing keys does not verify this session.</source>
         <translation>কার্যকলাপ, দ্রুত সুইচার বা সেটিংসে এর বদলে “%1” চলে।</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-500"/>
         <source>Focus the message box</source>
         <translation>বার্তা বাক্সে ফোকাস করুন</translation>
     </message>
@@ -26574,7 +26579,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+314"/>
         <source>Use a single key combination for message selection.</source>
         <translation>বার্তা নির্বাচনের জন্য একটি মাত্র কী সমন্বয় ব্যবহার করুন।</translation>
     </message>
@@ -26589,7 +26594,7 @@ Note: importing keys does not verify this session.</source>
         <translation>টাইমলাইনে ফোকাস থাকলে এর পরিবর্তে “%1” চলে।</translation>
     </message>
     <message>
-        <location line="-723"/>
+        <location line="-733"/>
         <source>Application</source>
         <translation>আবেদন</translation>
     </message>
@@ -26999,7 +27004,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সর্বশেষ বার্তায় ঝাঁপ দেওয়া</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+279"/>
         <location line="+86"/>
         <source>Unknown action.</source>
         <translation>অজানা কর্ম।</translation>
@@ -27070,7 +27075,7 @@ Note: importing keys does not verify this session.</source>
         <translation>বার্তা বাক্সে ফোকাস থাকার সময়, &quot;%1&quot; এর পরিবর্তে চলে৷</translation>
     </message>
     <message>
-        <location line="-729"/>
+        <location line="-739"/>
         <source>Settings navigation</source>
         <translation>সেটিংস নেভিগেশন</translation>
     </message>
@@ -27095,7 +27100,7 @@ Note: importing keys does not verify this session.</source>
         <translation>পরের সেটিংস উপবিভাগে যান</translation>
     </message>
     <message>
-        <location line="+474"/>
+        <location line="+484"/>
         <source>Use a single key combination for Settings navigation.</source>
         <translation>সেটিংস নেভিগেশনের জন্য একটি কী সমন্বয় ব্যবহার করুন।</translation>
     </message>
@@ -27115,7 +27120,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সেটিংসে এর বদলে “%1” চলে।</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-643"/>
         <source>Scroll Settings up half a page</source>
         <translation>সেটিংস অর্ধেক পৃষ্ঠা উপরে স্ক্রল করুন</translation>
     </message>
@@ -31215,7 +31220,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
@@ -31888,12 +31893,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+295"/>
-        <location line="+5121"/>
+        <location line="+5142"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5120"/>
+        <location filename="../qml/TimelinePane.qml" line="-5141"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
@@ -31986,12 +31991,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3671"/>
+        <location line="+3692"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
     <message>
-        <location line="-3660"/>
+        <location line="-3681"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>রুমের আরও কাজ</translation>
@@ -32237,7 +32242,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অনুসন্ধান সম্পূর্ণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+2564"/>
+        <location line="+2585"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -32689,13 +32694,13 @@ Note: importing keys does not verify this session.</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-5710"/>
+        <location line="-5731"/>
         <location line="+67"/>
         <source>View profile</source>
         <translation>প্রোফাইল দেখুন</translation>
     </message>
     <message>
-        <location line="+4941"/>
+        <location line="+4962"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32771,7 +32776,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সংযুক্ত করতে ফাইল ছেড়ে দিন</translation>
     </message>
     <message>
-        <location line="-5182"/>
+        <location line="-5203"/>
         <source>Join space</source>
         <translation>স্পেসে যোগ দিন</translation>
     </message>

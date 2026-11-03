@@ -12351,22 +12351,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+77"/>
+        <location line="+78"/>
         <source>The voice message could not be sent.</source>
         <translation>Не удалось отправить голосовое сообщение.</translation>
     </message>
     <message>
-        <location line="-100"/>
+        <location line="-101"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>Голосовое сообщение превышает ограничение сервера на загрузку (%1).</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Не удалось загрузить. Повторите или удалите.</translation>
     </message>
     <message>
-        <location line="+308"/>
+        <location line="+309"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Сообщение слишком длинное для отправки (%1 КБ; предел около %2 КБ). Сократите его или разделите на несколько сообщений.</translation>
     </message>
@@ -16991,7 +16991,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+74"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>Разговоров пока нет. Здесь будут отображаться комнаты, к которым вы присоединились, и помещения, к которым они принадлежат.</translation>
     </message>
@@ -17664,6 +17664,11 @@ Signing out and signing in again is the only fix.</source>
     <name>RoomDiscoveryController</name>
     <message>
         <location filename="../src/app/JoinErrorText.cpp" line="+8"/>
+        <source>Joining a room by address is not supported by this backend.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>You are banned from this room.</source>
         <translation>Вы заблокированы в этой комнате.</translation>
     </message>
@@ -18871,7 +18876,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+166"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+179"/>
         <source>Invites</source>
         <translation>Приглашения</translation>
     </message>
@@ -26585,7 +26590,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ShortcutRegistry</name>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+149"/>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+152"/>
         <source>Dialogs</source>
         <translation>Диалоги</translation>
     </message>
@@ -26605,7 +26610,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Закрыть активность, быстрый переключатель или настройки</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+496"/>
         <source>Use a single key combination for dialog navigation.</source>
         <translation>Используйте одно сочетание клавиш для навигации в диалогах.</translation>
     </message>
@@ -26625,7 +26630,7 @@ Note: importing keys does not verify this session.</source>
         <translation>В активности, быстром переключателе или настройках вместо этого выполняется «%1».</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-500"/>
         <source>Focus the message box</source>
         <translation>Перейти в поле сообщения</translation>
     </message>
@@ -26670,7 +26675,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+314"/>
         <source>Use a single key combination for message selection.</source>
         <translation>Для выбора сообщений используйте одно сочетание клавиш.</translation>
     </message>
@@ -26685,7 +26690,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Пока фокус в ленте сообщений, вместо этого выполняется «%1».</translation>
     </message>
     <message>
-        <location line="-723"/>
+        <location line="-733"/>
         <source>Application</source>
         <translation>Приложение</translation>
     </message>
@@ -27095,7 +27100,7 @@ Note: importing keys does not verify this session.</source>
         <translation>переход к последнему сообщению</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+279"/>
         <location line="+86"/>
         <source>Unknown action.</source>
         <translation>Неизвестное действие.</translation>
@@ -27166,7 +27171,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Хотя окно сообщения имеет фокус, вместо него запускается «%1».</translation>
     </message>
     <message>
-        <location line="-729"/>
+        <location line="-739"/>
         <source>Settings navigation</source>
         <translation>Навигация в настройках</translation>
     </message>
@@ -27191,7 +27196,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Перейти к следующему подразделу настроек</translation>
     </message>
     <message>
-        <location line="+474"/>
+        <location line="+484"/>
         <source>Use a single key combination for Settings navigation.</source>
         <translation>Используйте одно сочетание клавиш для навигации в настройках.</translation>
     </message>
@@ -27211,7 +27216,7 @@ Note: importing keys does not verify this session.</source>
         <translation>В настройках вместо этого выполняется «%1».</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-643"/>
         <source>Scroll Settings up half a page</source>
         <translation>Прокрутить настройки на полстраницы вверх</translation>
     </message>
@@ -31357,7 +31362,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Вложения не поддерживаются этим бэкендом.</translation>
@@ -32036,12 +32041,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+295"/>
-        <location line="+5121"/>
+        <location line="+5142"/>
         <source>Space</source>
         <translation>Пространство</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5120"/>
+        <location filename="../qml/TimelinePane.qml" line="-5141"/>
         <source>Home</source>
         <translation>Главная</translation>
     </message>
@@ -32134,12 +32139,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3671"/>
+        <location line="+3692"/>
         <source>Room information</source>
         <translation>Сведения о комнате</translation>
     </message>
     <message>
-        <location line="-3660"/>
+        <location line="-3681"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Другие действия с комнатой</translation>
@@ -32385,7 +32390,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Не удалось выполнить поиск.</translation>
     </message>
     <message>
-        <location line="+2564"/>
+        <location line="+2585"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -32845,13 +32850,13 @@ Note: importing keys does not verify this session.</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-5710"/>
+        <location line="-5731"/>
         <location line="+67"/>
         <source>View profile</source>
         <translation>Посмотреть профиль</translation>
     </message>
     <message>
-        <location line="+4941"/>
+        <location line="+4962"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Изображения (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32927,7 +32932,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Перетащите файлы, чтобы прикрепить</translation>
     </message>
     <message>
-        <location line="-5182"/>
+        <location line="-5203"/>
         <source>Join space</source>
         <translation>Присоединиться к пространству</translation>
     </message>

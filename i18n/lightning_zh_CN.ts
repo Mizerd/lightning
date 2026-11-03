@@ -12267,22 +12267,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+77"/>
+        <location line="+78"/>
         <source>The voice message could not be sent.</source>
         <translation>语音消息发送失败。</translation>
     </message>
     <message>
-        <location line="-100"/>
+        <location line="-101"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>该语音消息超过了服务器的上传大小限制（%1）。</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>上传失败。请重试或移除。</translation>
     </message>
     <message>
-        <location line="+308"/>
+        <location line="+309"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>这条消息太长，无法发送（%1 KB；上限约为 %2 KB）。请缩短消息或拆分成多条发送。</translation>
     </message>
@@ -16881,7 +16881,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+74"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>还没有对话。您加入的房间以及它们所属的空间将显示在此处。</translation>
     </message>
@@ -17546,6 +17546,11 @@ Signing out and signing in again is the only fix.</source>
     <name>RoomDiscoveryController</name>
     <message>
         <location filename="../src/app/JoinErrorText.cpp" line="+8"/>
+        <source>Joining a room by address is not supported by this backend.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>You are banned from this room.</source>
         <translation>你已被此房间封禁。</translation>
     </message>
@@ -18743,7 +18748,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+166"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+179"/>
         <source>Invites</source>
         <translation>邀请</translation>
     </message>
@@ -26411,7 +26416,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ShortcutRegistry</name>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+149"/>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+152"/>
         <source>Dialogs</source>
         <translation>对话框</translation>
     </message>
@@ -26431,7 +26436,7 @@ Note: importing keys does not verify this session.</source>
         <translation>关闭动态、快速切换器或设置</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+496"/>
         <source>Use a single key combination for dialog navigation.</source>
         <translation>请使用单个组合键导航对话框。</translation>
     </message>
@@ -26451,7 +26456,7 @@ Note: importing keys does not verify this session.</source>
         <translation>在动态、快速切换器或设置中，将改为执行“%1”。</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-500"/>
         <source>Focus the message box</source>
         <translation>聚焦消息输入框</translation>
     </message>
@@ -26496,7 +26501,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+314"/>
         <source>Use a single key combination for message selection.</source>
         <translation>消息选择请使用单个组合键。</translation>
     </message>
@@ -26511,7 +26516,7 @@ Note: importing keys does not verify this session.</source>
         <translation>时间线拥有焦点时，将改为执行“%1”。</translation>
     </message>
     <message>
-        <location line="-723"/>
+        <location line="-733"/>
         <source>Application</source>
         <translation>应用</translation>
     </message>
@@ -26921,7 +26926,7 @@ Note: importing keys does not verify this session.</source>
         <translation>跳转到最新消息</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+279"/>
         <location line="+86"/>
         <source>Unknown action.</source>
         <translation>未知的行动。</translation>
@@ -26992,7 +26997,7 @@ Note: importing keys does not verify this session.</source>
         <translation>当消息框获得焦点时，“%1”将会运行。</translation>
     </message>
     <message>
-        <location line="-729"/>
+        <location line="-739"/>
         <source>Settings navigation</source>
         <translation>设置导航</translation>
     </message>
@@ -27017,7 +27022,7 @@ Note: importing keys does not verify this session.</source>
         <translation>跳转到下一个设置子分区</translation>
     </message>
     <message>
-        <location line="+474"/>
+        <location line="+484"/>
         <source>Use a single key combination for Settings navigation.</source>
         <translation>请使用单个组合键导航设置。</translation>
     </message>
@@ -27037,7 +27042,7 @@ Note: importing keys does not verify this session.</source>
         <translation>在设置中，将改为执行“%1”。</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-643"/>
         <source>Scroll Settings up half a page</source>
         <translation>将设置向上滚动半页</translation>
     </message>
@@ -31091,7 +31096,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>此后端不支持附件。</translation>
@@ -31758,12 +31763,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+295"/>
-        <location line="+5121"/>
+        <location line="+5142"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5120"/>
+        <location filename="../qml/TimelinePane.qml" line="-5141"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -31856,12 +31861,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3671"/>
+        <location line="+3692"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-3660"/>
+        <location line="-3681"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>更多房间操作</translation>
@@ -32107,7 +32112,7 @@ Note: importing keys does not verify this session.</source>
         <translation>搜索无法完成。</translation>
     </message>
     <message>
-        <location line="+2564"/>
+        <location line="+2585"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -32551,13 +32556,13 @@ Note: importing keys does not verify this session.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-5710"/>
+        <location line="-5731"/>
         <location line="+67"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
     <message>
-        <location line="+4941"/>
+        <location line="+4962"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32633,7 +32638,7 @@ Note: importing keys does not verify this session.</source>
         <translation>拖放文件以添加附件</translation>
     </message>
     <message>
-        <location line="-5182"/>
+        <location line="-5203"/>
         <source>Join space</source>
         <translation>加入空间</translation>
     </message>
