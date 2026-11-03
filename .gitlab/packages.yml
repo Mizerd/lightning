@@ -16,6 +16,8 @@ variables:
 .pkg-job:
   interruptible: true
   variables:
+    # The source is this mirror's own checkout; SOURCE_REF must name it.
+    LIGHTNING_SOURCE_FROM_CHECKOUT: "true"
     DEBIAN_FRONTEND: "noninteractive"
     BUILD_TYPE: "Release"
     PUBLISH_PACKAGES: "false"

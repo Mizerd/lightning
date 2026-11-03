@@ -21,6 +21,25 @@ EXPECTED_REPOSITORY="https://gitlab.smetonis.net/Mizerd/lightning.git"
 mkdir -p "$ROOT/work" "$DIST_DIR"
 [[ ! -e "$SOURCE_DIR" ]] || die "source directory already exists: ${SOURCE_DIR}"
 
+if [[ "${LIGHTNING_SOURCE_FROM_CHECKOUT:-false}" == true ]]; then
+    # A mirror's pipeline builds the commit it checked out and never fetches
+    # from the canonical host.
+    require_var CI_COMMIT_SHA
+    RESOLVED_SHA="$(git -C "$ROOT" rev-parse --verify --quiet "${SOURCE_REF}^{commit}" \
+        || git -C "$ROOT" rev-parse --verify --quiet "refs/remotes/origin/${SOURCE_REF}^{commit}" \
+        || true)"
+    [[ -n "$RESOLVED_SHA" ]] || die "Lightning ref not found in this checkout: ${SOURCE_REF}"
+    [[ "$RESOLVED_SHA" == "$CI_COMMIT_SHA" ]] || \
+        die "SOURCE_REF ${SOURCE_REF} is ${RESOLVED_SHA}, but this pipeline checked out ${CI_COMMIT_SHA}"
+    if [[ -n "${EXPECTED_SOURCE_SHA:-}" && "$RESOLVED_SHA" != "$EXPECTED_SOURCE_SHA" ]]; then
+        die "source ref moved: expected ${EXPECTED_SOURCE_SHA}, resolved ${RESOLVED_SHA}"
+    fi
+    printf 'Using this pipeline'"'"'s own checkout of %s as the Lightning source\n' "$RESOLVED_SHA"
+    git clone --quiet --no-checkout "$ROOT" "$SOURCE_DIR"
+    git -C "$SOURCE_DIR" checkout --quiet --detach "$RESOLVED_SHA"
+    [[ ! -f "$SOURCE_DIR/.gitmodules" ]] || die "submodules are not supported from a mirror checkout"
+    git -C "$SOURCE_DIR" remote set-url origin "$EXPECTED_REPOSITORY"
+else
 ASKPASS_DIR="$(mktemp -d "$ROOT/work/git-askpass.XXXXXX")"
 cleanup() {
     rm -f "$ASKPASS_DIR/askpass.sh"
@@ -87,6 +106,7 @@ git -C "$SOURCE_DIR" remote set-url origin "$EXPECTED_REPOSITORY"
 unset LIGHTNING_GIT_PASSWORD CI_JOB_TOKEN LIGHTNING_DEPLOY_TOKEN
 cleanup
 trap - EXIT
+fi
 
 STATUS="$(git -C "$SOURCE_DIR" status --porcelain)"
 [[ -z "$STATUS" ]] || die "checked-out Lightning source is dirty"
