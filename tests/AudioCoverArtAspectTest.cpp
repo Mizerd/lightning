@@ -17,6 +17,8 @@
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "media/MediaBridge.h"
+#include "media/MediaImageProvider.h"
 
 class AudioCoverArtAspectTest : public QObject
 {
@@ -49,6 +51,9 @@ private:
                                              false, card.engine.get());
         card.engine->rootContext()->setContextProperty(QStringLiteral("app"),
                                                        controller);
+        card.engine->addImageProvider(
+            QStringLiteral("lightning-media"),
+            new MediaImageProvider(controller->mediaBridge()));
 
         QQmlComponent component(card.engine.get());
         component.setData(R"(
@@ -96,6 +101,12 @@ AudioPlayerCard { objectName: "card" }
         QVERIFY(settings);
         settings->setAlbumArtStyle(large ? QStringLiteral("card") : QStringLiteral("compact"));
         QTest::qWait(50);
+    }
+
+    static AppController *controllerOf(const Card &card)
+    {
+        return qobject_cast<AppController *>(card.engine->rootContext()
+            ->contextProperty(QStringLiteral("app")).value<QObject *>());
     }
 
     static QQuickItem *coverBox(const Card &card)
@@ -226,6 +237,64 @@ private Q_SLOTS:
             QVERIFY(image);
             QCOMPARE(image->property("fillMode").toInt(),
                      int(2));
+        }
+    }
+
+    void theArtIsCutToItsTilesRoundedCorners()
+    {
+        const QColor ground(250, 250, 250);
+        QImage red(600, 400, QImage::Format_RGB32);
+        red.fill(QColor(255, 0, 0));
+        for (const QString style : { QStringLiteral("compact"),
+                                     QStringLiteral("card"),
+                                     QStringLiteral("large") }) {
+            for (const bool inBubble : { false, true }) {
+                const QString where = style
+                    + (inBubble ? QStringLiteral(" in a bubble") : QString());
+                Card card = makeCard(QUrl(), 360);
+                QVERIFY(card.item != nullptr);
+                card.window->setColor(ground);
+                card.window->resize(420, 600);
+                card.item->setPosition(QPointF(20, 20));
+                card.item->setProperty("isVoice", false);
+                card.item->setProperty("inBubble", inBubble);
+                AppController *controller = controllerOf(card);
+                QVERIFY(controller && controller->mediaBridge());
+                controller->findChild<SettingsManager *>()
+                    ->setAlbumArtStyle(style);
+                card.item->setProperty("artworkSource",
+                    controller->mediaBridge()->audioArtworkSource(
+                        QStringLiteral("mk-corner"), QVariant::fromValue(red)));
+                QTRY_VERIFY(coverBox(card));
+                auto *image = card.item->findChild<QQuickItem *>(
+                    QStringLiteral("audioCoverArtwork"));
+                QVERIFY(image);
+                QTRY_COMPARE(image->property("status").toInt(), 1);
+                QTRY_COMPARE(image->opacity(), 1.0);
+                QTest::qWait(50);
+
+                const QRectF box = sceneRectOf(coverBox(card));
+                const QImage frame = card.window->grabWindow();
+                const qreal dpr = frame.devicePixelRatio();
+                auto at = [&](qreal x, qreal y) {
+                    return QColor(frame.pixel(int(x * dpr), int(y * dpr)));
+                };
+                QVERIFY2(at(box.center().x(), box.center().y()).red() > 200
+                             && at(box.center().x(), box.center().y()).green() < 60,
+                         qPrintable(where + QStringLiteral(": no art drawn")));
+                const QPointF corners[] = {
+                    box.topLeft(), box.topRight() - QPointF(1, 0),
+                    box.bottomLeft() - QPointF(0, 1),
+                    box.bottomRight() - QPointF(1, 1) };
+                for (const QPointF &c : corners) {
+                    const QColor px = at(c.x(), c.y());
+                    QVERIFY2(px.red() - px.green() < 40,
+                             qPrintable(QStringLiteral("%1: art outside the "
+                                 "rounded tile at (%2,%3): %4")
+                                 .arg(where).arg(c.x()).arg(c.y())
+                                 .arg(px.name())));
+                }
+            }
         }
     }
 
