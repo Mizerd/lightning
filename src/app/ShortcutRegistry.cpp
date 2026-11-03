@@ -2,13 +2,8 @@
 
 #include "app/SettingsManager.h"
 
-#include <QCoreApplication>
 #include <QKeyCombination>
-#include <QGuiApplication>
-#include <QInputMethod>
 #include <QKeySequence>
-#include <QLocale>
-#include <QStringList>
 
 namespace {
 
@@ -537,52 +532,15 @@ QString ShortcutRegistry::sequenceFor(const QString &actionId) const
     return {};
 }
 
-namespace {
-int unshiftedDigit(int key)
-{
-    switch (key) {
-    case Qt::Key_Exclam: return Qt::Key_1;
-    case Qt::Key_At: return Qt::Key_2;
-    case Qt::Key_NumberSign: return Qt::Key_3;
-    case Qt::Key_Dollar: return Qt::Key_4;
-    case Qt::Key_Percent: return Qt::Key_5;
-    case Qt::Key_AsciiCircum: return Qt::Key_6;
-    case Qt::Key_Ampersand: return Qt::Key_7;
-    case Qt::Key_Asterisk: return Qt::Key_8;
-    case Qt::Key_ParenLeft: return Qt::Key_9;
-    case Qt::Key_ParenRight: return Qt::Key_0;
-    default: return 0;
-    }
-}
-
-bool keyboardLayoutIsUs()
-{
-    // qGuiApp is a bare cast of QCoreApplication::instance(), so it is non-null
-    // under a Core-only application and inputMethod() then dereferences null.
-    const QCoreApplication *app = QCoreApplication::instance();
-    if (!app || !app->inherits("QGuiApplication") || !qGuiApp->inputMethod())
-        return false;
-    const QLocale loc = qGuiApp->inputMethod()->locale();
-    return loc.language() == QLocale::English
-        && loc.territory() == QLocale::UnitedStates;
-}
-}
-
 QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
                                          int modifiers) const
 {
-    QStringList candidates{sequenceFromKeyEvent(key, modifiers)};
-    const int digit = unshiftedDigit(key);
-    const bool us = m_usShiftRow.value_or(keyboardLayoutIsUs());
-    if (us && digit != 0 && (modifiers & Qt::ShiftModifier))
-        candidates << sequenceFromKeyEvent(digit, modifiers);
-    for (const QString &seq : std::as_const(candidates)) {
-        if (seq.isEmpty())
-            continue;
-        for (int i = 0; i < m_actions.size(); ++i) {
-            if (m_actions.at(i).context == context && m_resolved.at(i) == seq)
-                return m_actions.at(i).id;
-        }
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    if (seq.isEmpty())
+        return {};
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == context && m_resolved.at(i) == seq)
+            return m_actions.at(i).id;
     }
     return {};
 }

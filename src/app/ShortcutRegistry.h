@@ -5,7 +5,6 @@
 #include <QString>
 #include <QStringList>
 #include <QPair>
-#include <optional>
 #include <QVector>
 
 class SettingsManager;
@@ -129,8 +128,6 @@ public:
     Q_PROPERTY(int bindingRevision READ bindingRevision NOTIFY bindingsChanged)
     int bindingRevision() const { return m_revision; }
 
-    void setUsShiftRowForTesting(std::optional<bool> us) { m_usShiftRow = us; }
-
 private:
     QString actionForKeyIn(ActionContext context, int key, int modifiers) const;
 
@@ -170,5 +167,4 @@ private:
     int m_conflicts = 0;
     bool m_anyCustomised = false;
     int m_revision = 0;
-    std::optional<bool> m_usShiftRow;
 };
