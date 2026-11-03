@@ -379,7 +379,14 @@ private slots:
         QVERIFY(nameField && create);
         QVERIFY(!create->property("enabled").toBool());
         QVERIFY(!item("roomNameHint")->isVisible());
-        const qreal createY = create->mapToScene(QPointF(0, 0)).y();
+        // The open transition moves the dialog; measure once it has settled.
+        qreal createY = -1;
+        QTRY_VERIFY([&] {
+            const qreal y = create->mapToScene(QPointF(0, 0)).y();
+            const bool settled = qFuzzyCompare(y, createY);
+            createY = y;
+            return settled;
+        }());
         auto *topic = item("roomTopicField");
         QVERIFY(topic);
         const qreal gap = topic->mapToScene(QPointF(0, 0)).y()
