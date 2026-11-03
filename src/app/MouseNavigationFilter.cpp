@@ -3,6 +3,7 @@
 #include <QEvent>
 #include <QGuiApplication>
 #include <QMouseEvent>
+#include <QWindow>
 #include <QPointingDevice>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -64,14 +65,13 @@ MouseNavigationFilter::MouseNavigationFilter(QQuickWindow *window,
     , m_allowed(std::move(allowed))
     , m_navigate(std::move(navigate))
 {
-    if (m_window)
-        m_window->installEventFilter(this);
+    qApp->installEventFilter(this);
 }
 
 MouseNavigationFilter::~MouseNavigationFilter()
 {
-    if (m_window)
-        m_window->removeEventFilter(this);
+    if (qApp)
+        qApp->removeEventFilter(this);
 }
 
 QQuickWindow *MouseNavigationFilter::window() const
@@ -81,14 +81,24 @@ QQuickWindow *MouseNavigationFilter::window() const
 
 bool MouseNavigationFilter::mayNavigate() const
 {
-    return !windowHasOpenPopup(m_window) && (!m_allowed || m_allowed());
+    return !m_popupClosedThisEvent && !windowHasOpenPopup(m_window)
+        && (!m_allowed || m_allowed());
 }
 
 bool MouseNavigationFilter::eventFilter(QObject *watched, QEvent *event)
 {
+    const QEvent::Type type = event->type();
+    // Qt closes a Qt::Popup window on an outside press before delivering it,
+    // so the press would otherwise read "no popup open" and navigate.
+    if (type == QEvent::Hide && watched != m_window && watched->isWindowType()
+        && watched->inherits("QQuickPopupWindow")) {
+        m_popupClosedThisEvent = true;
+        QMetaObject::invokeMethod(this, [this] { m_popupClosedThisEvent = false; },
+                                  Qt::QueuedConnection);
+        return false;
+    }
     if (watched != m_window)
         return false;
-    const QEvent::Type type = event->type();
     if (type != QEvent::MouseButtonPress && type != QEvent::MouseButtonRelease)
         return false;
     const auto *mouse = static_cast<QMouseEvent *>(event);

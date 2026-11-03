@@ -43,6 +43,7 @@ private:
     Navigate m_navigate;
     Direction m_pressed = Direction::None;
     bool m_pressAllowed = false;
+    bool m_popupClosedThisEvent = false;
     QPointF m_pressPos;
 };
 
