@@ -77,20 +77,64 @@ Rectangle {
             app.eventContext.tracePhase("landed")
         }
     }
+    // An SDK page arrives as one push_front per event, so the first-row check
+    // must be made before the burst and the correction applied once after it.
+    property int prependedRows: 0
+    property bool prependPinsFirstRow: false
+    function settlePrepend() {
+        var rows = view.prependedRows
+        var pin = view.prependPinsFirstRow
+        view.prependedRows = 0
+        view.prependPinsFirstRow = false
+        if (!pin || rows <= 0 || rows >= list.count)
+            return
+        ++view.tracePins
+        contextWheel.stopGlide()
+        list.positionViewAtIndex(rows, ListView.Beginning)
+    }
+    property int tracePrepends: 0
+    property int tracePrependedRows: 0
+    property int tracePins: 0
+    property string traceLast: ""
     Connections {
         target: app.eventContext.model
         function onOlderPrepended(count) {
             if (list.lastSeenRow >= 0)
                 list.lastSeenRow += count
-            Qt.callLater(function() {
+            ++view.tracePrepends
+            view.tracePrependedRows += count
+            if (view.prependedRows === 0) {
                 // ListView keeps a reader who is past the first row in place;
                 // only one sitting on that row is pushed down by the insert.
                 var first = list.itemAtIndex(count)
-                if (!first || first.y < list.contentY)
-                    return
-                contextWheel.stopGlide()
-                list.positionViewAtIndex(count, ListView.Beginning)
-            })
+                view.prependPinsFirstRow = !!first && first.y >= list.contentY
+            }
+            view.prependedRows += count
+            Qt.callLater(view.settlePrepend)
+        }
+    }
+    Timer {
+        interval: 1000
+        repeat: true
+        running: app.eventContext.traceEnabled && view.visible
+        onTriggered: {
+            var line = "context-scroll rows=" + list.count
+                    + " topRow=" + list.indexAt(list.width / 2, list.contentY + 1)
+                    + " seenRow=" + list.lastSeenRow
+                    + " contentY=" + Math.round(list.contentY)
+                    + " originY=" + Math.round(list.originY)
+                    + " contentH=" + Math.round(list.contentHeight)
+                    + " moving=" + (list.moving ? 1 : 0)
+                    + " gliding=" + (contextWheel.gliding ? 1 : 0)
+                    + " prepends=" + view.tracePrepends
+                    + " prependedRows=" + view.tracePrependedRows
+                    + " firstRowPins=" + view.tracePins
+                    + " loadingOlder=" + (app.eventContext.loadingOlder ? 1 : 0)
+                    + " loadingNewer=" + (app.eventContext.loadingNewer ? 1 : 0)
+            if (line !== view.traceLast) {
+                view.traceLast = line
+                console.info(line)
+            }
         }
     }
     function takeFocus() {
