@@ -19,7 +19,7 @@ if [[ -f "$BUILD_DIR/CMakeCache.txt" ]] && \
 fi
 
 [[ "$BUILD_TYPE" == "Release" ]] || die "only BUILD_TYPE=Release is supported for distributable packages"
-[[ "$BUILD_JOBS" =~ ^[1-8]$ ]] || die "BUILD_JOBS must be 1-8 on the package runners"
+[[ "$BUILD_JOBS" =~ ^([1-9]|[12][0-9]|3[0-2])$ ]] || die "BUILD_JOBS must be 1-32"
 [[ -f "$SOURCE_DIR/CMakeLists.txt" && -f "$SOURCE_DIR/rust/Cargo.lock" ]] || die "Lightning source is incomplete"
 [[ -f "$SOURCE_DIR/LICENSE" && -f "$SOURCE_DIR/README.md" ]] || \
     die "Lightning source must include its licence and README"

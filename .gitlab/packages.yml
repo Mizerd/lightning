@@ -28,7 +28,6 @@ variables:
   stage: build
   timeout: 3h
   variables:
-    BUILD_JOBS: "8"
     RUST_TOOLCHAIN: "1.93.0"
     RUSTUP_VERSION: "1.29.1"
   # configure-build.sh keeps cargo, its target dir and ccache under /cache.
@@ -212,9 +211,10 @@ build-deb-amd64:
   rules:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)deb(,|$)/'
   image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
-  tags: [saas-linux-large-amd64]
+  tags: [saas-linux-2xlarge-amd64]
   variables:
     BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    BUILD_JOBS: "32"
     RUSTUP_TRIPLE: "x86_64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
   before_script:
@@ -246,9 +246,10 @@ build-deb-ubuntu-amd64:
   rules:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)deb(,|$)/'
   image: ubuntu@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d # ubuntu:26.04
-  tags: [saas-linux-large-amd64]
+  tags: [saas-linux-2xlarge-amd64]
   variables:
     BASE_IMAGE: "ubuntu@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d"
+    BUILD_JOBS: "32"
     RUSTUP_TRIPLE: "x86_64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
     DEB_SUFFIX: "ubuntu2604"
@@ -283,9 +284,10 @@ build-rpm-amd64:
   rules:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)rpm(,|$)/'
   image: fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 # fedora:44
-  tags: [saas-linux-large-amd64]
+  tags: [saas-linux-2xlarge-amd64]
   variables:
     BASE_IMAGE: "fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80"
+    BUILD_JOBS: "32"
     RUSTUP_TRIPLE: "x86_64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
   before_script:
@@ -314,14 +316,30 @@ validate-rpm-amd64:
   script:
     - ./packaging-ci/scripts/validate-rpm.sh
 
+validate-rpm-opensuse-amd64:
+  extends: .pkg-validate
+  rules:
+    - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)rpm(,|$)/'
+  image: registry.opensuse.org/opensuse/tumbleweed@sha256:a525f485f8d9564f4bbb619a7057d3da2153688a87859307dff06b6979c403e5 # opensuse/tumbleweed 20261102; upstream deletes old snapshots, so this pin rots in weeks
+  tags: [saas-linux-medium-amd64]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-rpm-amd64
+      artifacts: true
+  before_script: *pkg-opensuse-validate-deps
+  script:
+    - ./packaging-ci/scripts/validate-rpm.sh
+
 build-appimage-amd64:
   extends: .pkg-build
   rules:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)appimage(,|$)/'
   image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
-  tags: [saas-linux-large-amd64]
+  tags: [saas-linux-2xlarge-amd64]
   variables:
     BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    BUILD_JOBS: "32"
     RUSTUP_TRIPLE: "x86_64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
   before_script:
@@ -392,6 +410,7 @@ build-deb-arm64:
   tags: [saas-linux-large-arm64]
   variables:
     BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    BUILD_JOBS: "8"
     RUSTUP_TRIPLE: "aarch64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"
   before_script:
@@ -426,6 +445,7 @@ build-deb-ubuntu-arm64:
   tags: [saas-linux-large-arm64]
   variables:
     BASE_IMAGE: "ubuntu@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d"
+    BUILD_JOBS: "8"
     RUSTUP_TRIPLE: "aarch64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"
     DEB_SUFFIX: "ubuntu2604"
@@ -463,6 +483,7 @@ build-rpm-arm64:
   tags: [saas-linux-large-arm64]
   variables:
     BASE_IMAGE: "fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80"
+    BUILD_JOBS: "8"
     RUSTUP_TRIPLE: "aarch64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"
   before_script:
@@ -491,6 +512,21 @@ validate-rpm-arm64:
   script:
     - ./packaging-ci/scripts/validate-rpm.sh
 
+validate-rpm-opensuse-arm64:
+  extends: .pkg-validate
+  rules:
+    - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|arm64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)rpm(,|$)/'
+  image: registry.opensuse.org/opensuse/tumbleweed@sha256:a525f485f8d9564f4bbb619a7057d3da2153688a87859307dff06b6979c403e5 # opensuse/tumbleweed 20261102; upstream deletes old snapshots, so this pin rots in weeks
+  tags: [saas-linux-medium-arm64]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-rpm-arm64
+      artifacts: true
+  before_script: *pkg-opensuse-validate-deps
+  script:
+    - ./packaging-ci/scripts/validate-rpm.sh
+
 build-appimage-arm64:
   extends: .pkg-build
   rules:
@@ -499,6 +535,7 @@ build-appimage-arm64:
   tags: [saas-linux-large-arm64]
   variables:
     BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    BUILD_JOBS: "8"
     RUSTUP_TRIPLE: "aarch64-unknown-linux-gnu"
     RUSTUP_INIT_SHA256: "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"
   before_script:
@@ -566,9 +603,10 @@ build-flatpak-amd64:
   rules:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)flatpak(,|$)/'
   image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
-  tags: [saas-linux-large-amd64]
+  tags: [saas-linux-2xlarge-amd64]
   variables:
     BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    BUILD_JOBS: "32"
   before_script:
     - apt-get update
     # librsvg2-common: gdk-pixbuf's SVG loader, which appstreamcli compose needs.
@@ -599,21 +637,6 @@ validate-flatpak-amd64:
   script:
     - ./packaging-ci/scripts/validate-flatpak.sh
 
-validate-rpm-opensuse-amd64:
-  extends: .pkg-validate
-  rules:
-    - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)rpm(,|$)/'
-  image: registry.opensuse.org/opensuse/tumbleweed@sha256:c6b3ce17382064218b6a41514f248ef72ad4ae66da40b12ebba9e83582f33139 # opensuse/tumbleweed 20260924
-  tags: [saas-linux-medium-amd64]
-  needs:
-    - job: resolve-source
-      artifacts: true
-    - job: build-rpm-amd64
-      artifacts: true
-  before_script: *pkg-opensuse-validate-deps
-  script:
-    - ./packaging-ci/scripts/validate-rpm.sh
-
 copr-srpm:
   extends: .pkg-job
   rules:
@@ -641,7 +664,9 @@ build-rpm-opensuse-amd64:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)rpm(,|$)/'
       allow_failure: true
   image: registry.opensuse.org/opensuse/leap@sha256:cd9aac11608afabc96a10074619cf2a65ccf60ff4b72d09d4e4e125af409035d # opensuse/leap 16.0
-  tags: [saas-linux-large-amd64]
+  tags: [saas-linux-2xlarge-amd64]
+  variables:
+    BUILD_JOBS: "32"
   needs:
     - job: resolve-source
       artifacts: true
