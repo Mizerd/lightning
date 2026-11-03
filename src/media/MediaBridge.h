@@ -269,7 +269,7 @@ private:
     QHash<QString, QByteArray> m_cache;
     mutable QList<QString> m_lru;
     mutable QList<QString> m_avatarLru;
-    qint64 m_cacheLimit = 64 * 1024 * 1024;
+    qint64 m_cacheLimit = 32 * 1024 * 1024;
     qint64 m_avatarCacheLimit = 8 * 1024 * 1024;
     qint64 m_cacheBytesMain = 0;
     qint64 m_cacheBytesAvatar = 0;

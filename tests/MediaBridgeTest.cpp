@@ -419,6 +419,25 @@ private Q_SLOTS:
         QVERIFY(bridge.cacheBytesUsed() <= 10);
     }
 
+    void theDefaultByteCacheHoldsThirtyTwoMiB()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+
+        const qint64 chunk = 8 * 1024 * 1024;
+        for (int i = 0; i < 5; ++i) {
+            bridge.mediaSource(QStringLiteral("$def-%1").arg(i),
+                               QStringLiteral("thumb"));
+            client.succeed(client.fetches.at(i).opId, QByteArray(chunk, 'a'));
+        }
+        QCOMPARE(cached.count(), 5);
+        QVERIFY(bridge.cachedBytes(cached.at(0).at(0).toString()).isEmpty());
+        for (int i = 1; i < 5; ++i)
+            QVERIFY(!bridge.cachedBytes(cached.at(i).at(0).toString()).isEmpty());
+        QCOMPARE(bridge.cacheBytesUsed(), 4 * chunk);
+    }
     void avatarClassEvictionIsBoundedLru()
     {
         FakeClient client;
