@@ -10,6 +10,8 @@
 #                             point at it, so scripts and source are one commit
 #   GITLAB_COM_PIPELINE_ID    optional: collect from this finished pipeline
 #                             instead of triggering one
+#   GITLAB_COM_WINDOWS        true: also collect the Windows portable zip, MSI
+#                             and setup EXE into dist/windows/
 #
 # PUBLISH_PACKAGES, RELEASE_ACTION and RELEASE_VERSION are passed through, so a
 # release gets an official (key-embedding) build; the lane's resolve-source runs
@@ -51,6 +53,8 @@ LANE_JOBS=(
     validate-flatpak-amd64
 )
 PACKAGE_GLOB='\.(deb|rpm|AppImage|snap|flatpak)$'
+: "${GITLAB_COM_WINDOWS:=false}"
+[[ "$GITLAB_COM_WINDOWS" == true || "$GITLAB_COM_WINDOWS" == false ]] || die "GITLAB_COM_WINDOWS must be true or false"
 
 pipeline="${GITLAB_COM_PIPELINE_ID:-}"
 if [[ -z "$pipeline" ]]; then
@@ -144,6 +148,30 @@ for name in "${LANE_JOBS[@]}"; do
     collected=$((collected + 1))
 done
 (( collected == ${#LANE_JOBS[@]} )) || die "collected $collected of ${#LANE_JOBS[@]} packages"
+
+if [[ "$GITLAB_COM_WINDOWS" == true ]]; then
+    job="$(jq -er '[.[] | select(.name == "build-windows-amd64" and .status == "success")][0].id' "$WORK/jobs.json")" || \
+        die "gitlab.com pipeline $pipeline has no successful build-windows-amd64"
+    rm -rf "$WORK/unpack"; mkdir -p "$WORK/unpack" "$ROOT/dist/windows"
+    curl -fsSL --retry 5 --retry-all-errors --max-time 1800 -K "$WORK/auth" \
+        -o "$WORK/artifacts.zip" "$API/jobs/$job/artifacts"
+    python3 -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' \
+        "$WORK/artifacts.zip" "$WORK/unpack"
+    win=0
+    for pattern in '*-windows-x86_64-portable.zip' '*-windows-x86_64.msi' '*-windows-x86_64-setup.exe'; do
+        mapfile -t hits < <(find "$WORK/unpack/dist/windows" -maxdepth 1 -type f -name "$pattern")
+        (( ${#hits[@]} == 1 )) || die "build-windows-amd64 left ${#hits[@]} files matching $pattern, expected one"
+        pkg="${hits[0]}"; base="$(basename "$pkg")"
+        [[ -f "$pkg.sha256" ]] || die "build-windows-amd64: $base has no .sha256"
+        read -r _ named <"$pkg.sha256"
+        [[ "${named#\*}" == "$base" ]] || die "build-windows-amd64: $base.sha256 names '$named'"
+        ( cd "$(dirname "$pkg")" && sha256sum -c --quiet "$base.sha256" ) || die "build-windows-amd64: $base does not match its .sha256"
+        install -m 0644 "$pkg" "$ROOT/dist/windows/"
+        win=$((win + 1))
+    done
+    (( win == 3 )) || die "collected $win of 3 Windows artifacts"
+    collected=$((collected + win))
+fi
 jq -n --arg id "$pipeline" --arg sha "$pipeline_sha" --argjson n "$collected" \
     '{gitlab_com_pipeline: $id, source_sha: $sha, packages: $n}' >"$ROOT/dist/gitlab-com-lane.json"
 printf 'Collected %d packages from gitlab.com pipeline %s\n' "$collected" "$pipeline"

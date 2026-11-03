@@ -1,10 +1,10 @@
-# The Linux packaging lane on gitlab.com: deb, Ubuntu deb, rpm (with the COPR
-# and openSUSE canaries), AppImage, snap and, on amd64 only, the Flatpak
-# bundle, each built natively on amd64 and arm64 runners and validated by the
+# The packaging lane on gitlab.com: deb, Ubuntu deb, rpm (with the COPR and
+# openSUSE canaries), AppImage, snap and, on amd64 only, the Flatpak bundle and
+# the Windows cross-build, each built natively on amd64 and arm64 runners and validated by the
 # release lane's own packaging-ci scripts. Included by remote-build.yml and
 # present only with PACKAGE_LANE=1. PACKAGE_ARCH (all|amd64|arm64) and
-# PACKAGE_FORMATS (all, or a comma list of deb,rpm,appimage,snap,flatpak; snap
-# needs appimage) narrow a rerun. It publishes nothing: packages leave as job
+# PACKAGE_FORMATS (all, or a comma list of deb,rpm,appimage,snap,flatpak,
+# windows; snap needs appimage) narrow a rerun. It publishes nothing: packages leave as job
 # artifacts. Keep the package lists in step with .gitlab-ci.yml.
 
 variables:
@@ -708,3 +708,35 @@ validate-rpm-leap-amd64:
   before_script: *pkg-opensuse-validate-deps
   script:
     - ./packaging-ci/scripts/validate-rpm.sh
+
+# MinGW cross-build plus its artifact validation and Wine smoke test
+# (build-windows.sh), on the builder image the home runner uses, byte-identical.
+build-windows-amd64:
+  extends: .pkg-build
+  rules:
+    - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)windows(,|$)/'
+  image: registry.gitlab.com/lightning-matrix/lightning/windows-builder@sha256:84a86df5eb3087350cd26ca4412797d2e17f9fc8d4d09f4013e810f63d3b36d6 # fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v8
+  tags: [saas-linux-2xlarge-amd64]
+  timeout: 2h
+  variables:
+    BUILD_JOBS: "32"
+  before_script:
+    - *pkg-cache-dir
+  script:
+    - ./packaging-ci/scripts/prepare-pinned-source.sh
+    - ./packaging-ci/scripts/build-windows.sh
+    - >-
+      ( cd dist/windows && for f in *-portable.zip *.msi *-setup.exe;
+      do sha256sum "$f" >"$f.sha256"; done )
+  # Installers and reports only: the staging tree is already in the portable
+  # zip, and archiving it again exceeds the 1 GiB artifact cap.
+  artifacts:
+    paths:
+      - dist/windows/*-portable.zip
+      - dist/windows/*.msi
+      - dist/windows/*-setup.exe
+      - dist/windows/*.sha256
+      - dist/windows/reports/
+      - dist/windows/signing-payload/*.sha256
+      - dist/version.env
+      - dist/source-info.json
