@@ -62,7 +62,7 @@ private:
     QHash<QString, qint64> m_askedAt;
     QSet<QString> m_inFlight;
     QElapsedTimer m_clock;
-    int m_refreshMs = 30 * 60 * 1000;
+    int m_refreshMs = 5 * 60 * 1000;
     int m_minGapMs = 10 * 1000;
     int m_backoffBaseMs = 30 * 1000;
     QSet<QString> m_stale;

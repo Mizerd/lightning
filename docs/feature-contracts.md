@@ -1802,10 +1802,10 @@ the first account's client, which is the cross-user claim.
 - `NameColorManager` fetches a user's colour once per session. It re-asks
   when sync delivers an `m.room.member` event for that user (`userProfileChanged`;
   at most one ask per 10 s per user) and, for names read in the last five
-  minutes, every 30 minutes, because an MSC4133 field change raises no member
-  event and a colour changed alone reaches other clients within 30 minutes. A
+  minutes, every 5 minutes, because an MSC4133 field change raises no member
+  event and a colour changed alone reaches other clients within 5 minutes. A
   failed ask keeps the cached colour and backs off (30 s doubling, capped at the
-  30 min interval). A refused call join is surfaced on the status bar
+  5 min interval). A refused call join is surfaced on the status bar
   (the controller's `callFailed` reason).
 - The room header's title bound (`Layout.maximumWidth`) is ceiled: a Layout
   hands an item an integer width and the title's own implicitWidth is a
