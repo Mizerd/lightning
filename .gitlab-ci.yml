@@ -1474,13 +1474,11 @@ mirror-update-manifest-to-github:
 # (constants in the script and in src/update/UpdateEndpoints.cpp) and proves
 # each by anonymous re-download. gitlab.com decides nothing; clients verify the
 # signature and every SHA-256. A no-op without GITLAB_COM_TOKEN (masked,
-# protected, environment `mirror`). allow_failure: the release is complete
-# without it, and the job is idempotent, so a rerun converges.
+# protected, environment `mirror`). Idempotent, so retrying a red run converges.
 mirror-release-to-gitlab-com:
   extends: .publish-rules
   stage: update
   image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
-  allow_failure: true
   resource_group: lightning-project-6-publication
   retry:
     max: 2

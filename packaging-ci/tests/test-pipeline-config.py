@@ -1907,11 +1907,12 @@ check('make_latest:"false"' in _slot_script and 'prerelease:true' in _slot_scrip
 check('"$UPDATE_LATEST_TAG" == update-latest' in _slot_script,
       "the slot script refuses any slot name but the one the client compiles in")
 _com = resolve_extends_dict(doc["mirror-release-to-gitlab-com"])
-check(_com.get("stage") == "update" and _com.get("allow_failure") is True
+check(_com.get("stage") == "update" and not _com.get("allow_failure", False)
+      and isinstance(_com.get("retry"), dict) and _com["retry"].get("max", 0) >= 1
       and _com.get("resource_group") == "lightning-project-6-publication"
       and isinstance(_com.get("environment"), dict)
       and _com["environment"].get("name") == "mirror",
-      "mirror-release-to-gitlab-com is allow_failure, serialized with publication, and holds only the mirror-scoped token")
+      "mirror-release-to-gitlab-com is retried, NOT allow_failure, serialized with publication, and holds only the mirror-scoped token")
 for _need in ("mirror-release-to-github", "publish-update-manifest", "sign-update-manifest",
               "publish-packages", "resolve-source"):
     check(_need in needs_names("mirror-release-to-gitlab-com"),
@@ -2177,7 +2178,7 @@ for _job in _JOBS:
 # Post-tag jobs: a failure must make the pipeline red, not yellow.
 for _job in ("flathub-update-pr", "mirror-update-manifest-to-github",
              "report-optional-assets", "publish-update-manifest",
-             "mirror-release-to-github"):
+             "mirror-release-to-github", "mirror-release-to-gitlab-com"):
     check(_job in _pipeline(_release_configs[0])
           and not _effective_allow_failure(_job, _pipeline(_release_configs[0])[_job]),
           f"{_job} runs after the tag and fails the pipeline red")
