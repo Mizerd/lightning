@@ -11,6 +11,7 @@
 #include <QQuickWindow>
 #include <QSignalSpy>
 
+#include "ObjectCensus.h"
 #include "app/AppController.h"
 #include "models/TimelineModel.h"
 
@@ -108,6 +109,7 @@ QtObject {
     property real contentY: 0
     property real height: 10000
     property bool speculativeMediaAllowed: true
+    property bool userScrollActive: false
     property bool stickToBottom: false
     property bool threadContext: false
     property string transientInteractionOwner: ""
@@ -344,6 +346,96 @@ private Q_SLOTS:
         QVERIFY(has("linkPreviewRetryButton"));
         QVERIFY(!has("linkPreviewConsentRow"));
         QCOMPARE(d.warnings, QStringList{});
+    }
+
+    void aStateReachedWhileScrollingIsBuiltAtTheSettle()
+    {
+        AppController controller(AppController::MockBackend);
+        Delegate d;
+        QVERIFY(createDelegate(controller, baseFixture(controller), d));
+        const auto has = [&d](const char *name) {
+            return d.root->findChild<QObject *>(QLatin1String(name)) != nullptr;
+        };
+        auto *host = d.root->property("timelineView").value<QObject *>();
+        QVERIFY(host != nullptr);
+        auto *card = d.root->findChild<QQuickItem *>(
+            QStringLiteral("linkPreviewCard"));
+        QVERIFY(card != nullptr);
+        QVERIFY(has("linkPreviewConsentRow"));
+
+        host->setProperty("userScrollActive", true);
+        QTest::qWait(20);
+        const auto before = census::objectsUnder(card);
+        d.root->setProperty("preview", QVariant::fromValue(failedPreview()));
+        QTest::qWait(20);
+        const auto during = census::objectsUnder(card);
+        QVERIFY2(during == before,
+                 qPrintable(QStringLiteral("a state change mid-scroll changed "
+                                           "the card from %1 to %2 objects")
+                                .arg(before.size()).arg(during.size())));
+        QVERIFY(has("linkPreviewConsentRow"));
+        QVERIFY(!has("linkPreviewRetryButton"));
+
+        host->setProperty("userScrollActive", false);
+        QTRY_VERIFY(has("linkPreviewRetryButton"));
+        QTRY_VERIFY(!has("linkPreviewConsentRow"));
+
+        // A card created mid-scroll shows its state at once.
+        d.root->setProperty("preview",
+                            QVariant::fromValue(QVariantMap{
+                                { QStringLiteral("state"), QStringLiteral("none") } }));
+        QTRY_VERIFY(!has("linkPreviewCard"));
+        host->setProperty("userScrollActive", true);
+        d.root->setProperty("preview", QVariant::fromValue(gatePreview()));
+        QTRY_VERIFY(has("linkPreviewCard"));
+        QVERIFY(has("linkPreviewConsentRow"));
+        QVERIFY(!has("linkPreviewRetryButton"));
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    void theCardsObjectCensusPerState()
+    {
+        QVariantMap loading;
+        loading.insert(QStringLiteral("state"), QStringLiteral("loading"));
+        loading.insert(QStringLiteral("host"), QStringLiteral("example.org"));
+        QVariantMap loaded;
+        loaded.insert(QStringLiteral("state"), QStringLiteral("loaded"));
+        loaded.insert(QStringLiteral("host"), QStringLiteral("example.org"));
+        loaded.insert(QStringLiteral("siteName"), QStringLiteral("Example"));
+        loaded.insert(QStringLiteral("title"), QStringLiteral("Example Domain"));
+        loaded.insert(QStringLiteral("description"),
+                      QStringLiteral("This domain is for use in examples."));
+        const QList<QPair<QString, QVariantMap>> states{
+            { QStringLiteral("requires_action"), gatePreview() },
+            { QStringLiteral("loading"), loading },
+            { QStringLiteral("failed"), failedPreview() },
+            { QStringLiteral("loaded"), loaded },
+        };
+        for (const auto &state : states) {
+            AppController controller(AppController::MockBackend);
+            Delegate d;
+            QVERIFY(createDelegate(controller, baseFixture(controller), d));
+            d.root->setProperty("preview", QVariant::fromValue(state.second));
+            QTest::qWait(20);
+            auto *card = d.root->findChild<QQuickItem *>(
+                QStringLiteral("linkPreviewCard"));
+            QVERIFY(card != nullptr);
+            const auto objects = census::objectsUnder(card);
+            qInfo().noquote() << "card census" << state.first << ":"
+                              << census::describe(objects, 8);
+            QVERIFY(!objects.isEmpty());
+            QCOMPARE(d.warnings, QStringList{});
+        }
+    }
+
+private:
+    static QVariantMap failedPreview()
+    {
+        QVariantMap failed;
+        failed.insert(QStringLiteral("state"), QStringLiteral("failed"));
+        failed.insert(QStringLiteral("retryable"), true);
+        failed.insert(QStringLiteral("host"), QStringLiteral("example.org"));
+        return failed;
     }
 };
 

@@ -4454,7 +4454,15 @@ Item {
             id: card
             objectName: "linkPreviewCard"
             readonly property var p: root.preview
-            readonly property string st: p.state || "none"
+            readonly property string liveSt: p.state || "none"
+            // Each state is built when first shown, so one reached while the
+            // timeline scrolls waits for the settle instead of building mid-gesture.
+            readonly property bool holdState: !!root.timelineView
+                && root.timelineView.userScrollActive === true
+            property string heldSt: ""
+            onHoldStateChanged: heldSt = holdState ? liveSt : ""
+            Component.onCompleted: if (holdState) heldSt = liveSt
+            readonly property string st: heldSt !== "" ? heldSt : liveSt
             readonly property bool dismissible: st === "loaded" || st === "failed"
             readonly property string previewAnimation:
                 p.isGif === true && MotionPolicy.allowed
