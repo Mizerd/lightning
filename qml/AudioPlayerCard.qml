@@ -70,14 +70,14 @@ Rectangle {
             return
         wireCoverSource = app.mediaBridge.mediaSource(mediaKey, "thumb") || ""
     }
-    function noteCoverStatus(image) {
+    function noteCoverStatus(image, shown) {
         if (image.status === Image.Ready && root.wireCoverSource.length > 0
-                && image.source.toString() === root.wireCoverSource
+                && shown === root.wireCoverSource
                 && !root.clipInfo.artworkSource)
             root.voice.rememberEventCover(root.mediaKey, root.wireCoverSource)
 
-        if (image.status === Image.Error && image.source.toString().length > 0
-                && image.source.toString() === root.wireCoverSource) {
+        if (image.status === Image.Error && shown.length > 0
+                && shown === root.wireCoverSource) {
             root.wireCoverSource = ""
             root.wireCoverFailed = true
         }
@@ -287,15 +287,24 @@ Rectangle {
                     objectName: "audioCoverArtBox"
                     anchors.fill: parent
                     radius: AppTheme.radiusSm
-                    color: AppTheme.cardElevated
+                    color: coverArtImage.status === Image.Ready
+                           ? "transparent" : AppTheme.cardElevated
                     clip: true
                     Image {
                         id: coverArtImage
                         objectName: "audioCoverArtwork"
+                        readonly property string shown: root.artworkSource
                         anchors.fill: parent
-                        source: root.artworkSource
-                        onStatusChanged: root.noteCoverStatus(this)
+                        // The provider bakes the tile's own rounded square, so
+                        // no corner of the picture lies outside the frame.
+                        source: shown.indexOf("image://lightning-media/") === 0
+                                ? shown + "|shape:rsq:" + Math.max(1, Math.min(500,
+                                      Math.round(coverArtBox.radius * 1000
+                                                 / Math.max(1, root.tileSize))))
+                                : shown
+                        onStatusChanged: root.noteCoverStatus(this, shown)
                         sourceSize.width: root.hugeCover ? 720 : (root.largeCover ? 320 : 96)
+                        sourceSize.height: sourceSize.width
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
