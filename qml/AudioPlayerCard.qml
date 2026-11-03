@@ -303,8 +303,10 @@ Rectangle {
                                                  / Math.max(1, root.tileSize))))
                                 : shown
                         onStatusChanged: root.noteCoverStatus(this, shown)
-                        sourceSize.width: root.hugeCover ? 720 : (root.largeCover ? 320 : 96)
-                        sourceSize.height: sourceSize.width
+                        readonly property int decodeEdge:
+                            root.hugeCover ? 720 : (root.largeCover ? 320 : 96)
+                        sourceSize.width: decodeEdge
+                        sourceSize.height: decodeEdge
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
