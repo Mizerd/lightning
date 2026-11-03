@@ -3779,6 +3779,51 @@ true,-1, fds[0]);
                  "pipewiresrc 1.4 was offered DMA-BUF");
     }
 
+    void aSystemMemoryShareThatCannotNegotiateRetriesInDmaBufOnce()
+    {
+        if (!SfuMediaEngine::missingGpuShareElement().isEmpty()
+            || !SfuMediaEngine::gpuShareChainUsable())
+            QSKIP("no usable GL chain, so the share never takes the GPU entry");
+        SfuMediaEngine::clearShareDmaBufCaptureFailedForTest();
+        SfuMediaEngine::setPipewirePluginVersionForTest(QStringLiteral("1.4.10"));
+        const auto restore = qScopeGuard([] {
+            SfuMediaEngine::clearShareDmaBufCaptureFailedForTest();
+            SfuMediaEngine::setPipewirePluginVersionForTest(QString());
+        });
+        const QString cid = QStringLiteral("cid-share");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(QStringLiteral(
+            "appsrc is-live=true format=time "
+            "caps=video/x-raw,format=BGRx,width=64,height=64,"
+            "framerate=30/1"));
+        QSignalSpy failed(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        engine.publishVideo(cid, true, 0);
+        const auto entry = [&engine](const QString &id) {
+            return engine.publishedBinPropertyForTest(
+                id, QStringLiteral("capentry"), QStringLiteral("caps"));
+        };
+        QVERIFY(!entry(cid).isEmpty());
+        QVERIFY(!entry(cid).contains(QLatin1String("DMABuf")));
+
+        engine.handlePublishError(cid, false, false, true, 0);
+        QCOMPARE(failed.count(), 0);
+        QTRY_VERIFY(entry(cid).contains(QLatin1String("DMABuf")));
+        QVERIFY(!SfuMediaEngine::shareDmaBufCaptureFailedForTest());
+
+        engine.handlePublishError(cid, false, false, true, 1);
+        QCOMPARE(failed.count(), 1);
+
+        engine.stop();
+        engine.start();
+        engine.publishVideo(QStringLiteral("cid-next"), true, 0);
+        QVERIFY2(entry(QStringLiteral("cid-next"))
+                     .contains(QLatin1String("DMABuf")),
+                 "a later share started in system memory after it had failed");
+        engine.stop();
+    }
+
     void theVideoCapsPinAFixedFramerate()
     {
         for (const bool screenShare : { true, false }) {

@@ -119,9 +119,11 @@ public:
     /// Caps the GPU entry falls back to when its DMA-BUF branch cannot
     /// negotiate with the compositor: system memory, any format.
     static QString systemMemoryEntryCaps();
-    /// pipewiresrc before 1.5.81 drops its possible caps after the first
-    /// Format, so a compositor that re-announces one (KWin fixing a DMA-BUF
-    /// modifier) fails it with "unhandled format".
+    static QString gpuEntryCaps();
+    /// The GPU path's named entry, starting in system memory.
+    static QString gpuSystemMemoryFirstEntry();
+    static bool entryOffersDmaBuf(const GstCaps *caps);
+    /// pipewiresrc < 1.5.81 forgets its caps after one Format; a re-announce fails.
     static bool pipewireSrcKeepsFormatOnRenegotiation(const QString &version);
     static QString pipewirePluginVersion();
     /// A negotiation or format failure of the capture source. basesrc's
@@ -129,7 +131,7 @@ public:
     static bool isCaptureFormatError(quint32 domain, int code,
                                      const QString &message,
                                      const QString &debug);
-    /// Stops the share's capture, swaps its entry to system memory and
+    /// Stops the share's capture, swaps its entry to the other memory and
     /// starts it again, under the bin's state lock. False, touching nothing,
     /// when the bin is no longer a live member of a playing pipeline.
     static bool restartShareCapture(GstElement *bin, ShareCaptureRetry &retry);
@@ -774,7 +776,7 @@ public Q_SLOTS:
                             bool busyError = false,
                             bool captureFormatError = false,
                             int captureEpoch = -1);
-    bool retryShareCaptureInSystemMemory(const QString &cid);
+    bool retryShareCaptureInOtherMemory(const QString &cid);
     int shareCaptureEpochForTest(const QString &cid) const
     {
         const auto retry = m_publishWatch.value(cid).retry;

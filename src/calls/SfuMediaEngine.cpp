@@ -66,6 +66,7 @@
 namespace {
 std::atomic<bool> g_shareHardwareEncoderFailed{false};
 std::atomic<bool> g_shareDmaBufCaptureFailed{false};
+std::atomic<bool> g_shareSystemMemoryCaptureFailed{false};
 QString g_pipewirePluginVersionForTest;
 constexpr const char kCaptureRetryKey[] = "lightning-capture-retry";
 
@@ -3989,20 +3990,42 @@ QString SfuMediaEngine::captureEntryFilter(bool gpu)
     // intersects to nothing there, so the DMA-BUF branch never matched and a
     // DMA-BUF-only compositor (niri offers BGRx/XR24 only) failed with "no
     // more input formats" (issue #56). Both spellings and both alpha
-    // variants are listed. A compositor can still fixate a DMA-BUF format
-    // pipewiresrc cannot express ("unhandled format", issue #63); that share
-    // is retried in system memory, see retryShareCaptureInSystemMemory().
+    // variants are listed. A share whose entry cannot negotiate is retried
+    // once in the other memory, see retryShareCaptureInOtherMemory().
     return gpu
-        ? QStringLiteral("capsfilter name=capentry "
-                         "caps=\"video/x-raw(memory:DMABuf),"
-                         "drm-format=(string){ AR24, XR24,"
-                         " AR24:0x0000000000000000,"
-                         " XR24:0x0000000000000000 },"
-                         "pixel-aspect-ratio=(fraction)1/1;"
-                         "video/x-raw,"
-                         "pixel-aspect-ratio=(fraction)1/1\"")
+        ? QStringLiteral("capsfilter name=capentry caps=\"%1\"")
+              .arg(gpuEntryCaps())
         : QStringLiteral("capsfilter caps=\"%1\"")
               .arg(systemMemoryEntryCaps());
+}
+
+QString SfuMediaEngine::gpuEntryCaps()
+{
+    return QStringLiteral("video/x-raw(memory:DMABuf),"
+                          "drm-format=(string){ AR24, XR24,"
+                          " AR24:0x0000000000000000,"
+                          " XR24:0x0000000000000000 },"
+                          "pixel-aspect-ratio=(fraction)1/1;"
+                          "video/x-raw,"
+                          "pixel-aspect-ratio=(fraction)1/1");
+}
+
+bool SfuMediaEngine::entryOffersDmaBuf(const GstCaps *caps)
+{
+    for (guint i = 0; i < gst_caps_get_size(caps); ++i) {
+        GstCapsFeatures *features = gst_caps_get_features(caps, i);
+        if (features
+            && gst_caps_features_contains(features,
+                                          "memory:DMABuf"))
+            return true;
+    }
+    return false;
+}
+
+QString SfuMediaEngine::gpuSystemMemoryFirstEntry()
+{
+    return QStringLiteral("capsfilter name=capentry caps=\"%1\"")
+        .arg(systemMemoryEntryCaps());
 }
 
 QString SfuMediaEngine::systemMemoryEntryCaps()
@@ -4059,6 +4082,7 @@ bool SfuMediaEngine::shareDmaBufCaptureFailedForTest()
 void SfuMediaEngine::clearShareDmaBufCaptureFailedForTest()
 {
     g_shareDmaBufCaptureFailed.store(false);
+    g_shareSystemMemoryCaptureFailed.store(false);
 }
 
 void SfuMediaEngine::setPipewirePluginVersionForTest(const QString &version)
@@ -5279,12 +5303,25 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
 
     const bool tryJpeg =
         !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
-    const bool dmaBufEntry = useGpu && !g_shareDmaBufCaptureFailed.load()
-        && pipewireSrcKeepsFormatOnRenegotiation(pipewirePluginVersion());
+    bool dmaBufEntry = false;
+    if (useGpu && screenShare) {
+        const QString pipewireVersion = pipewirePluginVersion();
+        dmaBufEntry = pipewireSrcKeepsFormatOnRenegotiation(pipewireVersion)
+            ? !g_shareDmaBufCaptureFailed.load()
+            : g_shareSystemMemoryCaptureFailed.load();
+        qCInfo(lcSfuMedia) << "screen share capture starts in"
+                           << (dmaBufEntry ? "DMA-BUF" : "system memory")
+                           << "pipewiresrc="
+                           << (pipewireVersion.isEmpty() ? QStringLiteral("none")
+                                                         : pipewireVersion);
+    }
+    const QString shareEntry = !useGpu ? captureEntryFilter(false)
+        : dmaBufEntry                  ? captureEntryFilter(true)
+                                       : gpuSystemMemoryFirstEntry();
     QString entryInUse = tryJpeg      ? cameraJpegEntry()
                          : portalCamera ? portalCameraEntry()
                          : !screenShare ? directCameraRawEntry()
-                                        : captureEntryFilter(dmaBufEntry);
+                                        : shareEntry;
     QString description = videoPipelineDescription(
         source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
             limits, encoder, selfView,
@@ -5303,7 +5340,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             gst_object_unref(bin);
             bin = nullptr;
         }
-        entryInUse = screenShare ? captureEntryFilter(dmaBufEntry)
+        entryInUse = screenShare ? shareEntry
                                  : directCameraRawEntry();
         description = videoPipelineDescription(
             source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
@@ -8323,7 +8360,7 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
         return;
     const bool screenShare = watch->state->screenShare;
     if (screenShare && captureFormatError
-        && retryShareCaptureInSystemMemory(cid))
+        && retryShareCaptureInOtherMemory(cid))
         return;
     m_publishWatch[cid].reported = true;
     qCWarning(lcSfuMedia)
@@ -8357,8 +8394,15 @@ bool SfuMediaEngine::restartShareCapture(GstElement *bin,
         return false;
     }
     gst_element_set_state(source, GST_STATE_NULL);
+    GstCaps *current = nullptr;
+    g_object_get(entry, "caps", &current, nullptr);
+    const bool wasDmaBuf = current && entryOffersDmaBuf(current);
+    if (current)
+        gst_caps_unref(current);
     GstCaps *caps = gst_caps_from_string(
-        systemMemoryEntryCaps().toUtf8().constData());
+        (wasDmaBuf ? systemMemoryEntryCaps() : gpuEntryCaps())
+            .toUtf8()
+            .constData());
     g_object_set(entry, "caps", caps, nullptr);
     gst_caps_unref(caps);
     retry.publish();
@@ -8369,17 +8413,30 @@ bool SfuMediaEngine::restartShareCapture(GstElement *bin,
     return true;
 }
 
-bool SfuMediaEngine::retryShareCaptureInSystemMemory(const QString &cid)
+bool SfuMediaEngine::retryShareCaptureInOtherMemory(const QString &cid)
 {
     const auto watch = m_publishWatch.constFind(cid);
     GstElement *bin = m_publishedBins.value(cid, nullptr);
     if (watch == m_publishWatch.cend() || !watch->retry || !bin
-        || !GST_IS_BIN(bin) || !watch->retry->begin())
+        || !GST_IS_BIN(bin))
         return false;
-    g_shareDmaBufCaptureFailed.store(true);
+    GstElement *entry = gst_bin_get_by_name(GST_BIN(bin), "capentry");
+    if (!entry)
+        return false;
+    GstCaps *current = nullptr;
+    g_object_get(entry, "caps", &current, nullptr);
+    gst_object_unref(entry);
+    const bool wasDmaBuf = current && entryOffersDmaBuf(current);
+    if (current)
+        gst_caps_unref(current);
+    if (!watch->retry->begin())
+        return false;
+    (wasDmaBuf ? g_shareDmaBufCaptureFailed : g_shareSystemMemoryCaptureFailed)
+        .store(true);
     qCWarning(lcSfuMedia)
-        << "screen share capture could not negotiate a DMA-BUF format; "
-           "retrying it in system memory";
+        << "screen share capture could not negotiate in"
+        << (wasDmaBuf ? "DMA-BUF" : "system memory") << "; retrying it in"
+        << (wasDmaBuf ? "system memory" : "DMA-BUF");
     gst_element_call_async(
         bin,
         [](GstElement *element, gpointer data) {
