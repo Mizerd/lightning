@@ -5117,6 +5117,16 @@ Item {
                     model.mediaKey,
                     model.mediaThumbAvailable ? "thumb" : "full")
             }
+            // A released picture re-reads the bridge's in-memory bytes, which
+            // may have been evicted meanwhile; fetch them again.
+            function reloadEvictedBytes() {
+                if (!usesBridge || bridgeSource.length === 0
+                    || img.status !== Image.Error
+                    || app.mediaBridge.cachedSource(bridgeCacheKey).length > 0)
+                    return
+                bridgeSource = ""
+                refreshBridgeSource()
+            }
             readonly property bool starEligible:
                 imageBox.isRasterImage && model.mediaSourceAvailable === true
                 && app.mediaBridge.supported && !imageBox.pendingMedia
@@ -5162,7 +5172,11 @@ Item {
                         imageBox.refreshBridgeSource()
                 }
                 function onMediaCached(cacheKey) {
-                    if (cacheKey === imageBox.bridgeCacheKey)
+                    // A re-cached key has the same bytes; a new revision URL
+                    // would blank the drawn picture while it decodes again.
+                    if (cacheKey === imageBox.bridgeCacheKey
+                        && !(img.status === Image.Ready
+                             && imageBox.bridgeSource.length > 0))
                         imageBox.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
                     if (imageBox.starEligible && cacheKey === "full:" + (model.mediaKey || ""))
                         Qt.callLater(imageBox.refreshStarredState)
@@ -5257,6 +5271,8 @@ Item {
                 sourceSize.width: 640
                 asynchronous: true
                 cache: root.mediaPixmapCacheAllowed
+                onStatusChanged: if (status === Image.Error)
+                                     Qt.callLater(imageBox.reloadEvictedBytes)
             }
 
             AnimatedImage {
@@ -5725,6 +5741,14 @@ Item {
                     && !bridgeFailed)
                     videoSourceRefresh.restart()
             }
+            function reloadEvictedBytes() {
+                if (!usesBridge || bridgeSource.length === 0
+                    || thumbImg.status !== Image.Error
+                    || app.mediaBridge.cachedSource(bridgeCacheKey).length > 0)
+                    return
+                bridgeSource = ""
+                refreshBridgeSource()
+            }
             function resetForMedia() {
                 playerActive = false
                 bridgeSource = ""
@@ -5742,7 +5766,9 @@ Item {
                 target: app.mediaBridge
                 enabled: videoBox.usesBridge
                 function onMediaCached(cacheKey) {
-                    if (cacheKey === videoBox.bridgeCacheKey)
+                    if (cacheKey === videoBox.bridgeCacheKey
+                        && !(thumbImg.status === Image.Ready
+                             && videoBox.bridgeSource.length > 0))
                         videoBox.bridgeSource =
                             app.mediaBridge.cachedSource(cacheKey)
                 }
@@ -5874,6 +5900,7 @@ Item {
                 }
             }
             Skeleton {
+                objectName: "videoPosterSkeleton"
                 anchors.fill: parent
                 radius: AppTheme.radiusSm
                 visible: thumbImg.status !== Image.Ready
@@ -5882,6 +5909,7 @@ Item {
             }
             Image {
                 id: thumbImg
+                objectName: "videoPosterImage"
                 anchors.fill: parent
                 fillMode: Image.PreserveAspectCrop
                 source: root.mediaPixmapRetained && videoBox.usesBridge
@@ -5893,6 +5921,8 @@ Item {
                 asynchronous: true
                 cache: root.mediaPixmapCacheAllowed
                 visible: status === Image.Ready
+                onStatusChanged: if (status === Image.Error)
+                                     Qt.callLater(videoBox.reloadEvictedBytes)
             }
             Rectangle {
                 id: videoPlayCircle

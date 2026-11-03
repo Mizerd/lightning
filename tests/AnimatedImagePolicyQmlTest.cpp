@@ -53,7 +53,33 @@ public:
     QList<Fetch> fetches;
 
     bool supportsMediaBridge() const override { return true; }
-    quint64 fetchMedia(const QString &, int, int) override { return nextOp++; }
+    struct MediaFetch {
+        quint64 opId;
+        QString key;
+        int kind = 0;
+    };
+    QList<MediaFetch> mediaFetches;
+    quint64 fetchMedia(const QString &key, int kind, int) override
+    {
+        const quint64 op = nextOp++;
+        mediaFetches.append({ op, key, kind });
+        return op;
+    }
+    int mediaFetchCount(const QString &key) const
+    {
+        int n = 0;
+        for (const MediaFetch &f : mediaFetches)
+            n += f.key == key ? 1 : 0;
+        return n;
+    }
+    quint64 lastMediaFetch(const QString &key) const
+    {
+        for (qsizetype i = mediaFetches.size() - 1; i >= 0; --i) {
+            if (mediaFetches.at(i).key == key)
+                return mediaFetches.at(i).opId;
+        }
+        return 0;
+    }
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int) override
     {
         const quint64 op = nextOp++;
@@ -743,6 +769,131 @@ QtObject {
                 && siblings.indexOf(badge) > siblings.indexOf(stillItem));
         QVERIFY2(above, "the GIF badge is painted under the still");
         QCOMPARE(d.warnings, QStringList{});
+    }
+
+    struct BridgedMediaRow {
+        const char *what;
+        bool video;
+        const char *picture;
+        const char *skeleton;
+    };
+
+    static QQuickItem *childNamed(QQuickItem *root, const char *name)
+    {
+        return root->findChild<QQuickItem *>(QString::fromLatin1(name));
+    }
+
+    static QVariantMap bridgedMediaFixture(AppController &controller,
+                                           const QString &key, bool video)
+    {
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("eventId"), key);
+        fixture.insert(video ? QStringLiteral("isVideo") : QStringLiteral("isImage"),
+                       true);
+        fixture.insert(QStringLiteral("body"),
+                       video ? QStringLiteral("clip.mp4")
+                             : QStringLiteral("photo.png"));
+        fixture.insert(QStringLiteral("mediaMimetype"),
+                       video ? QStringLiteral("video/mp4")
+                             : QStringLiteral("image/png"));
+        fixture.insert(QStringLiteral("mediaWidth"), 320);
+        fixture.insert(QStringLiteral("mediaHeight"), 200);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaThumbAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), key);
+        return fixture;
+    }
+
+    // The bridge's 32 MiB byte cache evicts pictures that are still drawn.
+    // Neither a later re-cache of the same key nor a return to the retained
+    // band may leave a loading placeholder where the picture was.
+    void aDrawnBridgedPictureSurvivesEvictionAndReCaching()
+    {
+        const QList<BridgedMediaRow> rows = {
+            { "image", false, "messageStillImage", "imageSkeleton" },
+            { "video poster", true, "videoPosterImage", "videoPosterSkeleton" },
+        };
+        int checked = 0;
+        for (const BridgedMediaRow &row : rows) {
+            FakeClient bridgeClient;
+            AppController controller(AppController::MockBackend);
+            MediaBridge *bridge = controller.mediaBridge();
+            bridge->setClient(&bridgeClient);
+            QVERIFY(bridge->supported());
+            controller.settings()->setVideoPrefetchEnabled(false);
+            const QString key = QStringLiteral("$drawn-%1").arg(checked);
+            const QString cacheKey = QStringLiteral("thumb:") + key;
+            Delegate d;
+            QVERIFY(createDelegate(controller,
+                                   bridgedMediaFixture(controller, key, row.video),
+                                   d));
+            d.root->setProperty("rowOnScreen", true);
+            const QByteArray png = solidPng(64, QColor(30, 120, 200));
+            const auto fetchAndServe = [&](const QString &other) {
+                const int before = bridgeClient.mediaFetchCount(other);
+                bridge->mediaSource(other, QStringLiteral("thumb"));
+                QTRY_VERIFY_WITH_TIMEOUT(
+                    bridgeClient.mediaFetchCount(other) > before, kTimeoutMs);
+                bridgeClient.succeed(bridgeClient.lastMediaFetch(other),
+                                     solidPng(64, QColor(10, 10, 10)));
+            };
+
+            QTRY_VERIFY2_WITH_TIMEOUT(bridgeClient.mediaFetchCount(key) == 1,
+                                      row.what, kTimeoutMs);
+            bridgeClient.succeed(bridgeClient.lastMediaFetch(key), png);
+            QQuickItem *picture = childNamed(d.root, row.picture);
+            QVERIFY2(picture, row.what);
+            QTRY_VERIFY2_WITH_TIMEOUT(
+                picture->property("status").toInt() == 1, row.what, kTimeoutMs);
+            QQuickItem *skeleton = childNamed(d.root, row.skeleton);
+            QVERIFY2(skeleton, row.what);
+            QVERIFY2(!skeleton->isVisible(), row.what);
+            const QUrl drawn = picture->property("source").toUrl();
+
+            // Another consumer fetches the evicted key again: same bytes,
+            // new revision.
+            bridge->setCacheLimitBytes(1);
+            fetchAndServe(QStringLiteral("$other-%1").arg(checked));
+            QVERIFY2(bridge->cachedSource(cacheKey).isEmpty(), row.what);
+            QSignalSpy shown(skeleton, &QQuickItem::visibleChanged);
+            const int refetches = bridgeClient.mediaFetchCount(key);
+            QVERIFY(bridge->mediaSource(key, QStringLiteral("thumb")).isEmpty());
+            QTRY_VERIFY_WITH_TIMEOUT(
+                bridgeClient.mediaFetchCount(key) > refetches, kTimeoutMs);
+            bridgeClient.succeed(bridgeClient.lastMediaFetch(key), png);
+            QCoreApplication::processEvents();
+            QTest::qWait(200);
+            QVERIFY2(shown.isEmpty(),
+                     qPrintable(QStringLiteral("%1: re-caching the drawn key "
+                                               "showed the loading skeleton")
+                                    .arg(QString::fromLatin1(row.what))));
+            QCOMPARE(picture->property("source").toUrl(), drawn);
+            QCOMPARE(picture->property("status").toInt(), 1);
+
+            // Released outside the retained band, evicted, then back.
+            QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
+            QTRY_VERIFY(picture->property("source").toUrl().isEmpty());
+            fetchAndServe(QStringLiteral("$third-%1").arg(checked));
+            QVERIFY2(bridge->cachedSource(cacheKey).isEmpty(), row.what);
+            const int fetchesBefore = bridgeClient.mediaFetchCount(key);
+            QVERIFY(d.root->setProperty("mediaPixmapRetained", true));
+            QTRY_VERIFY2_WITH_TIMEOUT(
+                bridgeClient.mediaFetchCount(key) > fetchesBefore,
+                qPrintable(QStringLiteral("%1: the evicted picture was never "
+                                          "fetched again, so its placeholder "
+                                          "stays")
+                               .arg(QString::fromLatin1(row.what))),
+                kTimeoutMs);
+            bridge->setCacheLimitBytes(32 * 1024 * 1024);
+            bridgeClient.succeed(bridgeClient.lastMediaFetch(key), png);
+            QTRY_VERIFY2_WITH_TIMEOUT(
+                picture->property("status").toInt() == 1, row.what, kTimeoutMs);
+            QTRY_VERIFY2_WITH_TIMEOUT(!skeleton->isVisible(), row.what,
+                                      kTimeoutMs);
+            bridge->setClient(nullptr);
+            ++checked;
+        }
+        QCOMPARE(checked, 2);
     }
 
     void dontPlayLeavesVideoPreloadToItsOwnSwitch()
