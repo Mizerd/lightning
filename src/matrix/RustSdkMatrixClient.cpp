@@ -11389,10 +11389,21 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("truncated")).toBool());
         return true;
     }
+    if (type == QLatin1String("member_profile_changed")) {
+        Q_EMIT userProfileChanged(
+            event.value(QStringLiteral("user_id")).toString());
+        return true;
+    }
     if (type == QLatin1String("name_color")) {
+        const quint64 colorOp = static_cast<quint64>(
+            event.value(QStringLiteral("op_id")).toDouble(0));
+        if (event.value(QStringLiteral("failed")).toBool(false)) {
+            Q_EMIT nameColorFailed(
+                colorOp, event.value(QStringLiteral("user_id")).toString());
+            return true;
+        }
         Q_EMIT nameColorReceived(
-            static_cast<quint64>(
-                event.value(QStringLiteral("op_id")).toDouble(0)),
+            colorOp,
             event.value(QStringLiteral("user_id")).toString(),
             event.value(QStringLiteral("color")).toString(),
             event.value(QStringLiteral("supported")).toBool(false));

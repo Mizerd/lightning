@@ -116,6 +116,119 @@ private Q_SLOTS:
         QCOMPARE(client.nameColorFetches, fetchesAfterSweep);
     }
 
+    void idleReadersAreNotPolledOnTheOldTwentySecondCadence()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#aabbcc"));
+        NameColorManager manager;
+        manager.setClient(&client);
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#aabbcc"), kSignalTimeoutMs);
+        QTest::qWait(30);
+        for (int i = 0; i < 5; ++i) {
+            manager.sweepForTest();
+            manager.colorFor(QStringLiteral("@bob:mock.local"));
+        }
+        QCOMPARE(client.nameColorFetches, 1);
+    }
+
+    void aProfileChangeRefetchesOnlyTheUserWhoseProfileChanged()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#aabbcc"));
+        client.mockNameColors.insert(QStringLiteral("@carol:mock.local"),
+                                     QStringLiteral("#445566"));
+        NameColorManager manager;
+        manager.setClient(&client);
+        manager.setMinRefetchGapForTest(0);
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        manager.colorFor(QStringLiteral("@carol:mock.local"));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#aabbcc"), kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@carol:mock.local")),
+            QStringLiteral("#445566"), kSignalTimeoutMs);
+        QCOMPARE(client.nameColorFetches, 2);
+
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#123456"));
+        Q_EMIT client.userProfileChanged(QStringLiteral("@stranger:mock.local"));
+        QCOMPARE(client.nameColorFetches, 2);
+        Q_EMIT client.userProfileChanged(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(client.nameColorFetches, 3);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#123456"), kSignalTimeoutMs);
+        QCOMPARE(manager.colorFor(QStringLiteral("@carol:mock.local")),
+                 QStringLiteral("#445566"));
+        QCOMPARE(client.nameColorFetches, 3);
+    }
+
+    void aProfileChangeWithinTheMinimumGapWaitsForTheNextRead()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#aabbcc"));
+        NameColorManager manager;
+        manager.setClient(&client);
+        manager.setMinRefetchGapForTest(60 * 1000);
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#aabbcc"), kSignalTimeoutMs);
+
+        for (int i = 0; i < 20; ++i)
+            Q_EMIT client.userProfileChanged(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(client.nameColorFetches, 1);
+
+        manager.setMinRefetchGapForTest(0);
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(client.nameColorFetches, 2);
+    }
+
+    void aFailedFetchKeepsTheCachedColourAndBacksOff()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#aabbcc"));
+        NameColorManager manager;
+        manager.setClient(&client);
+        manager.setMinRefetchGapForTest(0);
+        manager.setBackoffBaseForTest(60 * 1000);
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#aabbcc"), kSignalTimeoutMs);
+
+        client.nameColorFetchFails = true;
+        Q_EMIT client.userProfileChanged(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(client.nameColorFetches, 2);
+        QTest::qWait(40);
+
+        for (int i = 0; i < 10; ++i) {
+            Q_EMIT client.userProfileChanged(QStringLiteral("@bob:mock.local"));
+            manager.colorFor(QStringLiteral("@bob:mock.local"));
+            manager.sweepForTest();
+        }
+        QCOMPARE(client.nameColorFetches, 2);
+        QCOMPARE(manager.colorFor(QStringLiteral("@bob:mock.local")),
+                 QStringLiteral("#aabbcc"));
+
+        manager.setBackoffBaseForTest(0);
+        client.nameColorFetchFails = false;
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(client.nameColorFetches, 3);
+    }
+
     void aUserWithNoColourIsNotAskedAboutAgain()
     {
         MockMatrixClient client;

@@ -119,10 +119,10 @@ pub(crate) fn fetch_name_color(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let (colour, supported) = match fetch(&client, uid.as_str()).await {
-            Ok(value) => (value.unwrap_or_default(), true),
-            Err(reason) if reason == "unsupported" => (String::new(), false),
-            Err(_) => (String::new(), true),
+        let (colour, supported, failed) = match fetch(&client, uid.as_str()).await {
+            Ok(value) => (value.unwrap_or_default(), true, false),
+            Err(reason) if reason == "unsupported" => (String::new(), false, false),
+            Err(_) => (String::new(), true, true),
         };
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -130,6 +130,7 @@ pub(crate) fn fetch_name_color(
         enqueue(&events, json!({
             "type": "name_color", "lifecycle": lifecycle, "op_id": op_id,
             "user_id": uid.as_str(), "color": colour, "supported": supported,
+            "failed": failed,
         }));
     });
     Ok(())

@@ -2978,7 +2978,12 @@ void MockMatrixClient::fetchNameColor(const QString &userId, quint64 opId)
     ++nameColorFetches;
     const QString colour = mockNameColors.value(userId);
     const bool supported = nameColorsSupportedOnServer;
-    QTimer::singleShot(0, this, [this, opId, userId, colour, supported] {
+    const bool fail = nameColorFetchFails;
+    QTimer::singleShot(0, this, [this, opId, userId, colour, supported, fail] {
+        if (fail) {
+            Q_EMIT nameColorFailed(opId, userId);
+            return;
+        }
         Q_EMIT nameColorReceived(opId, userId, colour, supported);
     });
 }

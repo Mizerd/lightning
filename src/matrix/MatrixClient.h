@@ -1471,6 +1471,8 @@ Q_SIGNALS:
                           const QString &category);
     void nameColorReceived(quint64 opId, const QString &userId,
                            const QString &color, bool supported);
+    void nameColorFailed(quint64 opId, const QString &userId);
+    void userProfileChanged(const QString &userId);
     void nameColorSet(quint64 opId, bool ok, const QString &color,
                       const QString &category);
     void profileBioReceived(quint64 opId, const QString &userId,

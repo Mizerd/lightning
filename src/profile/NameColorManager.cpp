@@ -43,6 +43,7 @@ void NameColorManager::setClient(MatrixClient *client)
         if (expected.isEmpty() || expected != userId)
             return;
         m_inFlight.remove(userId);
+        m_failures.remove(userId);
         setSupported(supported);
         const QString accepted = isColour(color) ? color.toLower() : QString();
         if (m_colors.value(userId) == accepted && m_colors.contains(userId))
@@ -50,6 +51,27 @@ void NameColorManager::setClient(MatrixClient *client)
         m_colors.insert(userId, accepted);
         ++m_revision;
         Q_EMIT revisionChanged();
+    });
+
+    connect(m_client, &MatrixClient::nameColorFailed, this,
+            [this](quint64 opId, const QString &userId) {
+        const QString expected = m_pending.take(opId);
+        if (expected.isEmpty() || expected != userId)
+            return;
+        m_inFlight.remove(userId);
+        ++m_failures[userId];
+    });
+
+    connect(m_client, &MatrixClient::userProfileChanged, this,
+            [this](const QString &userId) {
+        if (!m_asked.contains(userId))
+            return;
+        m_stale.insert(userId);
+        const qint64 now = m_clock.elapsed();
+        const auto read = m_lastRead.constFind(userId);
+        if (read != m_lastRead.constEnd() && now - read.value() <= m_recentReadMs
+            && isDue(userId, now))
+            dispatchFetch(userId);
     });
 
     connect(m_client, &MatrixClient::nameColorSet, this,
@@ -71,6 +93,7 @@ void NameColorManager::setClient(MatrixClient *client)
         if (!self.isEmpty()) {
             m_colors.insert(self, isColour(color) ? color.toLower() : QString());
             m_asked.insert(self);
+            m_askedAt.insert(self, m_clock.elapsed());
             ++m_revision;
             Q_EMIT revisionChanged();
         }
@@ -98,8 +121,7 @@ QString NameColorManager::colorFor(const QString &userId)
         return {};
     if (m_asked.contains(userId)) {
         m_lastRead.insert(userId, m_clock.elapsed());
-        if (m_refreshMs >= 0 && !m_inFlight.contains(userId)
-            && m_clock.elapsed() - m_askedAt.value(userId) >= m_refreshMs)
+        if (isDue(userId, m_clock.elapsed()))
             dispatchFetch(userId);
         return m_colors.value(userId);
     }
@@ -111,8 +133,26 @@ QString NameColorManager::colorFor(const QString &userId)
     return {};
 }
 
+bool NameColorManager::isDue(const QString &userId, qint64 now) const
+{
+    if (m_inFlight.contains(userId))
+        return false;
+    const qint64 age = now - m_askedAt.value(userId);
+    const int failures = m_failures.value(userId);
+    if (failures > 0) {
+        const qint64 wait = qMin<qint64>(
+            static_cast<qint64>(m_backoffBaseMs) << qMin(failures - 1, 10),
+            m_refreshMs >= 0 ? m_refreshMs : Q_INT64_C(1) << 40);
+        return age >= wait;
+    }
+    if (m_stale.contains(userId))
+        return age >= m_minGapMs;
+    return m_refreshMs >= 0 && age >= m_refreshMs;
+}
+
 void NameColorManager::dispatchFetch(const QString &userId)
 {
+    m_stale.remove(userId);
     m_askedAt.insert(userId, m_clock.elapsed());
     m_inFlight.insert(userId);
     const quint64 op = m_nextOp++;
@@ -130,9 +170,7 @@ void NameColorManager::sweepRecentlyRead()
         const QString &user = it.key();
         if (now - it.value() > m_recentReadMs)
             continue;
-        if (!m_asked.contains(user) || m_inFlight.contains(user))
-            continue;
-        if (m_refreshMs < 0 || now - m_askedAt.value(user) < m_refreshMs)
+        if (!m_asked.contains(user) || !isDue(user, now))
             continue;
         due.append(qMakePair(m_askedAt.value(user), user));
     }
@@ -166,6 +204,8 @@ void NameColorManager::clear()
     m_asked.clear();
     m_askedAt.clear();
     m_inFlight.clear();
+    m_stale.clear();
+    m_failures.clear();
     m_pending.clear();
     m_pendingSet = 0;
     m_lastError.clear();

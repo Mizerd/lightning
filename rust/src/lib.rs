@@ -11228,6 +11228,21 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
         }
     });
 
+    let profile_events = Arc::clone(&events);
+    client.add_event_handler(move |ev: SyncRoomMemberEvent, _room: Room| {
+        let events = Arc::clone(&profile_events);
+        async move {
+            let user = match &ev {
+                SyncStateEvent::Original(original) => original.state_key.to_string(),
+                SyncStateEvent::Redacted(redacted) => redacted.state_key.to_string(),
+            };
+            enqueue(&events, json!({
+                "type": "member_profile_changed",
+                "user_id": user,
+            }));
+        }
+    });
+
     let pinned_events = Arc::clone(&events);
     client.add_event_handler(move |_ev: SyncRoomPinnedEventsEvent, room: Room| {
         let events = Arc::clone(&pinned_events);

@@ -35,6 +35,8 @@ public:
     Q_INVOKABLE QString colorFor(const QString &userId);
     Q_INVOKABLE void setOwnColor(const QString &value);
     void setRefreshIntervalForTest(int ms) { m_refreshMs = ms; }
+    void setMinRefetchGapForTest(int ms) { m_minGapMs = ms; }
+    void setBackoffBaseForTest(int ms) { m_backoffBaseMs = ms; }
     void sweepForTest() { sweepRecentlyRead(); }
     void setRecentReadWindowForTest(int ms) { m_recentReadMs = ms; }
     void clear();
@@ -51,6 +53,7 @@ private:
     void setLastError(const QString &error);
     void dispatchFetch(const QString &userId);
     void sweepRecentlyRead();
+    bool isDue(const QString &userId, qint64 now) const;
 
     MatrixClient *m_client = nullptr;
     QHash<QString, QString> m_colors;
@@ -59,10 +62,14 @@ private:
     QHash<QString, qint64> m_askedAt;
     QSet<QString> m_inFlight;
     QElapsedTimer m_clock;
-    int m_refreshMs = 20 * 1000;
+    int m_refreshMs = 30 * 60 * 1000;
+    int m_minGapMs = 10 * 1000;
+    int m_backoffBaseMs = 30 * 1000;
+    QSet<QString> m_stale;
+    QHash<QString, int> m_failures;
     QHash<QString, qint64> m_lastRead;
     int m_recentReadMs = 5 * 60 * 1000;
-    static constexpr int kSweepMs = 20 * 1000;
+    static constexpr int kSweepMs = 60 * 1000;
     static constexpr int kSweepCap = 24;
     QTimer m_sweep;
     quint64 m_nextOp = 1;

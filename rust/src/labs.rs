@@ -555,6 +555,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("message_search_result", UiOnly),
         ("moderation_plan", UiOnly),
         ("mutual_rooms_result", UiOnly),
+        ("member_profile_changed", UiOnly),
         ("name_color", UiOnly),
         ("name_color_set", UiOnly),
         ("notification_mode_error", UiOnly),

@@ -465,6 +465,7 @@ public:
     QHash<QString, QString> mockNameColors;
     int nameColorFetches = 0;
     bool nameColorsSupportedOnServer = true;
+    bool nameColorFetchFails = false;
     quint64 roomWidgets(const QString &roomId, const QString &theme,
                         const QString &language) override;
     QVariantList mockWidgets;

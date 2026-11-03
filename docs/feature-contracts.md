@@ -1799,10 +1799,13 @@ the first account's client, which is the cross-user claim.
 - The message context menu is closed by any timeline content movement: it is
   popped up at a fixed overlay point, so a scroll would otherwise leave it
   floating away from its row. The pane owns the one open menu.
-- A name colour someone changes reaches other running clients within about
-  20 seconds: `NameColorManager` re-asks on a read past the 20 s interval AND
-  sweeps the recently read set on a 20 s timer, so propagation does not wait
-  for a name to repaint. A refused call join is surfaced on the status bar
+- `NameColorManager` fetches a user's colour once per session. It re-asks
+  when sync delivers an `m.room.member` event for that user (`userProfileChanged`;
+  at most one ask per 10 s per user) and, for names read in the last five
+  minutes, every 30 minutes, because an MSC4133 field change raises no member
+  event and a colour changed alone reaches other clients within 30 minutes. A
+  failed ask keeps the cached colour and backs off (30 s doubling, capped at the
+  30 min interval). A refused call join is surfaced on the status bar
   (the controller's `callFailed` reason).
 - The room header's title bound (`Layout.maximumWidth`) is ceiled: a Layout
   hands an item an integer width and the title's own implicitWidth is a
