@@ -104,7 +104,8 @@ ListView {
         width: visible
                ? Math.min(strip.chipMaxWidth,
                           AppTheme.spacing6 + 20 + AppTheme.spacing6
-                          + chipLabel.implicitWidth + AppTheme.spacing12)
+                          + Math.ceil(nameMetrics.advanceWidth)
+                          + AppTheme.spacing12)
                : 0
         height: strip.chipHeight
         y: (strip.height - height) / 2
@@ -158,5 +159,12 @@ ListView {
             }
         }
         onClicked: strip.packChosen(chip.packId)
+
+        // Measured apart from chipLabel, whose width follows the chip's.
+        TextMetrics {
+            id: nameMetrics
+            font: chipLabel.font
+            text: chip.label
+        }
     }
 }

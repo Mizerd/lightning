@@ -133,8 +133,9 @@ AnchoredPopup {
         var _live = app.stickers.revision
         if (!(picker.customEmojiOffered && picker.visible && !picker.compact))
             return []
-        if (picker.customPackId.length > 0) {
-            var rows = app.stickers.packEmoticons(picker.customPackId)
+        var packId = picker.customPackId || ""
+        if (packId.length > 0) {
+            var rows = app.stickers.packEmoticons(packId)
             if (rows.length > 0)
                 return rows
         }
