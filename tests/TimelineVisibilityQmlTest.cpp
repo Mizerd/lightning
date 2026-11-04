@@ -204,6 +204,34 @@ QtObject {
         QCoreApplication::processEvents();
     }
 
+    static QString diag(const Delegate &d)
+    {
+        auto num = [](QQuickItem *i, const char *p) {
+            return i ? QString::number(i->property(p).toReal()) : QStringLiteral("-");
+        };
+        auto *row = find(d, "messagePresentationRow");
+        auto *column = find(d, "messageContentColumn");
+        auto *body = find(d, "messageBody");
+        auto *flow = find(d, "reactionsFlow");
+        auto *hover = d.root->findChild<QObject *>(QStringLiteral("timelineRevealHover"));
+        return QStringLiteral("implicit=%1 natural=%2 seed=%3 row=%4/%5 column=%6 body=%7 "
+                              "flow=%8/%9 revealed=%10 hovered=%11 kb=%12 pinned=%13 menu=%14 "
+                              "suspended=%15 window=%16")
+            .arg(d.root->implicitHeight())
+            .arg(d.root->property("naturalImplicitHeight").toReal())
+            .arg(d.root->property("heightSeedActive").toBool())
+            .arg(num(row, "implicitHeight"), num(row, "height"), num(column, "implicitHeight"),
+                 num(body, "implicitHeight"), num(flow, "implicitHeight"),
+                 num(flow, "height"))
+            .arg(d.root->property("hoverRevealed").toBool())
+            .arg(hover ? hover->property("hovered").toBool() : false)
+            .arg(d.root->property("keyboardSelected").toBool())
+            .arg(d.root->property("actionsPinned").toBool())
+            .arg(d.root->property("moreMenuOpen").toBool())
+            .arg(d.root->property("rowHoverSuspended").toBool())
+            .arg(d.window->isExposed());
+    }
+
     static QQuickItem *find(const Delegate &d, const char *name)
     {
         return d.root->findChild<QQuickItem *>(QLatin1String(name));
@@ -436,7 +464,7 @@ private Q_SLOTS:
         auto *avatar = find(d, "senderAvatar");
         QVERIFY2(avatar, "On hover must build the avatar so hovering builds nothing");
         const qreal height0 = d.root->implicitHeight();
-        QCOMPARE(opacityUpTo(avatar, d.root), 0.0);
+        QVERIFY2(opacityUpTo(avatar, d.root) == 0.0, qPrintable(diag(d)));
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(avatar, d.root), 1.0);
@@ -491,8 +519,8 @@ private Q_SLOTS:
         const bool shorter = own ? hidden.root->implicitHeight() <= shown.root->implicitHeight()
                                  : hidden.root->implicitHeight() < shown.root->implicitHeight();
         QVERIFY2(shorter,
-                 qPrintable(QStringLiteral("hidden %1px, shown %2px")
-                                .arg(hidden.root->implicitHeight()).arg(shown.root->implicitHeight())));
+                 qPrintable(QStringLiteral("hidden: %1\nshown: %2")
+                                .arg(diag(hidden), diag(shown))));
         QString why;
         QVERIFY2(contentFitsTheRow(hidden, why), qPrintable(why));
 
@@ -520,7 +548,7 @@ private Q_SLOTS:
         auto *flow = find(d, "reactionsFlow");
         QVERIFY2(flow, "On hover must build the chips up front");
         QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
-        QCOMPARE(opacityUpTo(flow, d.root), 0.0);
+        QVERIFY2(opacityUpTo(flow, d.root) == 0.0, qPrintable(diag(d)));
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(flow, d.root), 1.0);
@@ -580,7 +608,8 @@ private Q_SLOTS:
         QCOMPARE(hidden.root->property("ownBubbleReceiptFooter").toBool(), false);
         if (layout == 1 && own)
             QVERIFY2(hidden.root->implicitHeight() < shown.root->implicitHeight(),
-                     "an own bubble kept the receipt band below it with receipts hidden");
+                     qPrintable(QStringLiteral("an own bubble kept the receipt band: hidden: "
+                                           "%1\nshown: %2").arg(diag(hidden), diag(shown))));
         else
             QVERIFY(hidden.root->implicitHeight() <= shown.root->implicitHeight());
         QString why;
@@ -613,7 +642,7 @@ private Q_SLOTS:
         QVERIFY2(strip, "On hover must build the receipts up front");
         QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
         QCOMPARE(d.root->property("receiptRailReserve").toReal(), reserve);
-        QCOMPARE(opacityUpTo(strip, d.root), 0.0);
+        QVERIFY2(opacityUpTo(strip, d.root) == 0.0, qPrintable(diag(d)));
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(strip, d.root), 1.0);
@@ -669,9 +698,7 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("%1px off against %2px on")
                                 .arg(smallSize).arg(bigSize)));
         QVERIFY2(small.root->implicitHeight() < big.root->implicitHeight(),
-                 qPrintable(QStringLiteral("%1px off against %2px on")
-                                .arg(small.root->implicitHeight())
-                                .arg(big.root->implicitHeight())));
+                 qPrintable(QStringLiteral("off: %1\non: %2").arg(diag(small), diag(big))));
     }
 };
 
