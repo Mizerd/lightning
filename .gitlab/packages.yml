@@ -12,6 +12,9 @@ variables:
   PACKAGE_FORMATS: "all"
   LIGHTNING_REPOSITORY: "https://gitlab.smetonis.net/Mizerd/lightning.git"
   SOURCE_REF: $CI_COMMIT_SHA
+  # A shared runner's clone of this repository fails transiently and GitLab
+  # reports it as a script failure, so a retry rule cannot tell it apart.
+  GET_SOURCES_ATTEMPTS: "3"
 
 # Not interruptible: a later pipeline on the same ref must never cancel a
 # release build through auto-cancel.
