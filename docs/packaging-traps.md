@@ -200,3 +200,15 @@ ffmpeg plugin drags Debian's GPL-enabled libavcodec and with it x264, x265,
 xvidcore, dvdnav, dvdread, gme and openmpt — **GPL-2-or-later, not LGPL**, so
 the source obligation is GPL §3's. Options and tradeoffs in
 `docs/open-items.md`; that one is the maintainer's call.
+
+**`registry.opensuse.org` DELETES TUMBLEWEED SNAPSHOT DIGESTS WITHIN DAYS.**
+Two digest pins of `registry.opensuse.org/opensuse/tumbleweed` died within
+two days each (2026-11-03 and 2026-11-04) with `manifest unknown`, which fails
+`validate-rpm-opensuse` before it starts. That blocks a release, since every
+release job must be green, and a retry cannot fix it. The pin now uses
+openSUSE's own Docker Hub repo `opensuse/tumbleweed@sha256:…`: the same OBS
+build, byte-identical layers, and Docker Hub kept a month-old untagged digest
+pullable where openSUSE's registry had already deleted it. Leap digests on
+`registry.opensuse.org` do not rot; only Tumbleweed's rolling snapshots do.
+Refresh the pin when Tumbleweed outgrows it, never back to the openSUSE
+registry.

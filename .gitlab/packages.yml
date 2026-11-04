@@ -334,7 +334,7 @@ validate-rpm-opensuse-amd64:
   extends: .pkg-validate
   rules:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|amd64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)rpm(,|$)/'
-  image: opensuse/tumbleweed@sha256:1f6d27e99973633290264cc85b0b6b9f61cf352d236b3ac10a55f037e38ce5ab # Docker Hub official image, multi-arch; registry.opensuse.org deletes old snapshot digests within days
+  image: opensuse/tumbleweed@sha256:1f6d27e99973633290264cc85b0b6b9f61cf352d236b3ac10a55f037e38ce5ab # openSUSE's own Docker Hub repo, same OBS build as registry.opensuse.org, which deletes old snapshot digests within days
   tags: [saas-linux-medium-amd64]
   needs:
     - job: resolve-source
@@ -530,7 +530,7 @@ validate-rpm-opensuse-arm64:
   extends: .pkg-validate
   rules:
     - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|arm64)$/ && $PACKAGE_FORMATS =~ /^all$|(^|,)rpm(,|$)/'
-  image: opensuse/tumbleweed@sha256:1f6d27e99973633290264cc85b0b6b9f61cf352d236b3ac10a55f037e38ce5ab # Docker Hub official image, multi-arch; registry.opensuse.org deletes old snapshot digests within days
+  image: opensuse/tumbleweed@sha256:1f6d27e99973633290264cc85b0b6b9f61cf352d236b3ac10a55f037e38ce5ab # openSUSE's own Docker Hub repo, same OBS build as registry.opensuse.org, which deletes old snapshot digests within days
   tags: [saas-linux-medium-arm64]
   needs:
     - job: resolve-source
