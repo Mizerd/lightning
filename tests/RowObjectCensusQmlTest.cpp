@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include <iterator>
 #include <memory>
 
 #include <QImage>
@@ -437,6 +438,142 @@ private Q_SLOTS:
             QCOMPARE(slot->implicitHeight(), editItem->implicitHeight());
         }
         controller.settings()->setMessageLayout(0);
+    }
+
+    void anImageBuildsItsSkeletonOnlyWhileItCanShow()
+    {
+        AppController controller(AppController::MockBackend);
+        {
+            QVariantMap pending = imageFixture(controller, QStringLiteral("image/png"));
+            pending.insert(QStringLiteral("mediaUrl"), QUrl{});
+            Delegate d;
+            QVERIFY(createDelegate(controller, pending, d));
+            auto *skeleton = d.root->findChild<QQuickItem *>(QStringLiteral("imageSkeleton"));
+            QVERIFY2(skeleton && skeleton->isVisible(), "a loading image shows no skeleton");
+        }
+        Delegate d;
+        QVERIFY(createDelegate(controller, imageFixture(controller, QStringLiteral("image/png")), d));
+        auto *image = d.root->findChild<QQuickItem *>(QStringLiteral("messageStillImage"));
+        QVERIFY(image);
+        QTRY_COMPARE(image->property("status").toInt(), 1);
+        QTRY_VERIFY2(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")),
+                     "a drawn image still carries its loading skeleton");
+
+        QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
+        QTRY_COMPARE(image->property("status").toInt(), 0);
+        QVERIFY(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")));
+        d.host->setProperty("userScrollActive", true);
+        QVERIFY(d.root->setProperty("mediaPixmapRetained", true));
+        QVERIFY2(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")),
+                 "the skeleton was built mid-scroll");
+        QTRY_COMPARE(image->property("status").toInt(), 1);
+        d.host->setProperty("userScrollActive", false);
+        QTest::qWait(20);
+        QVERIFY(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")));
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    void hiddenMediaPlaceholdersAreBuiltOnlyWhileHidden()
+    {
+        AppController controller(AppController::MockBackend);
+        const auto placeholders = [](QQuickItem *root) {
+            int n = 0;
+            for (QObject *o : census::objectsUnder(root))
+                n += census::className(o) == QLatin1String("MediaHiddenPlaceholder") ? 1 : 0;
+            return n;
+        };
+        for (const QString &kind : { QStringLiteral("image-png"), QStringLiteral("sticker"),
+                                     QStringLiteral("gallery-3") }) {
+            QVariantMap fixture;
+            for (const auto &entry : surveyFixtures(controller))
+                if (entry.first == kind)
+                    fixture = entry.second;
+            QVERIFY(!fixture.isEmpty());
+            Delegate d;
+            QVERIFY(createDelegate(controller, fixture, d));
+            QCOMPARE(placeholders(d.root), 0);
+            QVERIFY(d.root->setProperty("mediaHidden", true));
+            QTRY_COMPARE(placeholders(d.root), 1);
+            QTRY_VERIFY(d.root->findChild<QQuickItem *>(QStringLiteral("mediaHiddenPlaceholder")));
+        }
+    }
+
+    void aVideoBuildsItsRetryOnlyAfterAFailure()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap f;
+        for (const auto &entry : surveyFixtures(controller))
+            if (entry.first == QLatin1String("video"))
+                f = entry.second;
+        Delegate d;
+        QVERIFY(createDelegate(controller, f, d));
+        auto *video = d.root->findChild<QQuickItem *>(QStringLiteral("videoMedia"));
+        QVERIFY(video);
+        QVERIFY(!video->findChild<QObject *>(QStringLiteral("videoThumbRetryButton")));
+        QVERIFY(!video->findChild<QObject *>(QStringLiteral("videoPosterSkeleton")));
+
+        d.host->setProperty("userScrollActive", true);
+        QVERIFY(video->setProperty("bridgeFailed", true));
+        QVERIFY2(!video->findChild<QObject *>(QStringLiteral("videoThumbRetryButton")),
+                 "the retry was built mid-scroll");
+        d.host->setProperty("userScrollActive", false);
+        QTRY_VERIFY(video->findChild<QObject *>(QStringLiteral("videoThumbRetryButton")));
+        auto *retry = video->findChild<QQuickItem *>(QStringLiteral("videoThumbRetryButton"));
+        QVERIFY(retry->isVisible());
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    void aFileCardBuildsNoSaveProgressUntilSaving()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap f;
+        for (const auto &entry : surveyFixtures(controller))
+            if (entry.first == QLatin1String("file"))
+                f = entry.second;
+        Delegate d;
+        QVERIFY(createDelegate(controller, f, d));
+        auto *card = d.root->findChild<QQuickItem *>(QStringLiteral("fileCard"));
+        QVERIFY(card);
+        int busy = 0;
+        for (QObject *o : census::objectsUnder(card))
+            busy += census::className(o) == QLatin1String("AppBusyIndicator") ? 1 : 0;
+        QCOMPARE(busy, 0);
+        QVERIFY(!card->findChild<QObject *>(QStringLiteral("fileSaveCancelButton")));
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    void convertedSubtreesStayWithinTheirCensus()
+    {
+        AppController controller(AppController::MockBackend);
+        struct Bound { const char *kind; const char *subtree; int max; };
+        const Bound bounds[] = {
+            { "image-png", "messagePresentationRow", 135 },
+            { "image-png", "imageMedia", 28 },
+            { "video", "videoMedia", 40 },
+            { "file", "fileCard", 30 },
+            { "sticker", "stickerMedia", 33 },
+            { "gallery-3", "messageGallery", 38 },
+        };
+        const auto fixtures = surveyFixtures(controller);
+        int checked = 0;
+        for (const Bound &b : bounds) {
+            for (const auto &entry : fixtures) {
+                if (entry.first != QLatin1String(b.kind))
+                    continue;
+                Delegate d;
+                QVERIFY(createDelegate(controller, entry.second, d));
+                QTest::qWait(150);
+                QObject *subtree = d.root->findChild<QObject *>(QLatin1String(b.subtree));
+                QVERIFY2(subtree, b.subtree);
+                const auto objects = census::objectsUnder(subtree);
+                QVERIFY2(objects.size() <= b.max,
+                         qPrintable(QStringLiteral("%1 %2: %3")
+                                        .arg(QLatin1String(b.kind), QLatin1String(b.subtree),
+                                             census::describe(objects, 8))));
+                ++checked;
+            }
+        }
+        QCOMPARE(checked, int(std::size(bounds)));
     }
 };
 

@@ -105,6 +105,10 @@ Item {
     property bool mediaPixmapRetained: true
     readonly property bool mediaPixmapCacheAllowed:
         !timelineView || timelineView.mediaRetainFirstRow === undefined
+    // A part built only in some states keeps what it had when a scroll began
+    // until the scroll settles, so nothing is built mid-gesture.
+    readonly property bool scrollHoldsParts: !!root.timelineView
+        && root.timelineView.userScrollActive === true
 
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
@@ -5069,10 +5073,13 @@ Item {
                 }
             }
 
-            MediaHiddenPlaceholder {
+            Loader {
                 anchors.fill: parent
-                hidden: root.mediaHidden
-                onRevealRequested: root.setMediaHidden(false)
+                active: root.mediaHidden
+                sourceComponent: MediaHiddenPlaceholder {
+                    hidden: root.mediaHidden
+                    onRevealRequested: root.setMediaHidden(false)
+                }
             }
         }
     }
@@ -5170,7 +5177,17 @@ Item {
                 imageBox.starred = imageBox.starEligible && a !== null
                     && a.isChatGifStarred(model.mediaKey || "")
             }
+            readonly property bool skeletonWanted: root.mediaPixmapRetained
+                && img.status !== Image.Ready
+                && animatedImg.status !== AnimatedImage.Ready
+            readonly property bool skeletonHeld: root.scrollHoldsParts
+            property int heldSkeleton: -1
+            onSkeletonHeldChanged: heldSkeleton = skeletonHeld ? (skeletonWanted ? 1 : 0) : -1
+            readonly property bool skeletonBuilt: heldSkeleton >= 0 ? heldSkeleton === 1
+                                                                    : skeletonWanted
             Component.onCompleted: {
+                if (skeletonHeld)
+                    heldSkeleton = skeletonWanted ? 1 : 0
                 refreshBridgeSource()
                 refreshStarredState()
             }
@@ -5256,15 +5273,18 @@ Item {
                 ? resolvedSource + "|shape:round:35"
                 : resolvedSource
 
-            Skeleton {
-                objectName: "imageSkeleton"
+            Loader {
                 anchors.fill: parent
-                radius: AppTheme.radiusSm
-                visible: !root.mediaHidden
-                         && img.status !== Image.Ready
-                         && animatedImg.status !== AnimatedImage.Ready
-                active: root.rowOnScreen && !imageBox.bridgeFailed
-                        && img.status !== Image.Error
+                active: imageBox.skeletonBuilt
+                sourceComponent: Skeleton {
+                    objectName: "imageSkeleton"
+                    radius: AppTheme.radiusSm
+                    visible: !root.mediaHidden
+                             && img.status !== Image.Ready
+                             && animatedImg.status !== AnimatedImage.Ready
+                    active: root.rowOnScreen && !imageBox.bridgeFailed
+                            && img.status !== Image.Error
+                }
             }
             Rectangle {
                 objectName: "imageGifBadge"
@@ -5323,10 +5343,13 @@ Item {
                 AnimationFileHold {}
             }
 
-            MediaHiddenPlaceholder {
+            Loader {
                 anchors.fill: parent
-                hidden: root.mediaHidden
-                onRevealRequested: root.setMediaHidden(false)
+                active: root.mediaHidden
+                sourceComponent: MediaHiddenPlaceholder {
+                    hidden: root.mediaHidden
+                    onRevealRequested: root.setMediaHidden(false)
+                }
             }
 
             Loader {
@@ -5623,10 +5646,13 @@ Item {
                 cache: root.mediaPixmapCacheAllowed
                 AnimationFileHold {}
             }
-            MediaHiddenPlaceholder {
+            Loader {
                 anchors.fill: parent
-                hidden: root.mediaHidden
-                onRevealRequested: root.setMediaHidden(false)
+                active: root.mediaHidden
+                sourceComponent: MediaHiddenPlaceholder {
+                    hidden: root.mediaHidden
+                    onRevealRequested: root.setMediaHidden(false)
+                }
             }
             HoverHandler {
                 id: stickerHover
@@ -5794,7 +5820,19 @@ Item {
                 interval: 0
                 onTriggered: videoBox.refreshBridgeSource()
             }
-            Component.onCompleted: resetForMedia()
+            readonly property int liveParts:
+                (!showPlaceholder && root.mediaPixmapRetained
+                 && thumbImg.status !== Image.Ready ? 1 : 0)
+                | (bridgeFailed ? 2 : 0)
+            readonly property bool partsHeld: root.scrollHoldsParts
+            property int heldParts: -1
+            onPartsHeldChanged: heldParts = partsHeld ? liveParts : -1
+            readonly property int builtParts: heldParts >= 0 ? heldParts : liveParts
+            Component.onCompleted: {
+                if (partsHeld)
+                    heldParts = liveParts
+                resetForMedia()
+            }
             onMediaIdentityChanged: resetForMedia()
             Connections {
                 target: app.mediaBridge
@@ -5933,13 +5971,16 @@ Item {
                     elide: Label.ElideMiddle
                 }
             }
-            Skeleton {
-                objectName: "videoPosterSkeleton"
+            Loader {
                 anchors.fill: parent
-                radius: AppTheme.radiusSm
-                visible: thumbImg.status !== Image.Ready
-                        && !videoBox.showPlaceholder
-                active: root.rowOnScreen && !videoBox.showPlaceholder
+                active: (videoBox.builtParts & 1) !== 0
+                sourceComponent: Skeleton {
+                    objectName: "videoPosterSkeleton"
+                    radius: AppTheme.radiusSm
+                    visible: thumbImg.status !== Image.Ready
+                            && !videoBox.showPlaceholder
+                    active: root.rowOnScreen && !videoBox.showPlaceholder
+                }
             }
             Image {
                 id: thumbImg
@@ -6038,21 +6079,24 @@ Item {
                 ToolTip.delay: 600
                 onClicked: videoBox.saveVideo()
             }
-            IconButton {
-                objectName: "videoThumbRetryButton"
-                visible: !videoBox.playerActive && videoBox.bridgeFailed
-                         && root.rowActionsEnabled
+            Loader {
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.margins: 5
-                iconName: "refresh"
-                iconSize: 15
-                implicitWidth: 26; implicitHeight: 26
-                Accessible.name: qsTr("Retry the video preview")
-                ToolTip.text: qsTr("Retry preview")
-                ToolTip.visible: hovered
-                ToolTip.delay: 600
-                onClicked: videoBox.refreshBridgeSource()
+                active: (videoBox.builtParts & 2) !== 0
+                sourceComponent: IconButton {
+                    objectName: "videoThumbRetryButton"
+                    visible: !videoBox.playerActive && videoBox.bridgeFailed
+                             && root.rowActionsEnabled
+                    iconName: "refresh"
+                    iconSize: 15
+                    implicitWidth: 26; implicitHeight: 26
+                    Accessible.name: qsTr("Retry the video preview")
+                    ToolTip.text: qsTr("Retry preview")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    onClicked: videoBox.refreshBridgeSource()
+                }
             }
             TapHandler {
                 enabled: !videoBox.playerActive && root.rowActionsEnabled
@@ -6276,24 +6320,28 @@ Item {
                     }
                 }
 
-                AppBusyIndicator {
-                    size: 26
-                    visible: fileCard.saving
-                    running: visible
-                    Layout.preferredWidth: 26
-                    Layout.preferredHeight: 26
-                }
-                IconButton {
-                    objectName: "fileSaveCancelButton"
-                    visible: fileCard.saving
-                    iconName: "close"
-                    iconSize: 16
-                    implicitWidth: 30; implicitHeight: 30
-                    Accessible.name: qsTr("Cancel download")
-                    ToolTip.text: qsTr("Cancel download")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 600
-                    onClicked: app.mediaBridge.cancelSave(model.mediaKey || "")
+                Loader {
+                    active: fileCard.saving
+                    visible: active
+                    sourceComponent: RowLayout {
+                        spacing: 10
+                        AppBusyIndicator {
+                            size: 26
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                        }
+                        IconButton {
+                            objectName: "fileSaveCancelButton"
+                            iconName: "close"
+                            iconSize: 16
+                            implicitWidth: 30; implicitHeight: 30
+                            Accessible.name: qsTr("Cancel download")
+                            ToolTip.text: qsTr("Cancel download")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 600
+                            onClicked: app.mediaBridge.cancelSave(model.mediaKey || "")
+                        }
+                    }
                 }
                 Icon {
                     visible: fileCard.savedFlash && !fileCard.saving
@@ -6327,16 +6375,19 @@ Item {
                                                          false)
                     }
                 }
-                IconButton {
-                    visible: !(model.mediaSourceAvailable === true)
-                             && (model.mediaUrl
-                                 ? model.mediaUrl.toString().length > 0
-                                 : false)
-                    iconName: "open_in_full"
-                    iconSize: 18
-                    implicitWidth: 30; implicitHeight: 30
-                    Accessible.name: qsTr("Open file")
-                    onClicked: app.media.openExternal(model.mediaUrl)
+                Loader {
+                    active: !(model.mediaSourceAvailable === true)
+                            && (model.mediaUrl
+                                ? model.mediaUrl.toString().length > 0
+                                : false)
+                    visible: active
+                    sourceComponent: IconButton {
+                        iconName: "open_in_full"
+                        iconSize: 18
+                        implicitWidth: 30; implicitHeight: 30
+                        Accessible.name: qsTr("Open file")
+                        onClicked: app.media.openExternal(model.mediaUrl)
+                    }
                 }
             }
         }

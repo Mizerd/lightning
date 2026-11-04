@@ -855,9 +855,11 @@ QtObject {
             QVERIFY2(picture, row.what);
             QTRY_VERIFY2_WITH_TIMEOUT(
                 picture->property("status").toInt() == 1, row.what, kTimeoutMs);
-            QQuickItem *skeleton = childNamed(d.root, row.skeleton);
-            QVERIFY2(skeleton, row.what);
-            QVERIFY2(!skeleton->isVisible(), row.what);
+            const auto skeletonShown = [&] {
+                QQuickItem *skeleton = childNamed(d.root, row.skeleton);
+                return skeleton && skeleton->isVisible();
+            };
+            QVERIFY2(!skeletonShown(), row.what);
             const QUrl drawn = picture->property("source").toUrl();
 
             // Another consumer fetches the evicted key again: same bytes,
@@ -865,15 +867,23 @@ QtObject {
             bridge->setCacheLimitBytes(1);
             fetchAndServe(QStringLiteral("$other-%1").arg(checked));
             QVERIFY2(bridge->cachedSource(cacheKey).isEmpty(), row.what);
-            QSignalSpy shown(skeleton, &QQuickItem::visibleChanged);
+            bool flashed = false;
+            const auto watchSkeleton = [&](int ms) {
+                QElapsedTimer clock;
+                clock.start();
+                do {
+                    QCoreApplication::processEvents();
+                    flashed = flashed || skeletonShown();
+                    QTest::qWait(1);
+                } while (clock.elapsed() < ms);
+            };
             const int refetches = bridgeClient.mediaFetchCount(key);
             QVERIFY(bridge->mediaSource(key, QStringLiteral("thumb")).isEmpty());
             QTRY_VERIFY_WITH_TIMEOUT(
                 bridgeClient.mediaFetchCount(key) > refetches, kTimeoutMs);
             bridgeClient.succeed(bridgeClient.lastMediaFetch(key), png);
-            QCoreApplication::processEvents();
-            QTest::qWait(200);
-            QVERIFY2(shown.isEmpty(),
+            watchSkeleton(200);
+            QVERIFY2(!flashed,
                      qPrintable(QStringLiteral("%1: re-caching the drawn key "
                                                "showed the loading skeleton")
                                     .arg(QString::fromLatin1(row.what))));
@@ -898,8 +908,7 @@ QtObject {
             bridgeClient.succeed(bridgeClient.lastMediaFetch(key), png);
             QTRY_VERIFY2_WITH_TIMEOUT(
                 picture->property("status").toInt() == 1, row.what, kTimeoutMs);
-            QTRY_VERIFY2_WITH_TIMEOUT(!skeleton->isVisible(), row.what,
-                                      kTimeoutMs);
+            QTRY_VERIFY2_WITH_TIMEOUT(!skeletonShown(), row.what, kTimeoutMs);
             bridge->setClient(nullptr);
             ++checked;
         }
