@@ -63,7 +63,7 @@ build-nowebrtc:
     - nix develop -c ccache -z
     - nix develop -c cmake --build build-nowebrtc -j32 -- -k 0 2>&1 | tee out/build.log | tail -60
     - nix develop -c ccache -s
-    - "! grep -qE '^FAILED:|build stopped' out/build.log"
+    - "if grep -qE '^FAILED:|build stopped' out/build.log; then exit 1; fi"
 
 check-no-qtdbus:
   extends: .release-check

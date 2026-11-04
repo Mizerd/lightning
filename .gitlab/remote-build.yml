@@ -123,7 +123,7 @@ test-rust:
     - mkdir -p out
     - nix develop -c cargo fetch --locked --manifest-path rust/Cargo.toml
     - nix develop -c cargo test --manifest-path rust/Cargo.toml -j32 2>&1 | tee out/cargo.log | grep -E '^test result|FAILED|panicked' | head -20 || true
-    - "! grep -q 'test result: FAILED' out/cargo.log"
+    - "if grep -q 'test result: FAILED' out/cargo.log; then exit 1; fi"
     - grep -q 'passed;' out/cargo.log
   artifacts:
     when: always
