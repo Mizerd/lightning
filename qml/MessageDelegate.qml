@@ -15,10 +15,7 @@ Item {
         objectName: "keyboardMessageSelectionLoader"
         anchors.fill: parent
         z: 2
-        active: root.timelineView
-            && root.timelineView.keyboardSelectedEventId !== undefined
-            && root.timelineView.keyboardSelectedEventId !== ""
-            && root.timelineView.keyboardSelectedEventId === model.eventId
+        active: root.keyboardSelected
         sourceComponent: Rectangle {
             objectName: "keyboardMessageSelection"
             color: "transparent"
@@ -26,6 +23,29 @@ Item {
             border.width: AppTheme.scaled(2)
             border.color: AppTheme.accent
         }
+    }
+
+    readonly property bool keyboardSelected: !!root.timelineView
+        && root.timelineView.keyboardSelectedEventId !== undefined
+        && root.timelineView.keyboardSelectedEventId !== ""
+        && root.timelineView.keyboardSelectedEventId === model.eventId
+
+    // SettingsManager::kTimelineShow / kTimelineOnHover / kTimelineHide.
+    readonly property int avatarsMode: app.settings.timelineAvatars
+    readonly property int reactionsMode: app.settings.timelineReactions
+    readonly property int receiptsMode: app.settings.timelineReadReceipts
+    readonly property bool anyHoverReveal:
+        avatarsMode === 1 || reactionsMode === 1 || receiptsMode === 1
+    // Opacity only: building on hover would cost frames under a moving pointer.
+    readonly property bool hoverRevealed: revealHover.hovered
+        || root.keyboardSelected || root.actionsPinned || root.moreMenuOpen
+    function revealOpacity(mode) {
+        return mode === 1 && !root.hoverRevealed ? 0 : 1
+    }
+    HoverHandler {
+        id: revealHover
+        objectName: "timelineRevealHover"
+        enabled: root.anyHoverReveal && !root.rowHoverSuspended
     }
 
     property string sourceRoomName: ""
@@ -195,8 +215,11 @@ Item {
                       + AppTheme.messageGroupGapExtra)
         : Math.max(0, (compactMode ? 0 : smallAvatarMode ? 2 : 1)
                       + AppTheme.messageContinuationGapExtra)
-    readonly property real avatarGutterWidth: (compactMode || smallAvatarMode)
-                                              ? 8 : (bubbleMode ? 44 : 40)
+    readonly property bool gutterAvatarsHidden:
+        avatarsMode === 2 && !compactMode && !smallAvatarMode
+    readonly property real avatarGutterWidth:
+        (compactMode || smallAvatarMode || gutterAvatarsHidden)
+        ? 8 : (bubbleMode ? 44 : 40)
 
     property bool rowOnScreen:
         !!root.timelineView
@@ -1033,7 +1056,8 @@ Item {
     readonly property bool ownBubbleReceiptFooter:
         root.bubbleMode && model.isOwn === true && !model.redacted
         && !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
-        && !root.isThreadKeyWait && root.shownReactions.length === 0
+        && !root.isThreadKeyWait && root.receiptsMode !== 2
+        && (root.shownReactions.length === 0 || root.reactionsMode === 2)
     readonly property real ownBubbleReceiptBandHeight: 18
 
     readonly property var liveReactions: model.reactions || []
@@ -1447,6 +1471,7 @@ Item {
                 width: root.avatarGutterWidth
                 height: parent.height
                 implicitHeight: root.showsIdentity && !root.smallAvatarMode
+                                && !root.gutterAvatarsHidden
                                 ? 34 : bodyLoader.item ? bodyLoader.item.implicitHeight
                                                        : emptyBodyLine.height
                 // An empty body line's height, kept by a row that builds no body.
@@ -1459,7 +1484,10 @@ Item {
                     anchors.top: parent.top
                     active: root.showsIdentity && !root.compactMode
                             && !root.smallAvatarMode
+                            && !root.gutterAvatarsHidden
                             && !(root.bubbleMode && model.isOwn === true)
+                    opacity: root.revealOpacity(root.avatarsMode)
+                    enabled: opacity > 0
                     sourceComponent: Avatar {
                         objectName: "senderAvatar"
                         onScreen: root.rowOnScreen
@@ -1487,6 +1515,7 @@ Item {
                     active: !root.showsIdentity && rowHover.hovered
                             && !root.selectionMode
                             && !root.compactMode && !root.smallAvatarMode
+                            && !root.gutterAvatarsHidden
                     sourceComponent: Label {
                         objectName: "continuationTimestamp"
                         text: Qt.formatDateTime(model.timestamp,
@@ -1614,8 +1643,10 @@ Item {
                         objectName: "senderIdentityHeader"
                         spacing: 6
                         Loader {
-                            active: root.smallAvatarMode
+                            active: root.smallAvatarMode && root.avatarsMode !== 2
                             visible: active
+                            opacity: root.revealOpacity(root.avatarsMode)
+                            enabled: opacity > 0
                             Layout.alignment: Qt.AlignVCenter
                             sourceComponent: Avatar {
                                 objectName: "senderHeaderAvatar"
@@ -1986,7 +2017,8 @@ Item {
                         readonly property bool isMediaCaption:
                             root.mediaCaptionBody
                         readonly property int emojiOnlyCount:
-                            (model.redacted || model.isPoll === true
+                            (!app.settings.largeEmoji
+                             || model.redacted || model.isPoll === true
                              || model.undecryptable === true || isMediaRow
                              || root.isEmoteRow)
                             ? 0
@@ -2777,7 +2809,10 @@ Item {
         Loader {
             id: reactionsLoader
             active: !model.redacted && root.shownReactions.length > 0
+                    && root.reactionsMode !== 2
             visible: active
+            opacity: root.revealOpacity(root.reactionsMode)
+            enabled: opacity > 0
             Layout.fillWidth: true
             readonly property bool followsOwnBubble:
                 root.bubbleMode && model.isOwn === true
@@ -3083,7 +3118,10 @@ Item {
                 && ((model.readReceipts || []).length > 0
                     || model.sentReceipt === true)
                 && root.naturalImplicitHeight > 0
+                && root.receiptsMode !== 2
         visible: active
+        opacity: root.revealOpacity(root.receiptsMode)
+        enabled: opacity > 0
         x: layout.x
         width: layout.width
         y: root.ownBubbleReceiptFooter

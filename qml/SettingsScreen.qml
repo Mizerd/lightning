@@ -60,6 +60,11 @@ Item {
         (typeof fonts !== "undefined") ? fonts : null
 
     property string settingsSearchQuery: ""
+    readonly property var timelineVisibilityChoices: [
+        { label: qsTr("Show"), value: 0 },
+        { label: qsTr("On hover"), value: 1 },
+        { label: qsTr("Hide"), value: 2 }
+    ]
     readonly property var searchIndex: [
         { title: qsTr("Account"), keywords: QT_TR_NOOP("account profile"),
           section: "account", breadcrumb: qsTr("Account"),
@@ -204,6 +209,24 @@ Item {
           section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           control: "collapseEmbeds",
           anchor: "collapseEmbedsCheck" },
+        { title: qsTr("Avatars in messages"),
+          keywords: QT_TR_NOOP("avatar avatars picture profile sender hide hover "
+                         + "gutter declutter"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
+          anchor: "timelineAvatarsCombo" },
+        { title: qsTr("Reactions"),
+          keywords: QT_TR_NOOP("reaction reactions emoji chips hide hover declutter"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
+          anchor: "timelineReactionsCombo" },
+        { title: qsTr("Read receipts"),
+          keywords: QT_TR_NOOP("read receipts seen faces avatars hide hover declutter"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
+          anchor: "timelineReadReceiptsCombo" },
+        { title: qsTr("Show emoji-only messages large"),
+          keywords: QT_TR_NOOP("big large emoji jumbo size"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
+          control: "largeEmoji",
+          anchor: "largeEmojiCheck" },
         { title: qsTr("Reduce motion"),
           keywords: QT_TR_NOOP("reduced motion animation accessibility vestibular"),
           section: "appearance",
@@ -2211,6 +2234,14 @@ Item {
                                         Accessible.name: qsTr("Collapse media and link embeds")
                                         onToggled: app.settings.collapseEmbeds =
                                             !app.settings.collapseEmbeds
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineLargeEmoji_" + resultRow.index
+                                        visible: resultRow.modelData.control === "largeEmoji"
+                                        checked: app.settings.largeEmoji
+                                        Accessible.name: qsTr("Show emoji-only messages large")
+                                        onToggled: app.settings.largeEmoji =
+                                            !app.settings.largeEmoji
                                     }
                                     AppSwitch {
                                         objectName: "settingsSearchInlineReducedMotion_" + resultRow.index
@@ -4717,6 +4748,112 @@ Item {
                                                + "places are not affected. A collapsed "
                                                + "attachment is not downloaded until you "
                                                + "expand it.")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Avatars in messages")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: timelineAvatarsCombo
+                                    objectName: "timelineAvatarsCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: root.timelineVisibilityChoices
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.timelineAvatars)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onTimelineAvatarsChanged() {
+                                            timelineAvatarsCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.timelineAvatars = currentValue
+                                    Accessible.description: qsTr("Show sender pictures beside messages, only on the message under the pointer, or not at all")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Reactions")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: timelineReactionsCombo
+                                    objectName: "timelineReactionsCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: root.timelineVisibilityChoices
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.timelineReactions)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onTimelineReactionsChanged() {
+                                            timelineReactionsCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.timelineReactions = currentValue
+                                    Accessible.description: qsTr("Show reactions under messages, only on the message under the pointer, or not at all")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Read receipts")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: timelineReadReceiptsCombo
+                                    objectName: "timelineReadReceiptsCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: root.timelineVisibilityChoices
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.timelineReadReceipts)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onTimelineReadReceiptsChanged() {
+                                            timelineReadReceiptsCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.timelineReadReceipts = currentValue
+                                    Accessible.description: qsTr("Show who has read up to a message, only on the message under the pointer, or not at all")
+                                }
+                                Label {
+                                    objectName: "timelineVisibilityHint"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Applies to rooms, threads and jump-to-message "
+                                               + "views. \"On hover\" also shows them on the "
+                                               + "message selected with the keyboard. Hiding "
+                                               + "read receipts here does not stop sending "
+                                               + "your own; that is under Privacy.")
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "largeEmojiCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Show emoji-only messages large")
+                                    checked: app.settings.largeEmoji
+                                    onToggled: app.settings.largeEmoji = checked
+                                    Accessible.description: qsTr(
+                                        "Draw a message of one to three emoji at a larger size")
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8

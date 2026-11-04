@@ -1096,8 +1096,9 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral(
             "objectName: \"messagePresentationRow\"")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property real avatarGutterWidth: (compactMode || smallAvatarMode)\n"
-            "                                              ? 8 : (bubbleMode ? 44 : 40)")));
+            "readonly property real avatarGutterWidth:\n"
+            "        (compactMode || smallAvatarMode || gutterAvatarsHidden)\n"
+            "        ? 8 : (bubbleMode ? 44 : 40)")));
         QVERIFY(delegate.contains(QStringLiteral(
             "readonly property bool showsIdentity: model.showSenderIdentity === true")));
         QVERIFY(delegate.contains(QStringLiteral(
@@ -1160,6 +1161,7 @@ private Q_SLOTS:
 
         QVERIFY(delegate.contains(QStringLiteral(
             "implicitHeight: root.showsIdentity && !root.smallAvatarMode\n"
+            "                                && !root.gutterAvatarsHidden\n"
             "                                ? 34 : bodyLoader.item ? bodyLoader.item.implicitHeight\n"
             "                                                       : emptyBodyLine.height")));
         QVERIFY(delegate.contains(QStringLiteral(

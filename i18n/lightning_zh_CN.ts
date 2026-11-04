@@ -25918,6 +25918,58 @@ Note: importing keys does not verify this session.</source>
         <source>Search fonts</source>
         <translation>搜索字体</translation>
     </message>
+    <message>
+        <source>On hover</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Avatars in messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>avatar avatars picture profile sender hide hover gutter declutter</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reactions</source>
+        <translation type="unfinished">表情回应</translation>
+    </message>
+    <message>
+        <source>reaction reactions emoji chips hide hover declutter</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>read receipts seen faces avatars hide hover declutter</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show emoji-only messages large</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>big large emoji jumbo size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show sender pictures beside messages, only on the message under the pointer, or not at all</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show reactions under messages, only on the message under the pointer, or not at all</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show who has read up to a message, only on the message under the pointer, or not at all</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Applies to rooms, threads and jump-to-message views. &quot;On hover&quot; also shows them on the message selected with the keyboard. Hiding read receipts here does not stop sending your own; that is under Privacy.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Draw a message of one to three emoji at a larger size</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SettingsSyncController</name>

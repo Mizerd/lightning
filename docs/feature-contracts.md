@@ -3341,3 +3341,29 @@ live, and the server answers presence. Research and design: vault note
   "Large album art" stays the user's own switch in both presets. Late poster
   dimensions (M-F04) are compensated by the timeline's existing anchor
   machinery; no media delegate writes contentY.
+
+### Timeline avatars, reactions, read receipts and large emoji
+
+- Settings › Chat › Timeline: `timelineAvatars`, `timelineReactions` and
+  `timelineReadReceipts`, each Show (0, default) / On hover (1) / Hide (2), and
+  `largeEmoji` (on by default). Per account, like the other timeline choices
+  (`appearanceValue`), exported and synced (`SettingsSchemaTable.inc`). A
+  stored mode outside 0-2 reads as Show.
+- They apply wherever `MessageDelegate` renders: the room timeline, the thread
+  panel and the jump-to-message context view. The room list, the call event
+  rows and the thread summary card are not timeline message chrome and keep
+  their avatars.
+- Hide does not build the part (`Loader.active: false`). Hidden avatars
+  collapse the avatar gutter to the 8px compact gutter in Classic and Bubbles
+  (the continuation-row hover timestamp, which lives in that gutter, goes with
+  it); Small avatars loses the 20px header avatar; Compact has none. The sender
+  name always stays. Hidden receipts also drop the own-bubble receipt band.
+- On hover builds the part as Show does and only drives its opacity, so
+  hovering builds nothing and the row height never changes. It is revealed
+  while the pointer is anywhere in the row (one `HoverHandler`, disabled when
+  no part is On hover and while the timeline suspends row hover during a
+  scroll), the row is keyboard-selected, its actions are pinned, or its menu
+  is open.
+- Hiding read receipts is display only; whether this account SENDS them is
+  the Privacy setting `readReceiptMode`.
+- Large emoji off renders an emoji-only message at the body size.

@@ -245,6 +245,15 @@ class SettingsManager : public QObject
                    NOTIFY showProfileChangeEventsChanged)
     Q_PROPERTY(bool collapseEmbeds READ collapseEmbeds WRITE setCollapseEmbeds
                    NOTIFY collapseEmbedsChanged)
+    Q_PROPERTY(int timelineAvatars READ timelineAvatars
+                   WRITE setTimelineAvatars NOTIFY timelineAvatarsChanged)
+    Q_PROPERTY(int timelineReactions READ timelineReactions
+                   WRITE setTimelineReactions NOTIFY timelineReactionsChanged)
+    Q_PROPERTY(int timelineReadReceipts READ timelineReadReceipts
+                   WRITE setTimelineReadReceipts
+                   NOTIFY timelineReadReceiptsChanged)
+    Q_PROPERTY(bool largeEmoji READ largeEmoji WRITE setLargeEmoji
+                   NOTIFY largeEmojiChanged)
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion
                    NOTIFY reducedMotionChanged)
 
@@ -682,6 +691,17 @@ public:
     void setShowProfileChangeEvents(bool v);
     bool collapseEmbeds() const;
     void setCollapseEmbeds(bool v);
+    static constexpr int kTimelineShow = 0;
+    static constexpr int kTimelineOnHover = 1;
+    static constexpr int kTimelineHide = 2;
+    int timelineAvatars() const;
+    void setTimelineAvatars(int mode);
+    int timelineReactions() const;
+    void setTimelineReactions(int mode);
+    int timelineReadReceipts() const;
+    void setTimelineReadReceipts(int mode);
+    bool largeEmoji() const;
+    void setLargeEmoji(bool v);
     bool reducedMotion() const;
     bool highContrast() const;
     void setHighContrast(bool v);
@@ -1010,6 +1030,10 @@ Q_SIGNALS:
     void showMembershipEventsChanged();
     void showProfileChangeEventsChanged();
     void collapseEmbedsChanged();
+    void timelineAvatarsChanged();
+    void timelineReactionsChanged();
+    void timelineReadReceiptsChanged();
+    void largeEmojiChanged();
     void reducedMotionChanged();
     void highContrastChanged();
     void underlineLinksChanged();

@@ -103,6 +103,10 @@ constexpr auto kCallFormat          = "calls/format";
 constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
 constexpr auto kCollapseEmbeds      = "timeline/collapseEmbeds";
+constexpr auto kTimelineAvatars     = "timeline/avatars";
+constexpr auto kTimelineReactions   = "timeline/reactions";
+constexpr auto kTimelineReadReceipts = "timeline/readReceipts";
+constexpr auto kLargeEmoji          = "timeline/largeEmoji";
 constexpr auto kReducedMotion       = "ui/reducedMotion";
 constexpr auto kHighContrast        = "ui/highContrast";
 constexpr auto kUnderlineLinks      = "ui/underlineLinks";
@@ -720,6 +724,10 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT conversationReturnModeChanged();
     Q_EMIT showSelectionOnReturnChanged();
     Q_EMIT collapseEmbedsChanged();
+    Q_EMIT timelineAvatarsChanged();
+    Q_EMIT timelineReactionsChanged();
+    Q_EMIT timelineReadReceiptsChanged();
+    Q_EMIT largeEmojiChanged();
     Q_EMIT hiddenComposerButtonsChanged();
     Q_EMIT clockFormatChanged();
     Q_EMIT microphoneGainChanged();
@@ -4107,6 +4115,75 @@ void SettingsManager::setCollapseEmbeds(bool v)
         return;
     setAppearanceValue(kCollapseEmbeds, v);
     Q_EMIT collapseEmbedsChanged();
+}
+
+namespace {
+// A mode written by a newer build falls back to the default, never to the
+// nearest end of the range.
+int validTimelineVisibility(int mode)
+{
+    return (mode == SettingsManager::kTimelineOnHover
+            || mode == SettingsManager::kTimelineHide)
+        ? mode : SettingsManager::kTimelineShow;
+}
+} // namespace
+
+int SettingsManager::timelineAvatars() const
+{
+    return validTimelineVisibility(
+        appearanceValue(kTimelineAvatars, kTimelineShow).toInt());
+}
+
+void SettingsManager::setTimelineAvatars(int mode)
+{
+    mode = validTimelineVisibility(mode);
+    if (timelineAvatars() == mode)
+        return;
+    setAppearanceValue(kTimelineAvatars, mode);
+    Q_EMIT timelineAvatarsChanged();
+}
+
+int SettingsManager::timelineReactions() const
+{
+    return validTimelineVisibility(
+        appearanceValue(kTimelineReactions, kTimelineShow).toInt());
+}
+
+void SettingsManager::setTimelineReactions(int mode)
+{
+    mode = validTimelineVisibility(mode);
+    if (timelineReactions() == mode)
+        return;
+    setAppearanceValue(kTimelineReactions, mode);
+    Q_EMIT timelineReactionsChanged();
+}
+
+int SettingsManager::timelineReadReceipts() const
+{
+    return validTimelineVisibility(
+        appearanceValue(kTimelineReadReceipts, kTimelineShow).toInt());
+}
+
+void SettingsManager::setTimelineReadReceipts(int mode)
+{
+    mode = validTimelineVisibility(mode);
+    if (timelineReadReceipts() == mode)
+        return;
+    setAppearanceValue(kTimelineReadReceipts, mode);
+    Q_EMIT timelineReadReceiptsChanged();
+}
+
+bool SettingsManager::largeEmoji() const
+{
+    return appearanceValue(kLargeEmoji, true).toBool();
+}
+
+void SettingsManager::setLargeEmoji(bool v)
+{
+    if (largeEmoji() == v)
+        return;
+    setAppearanceValue(kLargeEmoji, v);
+    Q_EMIT largeEmojiChanged();
 }
 
 bool SettingsManager::reducedMotion() const

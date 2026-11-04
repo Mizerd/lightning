@@ -5236,6 +5236,18 @@ if(BUILD_TESTING)
     set_tests_properties(message-rail-collision PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Avatars, reactions and read receipts in Show / On hover / Hide, and
+    # large emoji: Hide builds nothing, On hover only changes opacity, and the
+    # avatar gutter collapses alike in every layout.
+    qt_add_executable(timeline-visibility-qml-test
+        tests/TimelineVisibilityQmlTest.cpp
+    )
+    lightning_configure_qml_test(timeline-visibility-qml-test)
+    target_include_directories(timeline-visibility-qml-test PRIVATE src)
+    add_test(NAME timeline-visibility-qml COMMAND timeline-visibility-qml-test)
+    set_tests_properties(timeline-visibility-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Remote poll/sticker/file text renders as plain text, never markup
     # (break-it B002/B039), and the poll dialog's own limits.
     qt_add_executable(poll-text-qml-test
