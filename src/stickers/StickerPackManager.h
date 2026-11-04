@@ -38,6 +38,9 @@ class StickerPackManager : public QObject
     Q_PROPERTY(QString editorPackId READ editorPackId WRITE setEditorPackId
                    NOTIFY selectedPackIdChanged)
     Q_PROPERTY(QString usage READ usage WRITE setUsage NOTIFY usageChanged)
+    // Non-empty: `images` holds the matches from every visible pack instead of
+    // the selected pack's images.
+    Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
     Q_PROPERTY(int usablePackCount READ usablePackCount NOTIFY stateChanged)
     Q_PROPERTY(int revision READ revision NOTIFY stateChanged)
     Q_PROPERTY(bool saving READ saving NOTIFY stateChanged)
@@ -70,6 +73,8 @@ public:
     void setSelectedPackId(const QString &id);
     QString usage() const { return m_usage; }
     void setUsage(const QString &usage);
+    QString filter() const { return m_filter; }
+    void setFilter(const QString &text);
     int usablePackCount() const;
     int revision() const { return m_revision; }
 
@@ -178,6 +183,7 @@ public:
     Q_INVOKABLE bool canSave(const QString &url) const;
 
     Q_INVOKABLE QVariantList reactionEmoticons() const;
+    Q_INVOKABLE QVariantList packEmoticons(const QString &packId) const;
 
     Q_INVOKABLE QVariantList findEmoticons(const QString &prefix,
                                            int limit) const;
@@ -198,6 +204,7 @@ Q_SIGNALS:
     void stateChanged();
     void selectedPackIdChanged();
     void usageChanged();
+    void filterChanged();
     void saveFinished(bool ok, const QString &category,
                       const QString &shortcode, const QString &scope);
     void editFinished(bool ok, const QString &category,
@@ -296,7 +303,8 @@ private:
     void rebuildImages();
     void emitStateChanged();
     QVariantList collectEmoticons(const QString &prefix, int limit,
-                                  bool uniqueShortcodes) const;
+                                  bool uniqueShortcodes,
+                                  const QString &packId = QString()) const;
 
     MatrixClient *m_client = nullptr;
     StickerPackModel *m_packs = nullptr;
@@ -312,6 +320,7 @@ private:
     QString m_selectedPackId;
     QString m_editorPackId;
     QString m_usage = QStringLiteral("sticker");
+    QString m_filter;
 
     quint64 m_nextOpId = 1;
     quint64 m_fetchOp = 0;

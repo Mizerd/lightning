@@ -206,6 +206,16 @@ void StickerPackManager::setUsage(const QString &usage)
     emitStateChanged();
 }
 
+void StickerPackManager::setFilter(const QString &text)
+{
+    const QString normalized = text.trimmed();
+    if (m_filter == normalized)
+        return;
+    m_filter = normalized;
+    rebuildImages();
+    Q_EMIT filterChanged();
+}
+
 int StickerPackManager::usablePackCount() const
 {
     const bool wantSticker = m_usage != QLatin1String("emoticon");
@@ -741,6 +751,13 @@ QVariantList StickerPackManager::reactionEmoticons() const
     return rows;
 }
 
+QVariantList StickerPackManager::packEmoticons(const QString &packId) const
+{
+    if (packId.isEmpty())
+        return {};
+    return collectEmoticons(QString(), 0, false, packId);
+}
+
 QVariantList StickerPackManager::findEmoticons(const QString &prefix,
                                                int limit) const
 {
@@ -759,11 +776,14 @@ QVariantList StickerPackManager::findEmoticons(const QString &prefix,
 
 QVariantList StickerPackManager::collectEmoticons(const QString &prefix,
                                                  int limit,
-                                                 bool uniqueShortcodes) const
+                                                 bool uniqueShortcodes,
+                                                 const QString &packId) const
 {
     QVariantList rows;
     QSet<QString> seen;
     for (const stickers::Pack &pack : m_packs->packs()) {
+        if (!packId.isEmpty() && pack.id != packId)
+            continue;
         for (const stickers::PackImage &image : pack.images) {
             if (limit > 0 && rows.size() >= limit)
                 return rows;
@@ -919,6 +939,10 @@ void StickerPackManager::onLoggedOut()
     m_packs->clear();
     m_images->clear();
     m_editorImages->clear();
+    if (!m_filter.isEmpty()) {
+        m_filter.clear();
+        Q_EMIT filterChanged();
+    }
     if (!m_selectedPackId.isEmpty()) {
         m_selectedPackId.clear();
         Q_EMIT selectedPackIdChanged();
@@ -999,12 +1023,35 @@ void StickerPackManager::rebuildImages()
         m_editorImages->clear();
     else
         m_editorImages->reset(m_packs->packs().at(editorRow).images);
+    const bool wantSticker = m_usage != QLatin1String("emoticon");
+    if (!m_filter.isEmpty()) {
+        QList<stickers::PackImage> matches;
+        QSet<QString> seen;
+        for (const stickers::Pack &pack : m_packs->packs()) {
+            if (pack.hidden)
+                continue;
+            for (const stickers::PackImage &image : pack.images) {
+                if (!(wantSticker ? image.isSticker : image.isEmoticon))
+                    continue;
+                if (!image.shortcode.contains(m_filter, Qt::CaseInsensitive)
+                    && !image.key.contains(m_filter, Qt::CaseInsensitive)
+                    && !image.body.contains(m_filter, Qt::CaseInsensitive))
+                    continue;
+                if (seen.contains(image.url))
+                    continue;
+                seen.insert(image.url);
+                matches.append(image);
+            }
+        }
+        if (!m_images->sameRows(matches))
+            m_images->reset(matches);
+        return;
+    }
     const int row = m_packs->indexOfPack(m_selectedPackId);
     if (row < 0) {
         m_images->clear();
         return;
     }
-    const bool wantSticker = m_usage != QLatin1String("emoticon");
     const stickers::Pack &pack = m_packs->packs().at(row);
     QList<stickers::PackImage> narrowed;
     narrowed.reserve(pack.images.size());

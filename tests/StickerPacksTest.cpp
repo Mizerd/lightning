@@ -333,6 +333,82 @@ private Q_SLOTS:
         QCOMPARE(manager.usablePackCount(), 2);
     }
 
+    void aFilterSearchesEveryVisiblePackByShortcodeAndDescription()
+    {
+        QTemporaryDir dir;
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setLocalStatePath(dir.filePath(QStringLiteral("local.ini")));
+        manager.setClient(&client);
+        QVariantList packs = twoPacks();
+        packs.append(pack(QStringLiteral("hidden"), QStringLiteral("user"),
+                          QStringLiteral("Hidden"),
+                          { image(QStringLiteral("doge"),
+                                  QStringLiteral("mxc://example.org/doge"),
+                                  true, false) }));
+        manager.applySnapshotForTest(kRoom, false, packs);
+        manager.setPackHidden(QStringLiteral("hidden"), true);
+        QCOMPARE(manager.selectedPackId(), QStringLiteral("user"));
+        QSignalSpy filterSpy(&manager, &StickerPackManager::filterChanged);
+
+        manager.setFilter(QStringLiteral("  DO "));
+        QCOMPARE(manager.filter(), QStringLiteral("DO"));
+        QCOMPARE(filterSpy.count(), 1);
+        QCOMPARE(manager.images()->count(), 1);
+        QCOMPARE(manager.images()->get(0).value(QStringLiteral("url")).toString(),
+                 kMxcC);
+        QCOMPARE(manager.selectedPackId(), QStringLiteral("user"));
+
+        // Emoticon-only images never answer a sticker search.
+        manager.setFilter(QStringLiteral("wave"));
+        QCOMPARE(manager.images()->count(), 0);
+
+        QVariantList described = twoPacks();
+        described.append(pack(QStringLiteral("room:!r:example.org:b"),
+                              QStringLiteral("room"), QStringLiteral("Moods"),
+                              { image(QStringLiteral("s1"),
+                                      QStringLiteral("mxc://example.org/s1"),
+                                      true, false,
+                                      QStringLiteral("A sleepy cat")) }));
+        manager.applySnapshotForTest(kRoom, false, described);
+        manager.setFilter(QStringLiteral("cat"));
+        QCOMPARE(manager.images()->count(), 2);
+        QCOMPARE(manager.images()->get(0).value(QStringLiteral("url")).toString(),
+                 kMxcA);
+        QCOMPARE(manager.images()->get(1).value(QStringLiteral("url")).toString(),
+                 QStringLiteral("mxc://example.org/s1"));
+
+        QSignalSpy resetSpy(manager.images(), &QAbstractItemModel::modelReset);
+        manager.setFilter(QStringLiteral("ca"));
+        QCOMPARE(manager.images()->count(), 2);
+        QCOMPARE(resetSpy.count(), 0);
+
+        manager.setFilter(QString());
+        QCOMPARE(manager.images()->count(), 1);
+        QCOMPARE(manager.images()->get(0).value(QStringLiteral("shortcode"))
+                     .toString(),
+                 QStringLiteral("cat"));
+    }
+
+    void packEmoticonsListsOnlyThatPacksEmoticons()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+
+        const QVariantList rows =
+            manager.packEmoticons(QStringLiteral("room:!r:example.org:"));
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("url")).toString(),
+                 QStringLiteral("mxc://example.org/other-wave"));
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("packName"))
+                     .toString(),
+                 QStringLiteral("Cat Lovers"));
+        QVERIFY(manager.packEmoticons(QString()).isEmpty());
+        QVERIFY(manager.packEmoticons(QStringLiteral("nope")).isEmpty());
+    }
+
     void theEditorListsEveryImageWhateverTheGridUsageIs()
     {
         FakeClient client;

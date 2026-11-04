@@ -63,6 +63,18 @@ void StickerImageModel::reset(const QList<stickers::PackImage> &images)
     Q_EMIT countChanged();
 }
 
+bool StickerImageModel::sameRows(const QList<stickers::PackImage> &images) const
+{
+    if (images.size() != m_images.size())
+        return false;
+    for (qsizetype i = 0; i < images.size(); ++i) {
+        if (images.at(i).key != m_images.at(i).key
+            || images.at(i).url != m_images.at(i).url)
+            return false;
+    }
+    return true;
+}
+
 void StickerImageModel::clear()
 {
     if (m_images.isEmpty())

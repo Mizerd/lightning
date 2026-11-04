@@ -42,6 +42,9 @@ public:
     int count() const { return m_images.size(); }
 
     void reset(const QList<stickers::PackImage> &images);
+    // Same keys and urls in the same order: a reset would only rebuild every
+    // delegate for nothing.
+    bool sameRows(const QList<stickers::PackImage> &images) const;
     void clear();
 
     const QList<stickers::PackImage> &images() const { return m_images; }
