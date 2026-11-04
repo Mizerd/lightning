@@ -3,9 +3,11 @@ workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "web"
 
-# PACKAGE_LANE=1 runs the package lane instead of the dev build.
+# PACKAGE_LANE=1 runs the package lane instead of the dev build;
+# RELEASE_CHECKS=1 adds the pre-release source checks.
 include:
   - local: .gitlab/packages.yml
+  - local: .gitlab/release-checks.yml
 
 build-nixos:
   image: nixos/nix:latest
@@ -34,6 +36,30 @@ build-nixos:
   artifacts:
     paths: [out/]
     expire_in: 1 week
+
+.qt-test-env:
+  script:
+    - export QT_QPA_PLATFORM=offscreen HOME=$PWD/.ci-home XDG_RUNTIME_DIR=$PWD/.ci-run; mkdir -p $HOME $XDG_RUNTIME_DIR; chmod 700 $XDG_RUNTIME_DIR
+    - mkdir -p $PWD/.ci-fonts
+    - |
+      cat > $PWD/.ci-fonts/fonts.conf <<CONF
+      <?xml version="1.0"?>
+      <fontconfig>
+      <dir>$PWD/data/fonts</dir>
+      <cachedir>$PWD/.ci-fonts/cache</cachedir>
+      <alias><family>sans-serif</family><prefer><family>Inter</family></prefer></alias>
+      <alias><family>monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>
+      </fontconfig>
+      CONF
+    - export FONTCONFIG_FILE=$PWD/.ci-fonts/fonts.conf
+    - mkdir -p /etc/dbus-1 /var/lib/dbus
+    - |
+      cat > /etc/dbus-1/session.conf <<'CONF'
+      <busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>
+      <policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy>
+      </busconfig>
+      CONF
+    - nix develop -c dbus-uuidgen --ensure=/etc/machine-id
 
 test-nixos:
   image: nixos/nix:latest
@@ -71,27 +97,7 @@ test-nixos:
     - nix develop -c ccache -s
     - $RUSTC_WRAPPER --show-stats | grep -E 'Cache hits|Cache misses|Non-cacheable' || true
     - mkdir -p out
-    - export QT_QPA_PLATFORM=offscreen HOME=$PWD/.ci-home XDG_RUNTIME_DIR=$PWD/.ci-run; mkdir -p $HOME $XDG_RUNTIME_DIR; chmod 700 $XDG_RUNTIME_DIR
-    - mkdir -p $PWD/.ci-fonts
-    - |
-      cat > $PWD/.ci-fonts/fonts.conf <<CONF
-      <?xml version="1.0"?>
-      <fontconfig>
-      <dir>$PWD/data/fonts</dir>
-      <cachedir>$PWD/.ci-fonts/cache</cachedir>
-      <alias><family>sans-serif</family><prefer><family>Inter</family></prefer></alias>
-      <alias><family>monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>
-      </fontconfig>
-      CONF
-    - export FONTCONFIG_FILE=$PWD/.ci-fonts/fonts.conf
-    - mkdir -p /etc/dbus-1 /var/lib/dbus
-    - |
-      cat > /etc/dbus-1/session.conf <<'CONF'
-      <busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>
-      <policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy>
-      </busconfig>
-      CONF
-    - nix develop -c dbus-uuidgen --ensure=/etc/machine-id
+    - !reference [.qt-test-env, script]
     - nix develop -c dbus-run-session -- ctest --test-dir build-test -j8 --timeout 1500 --repeat until-pass:2 --output-junit $PWD/out/ctest.xml --output-on-failure 2>&1 | tee out/ctest.log | tail -40 || true
     - grep -q '100% tests passed' out/ctest.log
   artifacts:

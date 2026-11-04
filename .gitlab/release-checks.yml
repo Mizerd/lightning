@@ -1,0 +1,76 @@
+# Pre-release source checks (CLAUDE.md §14 and §16), present only with
+# RELEASE_CHECKS=1 and never in the package lane. Pair with RUN_TESTS=1 for the
+# Rust tests and the Rust-enabled CTest run.
+
+.release-check:
+  image: nixos/nix:latest
+  tags: [saas-linux-2xlarge-amd64]
+  timeout: 2h 50m
+  needs: []
+  rules:
+    - if: $PACKAGE_LANE == "1"
+      when: never
+    - if: $RELEASE_CHECKS == "1"
+  variables:
+    NIX_CONFIG: "experimental-features = nix-command flakes"
+    CCACHE_DIR: $CI_PROJECT_DIR/.ci-ccache
+    CCACHE_BASEDIR: $CI_PROJECT_DIR
+    CCACHE_NOHASHDIR: "true"
+    CCACHE_MAXSIZE: 4G
+    SCCACHE_DIR: $CI_PROJECT_DIR/.ci-sccache
+    SCCACHE_CACHE_SIZE: 4G
+    CARGO_INCREMENTAL: "0"
+  artifacts:
+    when: always
+    paths: [out/]
+    expire_in: 1 week
+
+test-nonrust:
+  extends: .release-check
+  cache:
+    - key: nonrust-ccache
+      paths: [.ci-ccache/]
+      when: always
+      unprotect: true
+  script:
+    - mkdir -p out
+    - nix develop -c cmake -S . -B build -G Ninja -DCMAKE_CXX_FLAGS=-g0 -DCMAKE_C_FLAGS=-g0 "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--strip-debug" -DCMAKE_JOB_POOLS=lk=12 -DCMAKE_JOB_POOL_LINK=lk
+    - nix develop -c ccache -z
+    - nix develop -c cmake --build build -j32 2>&1 | tee out/build.log | tail -40
+    - nix develop -c ccache -s
+    - !reference [.qt-test-env, script]
+    - nix develop -c dbus-run-session -- ctest --test-dir build -j8 --timeout 1500 --repeat until-pass:2 --output-junit $PWD/out/ctest.xml --output-on-failure 2>&1 | tee out/ctest.log | tail -40 || true
+    - grep -q '100% tests passed' out/ctest.log
+
+# Built inside the checkout: presence-manager-test walks up to find the repository.
+build-nowebrtc:
+  extends: .release-check
+  cache:
+    - key: remote-build
+      paths: [.ci-cargo/]
+      policy: pull
+      unprotect: true
+    - key: nowebrtc-ccache
+      paths: [.ci-ccache/, .ci-sccache/]
+      when: always
+      unprotect: true
+  script:
+    - mkdir -p out
+    - export CARGO_HOME=$PWD/.ci-cargo
+    - export RUSTC_WRAPPER=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#sccache)/bin/sccache
+    - nix develop -c cargo fetch --locked --manifest-path rust/Cargo.toml
+    - nix develop -c cmake -S . -B build-nowebrtc -G Ninja -DENABLE_RUST_SDK_BACKEND=ON -DLIGHTNING_ENABLE_WEBRTC=OFF -DCMAKE_CXX_FLAGS=-g0 -DCMAKE_C_FLAGS=-g0 "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--strip-debug" -DCMAKE_JOB_POOLS=lk=12 -DCMAKE_JOB_POOL_LINK=lk 2>&1 | tee out/configure.log | tail -5
+    - nix develop -c ccache -z
+    - nix develop -c cmake --build build-nowebrtc -j32 -- -k 0 2>&1 | tee out/build.log | tail -60
+    - nix develop -c ccache -s
+    - "! grep -qE '^FAILED:|build stopped' out/build.log"
+
+check-no-qtdbus:
+  extends: .release-check
+  script:
+    - mkdir -p out
+    - nix develop -c cmake -S . -B build-nodbus -G Ninja -DENABLE_RUST_SDK_BACKEND=ON -DBUILD_TESTING=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_AUTOGEN_ORIGIN_DEPENDS=OFF
+    - nix develop -c cmake --build build-nodbus --target lightning-matrix_autogen -j32
+    - export PY=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#python3)/bin/python3
+    - nix develop -c $PY scripts/check-no-qtdbus.py build-nodbus 2>&1 | tee out/no-qtdbus.log
+    - grep -q ' 0 failed, 0 not in the app' out/no-qtdbus.log
