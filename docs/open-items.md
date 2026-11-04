@@ -2,6 +2,14 @@
 
 
 
+## 2026-11-05 — ACCEPTED FOLLOW-UP: the start-at-own-join check clears an open thread panel
+
+`RoomEventCache::clear()` (the reopen in `pagewalk::walk_backwards`, see
+`docs/timeline-scrolling.md`) also clears the room's thread caches, so a thread
+panel open in the same room goes blank and its `reached_start` flag in
+`TimelineRegistry` is not reset. Reached only when the server check found older
+history. NOT FIXED; review of `history-join`, 2026-11-05.
+
 ## 2026-11-02 — OPEN after the echo-cancellation fix
 
 - `webrtcdsp` keeps the probe it took after that participant leaves, so once

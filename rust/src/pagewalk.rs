@@ -25,13 +25,19 @@
 //! some time later, so an item count taken right after a page can still be the
 //! old one and a page of real messages would look empty.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk::event_cache::{RoomEventCacheSubscriber, RoomEventCacheUpdate};
+use matrix_sdk::config::RequestConfig;
+use matrix_sdk::ruma::api::client::context::get_context;
+use matrix_sdk::ruma::api::client::message::get_message_events;
+use matrix_sdk::ruma::api::Direction;
 use matrix_sdk::ruma::events::room::history_visibility::HistoryVisibility;
+use matrix_sdk::ruma::{OwnedEventId, UInt};
 use matrix_sdk::ruma::room_version_rules::RoomVersionRules;
 use matrix_sdk_ui::eyeball_im::VectorDiff;
 use matrix_sdk_ui::timeline::Timeline;
@@ -131,49 +137,121 @@ fn drain_shows_something(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StartCheck {
+    NotAsked,
+    Failed,
+    NothingOlder,
+    Abandoned,
+    Reopened,
+}
+
+impl StartCheck {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            StartCheck::NotAsked => "not_asked",
+            StartCheck::Failed => "failed",
+            StartCheck::NothingOlder => "nothing_older",
+            StartCheck::Abandoned => "abandoned",
+            StartCheck::Reopened => "reopened",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BackwardWalk {
     pub(crate) outcome: WalkOutcome,
-    pub(crate) history_reopened: bool,
+    pub(crate) start_check: StartCheck,
 }
+
+const START_PROBE_LIMIT: u32 = 5;
+const START_PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub(crate) async fn walk_backwards(
     timeline: &Arc<Timeline>,
     count: u16,
     budget: WalkBudget,
     still_wanted: impl Fn() -> bool,
-    claim_reopen: impl FnOnce() -> bool,
+    claim_check: impl FnOnce() -> bool,
 ) -> Result<BackwardWalk, matrix_sdk_ui::timeline::Error> {
-    let outcome = walk_once(timeline, count, budget, &still_wanted).await?;
-    if !outcome.hit_start
-        || !still_wanted()
-        || !start_is_our_own_membership(timeline).await
-        || !claim_reopen()
-        || !reopen_history(timeline).await
-    {
-        return Ok(BackwardWalk { outcome, history_reopened: false });
+    let first = walk_once(timeline, count, budget, &still_wanted).await?;
+    let not_asked = BackwardWalk { outcome: first, start_check: StartCheck::NotAsked };
+    if !first.hit_start || !still_wanted() {
+        return Ok(not_asked);
     }
-    let outcome = walk_once(timeline, count, budget, &still_wanted).await?;
-    Ok(BackwardWalk { outcome, history_reopened: true })
+    let Some(known) = start_at_our_own_membership(timeline).await else {
+        return Ok(not_asked);
+    };
+    if !claim_check() {
+        return Ok(not_asked);
+    }
+    let check = match server_has_older_history(timeline, &known).await {
+        Err(()) => StartCheck::Failed,
+        Ok(false) => StartCheck::NothingOlder,
+        Ok(true) if still_wanted() && reopen_history(timeline).await => StartCheck::Reopened,
+        Ok(true) => StartCheck::Abandoned,
+    };
+    if check != StartCheck::Reopened {
+        return Ok(BackwardWalk { outcome: first, start_check: check });
+    }
+    let second = walk_once(timeline, count, budget, &still_wanted).await?;
+    let outcome = WalkOutcome { hit_start: second.hit_start, pages: first.pages + second.pages };
+    Ok(BackwardWalk { outcome, start_check: StartCheck::Reopened })
+}
+
+struct OwnStart {
+    join: OwnedEventId,
+    cached: HashSet<OwnedEventId>,
 }
 
 // matrix-sdk keeps "start reached" for good once its linked chunk has no gap,
 // e.g. after a `/messages` answered without `end` while the homeserver could
 // not yet backfill a federated join; history the joiner may see is then lost.
-async fn start_is_our_own_membership(timeline: &Timeline) -> bool {
+async fn start_at_our_own_membership(timeline: &Timeline) -> Option<OwnStart> {
     let room = timeline.room();
     if matches!(
         room.history_visibility_or_default(),
         HistoryVisibility::Joined | HistoryVisibility::Invited
     ) {
-        return false;
+        return None;
     }
-    let Ok((cache, _drop_handles)) = room.event_cache().await else { return false };
-    let Ok(events) = cache.events().await else { return false };
-    let Some(first) = events.first() else { return false };
+    let (cache, _drop_handles) = room.event_cache().await.ok()?;
+    let events = cache.events().await.ok()?;
+    let first = events.first()?;
     let raw = first.raw();
     let field = |name: &str| raw.get_field::<String>(name).ok().flatten();
-    field("type").as_deref() == Some("m.room.member")
-        && field("state_key").as_deref() == Some(room.own_user_id().as_str())
+    if field("type").as_deref() != Some("m.room.member")
+        || field("state_key").as_deref() != Some(room.own_user_id().as_str())
+    {
+        return None;
+    }
+    Some(OwnStart {
+        join: first.event_id()?,
+        cached: events.iter().filter_map(|event| event.event_id()).collect(),
+    })
+}
+
+// Asks before anything is cleared, from just before our join, so an offline
+// client or a server that really has nothing older keeps the room as it is.
+async fn server_has_older_history(timeline: &Timeline, start: &OwnStart) -> Result<bool, ()> {
+    let room = timeline.room();
+    let client = room.client();
+    let config = RequestConfig::new().retry_limit(1).timeout(START_PROBE_TIMEOUT);
+    let mut context = get_context::v3::Request::new(room.room_id().to_owned(), start.join.clone());
+    context.limit = UInt::MIN;
+    let context = client.send(context).with_request_config(config).await.map_err(|_| ())?;
+    let Some(before_join) = context.start else { return Ok(false) };
+    let mut page =
+        get_message_events::v3::Request::new(room.room_id().to_owned(), Direction::Backward);
+    page.from = Some(before_join);
+    page.limit = UInt::from(START_PROBE_LIMIT);
+    let page = client.send(page).with_request_config(config).await.map_err(|_| ())?;
+    Ok(page.chunk.iter().any(|event| {
+        event
+            .get_field::<OwnedEventId>("event_id")
+            .ok()
+            .flatten()
+            .is_some_and(|id| !start.cached.contains(&id))
+    }))
 }
 
 // Clearing the room's cache is the SDK's own way back to an unknown start: the
@@ -359,7 +437,7 @@ mod tests {
 
 #[cfg(test)]
 mod sdk_tests {
-    use super::{walk_backwards, WalkBudget};
+    use super::{walk_backwards, StartCheck, WalkBudget};
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::{mpsc, Arc, Mutex};
@@ -496,13 +574,14 @@ mod sdk_tests {
     }
 
     fn serve(tokens: Arc<Mutex<Vec<String>>>) -> String {
-        serve_room(tokens, sync_body, messages_body)
+        serve_room(tokens, sync_body, messages_body, context_before_join)
     }
 
     fn serve_room(
         tokens: Arc<Mutex<Vec<String>>>,
         sync: fn() -> String,
         messages: fn(&str) -> String,
+        context: fn() -> Option<String>,
     ) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -523,6 +602,13 @@ mod sdk_tests {
                                 r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#);
                     } else if path.ends_with("/sync") {
                         respond(&mut stream, "200 OK", &sync());
+                    } else if path.contains("/context/") {
+                        tokens.lock().unwrap().push("context".to_owned());
+                        match context() {
+                            Some(body) => respond(&mut stream, "200 OK", &body),
+                            None => respond(&mut stream, "502 Bad Gateway",
+                                            r#"{"errcode":"M_UNKNOWN","error":"down"}"#),
+                        }
                     } else if path.ends_with("/messages") {
                         let from = query_value(&target, "from").unwrap_or("").to_owned();
                         tokens.lock().unwrap().push(from.clone());
@@ -667,14 +753,32 @@ mod sdk_tests {
         joined_sync("joined")
     }
 
+    fn context_before_join() -> Option<String> {
+        Some(json!({ "start": "tj", "end": "te", "event": our_join(),
+                     "events_before": [], "events_after": [], "state": [] }).to_string())
+    }
+
+    fn context_unreachable() -> Option<String> {
+        None
+    }
+
     // Synapse answers `/messages` with no `end` when it could not backfill
-    // over federation; asked again from the live end, it has the history.
+    // over federation; asked again, it has the history.
     fn backfilled_messages(from: &str) -> String {
         let (chunk, end): (Vec<Value>, Option<&str>) = match from {
+            "tj" => (vec![joined_text("$older", 4_000_000)], Some("t3")),
             "" => (vec![joined_text("$after", 6_000_000), our_join(),
                         joined_text("$older", 4_000_000)], Some("t2")),
             _ => (Vec::new(), None),
         };
+        messages_page(from, chunk, end)
+    }
+
+    fn nothing_older_messages(from: &str) -> String {
+        messages_page(from, Vec::new(), None)
+    }
+
+    fn messages_page(from: &str, chunk: Vec<Value>, end: Option<&str>) -> String {
         let mut body = json!({ "start": from, "chunk": chunk, "state": [] });
         if let Some(end) = end {
             body["end"] = json!(end);
@@ -685,33 +789,44 @@ mod sdk_tests {
     async fn walk_for_test(
         timeline: &Arc<Timeline>,
         budget: WalkBudget,
-        allow_reopen: bool,
-    ) -> bool {
-        let walk = walk_backwards(timeline, 20, budget, || true, || allow_reopen)
+        allow_check: bool,
+    ) -> (bool, StartCheck) {
+        let walk = walk_backwards(timeline, 20, budget, || true, || allow_check)
             .await
             .expect("walk");
-        walk.outcome.hit_start
+        (walk.outcome.hit_start, walk.start_check)
     }
 
     struct JoinedWalk {
         hit_start: bool,
+        check: StartCheck,
         asked: Vec<String>,
         cached: Vec<String>,
     }
 
+    struct Server {
+        sync: fn() -> String,
+        messages: fn(&str) -> String,
+        context: fn() -> Option<String>,
+    }
+
+    const OLDER_ON_SERVER: Server =
+        Server { sync: shared_sync, messages: backfilled_messages, context: context_before_join };
+
     // SQLite as in production: matrix-sdk 0.18's memory store keeps event
     // positions across a linked-chunk clear and then panics on re-insertion.
-    fn walk_joined_room(tag: &str, sync: fn() -> String, allow_reopen: bool) -> JoinedWalk {
+    fn walk_joined_room(tag: &str, server: Server, allow_check: bool) -> JoinedWalk {
         let store = std::env::temp_dir()
             .join(format!("lightning-pagewalk-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&store);
         let tokens: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let addr = serve_room(Arc::clone(&tokens), sync, backfilled_messages);
+        let addr =
+            serve_room(Arc::clone(&tokens), server.sync, server.messages, server.context);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .expect("runtime");
-        let (hit_start, cached) = runtime.block_on(async {
+        let ((hit_start, check), cached) = runtime.block_on(async {
             let client = matrix_sdk::Client::builder()
                 .homeserver_url(format!("http://{addr}"))
                 .sqlite_store(&store, None)
@@ -748,7 +863,7 @@ mod sdk_tests {
                     .expect("timeline"),
             );
             let budget = WalkBudget { max_pages: 8, max_time: Duration::from_secs(20) };
-            let hit_start = walk_for_test(&timeline, budget, allow_reopen).await;
+            let walked = walk_for_test(&timeline, budget, allow_check).await;
             let (cache, _handles) = room.event_cache().await.expect("room cache");
             let cached = cache
                 .events()
@@ -757,33 +872,69 @@ mod sdk_tests {
                 .iter()
                 .filter_map(|event| event.event_id().map(|id| id.to_string()))
                 .collect::<Vec<_>>();
-            (hit_start, cached)
+            (walked, cached)
         });
         drop(runtime);
         let _ = std::fs::remove_dir_all(&store);
         let asked = tokens.lock().unwrap().clone();
-        JoinedWalk { hit_start, asked, cached }
+        JoinedWalk { hit_start, check, asked, cached }
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    fn kept_what_it_had(walk: &JoinedWalk) {
+        for id in ["$ourjoin", "$after"] {
+            assert!(walk.cached.iter().any(|cached| cached == id), "{id}: {:?}", walk.cached);
+        }
     }
 
     #[test]
     fn a_start_at_our_own_join_is_asked_of_the_server_once_more() {
-        let walk = walk_joined_room("reopen", shared_sync, true);
+        let walk = walk_joined_room("reopen", OLDER_ON_SERVER, true);
         assert!(!walk.hit_start, "the start was declared at our own join: {:?}", walk.asked);
-        assert_eq!(walk.asked, vec!["t1".to_owned(), String::new()]);
+        assert_eq!(walk.check, StartCheck::Reopened);
+        assert_eq!(walk.asked, strings(&["t1", "context", "tj", ""]));
         assert!(walk.cached.iter().any(|id| id == "$older"), "{:?}", walk.cached);
     }
 
     #[test]
-    fn a_start_at_our_own_join_stands_when_joiners_cannot_see_history() {
-        let walk = walk_joined_room("hidden", joined_only_sync, true);
+    fn a_start_the_server_confirms_is_kept_and_the_cache_is_not_cleared() {
+        let server = Server { messages: nothing_older_messages, ..OLDER_ON_SERVER };
+        let walk = walk_joined_room("confirmed", server, true);
         assert!(walk.hit_start);
-        assert_eq!(walk.asked, vec!["t1".to_owned()]);
+        assert_eq!(walk.check, StartCheck::NothingOlder);
+        assert_eq!(walk.asked, strings(&["t1", "context", "tj"]));
+        kept_what_it_had(&walk);
     }
 
     #[test]
-    fn a_start_at_our_own_join_is_asked_again_only_when_the_caller_allows_it() {
-        let walk = walk_joined_room("claimed", shared_sync, false);
+    fn a_failed_check_keeps_the_start_and_the_cache() {
+        let server = Server { context: context_unreachable, ..OLDER_ON_SERVER };
+        let walk = walk_joined_room("offline", server, true);
         assert!(walk.hit_start);
-        assert_eq!(walk.asked, vec!["t1".to_owned()]);
+        assert_eq!(walk.check, StartCheck::Failed);
+        assert!(walk.asked.iter().all(|asked| asked == "t1" || asked == "context"),
+                "{:?}", walk.asked);
+        kept_what_it_had(&walk);
+    }
+
+    #[test]
+    fn a_start_at_our_own_join_stands_when_joiners_cannot_see_history() {
+        let server = Server { sync: joined_only_sync, ..OLDER_ON_SERVER };
+        let walk = walk_joined_room("hidden", server, true);
+        assert!(walk.hit_start);
+        assert_eq!(walk.check, StartCheck::NotAsked);
+        assert_eq!(walk.asked, strings(&["t1"]));
+    }
+
+    #[test]
+    fn a_start_at_our_own_join_is_checked_only_when_the_caller_allows_it() {
+        let walk = walk_joined_room("claimed", OLDER_ON_SERVER, false);
+        assert!(walk.hit_start);
+        assert_eq!(walk.check, StartCheck::NotAsked);
+        assert_eq!(walk.asked, strings(&["t1"]));
+        kept_what_it_had(&walk);
     }
 }

@@ -663,3 +663,38 @@ margins, because a `ListView`'s origin moves. A written `contentY` can settle in
 estimated height holding no rows (seen after fast up/down through new pages,
 not reproduced in a standalone harness, mechanism unproven), so the view returns
 to the last row it showed.
+
+## A start at our own join is checked with the server once (2026-11-05)
+
+matrix-sdk 0.18 declares a room's start reached whenever its event cache holds
+no gap, and stores that (`src/event_cache/caches/room/pagination.rs`, the
+`load_previous_chunk` → `None` arm). A `/messages` answered without `end`
+removes the gap for good; Synapse answers that way when it cannot yet backfill a
+federated join (`synapse/handlers/pagination.py`, the empty-`events` return).
+Reported from a 0.10.4 user on a Synapse 1.163.2 homeserver: "Beginning of
+conversation" right above their own join in a public matrix.org room, across
+restarts, while FluffyChat on the same account showed the history.
+
+`pagewalk::walk_backwards` now checks such a start with the server once per room
+per lifecycle (`TimelineRegistry::claim_start_check`) when all of these hold:
+the walk reported the start, the earliest cached event is our own
+`m.room.member`, and history visibility is neither `joined` nor `invited`. The
+check is `/context` on our join (limit 0) for the token just before it, then one
+`/messages` page of 5 backwards from there, 20 s timeout. Only if that page
+carries an event the cache does not hold, and the walk is still wanted, does it
+call `RoomEventCache::clear()` and walk again; the SDK then pages from the live
+end. A failed check (offline, error) or an empty page keeps the start and the
+cache untouched. The pagination event's `start_check` (`not_asked`, `failed`,
+`nothing_older`, `abandoned`, `reopened`) is in the `timeline pagination
+complete` log line.
+
+No record is persisted across launches, deliberately. The check is two small
+requests made only when the reader reaches the top of such a room, and an empty
+answer is exactly what a transient backfill failure looks like, so storing
+"confirmed" would freeze the original defect the first time the check ran into
+one.
+
+Tests: the `a_start_*` and `a_failed_check_*` cases in `pagewalk::sdk_tests`
+use a SQLite store as production does, because matrix-sdk 0.18's memory store
+keeps event positions after a linked-chunk clear and panics re-inserting the
+same events.

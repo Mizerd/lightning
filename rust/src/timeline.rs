@@ -415,7 +415,7 @@ pub struct TimelineRegistry {
     send_lanes: Mutex<HashMap<String, SendLane>>,
     send_lane_seq: AtomicU64,
     backup_download_attempts: Mutex<std::collections::HashMap<String, BackupAttempt>>,
-    history_reopened: Mutex<std::collections::HashSet<(u64, String)>>,
+    start_checks: Mutex<std::collections::HashSet<(u64, String)>>,
     /// The open room, and the `origin_server_ts` of the newest event our own
     /// UNTHREADED read receipt (public or private) points at. By spec such a
     /// receipt covers every thread too, so a thread whose latest reply is no
@@ -481,7 +481,7 @@ impl TimelineRegistry {
             send_lanes: Mutex::new(HashMap::new()),
             send_lane_seq: AtomicU64::new(0),
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
-            history_reopened: Mutex::new(std::collections::HashSet::new()),
+            start_checks: Mutex::new(std::collections::HashSet::new()),
             unthreaded_read_cover: Mutex::new(None),
             thread_auto_subscriptions: Mutex::new(Vec::new()),
             threads_in_live: AtomicBool::new(false),
@@ -603,11 +603,13 @@ impl TimelineRegistry {
     }
 
     /// Once per room per lifecycle: a start the server confirms again is believed.
-    fn claim_history_reopen(&self, room_id: &str, lifecycle: u64) -> bool {
-        self.history_reopened
+    fn claim_start_check(&self, room_id: &str, lifecycle: u64) -> bool {
+        let mut claimed = self
+            .start_checks
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert((lifecycle, room_id.to_owned()))
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        claimed.retain(|(claimed_in, _)| *claimed_in == lifecycle);
+        claimed.insert((lifecycle, room_id.to_owned()))
     }
 
     pub fn lifecycle(&self) -> u64 {
@@ -1802,11 +1804,14 @@ impl TimelineRegistry {
                 count,
                 crate::pagewalk::FILTERED_RUN_WALK,
                 || registry.is_current(room_gen, lifecycle),
-                || registry.claim_history_reopen(&room_id, lifecycle),
+                || registry.claim_start_check(&room_id, lifecycle),
             )
             .await;
             let walked_pages = walk.as_ref().map(|walk| walk.outcome.pages).unwrap_or(0);
-            let history_reopened = walk.as_ref().is_ok_and(|walk| walk.history_reopened);
+            let start_check = walk
+                .as_ref()
+                .map(|walk| walk.start_check)
+                .unwrap_or(crate::pagewalk::StartCheck::NotAsked);
             let result = walk.map(|walk| walk.outcome.hit_start);
             busy.store(false, Ordering::SeqCst);
             if !registry.is_current(room_gen, lifecycle) {
@@ -1831,7 +1836,7 @@ impl TimelineRegistry {
                             "filter_dropped_rtc": FILTER_DROP_RTC
                                 .load(Ordering::Relaxed),
                             "walked_pages": walked_pages,
-                            "history_reopened": history_reopened,
+                            "start_check": start_check.as_str(),
                         }),
                     );
                 }
@@ -8899,3 +8904,23 @@ mod thread_auto_subscription_tests {
 #[cfg(test)]
 #[path = "edit_regression_tests.rs"]
 mod edit_regression_tests;
+
+#[cfg(test)]
+mod start_check_claim_tests {
+    use super::TimelineRegistry;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn a_start_is_checked_once_per_room_per_lifecycle_and_old_lifecycles_are_dropped() {
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        assert!(registry.claim_start_check("!a:x", 1));
+        assert!(!registry.claim_start_check("!a:x", 1));
+        assert!(registry.claim_start_check("!b:x", 1));
+        assert!(registry.claim_start_check("!a:x", 2));
+        assert!(!registry.claim_start_check("!a:x", 2));
+        let held = registry.start_checks.lock().unwrap().clone();
+        assert_eq!(held.len(), 1, "{held:?}");
+        assert!(held.contains(&(2, "!a:x".to_owned())));
+    }
+}
