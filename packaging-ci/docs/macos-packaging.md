@@ -834,7 +834,8 @@ JSON
 `201 Created` instead of `413`, is the whole test.
 
 **A release that already shipped without the asset can be backfilled, and it
-does NOT touch the tag or the notes.** `RELEASE_ACTION=attach-existing` builds,
+does NOT touch the tag or the notes.** `RELEASE_ACTION=attach-existing` (with
+`PACKAGE_BUILD_SITE=home`: the gitlab.com lane cannot build an older commit) builds,
 validates, publishes and verifies, then adds the link to the existing release
 (§14; it is what backfilled `v0.6.1`). So 0.9.5 can still get its macOS
 download once the runner is corrected.

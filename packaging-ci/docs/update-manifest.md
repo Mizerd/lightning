@@ -103,7 +103,9 @@ reports `update_status`, `last_successful_update_at` and `last_error`.
 be re-published (different bytes), so the refresh touches `latest` alone.
 Trigger the pipeline against the CURRENT release with
 `RELEASE_ACTION=attach-existing`, `SOURCE_REF=v<version>`,
-`PUBLISH_PACKAGES=true`, plus three variables: `UPDATE_RELEASED_AT=<the
+`PUBLISH_PACKAGES=true`, `PACKAGE_BUILD_SITE=home` (the gitlab.com lane builds
+only the commit gitlab.com `main` points at, never an older tag), plus three
+variables: `UPDATE_RELEASED_AT=<the
 original released instant>`, `UPDATE_EXPIRES_AT=<a new instant, e.g. today
 plus 120 days>` and `UPDATE_REFRESH_LATEST_ONLY=true`. The packages
 converge (identical bytes are accepted), the manifest is regenerated with the

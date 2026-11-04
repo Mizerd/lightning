@@ -854,7 +854,7 @@ validation honestly.
 + 120 days) — INFORMATIONAL only since 2026-09-03 at Rokas's direction, a
 client past it keeps updating and merely says so; refresh `latest` without a
 release to keep that line quiet (`RELEASE_ACTION=attach-existing`,
-`UPDATE_RELEASED_AT=<original>`, `UPDATE_EXPIRES_AT=<now+120d>`,
+`PACKAGE_BUILD_SITE=home`, `UPDATE_RELEASED_AT=<original>`, `UPDATE_EXPIRES_AT=<now+120d>`,
 `UPDATE_REFRESH_LATEST_ONLY=true`); `attach-existing` never moves `latest`
 backwards without `UPDATE_ALLOW_LATEST_ROLLBACK=true`; refresh image digests
 each round; the pipeline writes the GitHub `update-latest` slot after every
@@ -925,7 +925,7 @@ the project 7 variables `GITHUB_MIRROR_REPO` (protected) and
 unset the job is a no-op and no `mirror_url` is emitted.
 
 For an existing release that is missing packages, use
-`RELEASE_ACTION=attach-existing` (build, validate, publish, verify, then add
+`RELEASE_ACTION=attach-existing` with `PACKAGE_BUILD_SITE=home` (build, validate, publish, verify, then add
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 

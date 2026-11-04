@@ -418,8 +418,9 @@ are what cover that. Terminating TLS on the internal endpoint and putting
 
 ### Build-only (default, non-publishing)
 
-`BUILD_FORMATS` selects which formats a build-only pipeline runs: `all`
-(default) or a comma list from `deb,rpm,flatpak,appimage,snap` — e.g.
+`BUILD_FORMATS` selects which formats a build-only pipeline runs: `none`
+(default, so a pipeline started without variables builds nothing), `all`, or
+a comma list from `deb,rpm,flatpak,appimage,snap` — e.g.
 `BUILD_FORMATS=flatpak` iterates on one format without rebuilding the rest.
 `snap` additionally requires `appimage` in the list (it repackages the
 AppImage job's AppDir). Publishing pipelines ignore the selection and always
@@ -460,6 +461,7 @@ PUBLISH_PACKAGES=true
 RELEASE_ACTION=attach-existing
 RELEASE_VERSION=0.6.1
 SOURCE_REF=v0.6.1        # or the exact commit SHA
+PACKAGE_BUILD_SITE=home  # gitlab.com builds only the commit its main points at
 ```
 
 Requires: the tag exists and still points at the resolved SHA; the release
@@ -920,6 +922,7 @@ SOURCE_REF=v0.6.1
 RELEASE_VERSION=0.6.1
 RELEASE_ACTION=attach-existing
 PUBLISH_PACKAGES=true
+PACKAGE_BUILD_SITE=home
 ```
 
 Resolves `v0.6.1` to `86d30b4`, rebuilds and revalidates both packages,
@@ -1037,7 +1040,8 @@ model decided first — see [`docs/macos-packaging.md`](docs/macos-packaging.md)
 Step 9 replaces the manual `gh release create v<version> --verify-tag …` that
 used to follow a release; no hand-made GitHub Release is needed any more.
 
-For an existing release missing packages, use `RELEASE_ACTION=attach-existing`.
+For an existing release missing packages, use `RELEASE_ACTION=attach-existing`
+with `PACKAGE_BUILD_SITE=home`.
 
 Windows artifacts remain unsigned; the signed update manifest from steps 7 and 9
 is what actually protects an in-app update today. See
