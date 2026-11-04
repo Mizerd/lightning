@@ -4578,8 +4578,10 @@ Rectangle {
                 }
                 Connections {
                     target: app.composer
+                    // Emitted before the composer clears its reply, so a reply
+                    // sent from up in history keeps the reader at that context.
                     function onOwnMessageSent() {
-                        if (!timeline.stickToBottom)
+                        if (!timeline.stickToBottom && !app.composer.isReplying)
                             timeline.goToLatest()
                     }
                 }

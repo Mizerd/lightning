@@ -11148,6 +11148,48 @@ false);
             qAbs(timeline->property("contentY").toDouble() - minY) < 1.0, 2000);
     }
 
+    void aReplySentFromHistoryKeepsTheReaderThere()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 80, QStringLiteral("own"), QStringLiteral("body")),
+0,600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY2(maxY > minY + 600.0, "fixture is not scrollable");
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(timeline->setProperty("contentY", maxY));
+        QCoreApplication::processEvents();
+
+        QVariant target;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "eventIdAtViewRow",
+                                          Q_RETURN_ARG(QVariant, target),
+                                          Q_ARG(QVariant, 70)));
+        QVERIFY(!target.toString().isEmpty());
+        const int before = controller.timeline()->rowCount();
+        controller.composer()->beginReply(target.toString(),
+                                          QStringLiteral("@own:mock.local"),
+                                          QStringLiteral("body"));
+        controller.composer()->setText(QStringLiteral("a reply"));
+        controller.composer()->send();
+        QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->rowCount(), before + 1,
+                                  kSignalTimeoutMs);
+        QTest::qWait(600);
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY2(timeline->property("contentY").toDouble() > minY + 300.0,
+                 "a reply sent from history jumped to the newest");
+    }
+
     void theLoadingChipSitsBelowTheFirstUnreadPill()
     {
         AppController controller(AppController::MockBackend);
