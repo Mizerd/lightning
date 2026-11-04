@@ -230,13 +230,17 @@ Constraints, all consequences of the lane building its own checkout:
 - The lane wait holds one `[apt, deb, package]` home runner for the lane's
   duration (up to 7 h 30 m).
 
-Operator checks before the first gitlab.com release (NOT verified yet):
+Operator checks before the first gitlab.com release:
 
-- the home runners' maximum job timeout allows `gitlab-com-lane`'s 7 h 30 m;
-- the `[apt, deb, package]` runners upload the collectors' 450–550 MB
-  artifacts (no 413 from the public proxy);
-- a build-only rehearsal (`BUILD_FORMATS=all`, `SOURCE_REF=main`) on the
-  default branch goes green end to end before a release relies on it.
+- VERIFIED 2026-11-04, pipeline 358: a build-only rehearsal on main adopted
+  gitlab.com lane 3027201379 and the three collectors uploaded 548, 466 and
+  446 MB from the `[apt, deb, package]` runners with no 413. Its predecessor,
+  357, found that `GITLAB_COM_READ_TOKEN` must be a Maintainer-level
+  `read_api` token: pipeline variables return 403 to a Developer.
+- NOT verified: the home runners' maximum job timeout allows
+  `gitlab-com-lane`'s 7 h 30 m (358 waited 34 minutes).
+- NOT verified: a publishing lane (`PUBLISH_PACKAGES=true`), whose official
+  builds compile cold with the GIF keys and signing public key.
 
 Variables (set by the maintainer; nothing here sets them):
 
