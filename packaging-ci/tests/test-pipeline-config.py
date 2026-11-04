@@ -1182,7 +1182,7 @@ for _name, _src in _portable_lanes.items():
     check("LIGHTNING_REQUIRE_QT_AUDIO_ROLE" not in _src,
           f"{_name} never requires the call sounds' private-ABI stream role")
 _suse = resolve_extends_dict(doc["validate-rpm-opensuse"])
-check(str(_suse.get("image", "")).startswith("registry.opensuse.org/opensuse/tumbleweed@sha256:"),
+check(str(_suse.get("image", "")).startswith("opensuse/tumbleweed@sha256:"),
       "validate-rpm-opensuse runs on the pinned openSUSE Tumbleweed image")
 check(_suse.get("script") == ["./packaging-ci/scripts/validate-rpm.sh"],
       "validate-rpm-opensuse runs the same validator as validate-rpm")
