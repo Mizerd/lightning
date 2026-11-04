@@ -57,6 +57,33 @@ file_of[windows-setup]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_
 arch_of[windows-setup]="x86_64"
 name_of[windows-setup]="Lightning ${PACKAGE_VERSION} — Windows x86_64 setup EXE${WINDOWS_SUFFIX}"
 
+# The gitlab.com lane's arm64 packages are optional: each is published when
+# its collector brought it, and none enters the signed update manifest (the
+# updater has no aarch64 install strategy).
+declare -a arm64_formats=(deb-arm64 deb-ubuntu-arm64 rpm-aarch64 appimage-aarch64 snap-arm64)
+file_of[deb-arm64]="$ROOT/dist/lightning_${PACKAGE_VERSION}_arm64.deb"
+arch_of[deb-arm64]="arm64"
+name_of[deb-arm64]="Lightning ${PACKAGE_VERSION} — Debian arm64"
+file_of[deb-ubuntu-arm64]="$ROOT/dist/lightning_${PACKAGE_VERSION}_ubuntu2604_arm64.deb"
+arch_of[deb-ubuntu-arm64]="arm64"
+name_of[deb-ubuntu-arm64]="Lightning ${PACKAGE_VERSION} — Ubuntu 26.04 arm64"
+file_of[rpm-aarch64]="$ROOT/dist/lightning-${PACKAGE_VERSION}-1.aarch64.rpm"
+arch_of[rpm-aarch64]="aarch64"
+name_of[rpm-aarch64]="Lightning ${PACKAGE_VERSION} — RPM aarch64"
+file_of[appimage-aarch64]="$ROOT/dist/Lightning-${PACKAGE_VERSION}-aarch64.AppImage"
+arch_of[appimage-aarch64]="aarch64"
+name_of[appimage-aarch64]="Lightning ${PACKAGE_VERSION} — AppImage aarch64"
+file_of[snap-arm64]="$ROOT/dist/lightning_${PACKAGE_VERSION}_arm64.snap"
+arch_of[snap-arm64]="arm64"
+name_of[snap-arm64]="Lightning ${PACKAGE_VERSION} — Snap arm64"
+for fmt in "${arm64_formats[@]}"; do
+    if [[ -f "${file_of[$fmt]}" ]]; then
+        formats+=("$fmt")
+    else
+        printf 'optional arm64 asset absent: %s\n' "$(basename "${file_of[$fmt]}")" >&2
+    fi
+done
+
 # macOS is a download-only asset (arm64, macOS 26+, ad-hoc signed,
 # un-notarized) and is never in the signed update manifest, since the client
 # cannot self-install it. Since 2026-10-07 a release cannot publish without it:

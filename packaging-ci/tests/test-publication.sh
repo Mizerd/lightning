@@ -148,6 +148,32 @@ else
         || bad "absent macOS bundle refused for the wrong reason"
 fi
 
+# arm64 packages from the gitlab.com lane are optional: each one present is
+# published, and their absence never stops publication.
+printf '== optional arm64 packages ==\n'
+setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
+ARM64_FILES=("lightning_${VER}_arm64.deb" "lightning_${VER}_ubuntu2604_arm64.deb"
+             "lightning-${VER}-1.aarch64.rpm" "Lightning-${VER}-aarch64.AppImage"
+             "lightning_${VER}_arm64.snap")
+for f in "${ARM64_FILES[@]}"; do printf 'arm64-%s-%s\n' "$f" "$RANDOM" >"$TR/dist/$f"; done
+run "$ROOT/scripts/write-manifest.sh" || bad "manifest build failed with arm64 packages"
+M="$TR/dist/manifest.json"
+[[ "$($JQ '.entries|length' "$M")" == 15 ]] && note "five arm64 packages add five entries" || bad "arm64 entry count"
+for f in "${ARM64_FILES[@]}"; do
+    [[ "$($JQ -r --arg f "$f" '[.entries[]|select(.filename==$f)]|length' "$M")" == 1 ]] \
+        && note "$f is published" || bad "$f missing from the manifest"
+    grep -q "  $f\$" "$TR/dist/SHA256SUMS" && note "$f is in SHA256SUMS" || bad "$f missing from SHA256SUMS"
+done
+[[ "$($JQ -r '[.entries[]|select(.format|test("arm64|aarch64"))|.architecture]|unique|join(",")' "$M")" == "aarch64,arm64" ]] \
+    && note "arm64 entries carry an arm64/aarch64 architecture" || bad "arm64 entry architecture"
+[[ "$($JQ -r '[.entries[]|select(.architecture=="amd64" or .architecture=="x86_64")]|length' "$M")" == 9 ]] \
+    && note "the nine amd64 entries are unchanged" || bad "amd64 entries changed by arm64 packages"
+rm -f "$TR/dist/lightning-${VER}-1.aarch64.rpm" "$TR/dist/lightning_${VER}_arm64.snap"
+run "$ROOT/scripts/write-manifest.sh" || bad "a partial arm64 set stopped the manifest"
+[[ "$($JQ '.entries|length' "$M")" == 13 ]] && note "a partial arm64 set publishes what is there" || bad "partial arm64 entry count"
+grep -q "optional arm64 asset absent: lightning-${VER}-1.aarch64.rpm" "$TR/out.log" \
+    && note "an absent arm64 package is named in the log" || bad "absent arm64 package not reported"
+
 printf '== publish ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh" || bad "publish failed"

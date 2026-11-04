@@ -214,6 +214,22 @@ grep -q '\.flatpak' <<<"$urls" && bad "a .flatpak is advertised as a direct down
 grep -q '\.snap' <<<"$urls" && bad "a .snap is advertised as a direct download" || note "no .snap download advertised"
 grep -q 'SHA256SUMS' <<<"$urls" && bad "SHA256SUMS is advertised as an update artifact" || note "SHA256SUMS is not an update artifact"
 
+printf '== published arm64 packages are not update artifacts ==\n'
+setup
+for f in "lightning_${VER}_arm64.deb" "lightning_${VER}_ubuntu2604_arm64.deb" \
+         "lightning-${VER}-1.aarch64.rpm" "Lightning-${VER}-aarch64.AppImage" \
+         "lightning_${VER}_arm64.snap"; do
+    printf 'arm64-%s-%s\n' "$f" "$RANDOM" >"$TR/dist/$f"
+done
+run "$ROOT/scripts/write-manifest.sh" && publish_and_verify \
+    && run "$ROOT/scripts/generate-update-manifest.sh" || bad "publication with arm64 packages failed"
+[[ "$($JQ '[.entries[]|select(.architecture=="arm64" or .architecture=="aarch64")]|length' "$TR/dist/manifest.json")" == 5 ]] \
+    && note "the five arm64 packages are published" || bad "arm64 packages not published"
+[[ "$($JQ -c '.artifacts | keys' "$UPD")" == "$expected_keys" ]] \
+    && note "arm64 packages add no install type" || bad "arm64 changed the update artifact keys"
+grep -qE 'arm64|aarch64' <<<"$($JQ -r '.artifacts[] | .url, .filename' "$UPD")" \
+    && bad "an arm64 package is advertised as an update" || note "no arm64 package is advertised as an update"
+
 printf '== channels are honest about what does not exist ==\n'
 ch_keys="$($JQ -c '.channels | keys' "$UPD")"
 [[ "$ch_keys" == '["linux-deb-repo","linux-flatpak","linux-rpm-repo","linux-snap"]' ]] \

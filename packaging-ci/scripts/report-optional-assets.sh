@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Fail the pipeline when the published release lacks the macOS asset.
+# Fail the pipeline when the published release lacks the macOS asset, and
+# report which optional arm64 assets it carries.
 #
 # Since 2026-10-07 a release cannot publish without a green macos-package-test
 # (no allow_failure, no `optional` need, and write-manifest.sh refuses a
@@ -49,6 +50,27 @@ else
     printf '  SHA256SUMS would no longer cover what is published.\n' >&2
     missing=1
 fi
+
+# --- arm64, optional (2026-11-04) ---------------------------------------------
+#
+# Published only when the gitlab.com lane's arm64 packages validated and were
+# collected, so an absent one is reported and never fails the pipeline.
+arm64_present=0
+for name in "lightning_${PACKAGE_VERSION}_arm64.deb" \
+            "lightning_${PACKAGE_VERSION}_ubuntu2604_arm64.deb" \
+            "lightning-${PACKAGE_VERSION}-1.aarch64.rpm" \
+            "Lightning-${PACKAGE_VERSION}-aarch64.AppImage" \
+            "lightning_${PACKAGE_VERSION}_arm64.snap"; do
+    if jq -e --arg n "/$name" '[.[] | select(.url | endswith($n))] | length > 0' \
+            "$links_json" >/dev/null; then
+        printf 'ok: optional arm64 asset %s is attached\n' "$name"
+        arm64_present=$((arm64_present + 1))
+    else
+        printf 'optional arm64 asset ABSENT from %s: %s (read the gitlab-com-packages-arm64 log)\n' \
+            "$RELEASE_TAG" "$name" >&2
+    fi
+done
+printf '%d of 5 optional arm64 assets are attached to %s\n' "$arm64_present" "$RELEASE_TAG"
 
 if (( missing )); then
     die "a required asset is missing from ${RELEASE_TAG}"
