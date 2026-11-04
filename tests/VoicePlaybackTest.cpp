@@ -32,6 +32,7 @@
 #include "storage/SecretStore.h"
 
 #include <QFile>
+#include <QJSValue>
 #include <QHash>
 #include <QAudioOutput>
 #include <QMediaPlayer>
@@ -45,6 +46,21 @@
 #include <QtTest>
 
 namespace {
+
+inline QList<QVariantMap> paintedWaveBars(QQuickItem *wave)
+{
+    QVariant out;
+    QMetaObject::invokeMethod(wave, "bars", Q_RETURN_ARG(QVariant, out));
+    if (out.metaType() == QMetaType::fromType<QJSValue>())
+        out = out.value<QJSValue>().toVariant();
+    QList<QVariantMap> bars;
+    for (QVariant bar : out.toList()) {
+        if (bar.metaType() == QMetaType::fromType<QJSValue>())
+            bar = bar.value<QJSValue>().toVariant();
+        bars.append(bar.toMap());
+    }
+    return bars;
+}
 
 class FakeSecretStore final : public SecretStore
 {
@@ -908,12 +924,13 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000
         QTRY_VERIFY(wave->isVisible());
         qreal right = 0;
         int bars = 0;
-        const auto kids = wave->childItems();
-        for (QQuickItem *bar : kids) {
-            if (bar->width() <= 0 || bar->height() <= 0)
+        for (const QVariantMap &bar : paintedWaveBars(wave)) {
+            if (bar.value(QStringLiteral("width")).toReal() <= 0
+                || bar.value(QStringLiteral("height")).toReal() <= 0)
                 continue;
             ++bars;
-            right = qMax(right, bar->x() + bar->width());
+            right = qMax(right, bar.value(QStringLiteral("x")).toReal()
+                                    + bar.value(QStringLiteral("width")).toReal());
         }
         QCOMPARE(bars, int((wave->width() + 1) / 3));
         QVERIFY2(right >= wave->width() * 0.97,

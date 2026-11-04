@@ -99,32 +99,50 @@ Slider {
         y: root.topPadding
         width: root.availableWidth
         height: root.availableHeight
-        Row {
+        Canvas {
             id: waveBars
             objectName: "voiceSeekWave"
             anchors.fill: parent
             visible: root.showsWaveform
-            spacing: 1
             readonly property int count: root.showsWaveform
                 ? Math.max(1, Math.floor((width + 1) / 3)) : 0
             readonly property real barWidth: count > 0
-                ? Math.max(1, (width - (count - 1) * spacing) / count) : 0
-            Repeater {
-                model: waveBars.visible ? waveBars.count : 0
-                delegate: Rectangle {
-                    required property int index
-                    readonly property real amp: {
-                        var wf = root.waveform
-                        var at = Math.floor(index * wf.length
-                                            / waveBars.count)
-                        return Math.max(0.12, Math.min(1, wf[at] / 100))
+                ? Math.max(1, (width - (count - 1)) / count) : 0
+            readonly property int lit:
+                Math.max(0, Math.min(count, Math.ceil(root.visualPosition * count)))
+            // One painted item, not a Rectangle per bar: voice-heavy rooms stay cheap.
+            function bars() {
+                var out = []
+                var wf = root.waveform
+                for (var i = 0; i < count; ++i) {
+                    var at = Math.floor(i * wf.length / count)
+                    var h = height * Math.max(0.12, Math.min(1, wf[at] / 100))
+                    out.push({ x: i * (barWidth + 1), y: (height - h) / 2,
+                               width: barWidth, height: h, lit: i < lit })
+                }
+                return out
+            }
+            readonly property var look: [root.waveform, root.fillColor,
+                                         root.trackColor, lit, count, width,
+                                         height]
+            onLookChanged: requestPaint()
+            onVisibleChanged: if (visible) requestPaint()
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.reset()
+                if (!visible || count === 0)
+                    return
+                var all = bars()
+                var r = Math.min(1, barWidth / 2)
+                for (var pass = 0; pass < 2; ++pass) {
+                    ctx.beginPath()
+                    for (var i = 0; i < all.length; ++i) {
+                        var b = all[i]
+                        if (b.lit === (pass === 1))
+                            ctx.roundedRect(b.x, b.y, b.width, b.height, r, r)
                     }
-                    width: waveBars.barWidth
-                    height: waveBars.height * amp
-                    anchors.verticalCenter: parent.verticalCenter
-                    radius: Math.min(1, width / 2)
-                    color: (index / waveBars.count) < root.visualPosition
-                           ? root.fillColor : root.trackColor
+                    ctx.fillStyle = pass === 1 ? root.fillColor : root.trackColor
+                    ctx.fill()
                 }
             }
         }

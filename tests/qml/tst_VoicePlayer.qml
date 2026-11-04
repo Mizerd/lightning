@@ -612,11 +612,13 @@ TestCase {
         waitForRendering(row)
         var lit = 0
         var right = 0
-        for (var i = 0; i < wave.children.length; ++i) {
-            var bar = wave.children[i]
+        var bars = wave.bars()
+        verify(bars.length > 10, bars.length + " bars")
+        for (var i = 0; i < bars.length; ++i) {
+            var bar = bars[i]
             if (bar.width <= 0 || bar.height <= 0)
                 continue
-            if (Qt.colorEqual(bar.color, AppTheme.accent))
+            if (bar.lit)
                 ++lit
             right = Math.max(right, bar.x + bar.width)
         }
@@ -624,6 +626,151 @@ TestCase {
         verify(right >= wave.width * 0.95,
                "ten buckets cover " + right + " of " + wave.width
                + " px: dead space after a short waveform")
+    }
+
+    Component {
+        id: barPerRectangleComponent
+        Rectangle {
+            id: plate
+            property var waveform: []
+            property color ink
+            property real waveWidth: 0
+            property real waveHeight: 0
+            width: waveWidth + 8
+            height: waveHeight + 8
+            Row {
+                id: plateBars
+                x: 4
+                y: 4
+                width: plate.waveWidth
+                height: plate.waveHeight
+                spacing: 1
+                readonly property int count: Math.max(1, Math.floor((width + 1) / 3))
+                readonly property real barWidth:
+                    Math.max(1, (width - (count - 1)) / count)
+                Repeater {
+                    model: plateBars.count
+                    delegate: Rectangle {
+                        required property int index
+                        readonly property real amp: {
+                            var wf = plate.waveform
+                            var at = Math.floor(index * wf.length / plateBars.count)
+                            return Math.max(0.12, Math.min(1, wf[at] / 100))
+                        }
+                        width: plateBars.barWidth
+                        height: plateBars.height * amp
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: Math.min(1, width / 2)
+                        color: plate.ink
+                    }
+                }
+            }
+        }
+    }
+
+    // The painted waveform against the Rectangle-per-bar one it replaced.
+    function test_thePaintedWaveformDrawsTheSameBarsAsRectangles() {
+        var wf = [0, 5, 12, 25, 40, 55, 70, 85, 100, 64, 33, 90, 18, 47]
+        var row = createTemporaryObject(rowComponent, test, { waveform: wf })
+        var wave = find(row, "voiceSeekWave")
+        verify(wave && wave.visible && wave.width > 100)
+        var plate = createTemporaryObject(barPerRectangleComponent, test, {
+            y: 300, waveform: wf, color: row.color,
+            ink: AppTheme.borderStrong,
+            waveWidth: wave.width, waveHeight: wave.height })
+        wait(50)
+        waitForRendering(test)
+        var shot = grabImage(test)
+        var at = wave.mapToItem(test, 0, 0)
+        var bg = [shot.red(plate.x + 1, plate.y + 1),
+                  shot.green(plate.x + 1, plate.y + 1),
+                  shot.blue(plate.x + 1, plate.y + 1)]
+        function inked(x, y) {
+            return Math.abs(shot.red(x, y) - bg[0])
+                 + Math.abs(shot.green(x, y) - bg[1])
+                 + Math.abs(shot.blue(x, y) - bg[2])
+        }
+        var bars = wave.bars()
+        var mid = Math.floor(at.y + wave.height / 2)
+        var full = 0
+        for (var b = 0; b < bars.length; ++b)
+            full = Math.max(full, inked(Math.floor(at.x + bars[b].x + bars[b].width / 2), mid))
+        verify(full > 15, "no visible ink: " + full)
+        var compared = 0
+        for (var i = 0; i < bars.length; ++i) {
+            var cx = bars[i].x + bars[i].width / 2
+            var painted = 0
+            var reference = 0
+            for (var y = 0; y < Math.ceil(wave.height); ++y) {
+                if (inked(Math.floor(at.x + cx), Math.floor(at.y) + y) > full / 2)
+                    ++painted
+                if (inked(Math.floor(plate.x + 4 + cx), plate.y + 4 + y) > full / 2)
+                    ++reference
+            }
+            verify(Math.abs(painted - reference) <= 1,
+                   "bar " + i + ": " + painted + " px painted, "
+                   + reference + " px as a Rectangle")
+            ++compared
+        }
+        compare(compared, Math.floor((wave.width + 1) / 3))
+    }
+
+    function test_anIdleRowLaysOutLikeThePlayingOne() {
+        var names = ["audioPlayPauseButton", "audioTitle", "audioWaveRow",
+                     "audioSeekSlider", "audioClock", "audioSpeedButton",
+                     "audioMuteButton", "audioSaveButton", "audioCoverArtBox",
+                     "voiceSeekWave"]
+        function rects(row) {
+            var out = {}
+            for (var i = 0; i < names.length; ++i) {
+                var it = find(row, names[i])
+                if (!it || !it.visible)
+                    continue
+                var p = it.mapToItem(row, 0, 0)
+                out[names[i]] = [p.x, p.y, it.width, it.height].join(",")
+            }
+            return out
+        }
+        function muteLook(row) {
+            var m = find(row, "audioMuteButton")
+            return [m.iconName, m.enabled, m.opacity, m.iconSize,
+                    m.Accessible.name].join("|")
+        }
+        var cases = [{ voice: true, style: "card" },
+                     { voice: false, style: "compact" },
+                     { voice: false, style: "card" },
+                     { voice: false, style: "large" }]
+        var checked = 0
+        for (var c = 0; c < cases.length; ++c) {
+            settings.albumArtStyle = cases[c].style
+            voice.active = false
+            voice.info = cases[c].voice ? ({})
+                : ({ "mk-row": { title: "Song", artist: "Band",
+                                 artworkSource: tinyCover } })
+            voice.clipInfoRevision++
+            var row = createTemporaryObject(rowComponent, test, {
+                isVoice: cases[c].voice, canSave: true, filename: "song.mp3",
+                waveform: cases[c].voice ? [30, 60, 90, 45] : [] })
+            wait(50)
+            var idle = rects(row)
+            var idleMute = muteLook(row)
+            verify(Object.keys(idle).length >= 7,
+                   cases[c].style + ": " + JSON.stringify(idle))
+            voice.load({ eventId: "$row", isVoice: cases[c].voice,
+                         loaded: false, playing: false, position: 0,
+                         duration: 0, mediaKey: "mk-row" })
+            wait(0)
+            compare(JSON.stringify(rects(row)), JSON.stringify(idle),
+                    cases[c].style + (cases[c].voice ? " voice" : " file"))
+            compare(muteLook(row), idleMute)
+            compare(find(row, "audioMuteButton").sliderObjectName,
+                    "audioVolumeSlider")
+            voice.stop()
+            wait(0)
+            compare(JSON.stringify(rects(row)), JSON.stringify(idle))
+            ++checked
+        }
+        compare(checked, 4)
     }
 
     function test_anIdleRowSeeksByStartingThere() {
@@ -1075,8 +1222,8 @@ TestCase {
         var speed = find(row, "audioSpeedButton")
         speed.forceActiveFocus(Qt.TabFocusReason)
         keyClick(Qt.Key_Return)
-        var menu = find(speed, "audioSpeedMenu")
-        verify(menu, "no speed menu")
+        var menu = speed.speedMenu
+        verify(menu && menu.objectName === "audioSpeedMenu", "no speed menu")
         tryVerify(function() { return menu.visible }, 2000,
                   "Return on the row's speed chip opened no menu")
     }

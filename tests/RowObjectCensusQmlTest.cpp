@@ -261,6 +261,34 @@ QtObject {
         }
         {
             QVariantMap f = baseFixture(c);
+            f.insert(QStringLiteral("isAudio"), true);
+            f.insert(QStringLiteral("mediaIsVoice"), true);
+            f.insert(QStringLiteral("body"), QStringLiteral("Voice message"));
+            f.insert(QStringLiteral("mediaMimetype"), QStringLiteral("audio/ogg"));
+            f.insert(QStringLiteral("mediaDurationMs"), 7000);
+            f.insert(QStringLiteral("mediaSourceAvailable"), true);
+            f.insert(QStringLiteral("mediaKey"), QStringLiteral("$voice"));
+            QVariantList wave;
+            for (int i = 0; i < 40; ++i)
+                wave.append((i * 37) % 100);
+            f.insert(QStringLiteral("mediaWaveform"), wave);
+            out.append({ QStringLiteral("voice"), f });
+        }
+        {
+            QVariantMap f = baseFixture(c);
+            f.insert(QStringLiteral("isAudio"), true);
+            f.insert(QStringLiteral("body"), QStringLiteral("song.mp3"));
+            f.insert(QStringLiteral("mediaFilename"), QStringLiteral("song.mp3"));
+            f.insert(QStringLiteral("mediaMimetype"), QStringLiteral("audio/mpeg"));
+            f.insert(QStringLiteral("mediaDurationMs"), 185000);
+            f.insert(QStringLiteral("mediaSize"), 4200000);
+            f.insert(QStringLiteral("mediaSourceAvailable"), true);
+            f.insert(QStringLiteral("mediaThumbAvailable"), true);
+            f.insert(QStringLiteral("mediaKey"), QStringLiteral("$song"));
+            out.append({ QStringLiteral("audio-cover"), f });
+        }
+        {
+            QVariantMap f = baseFixture(c);
             f.insert(QStringLiteral("replyToEventId"), QStringLiteral("$parent"));
             f.insert(QStringLiteral("replyToSender"), QStringLiteral("Someone"));
             f.insert(QStringLiteral("replyToPreview"), QStringLiteral("the original"));
@@ -378,6 +406,65 @@ private Q_SLOTS:
                                       << census::describe(census::objectsUnder(o), 10);
             }
         }
+    }
+
+    void anIdleAudioCardBuildsOnlyWhatItShows()
+    {
+        AppController controller(AppController::MockBackend);
+        struct Case { const char *kind; const char *style; int max; };
+        const Case cases[] = {
+            { "audio", "card", 100 },
+            { "voice", "card", 100 },
+            { "audio-cover", "compact", 125 },
+            { "audio-cover", "card", 125 },
+            { "audio-cover", "large", 125 },
+        };
+        const auto fixtures = surveyFixtures(controller);
+        QStringList failures;
+        QStringList counts;
+        int checked = 0;
+        for (const Case &c : cases) {
+            controller.settings()->setAlbumArtStyle(QLatin1String(c.style));
+            for (const auto &entry : fixtures) {
+                if (entry.first != QLatin1String(c.kind))
+                    continue;
+                const QString label = QStringLiteral("%1/%2").arg(QLatin1String(c.kind),
+                                                                  QLatin1String(c.style));
+                Delegate d;
+                QVERIFY2(createDelegate(controller, entry.second, d), qPrintable(label));
+                QTest::qWait(150);
+                auto *card = d.root->findChild<QQuickItem *>(QStringLiteral("audioMedia"));
+                QVERIFY2(card, qPrintable(label));
+                const auto objects = census::objectsUnder(card);
+                counts << QStringLiteral("%1=%2").arg(label).arg(objects.size());
+                QStringList parts;
+                for (QQuickItem *grid : card->childItems()) {
+                    for (QQuickItem *part : grid->childItems())
+                        parts << QStringLiteral("%1=%2").arg(describeItem(part)).arg(
+                            census::objectsUnder(part).size());
+                }
+                if (objects.size() > c.max)
+                    failures << QStringLiteral("%1 %2 | %3")
+                                    .arg(label, census::describe(objects, 12),
+                                         parts.join(QStringLiteral(", ")));
+                if (card->findChild<QObject *>(QStringLiteral("audioSpeedMenu")))
+                    failures << label + QStringLiteral(" built the speed menu");
+                if (QLatin1String(c.kind) == QLatin1String("voice")) {
+                    auto *wave = card->findChild<QQuickItem *>(QStringLiteral("voiceSeekWave"));
+                    QVERIFY2(wave && wave->isVisible(), "no waveform drawn");
+                    const auto bars = census::objectsUnder(wave);
+                    if (bars.size() > 3)
+                        failures << label + QStringLiteral(" waveform ")
+                                        + census::describe(bars, 6);
+                }
+                QCOMPARE(d.warnings, QStringList{});
+                ++checked;
+            }
+        }
+        controller.settings()->setAlbumArtStyle(QStringLiteral("card"));
+        qInfo().noquote() << "AUDIO" << counts.join(QLatin1Char(' '));
+        QCOMPARE(checked, int(std::size(cases)));
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QStringLiteral("\n"))));
     }
 
     void mediaRowsBuildNoBodyText()

@@ -5,6 +5,7 @@
 
 #include <QElapsedTimer>
 #include <QImage>
+#include <QJSValue>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -19,6 +20,21 @@
 #include "app/SettingsManager.h"
 #include "media/MediaBridge.h"
 #include "media/MediaImageProvider.h"
+
+inline QList<QVariantMap> paintedWaveBars(QQuickItem *wave)
+{
+    QVariant out;
+    QMetaObject::invokeMethod(wave, "bars", Q_RETURN_ARG(QVariant, out));
+    if (out.metaType() == QMetaType::fromType<QJSValue>())
+        out = out.value<QJSValue>().toVariant();
+    QList<QVariantMap> bars;
+    for (QVariant bar : out.toList()) {
+        if (bar.metaType() == QMetaType::fromType<QJSValue>())
+            bar = bar.value<QJSValue>().toVariant();
+        bars.append(bar.toMap());
+    }
+    return bars;
+}
 
 class AudioCoverArtAspectTest : public QObject
 {
@@ -350,10 +366,10 @@ private Q_SLOTS:
         QTRY_VERIFY(row->isVisible() && row->width() > 1);
 
         QList<qreal> heights;
-        const auto kids = row->childItems();
-        for (QQuickItem *kid : kids) {
-            if (kid->height() > 0 && kid->width() > 0)
-                heights.append(kid->height());
+        for (const QVariantMap &bar : paintedWaveBars(row)) {
+            const qreal h = bar.value(QStringLiteral("height")).toReal();
+            if (h > 0 && bar.value(QStringLiteral("width")).toReal() > 0)
+                heights.append(h);
         }
         QVERIFY2(heights.size() >= 4,
                  qPrintable(QStringLiteral("only %1 waveform bars were built")

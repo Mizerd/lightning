@@ -476,7 +476,13 @@ Rectangle {
             ToolTip.text: qsTr("Playback speed")
             ToolTip.visible: hovered
             ToolTip.delay: 600
-            onClicked: speedMenu.popup()
+            // Built on first use: an idle row never opens it.
+            property AppMenu speedMenu: null
+            onClicked: {
+                if (!speedMenu)
+                    speedMenu = speedMenuComponent.createObject(audioSpeedButton)
+                speedMenu.popup()
+            }
             Keys.onReturnPressed: (event) => {
                 event.accepted = true
                 if (enabled) clicked()
@@ -485,18 +491,20 @@ Rectangle {
                 event.accepted = true
                 if (enabled) clicked()
             }
-            AppMenu {
-                id: speedMenu
-                objectName: "audioSpeedMenu"
-                menuWidth: 140
-                Repeater {
-                    model: audioSpeedButton.rates
-                    AppMenuItem {
-                        required property real modelData
-                        text: modelData + "×"
-                        iconName: Math.abs(modelData - audioSpeedButton.rate)
-                                  < 0.001 ? "check" : ""
-                        onTriggered: root.setRate(modelData)
+            Component {
+                id: speedMenuComponent
+                AppMenu {
+                    objectName: "audioSpeedMenu"
+                    menuWidth: 140
+                    Repeater {
+                        model: audioSpeedButton.rates
+                        AppMenuItem {
+                            required property real modelData
+                            text: modelData + "×"
+                            iconName: Math.abs(modelData - audioSpeedButton.rate)
+                                      < 0.001 ? "check" : ""
+                            onTriggered: root.setRate(modelData)
+                        }
                     }
                 }
             }
@@ -518,16 +526,39 @@ Rectangle {
                 verticalAlignment: Text.AlignVCenter
             }
         }
-        MediaVolumeControl {
-            objectName: "audioMuteButton"
+        Loader {
+            objectName: "audioVolumeSlot"
             Layout.alignment: cardGrid.big ? Qt.AlignVCenter : Qt.AlignTop
             Layout.row: cardGrid.ctlRow
             Layout.column: cardGrid.big ? 3 : 4 - cardGrid.colShift
-            audio: root.isCurrent ? root.voice.audioOutput : null
-            sliderObjectName: "audioVolumeSlider"
-            iconSize: 15
-            implicitWidth: 24; implicitHeight: 24
-            opacity: root.ready ? 1 : 0.45
+            // Only the playing row has an output to drive; the others draw the
+            // same disabled glyph without the volume popup and its slider.
+            sourceComponent: root.isCurrent ? volumeControl : volumeIdle
+        }
+        Component {
+            id: volumeControl
+            MediaVolumeControl {
+                objectName: "audioMuteButton"
+                audio: root.isCurrent ? root.voice.audioOutput : null
+                sliderObjectName: "audioVolumeSlider"
+                iconSize: 15
+                implicitWidth: 24; implicitHeight: 24
+                opacity: root.ready ? 1 : 0.45
+            }
+        }
+        Component {
+            id: volumeIdle
+            IconButton {
+                objectName: "audioMuteButton"
+                iconName: "volume_up"
+                iconSize: 15
+                implicitWidth: 24; implicitHeight: 24
+                enabled: false
+                opacity: 0.45
+                Accessible.name: qsTranslate("MediaVolumeControl", "Mute")
+                Accessible.description:
+                    qsTranslate("MediaVolumeControl", "Volume %1%").arg(0)
+            }
         }
         IconButton {
             objectName: "audioSaveButton"
