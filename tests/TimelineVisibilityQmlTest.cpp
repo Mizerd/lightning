@@ -469,7 +469,8 @@ private Q_SLOTS:
         auto *avatar = find(d, "senderAvatar");
         QVERIFY2(avatar, "On hover must build the avatar so hovering builds nothing");
         const qreal height0 = d.root->implicitHeight();
-        QVERIFY2(opacityUpTo(avatar, d.root) == 0.0, qPrintable(diag(d)));
+        leaveRow(d);
+        QTRY_VERIFY2(opacityUpTo(avatar, d.root) == 0.0, qPrintable(diag(d)));
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(avatar, d.root), 1.0);
@@ -556,7 +557,8 @@ private Q_SLOTS:
         auto *flow = find(d, "reactionsFlow");
         QVERIFY2(flow, "On hover must build the chips up front");
         QCOMPARE(d.root->implicitHeight(), shownHeight);
-        QVERIFY2(opacityUpTo(flow, d.root) == 0.0, qPrintable(diag(d)));
+        leaveRow(d);
+        QTRY_VERIFY2(opacityUpTo(flow, d.root) == 0.0, qPrintable(diag(d)));
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(flow, d.root), 1.0);
@@ -653,7 +655,8 @@ private Q_SLOTS:
         QVERIFY2(strip, "On hover must build the receipts up front");
         QCOMPARE(d.root->implicitHeight(), shownHeight);
         QCOMPARE(d.root->property("receiptRailReserve").toReal(), reserve);
-        QVERIFY2(opacityUpTo(strip, d.root) == 0.0, qPrintable(diag(d)));
+        leaveRow(d);
+        QTRY_VERIFY2(opacityUpTo(strip, d.root) == 0.0, qPrintable(diag(d)));
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(strip, d.root), 1.0);
