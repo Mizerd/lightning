@@ -36,15 +36,19 @@ variables:
     description: "Safe default false. Set true to publish packages to project 6 and finalize the release."
   BUILD_FORMATS:
     value: "all"
-    description: "Build-only format selection: 'all' or a comma list from deb,rpm,flatpak,appimage,snap (snap also requires appimage in the list). Publishing pipelines always build every format."
+    description: "Build-only format selection: 'all' or a comma list from deb,rpm,flatpak,appimage,snap (snap also requires appimage in the list); 'none' builds no Linux package. With PACKAGE_BUILD_SITE=gitlab.com anything but 'none' runs the whole gitlab.com lane. Publishing pipelines always build every format."
   BUILD_WINDOWS_PACKAGES:
     value: "false"
     options: ["false", "true"]
-    description: "Safe default false. Enables unsigned Windows cross-package test artifacts only with BUILD_FORMATS=none on the protected default branch."
+    description: "Safe default false. Enables unsigned Windows cross-package test artifacts only with BUILD_FORMATS=none on the protected default branch (with PACKAGE_BUILD_SITE=gitlab.com: runs the whole gitlab.com lane)."
   BUILD_MACOS_PACKAGES:
     value: "false"
     options: ["false", "true"]
     description: "Safe default false. Enables the unsigned macOS arm64 .app bundle in a build-only pipeline on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set. A publishing pipeline (PUBLISH_PACKAGES=true) ALWAYS builds macOS, whatever this says, and cannot publish or tag without it: since 2026-10-07 a release must have every job green."
+  PACKAGE_BUILD_SITE:
+    value: "gitlab.com"
+    options: ["gitlab.com", "home"]
+    description: "Where the Linux and Windows packages are built. gitlab.com: the package lane of the gitlab.com mirror (.gitlab/packages.yml), triggered and collected by the gitlab-com-* jobs; it can only build the commit gitlab.com main points at. home: the local build-*/validate-* jobs and build-windows (the fallback, and the only way to attach-existing an older commit). macOS is always built on the Mac mini."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
@@ -67,9 +71,11 @@ variables:
 #
 # RELEASE PIPELINES ARE STRICT (Rokas, 2026-10-07). A pipeline with
 # PUBLISH_PACKAGES=true cannot pass with a warning: no job in it may be
-# allow_failure, and publish-packages `needs` every build and validate job in
-# it (macOS, COPR, openSUSE and Leap included, none `optional`), so any failure
-# stops the pipeline before the registry is written or the tag exists. Jobs that
+# allow_failure but the optional arm64 collector (2026-11-04), and
+# publish-packages `needs` every build, validate and collector job in it
+# (macOS, COPR, openSUSE and Leap included), so any failure stops the pipeline
+# before the registry is written or the tag exists. Its only `optional` needs
+# are the package jobs of the site PACKAGE_BUILD_SITE did not choose. Jobs that
 # run after the tag (the Flathub PR, the GitHub manifest mirror) turn the
 # pipeline red, not yellow. Build-only pipelines keep their canaries
 # allow_failure, set per rule below. test-pipeline-config.py asserts all of it.
@@ -114,7 +120,7 @@ variables:
 # fully pinned project-6 commit and every publication/release input disabled.
 .windows-test-rules:
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true" && $PUBLISH_PACKAGES == "false" && $BUILD_FORMATS == "none" && $SOURCE_REF =~ /^[0-9a-f]{40}$/ && $RELEASE_VERSION == "" && $RELEASE_NOTES_B64 == ""'
+    - if: '$PACKAGE_BUILD_SITE == "home" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true" && $PUBLISH_PACKAGES == "false" && $BUILD_FORMATS == "none" && $SOURCE_REF =~ /^[0-9a-f]{40}$/ && $RELEASE_VERSION == "" && $RELEASE_NOTES_B64 == ""'
       when: on_success
     - when: never
 
@@ -251,6 +257,8 @@ build-deb:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
@@ -307,6 +315,8 @@ build-deb-ubuntu:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
@@ -363,6 +373,8 @@ build-rpm:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
@@ -417,6 +429,8 @@ build-rpm:
 copr-srpm:
   # A release must have it green; a build-only pipeline treats it as a canary.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
       allow_failure: false
     - if: '$BUILD_FORMATS == "all"'
@@ -461,6 +475,8 @@ copr-srpm:
 build-rpm-opensuse:
   # A release must have it green; a build-only pipeline treats it as a canary.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
       allow_failure: false
     - if: '$BUILD_FORMATS == "all"'
@@ -501,6 +517,8 @@ build-flatpak:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)flatpak(,|$)/'
@@ -534,6 +552,8 @@ build-appimage:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
@@ -644,6 +664,8 @@ build-snap:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)snap(,|$)/ && $BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
@@ -753,6 +775,8 @@ windows-package-test:
 # video uses ffmpegmediaplugin rather than the WMF backend.
 build-windows:
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true"'
       when: on_success
     - when: never
@@ -830,10 +854,156 @@ macos-package-test:
       - dist/macos/build-info.json
       - dist/macos/reports/
 
+# PACKAGE_BUILD_SITE=gitlab.com (the default): the Linux and Windows packages
+# come from the package lane of the gitlab.com mirror (.gitlab/packages.yml),
+# which runs the same packaging-ci scripts on the same pinned images.
+# gitlab-com-lane triggers it on gitlab.com's protected main for the resolved
+# commit and waits; three collectors then take its validated packages, split
+# because together they exceed this instance's 1 GiB artifact cap. Every
+# script call names GITLAB_COM_REF and SOURCE_REF on its command line, where no
+# trigger variable can override them. A build-only pipeline runs the whole lane
+# whatever BUILD_FORMATS selects; the lane cannot be narrowed.
+.gitlab-com-rules:
+  rules:
+    - if: '$PACKAGE_BUILD_SITE == "home"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $PUBLISH_PACKAGES == "true"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_FORMATS != "none"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true"'
+      when: on_success
+    - when: never
+
+# GITLAB_COM_TRIGGER_TOKEN and GITLAB_COM_READ_TOKEN are protected project
+# variables, scoped to the `gitlab-com` environment so no build job sees them.
+.gitlab-com-job:
+  extends: .gitlab-com-rules
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  environment:
+    name: gitlab-com
+    action: prepare
+  # findutils: the collector's `find -regextype`, which busybox lacks.
+  before_script: [apk add --no-cache bash coreutils curl findutils jq python3]
+
+# Not retried: a retry would trigger and pay for a second lane. To resume
+# after this job died while the lane ran, retry it with GITLAB_COM_PIPELINE_ID
+# set to the lane pipeline it printed; the collector adopts it after checking
+# its variables, commit, branch and jobs.
+gitlab-com-lane:
+  extends: .gitlab-com-job
+  stage: build
+  # The collector's own wait is 7 h.
+  timeout: 7h 30m
+  needs:
+    - job: resolve-source
+      artifacts: true
+  script:
+    - >-
+      GITLAB_COM_REF=main GITLAB_COM_COLLECT=none
+      SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
+      ./packaging-ci/scripts/gitlab-com-package-lane.sh
+  artifacts:
+    expire_in: 7 days
+    reports:
+      dotenv: dist/gitlab-com-lane.env
+
+# The collectors only adopt the pipeline gitlab-com-lane accepted, so they are
+# safe to retry; an empty trigger token makes a missing pipeline id fatal
+# instead of a second trigger.
+#
+# Each uploads up to ~550 MB, so they are pinned to the package runners rather
+# than whichever untagged runner is free.
+.gitlab-com-collector:
+  extends: .gitlab-com-job
+  stage: validate
+  tags: [apt, deb, package]
+  timeout: 1h
+  retry:
+    max: 2
+    when: [script_failure, runner_system_failure, stuck_or_timeout_failure, api_failure]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: gitlab-com-lane
+      artifacts: true
+
+gitlab-com-packages:
+  extends: .gitlab-com-collector
+  script:
+    - test -n "${GITLAB_COM_LANE_PIPELINE:-}"
+    - >-
+      GITLAB_COM_REF=main GITLAB_COM_COLLECT=linux-amd64
+      GITLAB_COM_TRIGGER_TOKEN= GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"
+      SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
+      ./packaging-ci/scripts/gitlab-com-package-lane.sh
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - dist/*.deb
+      - dist/*.rpm
+      - dist/*.flatpak
+      - dist/*.AppImage
+      - dist/*.snap
+      - dist/*.sha256
+      - dist/gitlab-com-lane-linux-amd64.json
+
+# The arm64 packages are optional release assets (Rokas, 2026-11-04): this job
+# is allow_failure even in a release, and the collector takes whichever arm64
+# packages validated. write-manifest.sh publishes those it finds and keeps
+# them out of the signed update manifest; report-optional-assets lists them.
+gitlab-com-packages-arm64:
+  extends: .gitlab-com-collector
+  rules:
+    - if: '$PACKAGE_BUILD_SITE == "home"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $PUBLISH_PACKAGES == "true"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_FORMATS != "none"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true"'
+      allow_failure: true
+    - when: never
+  script:
+    - test -n "${GITLAB_COM_LANE_PIPELINE:-}"
+    - >-
+      GITLAB_COM_REF=main GITLAB_COM_COLLECT=linux-arm64
+      GITLAB_COM_TRIGGER_TOKEN= GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"
+      SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
+      ./packaging-ci/scripts/gitlab-com-package-lane.sh
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - dist/*.deb
+      - dist/*.rpm
+      - dist/*.AppImage
+      - dist/*.snap
+      - dist/*.sha256
+      - dist/gitlab-com-lane-linux-arm64.json
+
+gitlab-com-windows:
+  extends: .gitlab-com-collector
+  script:
+    - test -n "${GITLAB_COM_LANE_PIPELINE:-}"
+    - >-
+      GITLAB_COM_REF=main GITLAB_COM_COLLECT=windows
+      GITLAB_COM_TRIGGER_TOKEN= GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"
+      SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
+      ./packaging-ci/scripts/gitlab-com-package-lane.sh
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - dist/windows/*-portable.zip
+      - dist/windows/*.msi
+      - dist/windows/*-setup.exe
+      - dist/gitlab-com-lane-windows.json
+
 validate-deb:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
@@ -878,6 +1048,8 @@ validate-deb-ubuntu:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
@@ -919,6 +1091,8 @@ validate-rpm:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
@@ -960,6 +1134,8 @@ validate-rpm-opensuse:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
@@ -996,6 +1172,8 @@ validate-rpm-opensuse:
 validate-rpm-leap:
   # A release must have it green; a build-only pipeline treats it as a canary.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
       allow_failure: false
     - if: '$BUILD_FORMATS == "all"'
@@ -1034,6 +1212,8 @@ validate-flatpak:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)flatpak(,|$)/'
@@ -1073,6 +1253,8 @@ validate-appimage:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
@@ -1122,6 +1304,8 @@ validate-snap:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$PUBLISH_PACKAGES == "true"'
     - if: '$BUILD_FORMATS == "all"'
     - if: '$BUILD_FORMATS =~ /(^|,)snap(,|$)/ && $BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
@@ -1176,37 +1360,66 @@ publish-packages:
       artifacts: false
     - job: resolve-source
       artifacts: true
+    # Exactly one of the two package sources below is in any pipeline
+    # (PACKAGE_BUILD_SITE), so each of their needs is `optional`. That only
+    # tolerates a job the rules left out: one that is present and fails still
+    # stops publication, the allow_failure arm64 collector excepted.
+    #
+    # gitlab.com (the default). gitlab-com-lane is reached through these.
+    - job: gitlab-com-packages
+      artifacts: true
+      optional: true
+    # Optional assets: published when collected, never in the update manifest.
+    - job: gitlab-com-packages-arm64
+      artifacts: true
+      optional: true
+    - job: gitlab-com-windows
+      artifacts: true
+      optional: true
+    # home.
     - job: validate-deb
       artifacts: true
+      optional: true
     # The Ubuntu deb is published but not in the signed update manifest; see
     # write-manifest.sh.
     - job: validate-deb-ubuntu
       artifacts: true
+      optional: true
     - job: validate-rpm
       artifacts: true
+      optional: true
     # A gate only: the same .rpm, installed and run on openSUSE Tumbleweed.
     - job: validate-rpm-opensuse
       artifacts: false
+      optional: true
     - job: validate-flatpak
       artifacts: true
+      optional: true
     - job: validate-appimage
       artifacts: true
+      optional: true
     - job: validate-snap
       artifacts: true
+      optional: true
     - job: build-windows
       artifacts: true
+      optional: true
+    # Gates only: nothing of theirs is published, but a release may not pass
+    # with any of them red (2026-10-07). On gitlab.com the lane runs them, and
+    # the collector refuses a release lane with any of them red.
+    - job: copr-srpm
+      artifacts: false
+      optional: true
+    - job: build-rpm-opensuse
+      artifacts: false
+      optional: true
+    - job: validate-rpm-leap
+      artifacts: false
+      optional: true
     # Required, never optional: a release cannot publish without macOS
     # (2026-10-07). .macos-test-rules puts it in every publishing pipeline.
     - job: macos-package-test
       artifacts: true
-    # Gates only: nothing of theirs is published, but a release may not pass
-    # with any of them red (2026-10-07).
-    - job: copr-srpm
-      artifacts: false
-    - job: build-rpm-opensuse
-      artifacts: false
-    - job: validate-rpm-leap
-      artifacts: false
   before_script: [apk add --no-cache bash coreutils curl jq]
   script:
     # Set on the command line, where no trigger variable can override it:
@@ -1327,22 +1540,38 @@ mirror-release-to-github:
   needs:
     - job: resolve-source
       artifacts: true
+    # The bytes publish-packages published, from whichever site built them;
+    # `optional` as there.
+    - job: gitlab-com-packages
+      artifacts: true
+      optional: true
+    - job: gitlab-com-packages-arm64
+      artifacts: true
+      optional: true
+    - job: gitlab-com-windows
+      artifacts: true
+      optional: true
     - job: validate-deb
       artifacts: true
-    # The Ubuntu deb is published but not in the signed update manifest; see
-    # write-manifest.sh.
+      optional: true
     - job: validate-deb-ubuntu
       artifacts: true
+      optional: true
     - job: validate-rpm
       artifacts: true
+      optional: true
     - job: validate-flatpak
       artifacts: true
+      optional: true
     - job: validate-appimage
       artifacts: true
+      optional: true
     - job: validate-snap
       artifacts: true
+      optional: true
     - job: build-windows
       artifacts: true
+      optional: true
     - job: publish-packages
       artifacts: true
     - job: verify-published-packages
@@ -1491,20 +1720,37 @@ mirror-release-to-gitlab-com:
   needs:
     - job: resolve-source
       artifacts: true
+    # As in mirror-release-to-github.
+    - job: gitlab-com-packages
+      artifacts: true
+      optional: true
+    - job: gitlab-com-packages-arm64
+      artifacts: true
+      optional: true
+    - job: gitlab-com-windows
+      artifacts: true
+      optional: true
     - job: validate-deb
       artifacts: true
+      optional: true
     - job: validate-deb-ubuntu
       artifacts: true
+      optional: true
     - job: validate-rpm
       artifacts: true
+      optional: true
     - job: validate-flatpak
       artifacts: true
+      optional: true
     - job: validate-appimage
       artifacts: true
+      optional: true
     - job: validate-snap
       artifacts: true
+      optional: true
     - job: build-windows
       artifacts: true
+      optional: true
     - job: publish-packages
       artifacts: true
     - job: macos-package-test

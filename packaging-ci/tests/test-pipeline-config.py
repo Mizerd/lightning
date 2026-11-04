@@ -56,6 +56,8 @@ required_jobs = [
     "github-mirror-preflight", "mirror-update-manifest-to-github",
     "windows-package-test", "build-windows", "macos-package-test",
     "flathub-update-pr",
+    "gitlab-com-lane", "gitlab-com-packages", "gitlab-com-packages-arm64",
+    "gitlab-com-windows",
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
@@ -215,7 +217,7 @@ check(len(set(rule_texts.values())) == 1,
 
 # --- dependency wiring ---
 def needs_names(job):
-    ns = doc[job].get("needs", [])
+    ns = resolve_extends(job).get("needs", [])
     out = []
     for n in ns:
         out.append(n["job"] if isinstance(n, dict) else n)
@@ -225,8 +227,9 @@ check(set(["validate-deb", "validate-rpm", "validate-flatpak",
            "validate-appimage", "validate-snap"]).issubset(
           needs_names("publish-packages")),
       "publish-packages depends on every format's validation job")
-check("build-windows" in needs_names("publish-packages"),
-      "publish-packages depends on the Windows build (portable/MSI/setup)")
+check("build-windows" in needs_names("publish-packages")
+      and "gitlab-com-windows" in needs_names("publish-packages"),
+      "publish-packages depends on the Windows build (portable/MSI/setup) from either site")
 check("resolve-source" in needs_names("publish-packages"),
       "publish-packages depends on resolve-source")
 check("publish-packages" in needs_names("verify-published-packages"),
@@ -303,7 +306,9 @@ check("sign-update-manifest" in needs_names("mirror-release-to-github"),
       "the mirror cross-checks the signed manifest's mirror URLs")
 # It uploads the published bytes, so it needs the jobs that carry them.
 for producer in ["validate-deb", "validate-rpm", "validate-flatpak",
-                 "validate-appimage", "validate-snap", "build-windows"]:
+                 "validate-appimage", "validate-snap", "build-windows",
+                 "gitlab-com-packages", "gitlab-com-packages-arm64",
+                 "gitlab-com-windows"]:
     check(producer in needs_names("mirror-release-to-github"),
           f"the mirror receives {producer}'s artifact bytes (it never rebuilds)")
 # SHA256SUMS is generated in publish-packages; the mirror needs it too.
@@ -468,8 +473,11 @@ check(not evaluate(gate, v), "publish jobs excluded off the default branch")
 
 # --- BUILD_FORMATS selection: build-only pipelines may run a subset, while
 # --- publishing pipelines always include every format ---
+# The local build jobs exist only with PACKAGE_BUILD_SITE=home; the checks
+# below that do not name a site are about that site.
 def build_included(fmt, variables):
-    return evaluate(doc["build-" + fmt]["rules"], variables)
+    return evaluate(doc["build-" + fmt]["rules"],
+                    dict({"PACKAGE_BUILD_SITE": "home"}, **variables))
 
 all_fmts = list(FORMAT_SELECTOR)
 v = {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "all"}
@@ -491,6 +499,11 @@ check(build_included("snap", v) and build_included("appimage", v),
 v = {"PUBLISH_PACKAGES": "true", "BUILD_FORMATS": "deb"}
 check(all(build_included(f, v) for f in all_fmts),
       "publishing pipelines build every format regardless of BUILD_FORMATS")
+for _site_vars in ({"PUBLISH_PACKAGES": "true", "BUILD_FORMATS": "all"},
+                   {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "all"}):
+    check(not any(build_included(f, dict(_site_vars, PACKAGE_BUILD_SITE="gitlab.com"))
+                  for f in all_fmts),
+          f"PACKAGE_BUILD_SITE=gitlab.com builds no Linux package at home ({_site_vars})")
 def _rule_conditions(job):
     return [(r.get("if"), r.get("when")) for r in doc[job].get("rules", [])]
 for job in ("validate-rpm-opensuse", "copr-srpm", "build-rpm-opensuse",
@@ -525,6 +538,7 @@ check(windows.get("artifacts", {}).get("access") == "developer",
 
 windows_gate = windows["rules"]
 windows_vars = {
+    "PACKAGE_BUILD_SITE": "home",
     "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
     "CI_PIPELINE_SOURCE": "web", "BUILD_WINDOWS_PACKAGES": "true",
     "PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "none",
@@ -539,7 +553,8 @@ for key, value in (("CI_COMMIT_BRANCH", "feature"),
                    ("BUILD_FORMATS", "all"),
                    ("SOURCE_REF", "main"),
                    ("RELEASE_VERSION", "0.6.2"),
-                   ("RELEASE_NOTES_B64", "bm90ZXM=")):
+                   ("RELEASE_NOTES_B64", "bm90ZXM="),
+                   ("PACKAGE_BUILD_SITE", "gitlab.com")):
     rejected = dict(windows_vars)
     rejected[key] = value
     check(not evaluate(windows_gate, rejected),
@@ -557,15 +572,15 @@ check(isinstance(bw_image, dict) and bw_image.get("name") == WINDOWS_IMAGE,
 check(set(build_windows.get("tags", [])) == {"windows-cross", "windows-package"},
       "build-windows uses the dedicated cross-package runner tags")
 bw_gate = build_windows["rules"]
-check(evaluate(bw_gate, {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
-                         "PUBLISH_PACKAGES": "true"}),
-      "build-windows runs in a publishing pipeline on the default branch")
-check(not evaluate(bw_gate, {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
-                             "PUBLISH_PACKAGES": "false"}),
+_bw = {"PACKAGE_BUILD_SITE": "home", "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main"}
+check(evaluate(bw_gate, dict(_bw, PUBLISH_PACKAGES="true")),
+      "build-windows runs in a home-site publishing pipeline on the default branch")
+check(not evaluate(bw_gate, dict(_bw, PUBLISH_PACKAGES="false")),
       "build-windows is excluded when not publishing")
-check(not evaluate(bw_gate, {"CI_COMMIT_BRANCH": "feature", "CI_DEFAULT_BRANCH": "main",
-                             "PUBLISH_PACKAGES": "true"}),
+check(not evaluate(bw_gate, dict(_bw, PUBLISH_PACKAGES="true", CI_COMMIT_BRANCH="feature")),
       "build-windows is excluded off the default branch")
+check(not evaluate(bw_gate, dict(_bw, PUBLISH_PACKAGES="true", PACKAGE_BUILD_SITE="gitlab.com")),
+      "build-windows is excluded when gitlab.com builds the packages")
 
 # --- macOS: native shell-executor test path on the physical Mac mini ---------
 # Same restrictive gate shape as the Windows test job.
@@ -2107,36 +2122,65 @@ def _stage(job):
     return stages.index(resolve_extends(job).get("stage", "test"))
 
 
+# The two package sources PACKAGE_BUILD_SITE chooses between. Exactly one set
+# is in any pipeline, so needs on them are the only `optional` needs allowed.
+GITLAB_COM_JOBS = {"gitlab-com-lane", "gitlab-com-packages",
+                   "gitlab-com-packages-arm64", "gitlab-com-windows"}
+HOME_PACKAGE_JOBS = {
+    "build-deb", "build-deb-ubuntu", "build-rpm", "build-flatpak",
+    "build-appimage", "build-snap", "build-windows", "copr-srpm",
+    "build-rpm-opensuse", "validate-deb", "validate-deb-ubuntu", "validate-rpm",
+    "validate-rpm-opensuse", "validate-rpm-leap", "validate-flatpak",
+    "validate-appimage", "validate-snap",
+}
+SITE_JOBS = {"gitlab.com": GITLAB_COM_JOBS, "home": HOME_PACKAGE_JOBS}
+# The optional arm64 assets (Rokas, 2026-11-04): the one job a release
+# tolerates failing.
+OPTIONAL_ASSET_JOBS = {"gitlab-com-packages-arm64"}
+check(str((doc["variables"].get("PACKAGE_BUILD_SITE") or {}).get("value")) == "gitlab.com",
+      "PACKAGE_BUILD_SITE defaults to gitlab.com")
+check(set((doc["variables"].get("PACKAGE_BUILD_SITE") or {}).get("options", []))
+      == {"gitlab.com", "home"},
+      "PACKAGE_BUILD_SITE offers exactly gitlab.com and home")
+
 _release_configs = []
-for _action in ("create", "attach-existing"):
-    for _ref in (("a" * 40,) if _action == "create" else ("v0.10.1", "b" * 40)):
-        for _formats in ("all", "deb", "none"):
-            for _mac in ("true", "false"):
-                for _win in ("true", "false"):
-                    for _source in ("api", "web"):
-                        _release_configs.append({
-                            "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
-                            "CI_PIPELINE_SOURCE": _source, "PUBLISH_PACKAGES": "true",
-                            "RELEASE_ACTION": _action, "SOURCE_REF": _ref,
-                            "RELEASE_VERSION": "0.10.1", "RELEASE_NOTES_B64": "",
-                            "BUILD_FORMATS": _formats, "BUILD_MACOS_PACKAGES": _mac,
-                            "BUILD_WINDOWS_PACKAGES": _win,
-                        })
-check(len(_release_configs) == 72,
-      f"the release matrix covers 72 trigger shapes ({len(_release_configs)})")
+for _site in ("gitlab.com", "home"):
+    for _action in ("create", "attach-existing"):
+        for _ref in (("a" * 40,) if _action == "create" else ("v0.10.1", "b" * 40)):
+            for _formats in ("all", "deb", "none"):
+                for _mac in ("true", "false"):
+                    for _win in ("true", "false"):
+                        for _source in ("api", "web"):
+                            _release_configs.append({
+                                "PACKAGE_BUILD_SITE": _site,
+                                "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+                                "CI_PIPELINE_SOURCE": _source, "PUBLISH_PACKAGES": "true",
+                                "RELEASE_ACTION": _action, "SOURCE_REF": _ref,
+                                "RELEASE_VERSION": "0.10.1", "RELEASE_NOTES_B64": "",
+                                "BUILD_FORMATS": _formats, "BUILD_MACOS_PACKAGES": _mac,
+                                "BUILD_WINDOWS_PACKAGES": _win,
+                            })
+check(len(_release_configs) == 144,
+      f"the release matrix covers 144 trigger shapes ({len(_release_configs)})")
 
 _tolerant, _manual, _ungated, _untagged, _dangling, _sizes = set(), set(), set(), set(), set(), set()
+_site_wrong = set()
 _publish_stage, _release_stage = stages.index("publish"), stages.index("release")
 for _vars in _release_configs:
     _inc = _pipeline(_vars)
     _sizes.add(len(_inc))
+    _site = _vars["PACKAGE_BUILD_SITE"]
+    _other = SITE_JOBS["home" if _site == "gitlab.com" else "gitlab.com"]
+    if not SITE_JOBS[_site] <= set(_inc) or _other & set(_inc):
+        _site_wrong.add((_site, tuple(sorted(SITE_JOBS[_site] - set(_inc))),
+                         tuple(sorted(_other & set(_inc)))))
     if "publish-packages" not in _inc or "finalize-release" not in _inc:
         _ungated.add(("<no publication jobs>", _vars["RELEASE_ACTION"]))
         continue
     _pub = _closure("publish-packages", _inc)
     _tag = _closure("finalize-release", _inc)
     for _job, _rule in _inc.items():
-        if _effective_allow_failure(_job, _rule):
+        if _effective_allow_failure(_job, _rule) and _job not in OPTIONAL_ASSET_JOBS:
             _tolerant.add(_job)
         if (_rule or {}).get("when", resolve_extends(_job).get("when")) == "manual":
             _manual.add(_job)
@@ -2147,15 +2191,24 @@ for _vars in _release_configs:
         if _stage(_job) < _release_stage and _job != "finalize-release" and _job not in _tag:
             _untagged.add(_job)
         # A need on a job this pipeline does not contain is either a creation
-        # error (required) or a silent hole (optional); a release has neither.
+        # error (required) or a silent hole (optional); only the other site's
+        # package jobs may be absent, and only through an optional need.
         for _n in resolve_extends(_job).get("needs", []) or []:
             _name = _n["job"] if isinstance(_n, dict) else _n
-            if _name not in _inc:
+            if _name in _inc:
+                continue
+            if not (isinstance(_n, dict) and _n.get("optional") and _name in _other):
                 _dangling.add(f"{_job} -> {_name}")
-check(min(_sizes) >= 30,
+check(not _site_wrong,
+      f"every release pipeline holds exactly its own site's package jobs (found {sorted(_site_wrong)})")
+check(min(_sizes) >= 18,
       f"every release shape yields a full pipeline (smallest {min(_sizes)} jobs)")
 check(not _tolerant,
-      f"no job in a release pipeline is allow_failure (found {sorted(_tolerant)})")
+      f"no job in a release pipeline is allow_failure but the optional arm64 collector (found {sorted(_tolerant)})")
+check(all(_effective_allow_failure("gitlab-com-packages-arm64",
+                                   _pipeline(v)["gitlab-com-packages-arm64"])
+          for v in _release_configs if v["PACKAGE_BUILD_SITE"] == "gitlab.com"),
+      "the arm64 collector is allow_failure in every gitlab.com release: arm64 never blocks one")
 check(not _manual,
       f"no job in a release pipeline is manual (found {sorted(_manual)})")
 check(not _ungated,
@@ -2163,18 +2216,43 @@ check(not _ungated,
 check(not _untagged,
       f"finalize-release (the tag) transitively needs every earlier job (missing {sorted(_untagged)})")
 check(not _dangling,
-      f"no release job needs a job its pipeline lacks (found {sorted(_dangling)})")
-for _name in ("macos-package-test", "copr-srpm", "build-rpm-opensuse",
-              "validate-rpm-leap", "build-windows", "validate-rpm-opensuse"):
+      f"no release job needs a job its pipeline lacks, except the other site's through an optional need (found {sorted(_dangling)})")
+for _name in ("macos-package-test",):
     check(all(_name in _pipeline(v) for v in _release_configs),
           f"{_name} is in every release pipeline")
-# No `optional: true` anywhere on the way to or after publication.
+for _name in ("copr-srpm", "build-rpm-opensuse", "validate-rpm-leap", "build-windows",
+              "validate-rpm-opensuse"):
+    check(all(_name in _pipeline(v) for v in _release_configs
+              if v["PACKAGE_BUILD_SITE"] == "home"),
+          f"{_name} is in every home-site release pipeline")
+for _name in sorted(GITLAB_COM_JOBS):
+    check(all(_name in _pipeline(v) for v in _release_configs
+              if v["PACKAGE_BUILD_SITE"] == "gitlab.com"),
+          f"{_name} is in every gitlab.com release pipeline")
+# `optional: true` only on the site alternatives, and only where the package
+# bytes are consumed; no other need on the way to or after publication.
+_SITE_CONSUMERS = {"publish-packages", "mirror-release-to-github",
+                   "mirror-release-to-gitlab-com"}
 for _job in _JOBS:
-    if resolve_extends(_job).get("extends") != ".publish-rules" and _job != "publish-packages":
-        continue
     _opt = [n["job"] for n in doc[_job].get("needs", [])
             if isinstance(n, dict) and n.get("optional")]
-    check(not _opt, f"{_job} has no optional needs (found {_opt})")
+    if _job in _SITE_CONSUMERS:
+        check(set(_opt) <= GITLAB_COM_JOBS | HOME_PACKAGE_JOBS,
+              f"{_job}'s optional needs are site alternatives only (found {sorted(set(_opt) - GITLAB_COM_JOBS - HOME_PACKAGE_JOBS)})")
+        _mandatory = [n["job"] for n in doc[_job].get("needs", [])
+                      if isinstance(n, dict) and not n.get("optional")]
+        check(not (set(_mandatory) & (GITLAB_COM_JOBS | HOME_PACKAGE_JOBS)),
+              f"{_job} needs no site's package job unconditionally")
+    elif resolve_extends(_job).get("extends") == ".publish-rules":
+        check(not _opt, f"{_job} has no optional needs (found {_opt})")
+# Each consumer takes the bytes of every package job of either site that
+# produces any.
+for _job in _SITE_CONSUMERS:
+    _need_set = set(needs_names(_job))
+    for _producer in ("gitlab-com-packages", "gitlab-com-packages-arm64", "gitlab-com-windows",
+                      "validate-deb", "validate-deb-ubuntu", "validate-rpm",
+                      "validate-flatpak", "validate-appimage", "validate-snap", "build-windows"):
+        check(_producer in _need_set, f"{_job} takes {_producer}'s bytes")
 # Post-tag jobs: a failure must make the pipeline red, not yellow.
 for _job in ("flathub-update-pr", "mirror-update-manifest-to-github",
              "report-optional-assets", "publish-update-manifest",
@@ -2193,7 +2271,8 @@ _SNAPSHOT_FLEET = {
     "validate-rpm-leap", "validate-flatpak", "validate-appimage", "validate-snap",
 }
 _SNAPSHOT_CANARIES = {"copr-srpm", "build-rpm-opensuse", "validate-rpm-leap"}
-_snap_base = {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+_snap_base = {"PACKAGE_BUILD_SITE": "home",
+              "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
               "CI_PIPELINE_SOURCE": "api", "PUBLISH_PACKAGES": "false",
               "RELEASE_ACTION": "attach-existing", "RELEASE_VERSION": "",
               "RELEASE_NOTES_B64": "", "BUILD_WINDOWS_PACKAGES": "false"}
@@ -2213,10 +2292,33 @@ _snapshot_cases = [
           BUILD_WINDOWS_PACKAGES="true", SOURCE_REF="e" * 40),
      {"config-tests", "resolve-source", "windows-package-test"}, set()),
 ]
+# PACKAGE_BUILD_SITE=gitlab.com: any Linux or Windows request runs the whole
+# lane, and only the arm64 collector may fail.
+_LANE = {"config-tests", "resolve-source"} | GITLAB_COM_JOBS
+_lane_base = dict(_snap_base, PACKAGE_BUILD_SITE="gitlab.com")
+_snapshot_cases += [
+    (dict(_lane_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="true", SOURCE_REF="c" * 40),
+     _LANE | {"macos-package-test"}, OPTIONAL_ASSET_JOBS),
+    (dict(_lane_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main"),
+     _LANE, OPTIONAL_ASSET_JOBS),
+    (dict(_lane_base, BUILD_FORMATS="rpm", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main"),
+     _LANE, OPTIONAL_ASSET_JOBS),
+    (dict(_lane_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="true", SOURCE_REF="d" * 40),
+     {"config-tests", "resolve-source", "macos-package-test"}, set()),
+    (dict(_lane_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="false",
+          BUILD_WINDOWS_PACKAGES="true", SOURCE_REF="e" * 40),
+     _LANE, OPTIONAL_ASSET_JOBS),
+    # The trigger and read tokens are protected: nothing runs off main.
+    (dict(_lane_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main",
+          CI_COMMIT_BRANCH="feature"),
+     {"config-tests", "resolve-source"}, set()),
+]
 for _vars, _want_jobs, _want_tolerant in _snapshot_cases:
     _inc = _pipeline(_vars)
-    _label = f"build-only {_vars['BUILD_FORMATS']}/mac={_vars['BUILD_MACOS_PACKAGES']}/" \
-             f"win={_vars['BUILD_WINDOWS_PACKAGES']}/ref={_vars['SOURCE_REF'][:4]}"
+    _label = f"build-only {_vars['PACKAGE_BUILD_SITE']}/{_vars['BUILD_FORMATS']}/" \
+             f"mac={_vars['BUILD_MACOS_PACKAGES']}/" \
+             f"win={_vars['BUILD_WINDOWS_PACKAGES']}/ref={_vars['SOURCE_REF'][:4]}/" \
+             f"{_vars['CI_COMMIT_BRANCH']}"
     check(set(_inc) == _want_jobs,
           f"{_label}: the same jobs as before (extra {sorted(set(_inc) - _want_jobs)}, "
           f"missing {sorted(_want_jobs - set(_inc))})")
@@ -2302,6 +2404,119 @@ with open(os.path.join(HERE, "..", "..", ".gitlab", "packages.yml"), encoding="u
     _lane_windows_tags = re.findall(r"/windows-builder@sha256:[0-9a-f]{64}\s+#\s*(\S+)", _f.read())
 check(_lane_windows_tags and set(_lane_windows_tags) == {WINDOWS_IMAGE.split(":", 1)[1]},
       f"the package lane's windows-builder digest is labelled with the release pipeline's tag ({_lane_windows_tags})")
+
+# --- the gitlab.com package lane ---------------------------------------------
+#
+# gitlab-com-lane triggers the lane and waits; three collectors adopt the
+# pipeline it accepted and hand on one group each, under the 1 GiB artifact cap.
+_COLLECTORS = {"gitlab-com-packages": "linux-amd64",
+               "gitlab-com-packages-arm64": "linux-arm64",
+               "gitlab-com-windows": "windows"}
+_SOURCE_FROM_RESOLVE = 'SOURCE_REF="$(sed -n \'s/^SOURCE_SHA=//p\' dist/version.env)"'
+for _job in sorted(GITLAB_COM_JOBS):
+    _j = resolve_extends(_job)
+    _env = _j.get("environment")
+    check(isinstance(_env, dict) and _env.get("name") == "gitlab-com",
+          f"{_job} declares the `gitlab-com` environment its tokens may be scoped to")
+    check(str(_j.get("image", "")).startswith("alpine@sha256:"),
+          f"{_job} uses the digest-pinned alpine image")
+    _before = " ".join(str(x) for x in _j.get("before_script", []))
+    for _pkg in ("bash", "coreutils", "curl", "findutils", "jq", "python3"):
+        check(_pkg in _before.split(), f"{_job} installs {_pkg}")
+    _script = [str(x) for x in _j.get("script", [])]
+    _call = [x for x in _script if "gitlab-com-package-lane.sh" in x]
+    check(len(_call) == 1, f"{_job} runs the collector once")
+    _call = _call[0] if _call else ""
+    check("GITLAB_COM_REF=main " in _call,
+          f"{_job} pins gitlab.com main on the command line, where no trigger variable reaches")
+    check(_SOURCE_FROM_RESOLVE in _call,
+          f"{_job} builds the commit resolve-source resolved, not a trigger variable")
+    check("resolve-source" in needs_names(_job), f"{_job} needs resolve-source")
+    check("allow_failure" not in doc[_job],
+          f"{_job} sets allow_failure per rule, never job-wide")
+_lane = resolve_extends("gitlab-com-lane")
+check(_lane.get("stage") == "build" and needs_names("gitlab-com-lane") == ["resolve-source"],
+      "gitlab-com-lane starts right after resolve-source")
+check("retry" not in _lane,
+      "gitlab-com-lane is not retried: a retry would pay for a second lane")
+check("GITLAB_COM_COLLECT=none " in " ".join(str(x) for x in _lane["script"]),
+      "gitlab-com-lane collects nothing itself")
+check((_lane.get("artifacts", {}).get("reports") or {}).get("dotenv") == "dist/gitlab-com-lane.env",
+      "gitlab-com-lane hands the accepted pipeline id on as a dotenv report")
+_lane_timeout = str(_lane.get("timeout", ""))
+check(_lane_timeout.startswith("7h"),
+      f"gitlab-com-lane's timeout covers the collector's 7 h wait ({_lane_timeout})")
+_groups = set()
+for _job, _group in _COLLECTORS.items():
+    _j = resolve_extends(_job)
+    _script = [str(x) for x in _j.get("script", [])]
+    _call = next((x for x in _script if "gitlab-com-package-lane.sh" in x), "")
+    _groups.add(_group)
+    check(f"GITLAB_COM_COLLECT={_group} " in _call, f"{_job} collects {_group}")
+    check('GITLAB_COM_TRIGGER_TOKEN= ' in _call
+          and 'GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"' in _call,
+          f"{_job} only adopts the accepted pipeline and can never trigger one")
+    check(_script and _script[0] == 'test -n "${GITLAB_COM_LANE_PIPELINE:-}"',
+          f"{_job} refuses to run without the accepted pipeline id")
+    check(set(needs_names(_job)) == {"resolve-source", "gitlab-com-lane"},
+          f"{_job} needs resolve-source and gitlab-com-lane")
+    check(isinstance(_j.get("retry"), dict) and _j["retry"].get("max", 0) >= 1,
+          f"{_job} is retried (it only adopts, so a retry costs nothing)")
+    _paths = _j.get("artifacts", {}).get("paths", [])
+    check(f"dist/gitlab-com-lane-{_group}.json" in _paths,
+          f"{_job} hands on its group record")
+    check(not any(p in _paths for p in ("dist/version.env", "dist/version.json",
+                                        "dist/source-info.json", "dist/")),
+          f"{_job} never hands on a second copy of resolve-source's files")
+    check(_j.get("artifacts", {}).get("when", "on_success") == "on_success",
+          f"{_job} hands on nothing from a failed collection")
+check(_groups == {"linux-amd64", "linux-arm64", "windows"},
+      "the collectors cover each group exactly once")
+check(any(p.startswith("dist/windows/") for p in
+          resolve_extends("gitlab-com-windows")["artifacts"]["paths"])
+      and not any(p.startswith("dist/windows/") for j in ("gitlab-com-packages",
+                                                          "gitlab-com-packages-arm64")
+                  for p in resolve_extends(j)["artifacts"]["paths"]),
+      "only the Windows collector hands on dist/windows/")
+_arm_rules = resolve_extends("gitlab-com-packages-arm64")["rules"]
+_base_rules = resolve_extends("gitlab-com-packages")["rules"]
+check([r.get("if") for r in _arm_rules] == [r.get("if") for r in _base_rules],
+      "the arm64 collector runs exactly when the other collectors do")
+check(all(r.get("allow_failure") is True for r in _arm_rules if r.get("when") != "never"),
+      "the arm64 collector is allow_failure on every rule that includes it")
+for _job in ("gitlab-com-lane", "gitlab-com-packages", "gitlab-com-windows"):
+    check(all(not r.get("allow_failure", False) for r in resolve_extends(_job)["rules"]),
+          f"{_job} is never allow_failure")
+for _tok in ("GITLAB_COM_TRIGGER_TOKEN", "GITLAB_COM_READ_TOKEN"):
+    check(_tok not in yaml.dump(doc.get("variables", {}))
+          and not any(_tok in yaml.dump(resolve_extends(j).get("variables", {})) for j in _JOBS),
+          f"{_tok} is never defined in the pipeline file")
+
+# The lane jobs the collector reads exist in the lane, under those names.
+_lane_src = _read("scripts", "gitlab-com-package-lane.sh")
+with open(os.path.join(HERE, "..", "..", ".gitlab", "packages.yml"), encoding="utf-8") as _f:
+    _lane_doc = yaml.safe_load(_f)
+for _list in ("AMD64_JOBS", "ARM64_JOBS"):
+    _m = re.search(_list + r"=\(([^)]*)\)", _lane_src)
+    _names = _m.group(1).split() if _m else []
+    check(len(_names) == (6 if _list == "AMD64_JOBS" else 5),
+          f"the collector lists {len(_names)} {_list}")
+    for _n in _names:
+        check(_n in _lane_doc, f"{_n}, which the collector reads, is a lane job")
+check("build-windows-amd64" in _lane_doc and "build-windows-amd64" in _lane_src,
+      "the collector reads the lane's Windows job")
+
+# arm64 is published but never an update: the updater has no aarch64 strategy.
+check(_formats_decl is not None
+      and not re.search(r"arm64|aarch64", _formats_decl.group(1)),
+      "the update manifest carries no arm64 artifact")
+_wm_arm = _strip_shell_comments(_read("scripts", "write-manifest.sh"))
+check("arm64_formats=(deb-arm64 deb-ubuntu-arm64 rpm-aarch64 appimage-aarch64 snap-arm64)" in _wm_arm
+      and 'if [[ -f "${file_of[$fmt]}" ]]; then\n        formats+=("$fmt")' in _wm_arm,
+      "write-manifest.sh publishes each arm64 package only when it is present")
+check("arm64" in _strip_shell_comments(_read("scripts", "report-optional-assets.sh"))
+      and "optional arm64 asset ABSENT" in _read("scripts", "report-optional-assets.sh"),
+      "report-optional-assets reports the arm64 assets")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

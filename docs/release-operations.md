@@ -135,13 +135,97 @@ succeeded. Build-only pipelines (`PUBLISH_PACKAGES=false`) are unchanged.
 - The voice-delay self-test's `VERDICT: fail` is a hard failure in a release
   pipeline (`assert_queue_selftest` in `packaging-ci/scripts/lib.sh`) and still
   only warns in a build-only one.
-- `packaging-ci/tests/test-pipeline-config.py` evaluates the rules over 72
-  release trigger shapes and asserts all of the above, and pins the build-only
-  shapes to their previous jobs and canaries.
+- `packaging-ci/tests/test-pipeline-config.py` evaluates the rules over 144
+  release trigger shapes (both build sites) and asserts all of the above, and
+  pins the build-only shapes to their jobs and canaries.
 
 Anything below (or in `packaging-ci/docs/`) that calls a job `allow_failure`,
 the macOS asset optional, or a red post-tag job harmless describes the policy
-before this date.
+before this date. Two exceptions came later, both in the next section: the
+optional arm64 collector, and the `optional` needs on the package jobs of the
+site a pipeline did not choose.
+
+### Packages are built on gitlab.com (Rokas, 2026-11-04)
+
+`PACKAGE_BUILD_SITE` chooses where the Linux and Windows packages are built.
+The default, `gitlab.com`, runs the package lane of the gitlab.com mirror
+(project 88402223, `.gitlab/packages.yml`): the same `packaging-ci` scripts on
+the same digest-pinned images (`test-pipeline-config.py` compares the pins),
+validated there by the same validators. `home` keeps the local
+`build-*`/`validate-*` jobs, the COPR/openSUSE/Leap canaries and
+`build-windows`/`windows-package-test` as the fallback. Whatever the site, the
+home project keeps `config-tests`, `resolve-source` (the only holder of the
+signing key besides the signing job), `github-mirror-preflight`, macOS on the
+Mac mini, and everything from `publish-packages` on.
+
+How a gitlab.com pipeline gets its packages:
+
+1. `gitlab-com-lane` (build stage, after `resolve-source`) runs
+   `packaging-ci/scripts/gitlab-com-package-lane.sh` with
+   `GITLAB_COM_COLLECT=none`. It waits up to 15 minutes for gitlab.com `main`
+   to reach the resolved commit (`SOURCE_SHA` from `dist/version.env`, not a
+   trigger variable), triggers the lane there with `PUBLISH_PACKAGES`,
+   `RELEASE_ACTION`, `RELEASE_VERSION` and `SOURCE_REF=<sha>`, waits up to 7
+   hours, and accepts it only if it built that commit on `main` with those
+   variables, unnarrowed, and every job outside the arm64 lane is green
+   (canaries included when publishing). It hands the pipeline id on as a dotenv.
+2. Three collectors (validate stage) adopt that pipeline, re-run the same
+   checks, and download and SHA-256-verify one group each, because together
+   they exceed this instance's 1 GiB `max_artifacts_size`:
+   `gitlab-com-packages` (the six amd64 Linux packages, `dist/*.deb` etc. with
+   their `.sha256`), `gitlab-com-packages-arm64` (up to five arm64 packages)
+   and `gitlab-com-windows` (`dist/windows/` portable zip, MSI and setup EXE).
+   The layout is exactly what `validate-*` and `build-windows` left, so
+   `write-manifest.sh`, the publish, verify and both mirror jobs are unchanged.
+3. `publish-packages`, `mirror-release-to-github` and
+   `mirror-release-to-gitlab-com` need both sites' package jobs with
+   `optional: true`. That only tolerates the site the rules left out; a
+   present job that fails still blocks, and `write-manifest.sh` still refuses
+   a missing required file.
+
+In a release the lane is an official build: its own `resolve-source` runs
+`validate-release-request.sh` on gitlab.com (default branch, GIF keys, the
+public signing key) and refuses `UPDATE_SIGNING_KEY_B64`, which never leaves
+home.
+
+**arm64 is optional.** The five arm64 packages (Debian, Ubuntu 26.04, RPM,
+AppImage, snap) are published, listed in `SHA256SUMS` and mirrored like any
+other file, but never enter the signed update manifest (the updater has no
+aarch64 strategy). `gitlab-com-packages-arm64` is `allow_failure` even in a
+release, the only such job, and collects whichever arm64 packages validated;
+`report-optional-assets` lists which reached the release and never fails on
+them. A release with all five has 16 package links, not 11 — the verification
+bar's expected count must follow.
+
+Constraints, all consequences of the lane building its own checkout:
+
+- **gitlab.com `main` must point at the release commit when
+  `gitlab-com-lane` starts.** Push nothing to `main` between the release
+  commit and the trigger; if `main` moved on, the job fails after 15 minutes
+  and nothing is built.
+- **`attach-existing` for an older commit needs `PACKAGE_BUILD_SITE=home`**,
+  for the same reason.
+- `gitlab-com-lane` is not retried: a retry triggers and pays for a second
+  lane. If it died after the lane went green, start a new pipeline with the
+  same variables plus `GITLAB_COM_PIPELINE_ID=<lane id>`; the collector adopts
+  it after the same checks. The collectors only adopt, so retrying them is
+  free.
+- A build-only pipeline with `BUILD_FORMATS` other than `none`, or
+  `BUILD_WINDOWS_PACKAGES=true`, runs the whole lane (it cannot be narrowed),
+  and only on the default branch: the tokens are protected.
+- The lane wait holds one untagged home runner for the lane's duration.
+
+Variables (set by the maintainer; nothing here sets them):
+
+| Project | Variable | Flags |
+|---|---|---|
+| home project 6 | `GITLAB_COM_TRIGGER_TOKEN` — a pipeline trigger token of project 88402223 | masked, protected; may be scoped to environment `gitlab-com` |
+| home project 6 | `GITLAB_COM_READ_TOKEN` — `read_api` token with access to project 88402223's job artifacts | masked, protected; may be scoped to environment `gitlab-com` |
+| gitlab.com 88402223 | `GIPHY_API_KEY`, `KLIPY_API_KEY` | masked, protected |
+| gitlab.com 88402223 | `UPDATE_SIGNING_PUBKEY_2026A`, `UPDATE_SIGNING_KEY_ID` | protected |
+
+gitlab.com `main` must be a protected branch, or the protected variables never
+reach the lane and a release lane fails in its `resolve-source`.
 
 ### What release rounds have learned (operational traps)
 
