@@ -206,6 +206,37 @@ private Q_SLOTS:
                  QStringLiteral("Ctrl+Alt+7"));
         QVERIFY(child(QStringLiteral("shortcutChange_app.quit"))->hasActiveFocus());
     }
+    void aLoneNumpadKeyIsCapturedApartFromItsMainKeyboardTwin()
+    {
+        row->setProperty("actionId", QStringLiteral("call.toggleMute"));
+        QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
+        QTest::keyClick(&window, Qt::Key_Period, Qt::KeypadModifier);
+        QCOMPARE(row->property("captureError").toString(), QString());
+        QVERIFY(!row->property("capturing").toBool());
+        QCOMPARE(registry->sequenceFor(QStringLiteral("call.toggleMute")),
+                 QStringLiteral("Num+."));
+
+        row->setProperty("actionId", QStringLiteral("call.toggleDeafen"));
+        QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
+        QTest::keyClick(&window, Qt::Key_Period);
+        QCOMPARE(row->property("captureError").toString(), QString());
+        QVERIFY(!row->property("capturing").toBool());
+        QCOMPARE(registry->sequenceFor(QStringLiteral("call.toggleDeafen")),
+                 QStringLiteral("."));
+        QCOMPARE(registry->conflictCount(), 0);
+    }
+    void aLoneKeyBindingShowsTheNumpadAndTheTypingHint()
+    {
+        row->setProperty("currentSequence", QStringLiteral("Num+."));
+        auto *label = child(QStringLiteral("shortcutChipLabel_app.quit"));
+        QVERIFY(label);
+        QCOMPARE(label->property("text").toString(), QStringLiteral("Num ."));
+        QTRY_VERIFY(child(QStringLiteral("shortcutTypingHint_app.quit")));
+
+        row->setProperty("currentSequence", QStringLiteral("F5"));
+        QCOMPARE(label->property("text").toString(), QStringLiteral("F5"));
+        QTRY_VERIFY(!child(QStringLiteral("shortcutTypingHint_app.quit")));
+    }
     void escapeEndsTheCaptureAndFocusesChange()
     {
         QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));

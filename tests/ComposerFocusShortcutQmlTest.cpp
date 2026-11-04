@@ -61,6 +61,25 @@ class ComposerFocusShortcutQmlTest : public QObject
         return -1;
     }
 
+    QObject *shortcutOn(const QString &sequence) const
+    {
+        const auto objects = m_window->findChildren<QObject *>();
+        for (QObject *object : objects) {
+            if (QByteArray(object->metaObject()->className()) != "QQuickShortcut")
+                continue;
+            const QVariantList seqs = object->property("sequences").toList();
+            if (seqs.size() == 1 && seqs.first().toString() == sequence)
+                return object;
+        }
+        return nullptr;
+    }
+
+    static QString boundSequence(QObject *shortcut)
+    {
+        const QVariantList seqs = shortcut->property("sequences").toList();
+        return seqs.isEmpty() ? QString() : seqs.first().toString();
+    }
+
 private:
     void openJoinedRoom()
     {
@@ -180,6 +199,58 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
         QTRY_VERIFY_WITH_TIMEOUT(editor->hasActiveFocus(), 1500);
         QCOMPARE(m_controller->composer()->text(), draft);
+    }
+
+    void aLoneLetterMuteShortcutLeavesTypingAloneAndFiresElsewhere()
+    {
+        openJoinedRoom();
+        QObject *mute = shortcutOn(m_controller->shortcuts()->sequenceFor(
+            QStringLiteral("call.toggleMute")));
+        QVERIFY(mute);
+        QSignalSpy fired(mute, SIGNAL(activated()));
+        QCOMPARE(m_controller->shortcuts()->setBinding(
+                     QStringLiteral("call.toggleMute"), QStringLiteral("M")),
+                 QString());
+        QTRY_COMPARE(boundSequence(mute), QStringLiteral("M"));
+
+        auto *composer = item("composerInput");
+        QVERIFY(composer->hasActiveFocus());
+        const int before = composer->property("length").toInt();
+        QTest::keyClick(m_window, Qt::Key_M);
+        QTRY_COMPARE(composer->property("length").toInt(), before + 1);
+        QCOMPARE(fired.count(), 0);
+
+        item("timelinePane")->forceActiveFocus();
+        QVERIFY(!composer->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_M);
+        QTRY_COMPARE(fired.count(), 1);
+    }
+
+    void aNumpadMuteShortcutAnswersOnlyTheNumpadAndNeverWhileTyping()
+    {
+        openJoinedRoom();
+        QObject *mute = shortcutOn(m_controller->shortcuts()->sequenceFor(
+            QStringLiteral("call.toggleMute")));
+        QVERIFY(mute);
+        QSignalSpy fired(mute, SIGNAL(activated()));
+        QCOMPARE(m_controller->shortcuts()->setBinding(
+                     QStringLiteral("call.toggleMute"), QStringLiteral("Num+.")),
+                 QString());
+        QTRY_COMPARE(boundSequence(mute), QStringLiteral("Num+."));
+
+        auto *composer = item("composerInput");
+        QVERIFY(composer->hasActiveFocus());
+        const int before = composer->property("length").toInt();
+        QTest::keyClick(m_window, Qt::Key_Period, Qt::KeypadModifier);
+        QTRY_COMPARE(composer->property("length").toInt(), before + 1);
+        QCOMPARE(fired.count(), 0);
+
+        item("timelinePane")->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_Period);
+        QTest::qWait(50);
+        QCOMPARE(fired.count(), 0);
+        QTest::keyClick(m_window, Qt::Key_Period, Qt::KeypadModifier);
+        QTRY_COMPARE(fired.count(), 1);
     }
 
     void focusShortcutRefusesHiddenComposer()

@@ -40,6 +40,58 @@ bool isNonTextKey(const QKeySequence &seq)
            || (key >= Qt::Key_F1 && key <= Qt::Key_F35);
 }
 
+bool isSingleBareKey(const QKeySequence &seq)
+{
+    return seq.count() == 1
+        && (seq[0].keyboardModifiers() & ~Qt::KeypadModifier) == Qt::NoModifier;
+}
+
+bool isNavigationOrEditingKey(int key)
+{
+    switch (key) {
+    case Qt::Key_Tab:
+    case Qt::Key_Backtab:
+    case Qt::Key_F6:
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+    case Qt::Key_Home:
+    case Qt::Key_End:
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown:
+    case Qt::Key_Backspace:
+    case Qt::Key_Delete:
+    case Qt::Key_Insert:
+    case Qt::Key_Escape:
+    case Qt::Key_Space:
+    case Qt::Key_Menu:
+    case Qt::Key_Clear:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Qt keys below Key_Escape are Unicode characters. Text fields accept
+// ShortcutOverride for these when unmodified (keypad included), so typing wins.
+bool isPrintableKey(int key)
+{
+    return key > 0 && key < Qt::Key_Escape && key != Qt::Key_Space;
+}
+
+QString withoutKeypad(const QString &portable)
+{
+    const QKeySequence seq = QKeySequence::fromString(portable, QKeySequence::PortableText);
+    if (seq.count() != 1 || !seq[0].keyboardModifiers().testFlag(Qt::KeypadModifier))
+        return {};
+    return QKeySequence(QKeyCombination(seq[0].keyboardModifiers() & ~Qt::KeypadModifier,
+                                        seq[0].key()))
+        .toString(QKeySequence::PortableText);
+}
+
 bool isFocusOrNavigationKey(const QKeySequence &seq)
 {
     if (seq.count() <= 0)
@@ -497,7 +549,11 @@ QString ShortcutRegistry::normalize(const QString &sequence)
 QString ShortcutRegistry::sequenceFromKeyEvent(int key, int modifiers) const
 {
     auto mods = static_cast<Qt::KeyboardModifiers>(modifiers)
-                      & ~Qt::KeypadModifier & ~Qt::GroupSwitchModifier;
+                      & ~Qt::GroupSwitchModifier;
+    // The numpad is a key of its own only when pressed alone; Ctrl+Num+0 is
+    // still Ctrl+0.
+    if (mods & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))
+        mods &= ~Qt::KeypadModifier;
     if (key == Qt::Key_Backtab) {
         key = Qt::Key_Tab;
         mods |= Qt::ShiftModifier;
@@ -535,12 +591,18 @@ QString ShortcutRegistry::sequenceFor(const QString &actionId) const
 QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
                                          int modifiers) const
 {
+    // Like Qt's shortcut map: an exact numpad binding first, then the same key
+    // without the numpad, so a numpad Delete still runs a Delete binding.
     const QString seq = sequenceFromKeyEvent(key, modifiers);
     if (seq.isEmpty())
         return {};
-    for (int i = 0; i < m_actions.size(); ++i) {
-        if (m_actions.at(i).context == context && m_resolved.at(i) == seq)
-            return m_actions.at(i).id;
+    for (const QString &candidate : { seq, withoutKeypad(seq) }) {
+        if (candidate.isEmpty())
+            continue;
+        for (int i = 0; i < m_actions.size(); ++i) {
+            if (m_actions.at(i).context == context && m_resolved.at(i) == candidate)
+                return m_actions.at(i).id;
+        }
     }
     return {};
 }
@@ -557,30 +619,15 @@ QString ShortcutRegistry::timelineActionForKey(int key, int modifiers) const
 
 QString ShortcutRegistry::messageSelectionActionForKey(int key, int modifiers) const
 {
-    const QString seq = sequenceFromKeyEvent(key, modifiers);
-    if (seq.isEmpty())
-        return {};
-    for (int i = 0; i < m_actions.size(); ++i) {
-        if (m_actions.at(i).context == MessageSelectionContext
-            && m_resolved.at(i) == seq)
-            return m_actions.at(i).id;
-    }
-    return {};
+    return actionForKeyIn(MessageSelectionContext, key, modifiers);
 }
 
 QString ShortcutRegistry::dialogActionForKey(int key, int modifiers,
                                             bool copyingSelectedText) const
 {
-    const QString seq = sequenceFromKeyEvent(key, modifiers);
-    if (seq.isEmpty())
-        return {};
     if (copyingSelectedText)
         return {};
-    for (int i = 0; i < m_actions.size(); ++i) {
-        if (m_actions.at(i).context == DialogContext && m_resolved.at(i) == seq)
-            return m_actions.at(i).id;
-    }
-    return {};
+    return actionForKeyIn(DialogContext, key, modifiers);
 }
 
 QString ShortcutRegistry::settingsActionForKey(int key, int modifiers,
@@ -588,13 +635,9 @@ QString ShortcutRegistry::settingsActionForKey(int key, int modifiers,
 {
     if (copyingSelectedText)
         return {};
-    const QString seq = sequenceFromKeyEvent(key, modifiers);
-    if (seq.isEmpty())
-        return {};
-    for (int i = 0; i < m_actions.size(); ++i) {
-        if (m_actions.at(i).context == SettingsContext && m_resolved.at(i) == seq)
-            return m_actions.at(i).id;
-    }
+    const QString action = actionForKeyIn(SettingsContext, key, modifiers);
+    if (!action.isEmpty())
+        return action;
     return dialogActionForKey(key, modifiers, false);
 }
 
@@ -623,6 +666,21 @@ QString ShortcutRegistry::descriptionFor(const QString &actionId) const
 {
     const Action *a = find(actionId);
     return a ? a->description : QString();
+}
+
+QString ShortcutRegistry::displayText(const QString &sequence)
+{
+    QString text = sequence;
+    return text.replace(QLatin1String("Num+"), QLatin1String("Num "));
+}
+
+bool ShortcutRegistry::yieldsToTyping(const QString &sequence)
+{
+    const QString portable = normalize(sequence);
+    if (portable.isEmpty())
+        return false;
+    const QKeySequence seq = QKeySequence::fromString(portable, QKeySequence::PortableText);
+    return isSingleBareKey(seq) && isPrintableKey(seq[0].key());
 }
 
 bool ShortcutRegistry::isReserved(const QString &sequence) const
@@ -671,7 +729,13 @@ QString ShortcutRegistry::validationError(const QString &actionId,
 
     if (selectionOnly && seq.count() != 1)
         return tr("Use a single key combination for message selection.");
-    const bool bareOk = selectionOnly || settingsTab
+    const bool globalKey = action->context == GlobalContext && isSingleBareKey(seq);
+    if (globalKey && isNavigationOrEditingKey(combo.key())) {
+        return tr("%1 moves focus, navigates or edits text, so it cannot be a "
+                  "shortcut on its own.")
+            .arg(displayText(portable));
+    }
+    const bool bareOk = selectionOnly || settingsTab || globalKey
                        || (action->context == TimelineContext && isNonTextKey(seq));
     if (!hasCommandModifier(seq) && !bareOk) {
         if (action->context == TimelineContext) {
@@ -685,10 +749,9 @@ QString ShortcutRegistry::validationError(const QString &actionId,
             return tr("Use Ctrl, Alt or Super. Dialog shortcuts must leave "
                       "ordinary typing and navigation keys available.");
         return action->context == GlobalContext
-                   ? tr("Use Ctrl, Alt or Super. A shortcut without one of "
-                        "those is taken before any text field sees the key, "
-                        "so it would stop you typing that character anywhere "
-                        "in Lightning.")
+                   ? tr("Use Ctrl, Alt or Super, or a single key on its own. "
+                        "Shift alone changes the character you type, so it "
+                        "does not count.")
                    : tr("Use Ctrl, Alt or Super. Without one, typing the "
                         "character in the message box is all that would "
                         "happen.");
@@ -704,7 +767,7 @@ QString ShortcutRegistry::validationError(const QString &actionId,
     if (!owner.isEmpty()) {
         return tr("%1 is already used for %2. Two shortcuts on one key make "
                   "Qt fire neither of them.")
-            .arg(portable, owner);
+            .arg(displayText(portable), owner);
     }
 
     for (int i = 0; i < m_actions.size(); ++i) {
@@ -718,7 +781,7 @@ QString ShortcutRegistry::validationError(const QString &actionId,
         if (m_resolved.at(i) == portable) {
             return tr("%1 is already used for “%2”. Two shortcuts on "
                       "one key make Qt fire neither of them.")
-                .arg(portable, other.description);
+                .arg(displayText(portable), other.description);
         }
     }
     return {};

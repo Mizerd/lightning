@@ -23397,7 +23397,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
@@ -27021,7 +27021,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -27129,12 +27129,16 @@ Note: importing keys does not verify this session.</source>
         <source>Scroll Settings down half a page</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
+        <source>Press a key or combination…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -27170,6 +27174,10 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

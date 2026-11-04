@@ -5434,11 +5434,13 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.settingsHintSize
-                                    text: qsTr("Global shortcuts need Ctrl, Alt or Super: "
-                                               + "Lightning takes the key before any "
-                                               + "text box sees it, so a plain letter "
-                                               + "would stop you typing that letter "
-                                               + "anywhere.\n\n"
+                                    text: qsTr("A global shortcut can be one key on "
+                                               + "its own, such as a letter, F5 or a "
+                                               + "numpad key; the numpad counts "
+                                               + "separately from the main keyboard. "
+                                               + "A lone letter, digit or symbol works "
+                                               + "only while you are not typing in a "
+                                               + "text field, so typing always wins.\n\n"
                                                + "Settings page actions also accept Tab "
                                                + "and Shift+Tab; those bindings replace "
                                                + "normal focus traversal only in Settings.\n\n"

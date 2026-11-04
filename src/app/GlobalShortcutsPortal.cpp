@@ -162,6 +162,9 @@ QString GlobalShortcutsPortal::portalTrigger(const QString &portableText)
         return {};
     const int combined = sequence[0].toCombined();
     const Qt::KeyboardModifiers mods(combined & Qt::KeyboardModifierMask);
+    // A desktop-wide trigger on a bare key would take it from every application.
+    if (!(mods & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier)))
+        return {};
     const QString key = xkbKeyName(combined & ~Qt::KeyboardModifierMask);
     if (key.isEmpty())
         return {};

@@ -23492,14 +23492,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>Глобальным сочетаниям клавиш нужны Ctrl, Alt или Super: Lightning перехватывает клавишу до любого текстового поля, поэтому назначение обычной буквы помешает вводить её везде.
+        <translation>Глобальное сочетание может быть одной клавишей, например буквой, F5 или клавишей цифрового блока; цифровой блок считается отдельно от основной клавиатуры. Отдельная буква, цифра или символ работает, только когда вы не печатаете в текстовом поле, поэтому ввод текста всегда в приоритете.
 
 Действия страниц настроек также принимают Tab и Shift+Tab; эти привязки заменяют обычный переход фокуса только в настройках.
 
@@ -27128,8 +27128,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>Используйте Ctrl, Alt или Super. Ярлык без одного из них используется до того, как какое-либо текстовое поле увидит клавишу, поэтому вы не сможете вводить этот символ в любом месте Lightning.</translation>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
+        <translation>Используйте Ctrl, Alt или Super либо одну клавишу без модификаторов. Один Shift лишь меняет вводимый символ, поэтому не считается.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27236,13 +27236,17 @@ Note: importing keys does not verify this session.</source>
         <source>Scroll Settings down half a page</source>
         <translation>Прокрутить настройки на полстраницы вниз</translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation>%1 перемещает фокус, выполняет навигацию или редактирует текст, поэтому не может быть сочетанием сама по себе.</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
-        <translation>Нажмите комбинацию…</translation>
+        <source>Press a key or combination…</source>
+        <translation>Нажмите клавишу или комбинацию…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27278,6 +27282,10 @@ Note: importing keys does not verify this session.</source>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
         <translation>Сбросьте %1 на %2.</translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
+        <translation>Работает, только когда вы не печатаете в текстовом поле.</translation>
     </message>
 </context>
 <context>

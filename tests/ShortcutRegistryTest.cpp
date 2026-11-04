@@ -250,7 +250,7 @@ private Q_SLOTS:
         QVERIFY(registry.editorActionForKey(Qt::Key_Y, Qt::NoModifier).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
                                            QStringLiteral("K")).isEmpty());
-        QVERIFY(!registry.validationError(QStringLiteral("nav.quickSwitcher"),
+        QVERIFY(!registry.validationError(QStringLiteral("composer.bold"),
                                            QStringLiteral("K")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.reply"),
                                            QStringLiteral("Esc")).isEmpty());
@@ -828,22 +828,104 @@ private Q_SLOTS:
                      .isEmpty());
     }
 
-    void aGlobalActionRefusesAModifierLessSequence()
+    void aGlobalActionAcceptsASingleKeyOnItsOwn()
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
-
-        for (const QString &bad : { QStringLiteral("B"), QStringLiteral("F5"),
-                                    QStringLiteral("Shift+B"),
-                                    QStringLiteral("Space") }) {
-            const QString error = registry.setBinding(
-                QStringLiteral("nav.quickSwitcher"), bad);
-            QVERIFY2(!error.isEmpty(),
-                     qPrintable(QStringLiteral("%1 was accepted").arg(bad)));
+        const QString mute = QStringLiteral("call.toggleMute");
+        for (const QString &key : { QStringLiteral("B"), QStringLiteral("."),
+                                    QStringLiteral("7"), QStringLiteral("F5"),
+                                    QStringLiteral("Num+."), QStringLiteral("Num+5"),
+                                    QStringLiteral("Pause") }) {
+            QCOMPARE(registry.setBinding(mute, key), QString());
+            QCOMPARE(registry.sequenceFor(mute), key);
         }
-        QCOMPARE(registry.sequenceFor(QStringLiteral("nav.quickSwitcher")),
-                 QStringLiteral("Ctrl+K"));
+        QCOMPARE(registry.conflictCount(), 0);
+    }
+
+    void aGlobalSingleKeyRefusesShiftAloneAndNavigationKeys()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString mute = QStringLiteral("call.toggleMute");
+        const QString shiftError = registry.validationError(mute, QStringLiteral("Shift+B"));
+        QVERIFY2(shiftError.contains(QStringLiteral("Shift alone changes the character")),
+                 qPrintable(shiftError));
+        const QString chordError = registry.validationError(mute, QStringLiteral("A, B"));
+        QVERIFY2(chordError.contains(QStringLiteral("Shift alone changes the character")),
+                 qPrintable(chordError));
+        for (const char *key : { "Space", "Tab", "Return", "Enter",
+                                 "Num+Enter", "Up", "Num+Left", "Home", "End",
+                                 "PgUp", "PgDown", "Backspace", "Del", "Num+Del",
+                                 "Ins", "Esc", "F6", "Menu" }) {
+            const QString error = registry.setBinding(mute, QString::fromLatin1(key));
+            QVERIFY2(error.contains(QStringLiteral("moves focus, navigates or edits text")),
+                     qPrintable(QStringLiteral("%1: %2").arg(QLatin1String(key), error)));
+        }
+        QCOMPARE(registry.sequenceFor(mute), QStringLiteral("Ctrl+Shift+U"));
         QVERIFY(!registry.anyCustomised());
+    }
+
+    void aGlobalSingleKeyStillMeetsTheReservedTableAndConflicts()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString mute = QStringLiteral("call.toggleMute");
+        const QString deafen = QStringLiteral("call.toggleDeafen");
+
+        const QString reserved = registry.setBinding(mute, QStringLiteral("R"));
+        QVERIFY2(reserved.contains(QStringLiteral("Reply accelerator"))
+                     && reserved.contains(QStringLiteral("Two shortcuts on one key")),
+                 qPrintable(reserved));
+
+        QCOMPARE(registry.setBinding(mute, QStringLiteral("M")), QString());
+        const QString clash = registry.setBinding(deafen, QStringLiteral("M"));
+        QVERIFY2(clash.contains(registry.descriptionFor(mute)), qPrintable(clash));
+        QCOMPARE(registry.sequenceFor(deafen), QStringLiteral("Ctrl+Shift+H"));
+
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.pageUp"),
+                                     QStringLiteral("F5")), QString());
+        const QString timelineClash = registry.setBinding(deafen, QStringLiteral("F5"));
+        QVERIFY2(timelineClash.contains(registry.descriptionFor(
+                     QStringLiteral("timeline.pageUp"))),
+                 qPrintable(timelineClash));
+        QCOMPARE(registry.conflictCount(), 0);
+    }
+
+    void aNumpadKeyIsDistinctFromItsMainKeyboardTwin()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString mute = QStringLiteral("call.toggleMute");
+        const QString deafen = QStringLiteral("call.toggleDeafen");
+        QCOMPARE(registry.setBinding(mute, QStringLiteral("Num+.")), QString());
+        QCOMPARE(registry.setBinding(deafen, QStringLiteral(".")), QString());
+        QCOMPARE(registry.sequenceFor(mute), QStringLiteral("Num+."));
+        QCOMPARE(registry.sequenceFor(deafen), QStringLiteral("."));
+        QCOMPARE(registry.conflictCount(), 0);
+        const QString clash = registry.setBinding(QStringLiteral("call.leave"),
+                                                  QStringLiteral("Num+."));
+        QVERIFY2(clash.startsWith(QStringLiteral("Num . is already used for"))
+                     && clash.contains(registry.descriptionFor(mute)),
+                 qPrintable(clash));
+    }
+
+    void aLoneCharacterKeyYieldsToTypingAndOtherKeysDoNot()
+    {
+        for (const char *key : { "M", ".", "7", "Num+.", "Num+5", "/" })
+            QVERIFY2(ShortcutRegistry::yieldsToTyping(QString::fromLatin1(key)), key);
+        for (const char *key : { "F5", "Pause", "Ctrl+M", "Shift+M", "Space", "" })
+            QVERIFY2(!ShortcutRegistry::yieldsToTyping(QString::fromLatin1(key)), key);
+    }
+
+    void aNumpadSequenceIsShownWithASpace()
+    {
+        QCOMPARE(ShortcutRegistry::displayText(QStringLiteral("Num+.")),
+                 QStringLiteral("Num ."));
+        QCOMPARE(ShortcutRegistry::displayText(QStringLiteral("Num++")),
+                 QStringLiteral("Num +"));
+        QCOMPARE(ShortcutRegistry::displayText(QStringLiteral("Ctrl+Shift+U")),
+                 QStringLiteral("Ctrl+Shift+U"));
     }
 
     void shiftAloneIsNotAModifier()
@@ -880,9 +962,6 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
-        // Ctrl+C, not Escape: validationError refuses modifier-less sequences
-        // before consulting the reserved table, so only a reserved sequence
-        // with a modifier reaches this branch.
         const QString error = registry.setBinding(QStringLiteral("app.quit"),
                                                   QStringLiteral("Ctrl+C"));
         QVERIFY(!error.isEmpty());
@@ -1043,13 +1122,38 @@ private Q_SLOTS:
                  QStringLiteral("Ctrl+B"));
     }
 
-    void theKeypadModifierIsStrippedFromACapturedSequence()
+    void theKeypadModifierIsStrippedFromACapturedChord()
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
         QCOMPARE(registry.sequenceFromKeyEvent(
                      Qt::Key_0, Qt::ControlModifier | Qt::KeypadModifier),
                  QStringLiteral("Ctrl+0"));
+    }
+
+    void aLoneNumpadKeyIsCapturedAsANumpadKey()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.sequenceFromKeyEvent(Qt::Key_Period, Qt::KeypadModifier),
+                 QStringLiteral("Num+."));
+        QCOMPARE(registry.sequenceFromKeyEvent(Qt::Key_Period, Qt::NoModifier),
+                 QStringLiteral("."));
+    }
+
+    void aNumpadPressStillReachesAMainKeyboardBinding()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_Delete, Qt::KeypadModifier),
+                 QStringLiteral("timeline.deleteMessage"));
+        QCOMPARE(registry.timelineActionForKey(Qt::Key_PageUp, Qt::KeypadModifier),
+                 QStringLiteral("timeline.pageUp"));
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
+                                     QStringLiteral("Num+8")), QString());
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_8, Qt::KeypadModifier),
+                 QStringLiteral("timeline.olderMessage"));
+        QVERIFY(registry.messageSelectionActionForKey(Qt::Key_8, Qt::NoModifier).isEmpty());
     }
 
     void everyRowCarriesACategoryAndACategoryListCoversThemAll()

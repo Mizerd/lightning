@@ -23324,14 +23324,14 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>Pintasan global memerlukan Ctrl, Alt, atau Super: Lightning menangkap tombol sebelum kotak teks mana pun menerimanya, sehingga pengikatan huruf biasa akan menghalangi Anda mengetik huruf tersebut di mana saja.
+        <translation>Pintasan global bisa berupa satu tombol saja, seperti huruf, F5, atau tombol numpad; numpad dihitung terpisah dari keyboard utama. Satu huruf, angka, atau simbol saja hanya berfungsi saat Anda tidak sedang mengetik di kolom teks, sehingga mengetik selalu didahulukan.
 
 Tindakan halaman pengaturan juga menerima Tab dan Shift+Tab; pengikatan ini menggantikan perpindahan fokus normal hanya di Pengaturan.
 
@@ -26954,8 +26954,8 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>Gunakan Ctrl, Alt atau Super. Pintasan tanpa salah satu dari itu diambil sebelum bidang teks apa pun melihat kuncinya, sehingga Anda akan berhenti mengetik karakter itu di mana pun di Lightning.</translation>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
+        <translation>Gunakan Ctrl, Alt, atau Super, atau satu tombol saja. Shift saja hanya mengubah karakter yang Anda ketik, jadi tidak dihitung.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27062,13 +27062,17 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <source>Scroll Settings down half a page</source>
         <translation>Gulir pengaturan setengah halaman ke bawah</translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation>%1 memindahkan fokus, bernavigasi, atau menyunting teks, jadi tidak bisa menjadi pintasan sendirian.</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
-        <translation>Tekan kombinasi…</translation>
+        <source>Press a key or combination…</source>
+        <translation>Tekan tombol atau kombinasi…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27104,6 +27108,10 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
         <translation>Setel ulang %1 ke %2</translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
+        <translation>Hanya berfungsi saat Anda tidak sedang mengetik di kolom teks.</translation>
     </message>
 </context>
 <context>

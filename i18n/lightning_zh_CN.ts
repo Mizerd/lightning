@@ -23324,14 +23324,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>全局快捷键需要 Ctrl、Alt 或 Super：Lightning 会在任何文本框收到按键之前捕获它，因此绑定普通字母会导致你无法在任何地方输入该字母。
+        <translation>全局快捷键可以是单独一个按键，例如字母、F5 或数字小键盘上的键；数字小键盘与主键盘分开计算。单独的字母、数字或符号仅在你没有在文本框中输入时生效，因此输入始终优先。
 
 设置页面操作也接受 Tab 和 Shift+Tab；这些绑定仅在设置中替代正常的焦点切换。
 
@@ -26954,8 +26954,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>使用 Ctrl、Alt 或 Super。在任何文本字段看到该键之前，都会采用没有其中之一的快捷方式，因此它会阻止您在 Lightning 中的任何位置键入该字符。</translation>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
+        <translation>请使用 Ctrl、Alt 或 Super，或者单独一个按键。仅按 Shift 只会改变你输入的字符，因此不算修饰键。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27062,13 +27062,17 @@ Note: importing keys does not verify this session.</source>
         <source>Scroll Settings down half a page</source>
         <translation>将设置向下滚动半页</translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation>%1 用于移动焦点、导航或编辑文本，因此不能单独作为快捷键。</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
-        <translation>按组合键...</translation>
+        <source>Press a key or combination…</source>
+        <translation>按下一个键或组合键…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27104,6 +27108,10 @@ Note: importing keys does not verify this session.</source>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
         <translation>将 %1 重置为 %2</translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
+        <translation>仅在你没有在文本框中输入时生效。</translation>
     </message>
 </context>
 <context>

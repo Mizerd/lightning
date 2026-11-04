@@ -133,6 +133,20 @@ GridLayout {
         }
         Loader {
             Layout.fillWidth: true
+            active: row.conflictsWith === "" && row.currentSequence !== ""
+                    && app.shortcuts.yieldsToTyping(row.currentSequence)
+            visible: active
+            sourceComponent: Label {
+                objectName: "shortcutTypingHint_" + row.actionId
+                width: parent ? parent.width : implicitWidth
+                wrapMode: Text.WordWrap
+                text: qsTr("Works only while you are not typing in a text field.")
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+            }
+        }
+        Loader {
+            Layout.fillWidth: true
             active: row.captureError !== ""
             visible: active
             sourceComponent: Label {
@@ -167,10 +181,12 @@ GridLayout {
                                                       : AppTheme.stormBorder)
             Label {
                 id: chipLabel
+                objectName: "shortcutChipLabel_" + row.actionId
                 anchors.centerIn: parent
-                text: row.capturing ? qsTr("Press a combination…")
+                text: row.capturing ? qsTr("Press a key or combination…")
                                     : (row.currentSequence !== ""
-                                       ? row.currentSequence : qsTr("Not set"))
+                                       ? app.shortcuts.displayText(row.currentSequence)
+                                       : qsTr("Not set"))
                 color: row.capturing ? AppTheme.stormText : AppTheme.stormTextSecondary
                 font.pixelSize: AppTheme.textMeta
                 font.family: AppTheme.monoFont
@@ -246,7 +262,7 @@ GridLayout {
                 row.captureError = app.shortcuts.resetToDefault(row.actionId)
             }
             Accessible.description: qsTr("Reset %1 to %2")
-                .arg(row.description).arg(row.defaultSequence)
+                .arg(row.description).arg(app.shortcuts.displayText(row.defaultSequence))
         }
     }
 }

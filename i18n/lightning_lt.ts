@@ -23082,14 +23082,14 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>Bendriesiems spartiesiems klavišams reikia Ctrl, Alt arba Super: „Lightning“ perima klavišą prieš jį gaunant bet kuriam teksto laukeliui, todėl paprastos raidės priskyrimas neleistų jos įvesti niekur.
+        <translation>Visuotinis spartusis klavišas gali būti vienas klavišas, pavyzdžiui, raidė, F5 arba skaitmenų klaviatūros klavišas; skaitmenų klaviatūra skaičiuojama atskirai nuo pagrindinės. Pavienė raidė, skaitmuo ar simbolis veikia tik tada, kai nerašote teksto lauke, todėl rašymas visada turi pirmenybę.
 
 Nustatymų puslapių veiksmams taip pat tinka Tab ir Shift+Tab; šie priskyrimai pakeičia įprastą židinio perkėlimą tik nustatymuose.
 
@@ -27128,8 +27128,8 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>Naudokite Ctrl, Alt arba Super. Spartusis klavišas be kurio nors iš jų paimamas prieš bet kuriame teksto lauke pamatant raktą, todėl negalėtumėte rašyti šio simbolio bet kur „Lightning“.</translation>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
+        <translation>Naudokite Ctrl, Alt arba Super arba vieną klavišą be modifikatorių. Vien Shift tik pakeičia įvedamą simbolį, todėl jis neskaičiuojamas.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27236,13 +27236,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <source>Scroll Settings down half a page</source>
         <translation>Slinkti nustatymus puse puslapio žemyn</translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation>%1 perkelia židinį, naršo arba redaguoja tekstą, todėl vienas negali būti spartusis klavišas.</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
-        <translation>Paspauskite derinį…</translation>
+        <source>Press a key or combination…</source>
+        <translation>Paspauskite klavišą arba derinį…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27278,6 +27282,10 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
         <translation>Iš naujo nustatyti %1 į %2</translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
+        <translation>Veikia tik tada, kai nerašote teksto lauke.</translation>
     </message>
 </context>
 <context>

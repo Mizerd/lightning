@@ -23399,14 +23399,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>গ্লোবাল শর্টকাটের জন্য Ctrl, Alt বা Super প্রয়োজন: Lightning যেকোনো টেক্সট বক্সের আগে কীটি গ্রহণ করে, তাই একটি সাধারণ অক্ষর বাঁধলে আপনি সেটি কোথাও টাইপ করতে পারবেন না।
+        <translation>একটি গ্লোবাল শর্টকাট শুধু একটি একক কী হতে পারে, যেমন একটি অক্ষর, F5 বা নামপ্যাডের একটি কী; নামপ্যাড মূল কীবোর্ড থেকে আলাদা গণ্য হয়। একক অক্ষর, সংখ্যা বা চিহ্ন শুধু তখনই কাজ করে যখন আপনি কোনো টেক্সট ফিল্ডে টাইপ করছেন না, তাই টাইপিং সবসময় অগ্রাধিকার পায়।
 
 সেটিংস পৃষ্ঠার কাজগুলো Tab ও Shift+Tab-ও গ্রহণ করে; এই বাঁধনগুলো শুধু সেটিংসে স্বাভাবিক ফোকাস নেভিগেশন প্রতিস্থাপন করে।
 
@@ -27032,8 +27032,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>Ctrl, Alt বা Super ব্যবহার করুন। যেকোনও টেক্সট ফিল্ড কী দেখার আগে এর মধ্যে একটি ছাড়া একটি শর্টকাট নেওয়া হয়, তাই এটি আপনাকে Lightning-এর যেকোনো জায়গায় সেই অক্ষরটি টাইপ করা বন্ধ করবে।</translation>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
+        <translation>Ctrl, Alt বা Super ব্যবহার করুন, অথবা শুধু একটি একক কী। শুধু Shift আপনি যে অক্ষর টাইপ করেন তা বদলে দেয়, তাই এটি গণ্য হয় না।</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27140,13 +27140,17 @@ Note: importing keys does not verify this session.</source>
         <source>Scroll Settings down half a page</source>
         <translation>সেটিংস অর্ধেক পৃষ্ঠা নিচে স্ক্রল করুন</translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation>%1 ফোকাস সরায়, নেভিগেট করে বা টেক্সট সম্পাদনা করে, তাই এটি একা শর্টকাট হতে পারে না।</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
-        <translation>একটি সংমিশ্রণ টিপুন...</translation>
+        <source>Press a key or combination…</source>
+        <translation>একটি কী বা সংমিশ্রণ টিপুন…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27182,6 +27186,10 @@ Note: importing keys does not verify this session.</source>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
         <translation>%1এ %2রিসেট করুন</translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
+        <translation>শুধু তখনই কাজ করে যখন আপনি কোনো টেক্সট ফিল্ডে টাইপ করছেন না।</translation>
     </message>
 </context>
 <context>

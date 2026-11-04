@@ -13,10 +13,16 @@ class SettingsManager;
 ///
 /// Two Qt behaviours shape the rules below:
 ///
-///  1. A `Shortcut` is consumed before the focused item sees the key. So each
-///     entry carries a context, and a Global entry must carry Ctrl, Alt or
-///     Meta: a bare letter bound globally would be taken from every text
-///     field, including the one needed to undo the binding.
+///  1. A `Shortcut` is consumed before the focused item sees the key, unless
+///     the item accepts ShortcutOverride first. Editable text fields accept it
+///     for any unmodified character (numpad characters included), so a Global
+///     entry may be one key on its own: a letter, digit or symbol fires only
+///     while no text field has focus, and an F-key or other non-text key fires
+///     everywhere. Navigation and editing keys (Tab, Enter, arrows, Space,
+///     Escape...) are refused on their own, and Shift alone is not a modifier.
+///     A numpad key pressed alone is stored as "Num+<key>", distinct from the
+///     main keyboard; a main-keyboard binding still answers its numpad twin
+///     when no numpad binding exists, as Qt's shortcut map does.
 ///
 ///  2. Two enabled `Shortcut`s on one sequence are ambiguous and Qt fires
 ///     neither. So `setBinding` refuses a conflicting sequence instead of
@@ -112,6 +118,11 @@ public:
                                           bool hasSelection) const;
 
     Q_INVOKABLE static QString normalize(const QString &sequence);
+
+    Q_INVOKABLE static QString displayText(const QString &sequence);
+
+    /// True for a lone character key: it never fires while a text field has focus.
+    Q_INVOKABLE static bool yieldsToTyping(const QString &sequence);
 
     Q_INVOKABLE void reload();
 

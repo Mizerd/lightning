@@ -238,6 +238,7 @@ private Q_SLOTS:
 
     void portalTriggerFollowsTheShortcutsSpec();
     void portalTriggerNamesNonLetterKeysAsKeysyms();
+    void aSingleKeyIsNeverProposedAsADesktopTrigger();
     void globalShortcutsAreOffByDefault();
     void theSettingPersistsAndSignalsOnlyOnChange();
     void appControllerDrivesThePortalFromTheSetting();
@@ -377,6 +378,19 @@ void GlobalShortcutsPortalTest::portalTriggerNamesNonLetterKeysAsKeysyms()
     QCOMPARE(t("Ctrl+Backspace"), QStringLiteral("CTRL+BackSpace"));
     QCOMPARE(t("Media Play"), QString());
     QCOMPARE(t("Ctrl+Volume Up"), QString());
+}
+
+void GlobalShortcutsPortalTest::aSingleKeyIsNeverProposedAsADesktopTrigger()
+{
+    const auto t = [](const char *text) {
+        return GlobalShortcutsPortal::portalTrigger(QString::fromLatin1(text));
+    };
+    QCOMPARE(t("."), QString());
+    QCOMPARE(t("Num+."), QString());
+    QCOMPARE(t("M"), QString());
+    QCOMPARE(t("F5"), QString());
+    QCOMPARE(t("Shift+M"), QString());
+    QCOMPARE(t("Alt+M"), QStringLiteral("ALT+M"));
 }
 
 void GlobalShortcutsPortalTest::globalShortcutsAreOffByDefault()

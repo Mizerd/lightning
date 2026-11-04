@@ -23408,14 +23408,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>Les raccourcis globaux nécessitent Ctrl, Alt ou Super : Lightning intercepte la touche avant toute zone de texte, donc une simple lettre vous empêcherait de la saisir partout.
+        <translation>Un raccourci global peut être une seule touche, comme une lettre, F5 ou une touche du pavé numérique ; le pavé numérique est distinct du clavier principal. Une lettre, un chiffre ou un symbole seul ne fonctionne que lorsque vous ne tapez pas dans un champ de texte, la saisie reste donc prioritaire.
 
 Les actions des pages de paramètres acceptent aussi Tab et Shift+Tab ; ces raccourcis remplacent le parcours normal du focus uniquement dans les paramètres.
 
@@ -27041,8 +27041,8 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>Utilisez Ctrl, Alt ou Super. Un raccourci sans l&apos;un de ceux-ci est pris avant qu&apos;un champ de texte ne voie la clé, cela vous empêcherait donc de taper ce caractère n&apos;importe où dans Lightning.</translation>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
+        <translation>Utilisez Ctrl, Alt ou Super, ou une seule touche isolée. Shift seul change le caractère que vous tapez, il ne compte donc pas.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27149,13 +27149,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <source>Scroll Settings down half a page</source>
         <translation>Faire défiler les paramètres d’une demi-page vers le bas</translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation>%1 déplace le focus, navigue ou modifie le texte, et ne peut donc pas être un raccourci à lui seul.</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
-        <translation>Appuyez sur une combinaison…</translation>
+        <source>Press a key or combination…</source>
+        <translation>Appuyez sur une touche ou une combinaison…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27191,6 +27195,10 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
         <translation>Réinitialiser %1 à %2</translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
+        <translation>Ne fonctionne que lorsque vous ne tapez pas dans un champ de texte.</translation>
     </message>
 </context>
 <context>

@@ -23735,14 +23735,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+67"/>
-        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>A global shortcut can be one key on its own, such as a letter, F5 or a numpad key; the numpad counts separately from the main keyboard. A lone letter, digit or symbol works only while you are not typing in a text field, so typing always wins.
 
 Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>تحتاج الاختصارات العامة إلى Ctrl أو Alt أو Super: يلتقط Lightning المفتاح قبل أن يصل إلى أي مربع نص، لذا فإن تعيين حرف عادي سيمنعك من كتابته في أي مكان.
+        <translation>يمكن أن يكون الاختصار العام مفتاحًا واحدًا بمفرده، مثل حرف أو F5 أو مفتاح من لوحة الأرقام؛ وتُحتسب لوحة الأرقام منفصلةً عن لوحة المفاتيح الرئيسية. الحرف أو الرقم أو الرمز المنفرد يعمل فقط عندما لا تكتب في حقل نصي، لذلك تكون الأولوية دائمًا للكتابة.
 
 تقبل إجراءات صفحات الإعدادات أيضاً Tab وShift+Tab؛ تحل هذه التعيينات محل التنقل العادي للتركيز في الإعدادات فقط.
 
@@ -27380,8 +27380,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+10"/>
-        <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>استخدم Ctrl أو Alt أو Super. يتم أخذ اختصار بدون أي من هذه الاختصارات قبل أن يرى أي حقل نص المفتاح، لذلك سيمنعك من كتابة هذا الحرف في أي مكان في Lightning.</translation>
+        <source>Use Ctrl, Alt or Super, or a single key on its own. Shift alone changes the character you type, so it does not count.</source>
+        <translation>استخدم Ctrl أو Alt أو Super، أو مفتاحًا واحدًا بمفرده. مفتاح Shift وحده يغيّر الحرف الذي تكتبه، لذلك لا يُحتسب.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27488,13 +27488,17 @@ Note: importing keys does not verify this session.</source>
         <source>Scroll Settings down half a page</source>
         <translation>تمرير الإعدادات نصف صفحة إلى الأسفل</translation>
     </message>
+    <message>
+        <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
+        <translation>%1 ينقل التركيز أو يتنقّل أو يحرّر النص، لذلك لا يمكن أن يكون اختصارًا بمفرده.</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutRow</name>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+171"/>
-        <source>Press a combination…</source>
-        <translation>اضغط على تركيبة…</translation>
+        <source>Press a key or combination…</source>
+        <translation>اضغط على مفتاح أو تركيبة…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27530,6 +27534,10 @@ Note: importing keys does not verify this session.</source>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
         <translation>إعادة تعيين %1إلى %2</translation>
+    </message>
+    <message>
+        <source>Works only while you are not typing in a text field.</source>
+        <translation>يعمل فقط عندما لا تكتب في حقل نصي.</translation>
     </message>
 </context>
 <context>
