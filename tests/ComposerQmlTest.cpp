@@ -1492,11 +1492,11 @@ private slots:
             if (r.intersects(painted))
                 hits << QStringLiteral("%1 %2").arg(QLatin1String(name), r2s(r));
         }
-        QVERIFY2(buttons >= 3, "the header buttons were not found");
         QVERIFY2(hits.isEmpty(),
                  qPrintable(QStringLiteral("the spinner %1 is drawn over %2")
                                 .arg(r2s(painted),
                                      hits.join(QStringLiteral("; ")))));
+        QVERIFY2(buttons >= 3, "the header buttons were not found");
     }
 
     void stickerSearchFiltersEveryPackAndEscapeClearsIt()
