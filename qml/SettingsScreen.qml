@@ -3454,6 +3454,8 @@ Item {
                                     id: systemUiFontCombo
                                     objectName: "systemUiFontCombo"
                                     storm: true
+                                    filterable: true
+                                    filterPlaceholder: qsTr("Search fonts")
                                     Layout.fillWidth: true
                                     model: root.fontManager ? root.fontManager.uiFamilies : []
                                     restoreAfterModelReset: false
@@ -3509,6 +3511,8 @@ Item {
                                     id: monoFontCombo
                                     objectName: "monoFontCombo"
                                     storm: true
+                                    filterable: true
+                                    filterPlaceholder: qsTr("Search fonts")
                                     Layout.fillWidth: true
                                     model: root.fontManager ? root.fontManager.monospaceFamilies : []
                                     restoreAfterModelReset: false

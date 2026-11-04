@@ -122,7 +122,7 @@ private Q_SLOTS:
         QVERIFY(end > at);
         QVERIFY(!src.mid(at, end - at).contains(QRegularExpression(QStringLiteral("currentIndex\\s*=[^=]"))));
         QVERIFY(src.contains(QStringLiteral("restoreAfterModelReset")));
-        QVERIFY(src.contains(QStringLiteral("height: entry.availableHeight")));
+        QVERIFY(src.contains(QStringLiteral("height: row.availableHeight")));
     }
 
     void verifyIsOfferedOnlyWhenItCanSucceed()

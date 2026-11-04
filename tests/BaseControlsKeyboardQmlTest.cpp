@@ -18,13 +18,15 @@ import MatrixClient
 ApplicationWindow {
     id: win
     width: 520
-    height: 560
+    height: 760
     visible: true
 
     property int btnClicks: 0
     property int iconClicks: 0
     property string segPicked: ""
     property int swToggles: 0
+    property int fontPicks: 0
+    property string fontPicked: ""
     readonly property string chipName: chip.Accessible.name
 
     Column {
@@ -44,6 +46,15 @@ ApplicationWindow {
             objectName: "combo"
             width: 220
             model: { var l = []; for (var i = 0; i < 40; ++i) l.push("Row " + i); return l }
+        }
+        AppComboBox {
+            id: fontCombo
+            objectName: "fontCombo"
+            width: 220
+            filterable: true
+            filterPlaceholder: "Search fonts"
+            model: ["Noto Sans", "Inter", "Fira Code", "Noto Serif", "DejaVu Sans Mono"]
+            onActivated: (i) => { win.fontPicks++; win.fontPicked = currentText }
         }
         AppSwitch { id: sw; objectName: "sw"; onToggled: win.swToggles++ }
         AppTextField { id: tf; objectName: "tf"; width: 220; text: "hello" }
@@ -85,6 +96,12 @@ private:
     QPoint center(QQuickItem *it) const
     {
         return it->mapToScene(QPointF(it->width() / 2, it->height() / 2)).toPoint();
+    }
+
+    void type(const QString &text)
+    {
+        for (const QChar c : text)
+            QTest::keyClick(m_window, c.toLatin1());
     }
 
     void focus(QQuickItem *it)
@@ -234,6 +251,118 @@ private slots:
         QVERIFY2(!combo->property("_swallowKeyRelease").toBool(),
                  "a stale swallow flag would eat the next row choice");
         focus(combo);
+    }
+
+    void typingInAFilterableComboNarrowsAndPicksTheOriginalRow()
+    {
+        auto *combo = item("fontCombo");
+        QVERIFY(combo);
+        auto *popup = combo->property("popup").value<QObject *>();
+        auto *content = popup->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        auto *field = findItem(content, QStringLiteral("comboFilterField"));
+        auto *list = findItem(content, QStringLiteral("comboFilteredList"));
+        auto *empty = findItem(content, QStringLiteral("comboFilterEmpty"));
+        QVERIFY(field && list && empty);
+        const auto open = [&] {
+            QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, center(combo));
+            QTRY_VERIFY(popup->property("visible").toBool());
+            QTRY_VERIFY(field->hasActiveFocus());
+        };
+
+        combo->setProperty("currentIndex", 0);
+        open();
+        QCOMPARE(list->property("count").toInt(), 5);
+        type(QStringLiteral("SERIF"));
+        QTRY_COMPARE(list->property("count").toInt(), 1);
+        QVERIFY(popup->property("visible").toBool());
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QCOMPARE(combo->property("currentIndex").toInt(), 3);
+        QCOMPARE(m_root->property("fontPicks").toInt(), 1);
+        QCOMPARE(m_root->property("fontPicked").toString(), QStringLiteral("Noto Serif"));
+
+        open();
+        QCOMPARE(field->property("text").toString(), QString());
+        QCOMPARE(list->property("count").toInt(), 5);
+        QCOMPARE(list->property("currentIndex").toInt(), 3);
+        type(QStringLiteral("zzz"));
+        QTRY_COMPARE(list->property("count").toInt(), 0);
+        QVERIFY(empty->isVisible());
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QVERIFY(popup->property("visible").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QCOMPARE(combo->property("currentIndex").toInt(), 3);
+        QCOMPARE(m_root->property("fontPicks").toInt(), 1);
+
+        open();
+        type(QStringLiteral("noto"));
+        QTRY_COMPARE(list->property("count").toInt(), 2);
+        QCOMPARE(list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QCOMPARE(list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QCOMPARE(m_root->property("fontPicked").toString(), QStringLiteral("Noto Serif"));
+
+        open();
+        type(QStringLiteral("code"));
+        QTRY_COMPARE(list->property("count").toInt(), 1);
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, row),
+                                              Q_ARG(int, 0))
+                    && row);
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, center(row));
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QCOMPARE(combo->property("currentIndex").toInt(), 2);
+        QCOMPARE(m_root->property("fontPicked").toString(), QStringLiteral("Fira Code"));
+        QCOMPARE(m_root->property("fontPicks").toInt(), 3);
+    }
+
+    void theRowUnderAMovingPointerIsTheOneReturnPicks()
+    {
+        auto *combo = item("fontCombo");
+        QVERIFY(combo);
+        auto *popup = combo->property("popup").value<QObject *>();
+        auto *content = popup->property("contentItem").value<QQuickItem *>();
+        auto *field = findItem(content, QStringLiteral("comboFilterField"));
+        auto *list = findItem(content, QStringLiteral("comboFilteredList"));
+        QVERIFY(field && list);
+        const auto rowAt = [&](int i) {
+            QQuickItem *row = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, row),
+                                      Q_ARG(int, i));
+            return row;
+        };
+
+        combo->setProperty("currentIndex", 0);
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, center(combo));
+        QTRY_VERIFY(popup->property("visible").toBool() && field->hasActiveFocus());
+        QTRY_VERIFY(rowAt(4));
+        QCOMPARE(list->property("currentIndex").toInt(), 0);
+        QTest::mouseMove(m_window, center(rowAt(4)));
+        QTRY_COMPARE(list->property("currentIndex").toInt(), 4);
+        QTest::keyClick(m_window, Qt::Key_Up);
+        QCOMPARE(list->property("currentIndex").toInt(), 3);
+
+        // The pointer stays over the list while the rows are rebuilt.
+        type(QStringLiteral("o"));
+        QTRY_COMPARE(list->property("count").toInt(), 4);
+        QTest::qWait(50);
+        QCOMPARE(list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_PageDown);
+        QCOMPARE(list->property("currentIndex").toInt(), 3);
+
+        type(QStringLiteral("\b"));
+        QTRY_COMPARE(list->property("count").toInt(), 5);
+        QTRY_VERIFY(rowAt(1));
+        QTest::mouseMove(m_window, center(rowAt(1)));
+        QTRY_COMPARE(list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QCOMPARE(combo->property("currentIndex").toInt(), 1);
+        QTest::mouseMove(m_window, QPoint(500, 700));
     }
 
     void clickingASwitchKeepsKeyboardFocus()

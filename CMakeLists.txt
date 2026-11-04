@@ -6437,6 +6437,17 @@ if(BUILD_TESTING)
     set_tests_properties(settings-shell-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # The font combos' type-to-filter search, against a real FontManager.
+    qt_add_executable(font-picker-filter-qml-test
+        tests/FontPickerFilterQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(font-picker-filter-qml-test)
+    target_link_libraries(font-picker-filter-qml-test PRIVATE Qt6::Test)
+    add_test(NAME font-picker-filter-qml COMMAND font-picker-filter-qml-test)
+    set_tests_properties(font-picker-filter-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Theme editor fixes (C85): source scans plus engine cases that load the
     # real editor and gradient editor against the mock backend.
     qt_add_executable(theme-editor-fixes-qml-test

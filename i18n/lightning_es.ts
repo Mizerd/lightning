@@ -978,6 +978,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
 </context>
 <context>
+    <name>AppComboBox</name>
+    <message>
+        <source>No matches</source>
+        <translation>Sin coincidencias</translation>
+    </message>
+</context>
+<context>
     <name>AppController</name>
     <message>
         <location filename="../src/app/AppController.cpp" line="+7076"/>
@@ -25980,6 +25987,10 @@ Nota: importar claves no verifica esta sesión.</translation>
         <location line="+3709"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>Mantén fijo el cursor de texto en todos los campos de texto. Si está desactivado, se sigue el ajuste del cursor del sistema.</translation>
+    </message>
+    <message>
+        <source>Search fonts</source>
+        <translation>Buscar fuentes</translation>
     </message>
 </context>
 <context>
