@@ -183,7 +183,9 @@ QtObject {
         out.root->setProperty("timelineView", QVariant::fromValue(out.view));
         QQmlProperty::write(out.root, QStringLiteral("isDirectRoom"), direct);
         out.window->show();
-        // The pointer starts outside the row, or the row begins hovered.
+        settle();
+        // The pointer is wherever the last case left it until the exposed
+        // window sees it move outside the row.
         QTest::mouseMove(out.window.get(), QPoint(790, 470));
         settle();
         return true;
@@ -417,6 +419,7 @@ private Q_SLOTS:
         auto *shownName = find(shown, "senderName");
         QVERIFY(shownName && shownName->isVisible());
         const qreal shownNameX = shownName->mapToItem(shown.root, QPointF(0, 0)).x();
+        const qreal shownHeight = shown.root->implicitHeight();
 
         set(app, "timelineAvatars", kHide);
         Delegate hidden;
@@ -437,7 +440,7 @@ private Q_SLOTS:
             QCOMPARE(nameX - hiddenX, shownNameX - shownX);
         QString why;
         QVERIFY2(contentFitsTheRow(hidden, why), qPrintable(why));
-        QVERIFY(hidden.root->implicitHeight() <= shown.root->implicitHeight());
+        QVERIFY(hidden.root->implicitHeight() <= shownHeight);
 
         // Toggled live, the built row lands on the height of a fresh one.
         set(app, "timelineAvatars", kShow);
@@ -450,7 +453,7 @@ private Q_SLOTS:
         set(app, "timelineAvatars", kShow);
         settle();
         QCOMPARE(contentX(toggled), shownX);
-        QCOMPARE(toggled.root->implicitHeight(), shown.root->implicitHeight());
+        QCOMPARE(toggled.root->implicitHeight(), shownHeight);
     }
 
     void avatarsOnHoverKeepTheGutterAndAppearOnHover()
@@ -504,6 +507,8 @@ private Q_SLOTS:
         const auto shownObjects = census::objectsUnder(shown.root);
         QCOMPARE(countNamed(shownObjects, QStringLiteral("reactionChip")), 3);
         QVERIFY(find(shown, "reactionsFlow"));
+        const qreal shownHeight = shown.root->implicitHeight();
+        const QString shownDiag = diag(shown);
 
         set(app, "timelineReactions", kHide);
         Delegate hidden;
@@ -516,11 +521,11 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("hidden %1 objects, shown %2")
                                 .arg(hiddenObjects.size()).arg(shownObjects.size())));
         // An own bubble without reactions takes the receipt band instead.
-        const bool shorter = own ? hidden.root->implicitHeight() <= shown.root->implicitHeight()
-                                 : hidden.root->implicitHeight() < shown.root->implicitHeight();
+        const bool shorter = own ? hidden.root->implicitHeight() <= shownHeight
+                                 : hidden.root->implicitHeight() < shownHeight;
         QVERIFY2(shorter,
                  qPrintable(QStringLiteral("hidden: %1\nshown: %2")
-                                .arg(diag(hidden), diag(shown))));
+                                .arg(diag(hidden), shownDiag)));
         QString why;
         QVERIFY2(contentFitsTheRow(hidden, why), qPrintable(why));
 
@@ -541,19 +546,20 @@ private Q_SLOTS:
         f.insert(QStringLiteral("reactions"), reactions(3));
         Delegate shown;
         QVERIFY(build(app, f, shown));
+        const qreal shownHeight = shown.root->implicitHeight();
 
         set(app, "timelineReactions", kOnHover);
         Delegate d;
         QVERIFY(build(app, f, d));
         auto *flow = find(d, "reactionsFlow");
         QVERIFY2(flow, "On hover must build the chips up front");
-        QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
+        QCOMPARE(d.root->implicitHeight(), shownHeight);
         QVERIFY2(opacityUpTo(flow, d.root) == 0.0, qPrintable(diag(d)));
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(flow, d.root), 1.0);
         QCOMPARE(find(d, "reactionsFlow"), flow);
-        QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
+        QCOMPARE(d.root->implicitHeight(), shownHeight);
 
         // The chips sit below the message line; reaching them keeps them shown.
         const QPointF chip = flow->mapToScene(QPointF(4, flow->height() / 2));
@@ -595,6 +601,8 @@ private Q_SLOTS:
         Delegate shown;
         QVERIFY(build(app, f, shown, direct));
         QVERIFY(find(shown, "readReceiptStrip"));
+        const qreal shownHeight = shown.root->implicitHeight();
+        const QString shownDiag = diag(shown);
 
         set(app, "timelineReadReceipts", kHide);
         Delegate hidden;
@@ -607,11 +615,11 @@ private Q_SLOTS:
         QCOMPARE(hidden.root->property("bubbleReceiptInset").toReal(), 0.0);
         QCOMPARE(hidden.root->property("ownBubbleReceiptFooter").toBool(), false);
         if (layout == 1 && own)
-            QVERIFY2(hidden.root->implicitHeight() < shown.root->implicitHeight(),
+            QVERIFY2(hidden.root->implicitHeight() < shownHeight,
                      qPrintable(QStringLiteral("an own bubble kept the receipt band: hidden: "
-                                           "%1\nshown: %2").arg(diag(hidden), diag(shown))));
+                                           "%1\nshown: %2").arg(diag(hidden), shownDiag)));
         else
-            QVERIFY(hidden.root->implicitHeight() <= shown.root->implicitHeight());
+            QVERIFY(hidden.root->implicitHeight() <= shownHeight);
         QString why;
         QVERIFY2(contentFitsTheRow(hidden, why), qPrintable(why));
 
@@ -634,13 +642,14 @@ private Q_SLOTS:
         Delegate shown;
         QVERIFY(build(app, f, shown));
         const qreal reserve = shown.root->property("receiptRailReserve").toReal();
+        const qreal shownHeight = shown.root->implicitHeight();
 
         set(app, "timelineReadReceipts", kOnHover);
         Delegate d;
         QVERIFY(build(app, f, d));
         auto *strip = find(d, "readReceiptStrip");
         QVERIFY2(strip, "On hover must build the receipts up front");
-        QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
+        QCOMPARE(d.root->implicitHeight(), shownHeight);
         QCOMPARE(d.root->property("receiptRailReserve").toReal(), reserve);
         QVERIFY2(opacityUpTo(strip, d.root) == 0.0, qPrintable(diag(d)));
 
@@ -686,6 +695,8 @@ private Q_SLOTS:
         QVERIFY(loader);
         QVERIFY2(loader->property("bigEmoji").toBool(), "the fixture is not emoji-only");
         const int bigSize = loader->property("bodyFont").value<QFont>().pixelSize();
+        const qreal bigHeight = big.root->implicitHeight();
+        const QString bigDiag = diag(big);
 
         set(app, "largeEmoji", false);
         Delegate small;
@@ -697,8 +708,8 @@ private Q_SLOTS:
         QVERIFY2(smallSize < bigSize,
                  qPrintable(QStringLiteral("%1px off against %2px on")
                                 .arg(smallSize).arg(bigSize)));
-        QVERIFY2(small.root->implicitHeight() < big.root->implicitHeight(),
-                 qPrintable(QStringLiteral("off: %1\non: %2").arg(diag(small), diag(big))));
+        QVERIFY2(small.root->implicitHeight() < bigHeight,
+                 qPrintable(QStringLiteral("off: %1\non: %2").arg(diag(small), bigDiag)));
     }
 };
 
