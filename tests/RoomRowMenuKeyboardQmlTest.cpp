@@ -554,6 +554,31 @@ Item {
         QVERIFY(mention->height() > unread->height());
         QVERIFY(mention->x() >= 0 && mention->x() + mention->width() <= 300);
         QVERIFY(mention->y() + mention->height() <= 400);
+
+        mentionScene->setParentItem(nullptr);
+        const auto childOf = [](QQuickItem *pill, const char *name) {
+            return pill->findChild<QQuickItem *>(QString::fromLatin1(name));
+        };
+        QQuickItem *chip = childOf(unread, "attentionChip");
+        QQuickItem *label = childOf(unread, "attentionLabel");
+        QVERIFY(chip && label);
+        QVERIFY2(chip->isVisible(), "an idle marker carries no arrow chip");
+        QVERIFY2(chip->height() >= 12, "the idle marker is too thin to read as a button");
+        QVERIFY(!label->isVisible());
+        const qreal idleWidth = unread->width();
+        const QPointF centre = unread->mapToScene(
+            QPointF(unread->width() / 2, unread->height() / 2));
+        QTest::mouseMove(&window, centre.toPoint());
+        QTRY_VERIFY2(label->isVisible(), "hovering the marker does not label it");
+        QCOMPARE(label->property("text").toString(), QStringLiteral("Unread below"));
+        QVERIFY(!chip->isVisible());
+        QVERIFY(unread->width() > idleWidth);
+        QVERIFY(unread->width() >= label->width());
+        QVERIFY(unread->x() >= 0 && unread->x() + unread->width() <= 300);
+        QVERIFY(unread->y() + unread->height() <= 400);
+        QTest::mouseMove(&window, QPoint(150, 10));
+        QTRY_VERIFY(!label->isVisible());
+        QCOMPARE(unread->width(), idleWidth);
     }
 };
 

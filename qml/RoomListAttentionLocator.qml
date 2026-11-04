@@ -72,16 +72,23 @@ Item {
         // is debounced.
         visible: targetRow >= 0 && root.list !== null && root.list.count > 0
         z: 30
+        readonly property bool expanded: hovered || visualFocus
         readonly property int barWidth: 64
+        readonly property int chipWidth: 24
         readonly property int dot: 6
+        readonly property color fill: mention ? AppTheme.mentionBadge
+                                    : down ? AppTheme.accentPressed
+                                    : hovered ? AppTheme.accentHover : AppTheme.accent
+        readonly property color ink: mention ? AppTheme.mentionBadgeText
+                                             : AppTheme.accentText
         anchors.horizontalCenter: parent.horizontalCenter
         focusPolicy: Qt.StrongFocus
         hoverEnabled: true
-        implicitWidth: barWidth + 4 + (mention ? dot + 2 : 0)
-        implicitHeight: mention ? 8 : 6
-        ToolTip.visible: hovered || visualFocus
-        ToolTip.delay: 400
-        ToolTip.text: text
+        implicitWidth: expanded
+            ? Math.max(barWidth + 4, label.implicitWidth + 16 + 14 + 4
+                       + (mention ? dot + 4 : 0))
+            : barWidth + 4 + (mention ? dot + 2 : 0)
+        implicitHeight: expanded ? 22 : (mention ? 16 : 14)
         text: below ? (mention ? qsTr("Mention below") : qsTr("Unread below"))
                     : (mention ? qsTr("Mention above") : qsTr("Unread above"))
         Accessible.role: Accessible.Button
@@ -93,23 +100,76 @@ Item {
         background: Item {
             Rectangle {
                 id: bar
+                objectName: "attentionBar"
+                visible: !pill.expanded
                 x: 2
                 anchors.verticalCenter: parent.verticalCenter
                 width: pill.barWidth
                 height: pill.mention ? 4 : 3
                 radius: height / 2
-                color: pill.mention ? AppTheme.mentionBadge
-                     : pill.down ? AppTheme.accentPressed
-                     : pill.hovered ? AppTheme.accentHover : AppTheme.accent
+                color: pill.fill
             }
             Rectangle {
-                visible: pill.mention
+                objectName: "attentionChip"
+                visible: !pill.expanded
+                x: bar.x + (bar.width - width) / 2
+                anchors.verticalCenter: parent.verticalCenter
+                width: pill.chipWidth
+                height: pill.height
+                radius: height / 2
+                color: pill.fill
+                Icon {
+                    anchors.centerIn: parent
+                    name: pill.below ? "expand_more" : "expand_less"
+                    size: 12
+                    color: pill.ink
+                }
+            }
+            Rectangle {
+                visible: pill.mention && !pill.expanded
                 x: bar.x + bar.width + 2
                 anchors.verticalCenter: parent.verticalCenter
                 width: pill.dot
                 height: width
                 radius: width / 2
                 color: AppTheme.mentionBadge
+            }
+            Rectangle {
+                objectName: "attentionPillFill"
+                visible: pill.expanded
+                anchors.fill: parent
+                radius: height / 2
+                color: pill.fill
+            }
+        }
+        contentItem: Item {
+            Row {
+                visible: pill.expanded
+                anchors.centerIn: parent
+                spacing: 4
+                Icon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: pill.below ? "expand_more" : "expand_less"
+                    size: 14
+                    color: pill.ink
+                }
+                Label {
+                    id: label
+                    objectName: "attentionLabel"
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: pill.text
+                    color: pill.ink
+                    font.pixelSize: AppTheme.textMeta
+                    font.weight: AppTheme.weightStrong
+                }
+                Rectangle {
+                    visible: pill.mention
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: pill.dot
+                    height: width
+                    radius: width / 2
+                    color: pill.ink
+                }
             }
         }
         Rectangle {
