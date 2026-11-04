@@ -276,7 +276,7 @@ Rectangle {
             Layout.row: 0
             Layout.column: 0
             Layout.rowSpan: cardGrid.big ? 2 : 1
-            Layout.columnSpan: cardGrid.huge ? 6 : 1
+            Layout.columnSpan: cardGrid.huge ? 5 : 1
             active: root.artKnown
             visible: active
             sourceComponent: Item {

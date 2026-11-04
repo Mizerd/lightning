@@ -707,7 +707,8 @@ TestCase {
                 if (inked(Math.floor(plate.x + 4 + cx), plate.y + 4 + y) > full / 2)
                     ++reference
             }
-            verify(Math.abs(painted - reference) <= 1,
+            // The software renderer snaps a Rectangle out to whole pixels.
+            verify(Math.abs(painted - reference) <= 2,
                    "bar " + i + ": " + painted + " px painted, "
                    + reference + " px as a Rectangle")
             ++compared
@@ -756,6 +757,8 @@ TestCase {
             var idleMute = muteLook(row)
             verify(Object.keys(idle).length >= 7,
                    cases[c].style + ": " + JSON.stringify(idle))
+            var save = find(row, "audioSaveButton")
+            fuzzyCompare(save.mapToItem(row, save.width, 0).x, row.width - 6, 0.5)
             voice.load({ eventId: "$row", isVoice: cases[c].voice,
                          loaded: false, playing: false, position: 0,
                          duration: 0, mediaKey: "mk-row" })
