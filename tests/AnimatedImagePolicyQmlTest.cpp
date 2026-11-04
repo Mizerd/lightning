@@ -865,6 +865,7 @@ QtObject {
             // Another consumer fetches the evicted key again: same bytes,
             // new revision.
             bridge->setCacheLimitBytes(1);
+            bridge->setDecodeGraceMsForTest(0);
             fetchAndServe(QStringLiteral("$other-%1").arg(checked));
             QVERIFY2(bridge->cachedSource(cacheKey).isEmpty(), row.what);
             bool flashed = false;
