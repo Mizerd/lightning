@@ -1508,7 +1508,7 @@ private slots:
         QTRY_COMPARE(grid->property("count").toInt(), 3);
 
         QTest::keyClicks(m_window, QStringLiteral("dog"));
-        QTRY_COMPARE(m_controller->stickers()->filter(), QStringLiteral("dog"));
+        QTRY_COMPARE(m_controller->stickers()->property("filter").toString(), QStringLiteral("dog"));
         QTRY_COMPARE(grid->property("count").toInt(), 2);
         QCOMPARE(m_controller->stickers()->selectedPackId(), roomPackId());
 
@@ -1534,7 +1534,7 @@ private slots:
         QVERIFY2(picker->property("opened").toBool(),
                  "Escape over a query closed the picker instead of clearing it");
         QTRY_COMPARE(grid->property("count").toInt(), 3);
-        QCOMPARE(m_controller->stickers()->filter(), QString());
+        QCOMPARE(m_controller->stickers()->property("filter").toString(), QString());
 
         QTest::keyClick(m_window, Qt::Key_Escape);
         QTRY_VERIFY2(!picker->property("opened").toBool(),
@@ -1573,7 +1573,7 @@ private slots:
         auto *field = item("stickerSearchField");
         QVERIFY(field);
         field->setProperty("text", QStringLiteral("dog"));
-        QTRY_COMPARE(m_controller->stickers()->filter(), QStringLiteral("dog"));
+        QTRY_COMPARE(m_controller->stickers()->property("filter").toString(), QStringLiteral("dog"));
         QMetaObject::invokeMethod(flags, "clicked");
         QTRY_COMPARE(m_controller->stickers()->selectedPackId(),
                      QStringLiteral("room:!general:mock.local:flags"));
