@@ -1459,6 +1459,11 @@ private slots:
                  qPrintable(QStringLiteral("not shown: %1")
                                 .arg(missing.join(QStringLiteral(", ")))));
         QCOMPARE(measured, 7);
+        for (const QString &w : std::as_const(m_warnings)) {
+            QVERIFY2(!w.contains(QStringLiteral("PackChipStrip"))
+                         && !w.contains(QStringLiteral("StickerPicker")),
+                     qPrintable(w));
+        }
     }
 
     void stickerPickerSpinnerOverlapsNoHeaderButton()
