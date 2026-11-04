@@ -817,15 +817,17 @@ the agent again.
 
 ### Proving it, and backfilling a release that missed out
 
-Prove it on a NON-PUBLISHING run before trusting it at a release — the AppImage
-is the cheapest format to pair it with, and `BUILD_FORMATS` must name one:
+Prove it on a NON-PUBLISHING run before trusting it at a release. With
+`BUILD_FORMATS=none` only the Mac builds; any other value starts the whole
+gitlab.com package lane. The macOS rule needs the full 40-character commit:
 
 ```sh
 glab api --method POST projects/6/pipeline \
-  -H "Content-Type: application/json" --input - <<'JSON'
+  -H "Content-Type: application/json" --input - <<JSON
 {"ref":"main","variables":[
-  {"key":"BUILD_FORMATS","value":"appimage"},
+  {"key":"BUILD_FORMATS","value":"none"},
   {"key":"BUILD_MACOS_PACKAGES","value":"true"},
+  {"key":"SOURCE_REF","value":"$(git rev-parse origin/main)"},
   {"key":"PUBLISH_PACKAGES","value":"false"}]}
 JSON
 ```
