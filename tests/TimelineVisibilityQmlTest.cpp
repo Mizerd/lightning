@@ -2,6 +2,7 @@
 
 #include <QFont>
 #include <QFontDatabase>
+#include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -43,8 +44,7 @@ class TimelineVisibilityQmlTest : public QObject
     static void set(AppController &app, const char *name, const QVariant &v)
     {
         app.settings()->setProperty(name, v);
-        for (int i = 0; i < 4; ++i)
-            QCoreApplication::processEvents();
+        settle();
     }
 
     static QVariantMap baseFixture()
@@ -183,6 +183,8 @@ QtObject {
         out.root->setProperty("timelineView", QVariant::fromValue(out.view));
         QQmlProperty::write(out.root, QStringLiteral("isDirectRoom"), direct);
         out.window->show();
+        // The pointer starts outside the row, or the row begins hovered.
+        QTest::mouseMove(out.window.get(), QPoint(790, 470));
         settle();
         return true;
     }
@@ -191,8 +193,15 @@ QtObject {
     {
         for (int i = 0; i < 6; ++i) {
             QCoreApplication::processEvents();
-            QTest::qWait(10);
+            QTest::qWait(20);
         }
+        // A grab polishes, so layouts and positioners report settled sizes.
+        for (QWindow *w : QGuiApplication::topLevelWindows()) {
+            auto *quick = qobject_cast<QQuickWindow *>(w);
+            if (quick && quick->isVisible())
+                (void)quick->grabWindow();
+        }
+        QCoreApplication::processEvents();
     }
 
     static QQuickItem *find(const Delegate &d, const char *name)
@@ -232,17 +241,17 @@ QtObject {
             return false;
         }
         const qreal bottom = column->mapToItem(d.root, QPointF(0, column->height())).y();
-        if (bottom > d.root->height() + 0.5) {
+        if (bottom > d.root->implicitHeight() + 0.5) {
             why = QStringLiteral("content ends at %1 in a %2px row")
-                      .arg(bottom).arg(d.root->height());
+                      .arg(bottom).arg(d.root->implicitHeight());
             return false;
         }
         if (auto *flow = find(d, "reactionsFlow")) {
             const qreal flowBottom =
                 flow->mapToItem(d.root, QPointF(0, flow->height())).y();
-            if (flowBottom > d.root->height() + 0.5) {
+            if (flowBottom > d.root->implicitHeight() + 0.5) {
                 why = QStringLiteral("reactions end at %1 in a %2px row")
-                          .arg(flowBottom).arg(d.root->height());
+                          .arg(flowBottom).arg(d.root->implicitHeight());
                 return false;
             }
         }
@@ -400,7 +409,7 @@ private Q_SLOTS:
             QCOMPARE(nameX - hiddenX, shownNameX - shownX);
         QString why;
         QVERIFY2(contentFitsTheRow(hidden, why), qPrintable(why));
-        QVERIFY(hidden.root->height() <= shown.root->height());
+        QVERIFY(hidden.root->implicitHeight() <= shown.root->implicitHeight());
 
         // Toggled live, the built row lands on the height of a fresh one.
         set(app, "timelineAvatars", kShow);
@@ -409,11 +418,11 @@ private Q_SLOTS:
         set(app, "timelineAvatars", kHide);
         settle();
         QCOMPARE(contentX(toggled), hiddenX);
-        QCOMPARE(toggled.root->height(), hidden.root->height());
+        QCOMPARE(toggled.root->implicitHeight(), hidden.root->implicitHeight());
         set(app, "timelineAvatars", kShow);
         settle();
         QCOMPARE(contentX(toggled), shownX);
-        QCOMPARE(toggled.root->height(), shown.root->height());
+        QCOMPARE(toggled.root->implicitHeight(), shown.root->implicitHeight());
     }
 
     void avatarsOnHoverKeepTheGutterAndAppearOnHover()
@@ -426,12 +435,12 @@ private Q_SLOTS:
         QCOMPARE(contentX(d), qreal(40));
         auto *avatar = find(d, "senderAvatar");
         QVERIFY2(avatar, "On hover must build the avatar so hovering builds nothing");
-        const qreal height0 = d.root->height();
+        const qreal height0 = d.root->implicitHeight();
         QCOMPARE(opacityUpTo(avatar, d.root), 0.0);
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(avatar, d.root), 1.0);
-        QCOMPARE(d.root->height(), height0);
+        QCOMPARE(d.root->implicitHeight(), height0);
         QCOMPARE(find(d, "senderAvatar"), avatar);
         leaveRow(d);
         QTRY_COMPARE(opacityUpTo(avatar, d.root), 0.0);
@@ -478,9 +487,12 @@ private Q_SLOTS:
         QVERIFY2(hiddenObjects.size() < shownObjects.size(),
                  qPrintable(QStringLiteral("hidden %1 objects, shown %2")
                                 .arg(hiddenObjects.size()).arg(shownObjects.size())));
-        QVERIFY2(hidden.root->height() < shown.root->height(),
+        // An own bubble without reactions takes the receipt band instead.
+        const bool shorter = own ? hidden.root->implicitHeight() <= shown.root->implicitHeight()
+                                 : hidden.root->implicitHeight() < shown.root->implicitHeight();
+        QVERIFY2(shorter,
                  qPrintable(QStringLiteral("hidden %1px, shown %2px")
-                                .arg(hidden.root->height()).arg(shown.root->height())));
+                                .arg(hidden.root->implicitHeight()).arg(shown.root->implicitHeight())));
         QString why;
         QVERIFY2(contentFitsTheRow(hidden, why), qPrintable(why));
 
@@ -490,7 +502,7 @@ private Q_SLOTS:
         set(app, "timelineReactions", kHide);
         settle();
         QVERIFY(!find(toggled, "reactionsFlow"));
-        QCOMPARE(toggled.root->height(), hidden.root->height());
+        QCOMPARE(toggled.root->implicitHeight(), hidden.root->implicitHeight());
     }
 
     void reactionsOnHoverHoldTheirSpaceAndAppearOnHoverOrSelection()
@@ -507,13 +519,13 @@ private Q_SLOTS:
         QVERIFY(build(app, f, d));
         auto *flow = find(d, "reactionsFlow");
         QVERIFY2(flow, "On hover must build the chips up front");
-        QCOMPARE(d.root->height(), shown.root->height());
+        QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
         QCOMPARE(opacityUpTo(flow, d.root), 0.0);
 
         hoverRow(d);
         QTRY_COMPARE(opacityUpTo(flow, d.root), 1.0);
         QCOMPARE(find(d, "reactionsFlow"), flow);
-        QCOMPARE(d.root->height(), shown.root->height());
+        QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
 
         // The chips sit below the message line; reaching them keeps them shown.
         const QPointF chip = flow->mapToScene(QPointF(4, flow->height() / 2));
@@ -567,10 +579,10 @@ private Q_SLOTS:
         QCOMPARE(hidden.root->property("bubbleReceiptInset").toReal(), 0.0);
         QCOMPARE(hidden.root->property("ownBubbleReceiptFooter").toBool(), false);
         if (layout == 1 && own)
-            QVERIFY2(hidden.root->height() < shown.root->height(),
+            QVERIFY2(hidden.root->implicitHeight() < shown.root->implicitHeight(),
                      "an own bubble kept the receipt band below it with receipts hidden");
         else
-            QVERIFY(hidden.root->height() <= shown.root->height());
+            QVERIFY(hidden.root->implicitHeight() <= shown.root->implicitHeight());
         QString why;
         QVERIFY2(contentFitsTheRow(hidden, why), qPrintable(why));
 
@@ -580,7 +592,7 @@ private Q_SLOTS:
         set(app, "timelineReadReceipts", kHide);
         settle();
         QVERIFY(!find(toggled, "readReceiptStrip"));
-        QCOMPARE(toggled.root->height(), hidden.root->height());
+        QCOMPARE(toggled.root->implicitHeight(), hidden.root->implicitHeight());
     }
 
     void receiptsOnHoverHoldTheirPlaceAndAppearOnHoverOrSelection()
@@ -599,7 +611,7 @@ private Q_SLOTS:
         QVERIFY(build(app, f, d));
         auto *strip = find(d, "readReceiptStrip");
         QVERIFY2(strip, "On hover must build the receipts up front");
-        QCOMPARE(d.root->height(), shown.root->height());
+        QCOMPARE(d.root->implicitHeight(), shown.root->implicitHeight());
         QCOMPARE(d.root->property("receiptRailReserve").toReal(), reserve);
         QCOMPARE(opacityUpTo(strip, d.root), 0.0);
 
@@ -656,7 +668,10 @@ private Q_SLOTS:
         QVERIFY2(smallSize < bigSize,
                  qPrintable(QStringLiteral("%1px off against %2px on")
                                 .arg(smallSize).arg(bigSize)));
-        QVERIFY(small.root->height() < big.root->height());
+        QVERIFY2(small.root->implicitHeight() < big.root->implicitHeight(),
+                 qPrintable(QStringLiteral("%1px off against %2px on")
+                                .arg(small.root->implicitHeight())
+                                .arg(big.root->implicitHeight())));
     }
 };
 
