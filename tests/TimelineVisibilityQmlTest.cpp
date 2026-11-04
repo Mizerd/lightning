@@ -184,8 +184,9 @@ QtObject {
         QQmlProperty::write(out.root, QStringLiteral("isDirectRoom"), direct);
         out.window->show();
         settle();
-        // The pointer is wherever the last case left it until the exposed
-        // window sees it move outside the row.
+        // Qt drops a move to the position it already has, and the last case
+        // left the pointer at the parking spot: arrive there from elsewhere.
+        QTest::mouseMove(out.window.get(), QPoint(700, 300));
         QTest::mouseMove(out.window.get(), QPoint(790, 470));
         settle();
         return true;
@@ -290,11 +291,12 @@ QtObject {
 
     void hoverRow(Delegate &d)
     {
-        QTest::mouseMove(d.window.get(), QPoint(790, 470));
+        QTest::mouseMove(d.window.get(), QPoint(700, 300));
         QTest::mouseMove(d.window.get(), QPoint(int(kRowWidth / 2), 12));
     }
     void leaveRow(Delegate &d)
     {
+        QTest::mouseMove(d.window.get(), QPoint(700, 300));
         QTest::mouseMove(d.window.get(), QPoint(790, 470));
     }
 
