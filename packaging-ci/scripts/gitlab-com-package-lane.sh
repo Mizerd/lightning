@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# Run the gitlab.com Linux package lane (.gitlab/packages.yml) for SOURCE_REF,
-# wait for it, and collect every validated package into dist/ exactly as the
-# local validate-* jobs leave them.
+# Run the gitlab.com package lane (.gitlab/packages.yml) for SOURCE_REF, wait
+# for it, and collect its validated packages into dist/ exactly as the local
+# validate-* and build-windows jobs leave them.
 #
 #   GITLAB_COM_PROJECT_ID     the mirror project (88402223)
 #   GITLAB_COM_TRIGGER_TOKEN  pipeline trigger token of that project
 #   GITLAB_COM_READ_TOKEN     read_api token of that project (job artifacts)
 #   SOURCE_REF                full commit SHA; the mirror's GITLAB_COM_REF must
 #                             point at it, so scripts and source are one commit
-#   GITLAB_COM_PIPELINE_ID    optional: collect from this finished pipeline
-#                             instead of triggering one
-#   GITLAB_COM_WINDOWS        true: also collect the Windows portable zip, MSI
-#                             and setup EXE into dist/windows/
+#   GITLAB_COM_PIPELINE_ID    optional: adopt this pipeline instead of
+#                             triggering one
+#   GITLAB_COM_COLLECT        comma list of linux-amd64, linux-arm64, windows,
+#                             or none (default: all three)
+#
+# linux-amd64 and windows are required: each of their packages must have
+# validated. linux-arm64 is optional: whatever validated is collected, and a
+# red arm64 job neither fails the lane nor this script.
+#
+# Writes dist/gitlab-com-lane.env (GITLAB_COM_LANE_PIPELINE=<id>) and, per
+# collected group, dist/gitlab-com-lane-<group>.json.
 #
 # PUBLISH_PACKAGES, RELEASE_ACTION and RELEASE_VERSION are passed through, so a
 # release gets an official (key-embedding) build; the lane's resolve-source runs
@@ -29,10 +36,28 @@ ROOT="$(project_dir)"
 # Above the lane's critical path: resolve 15m, build 3h, snap 1h, its validator
 # 1h, plus queueing.
 : "${GITLAB_COM_TIMEOUT_S:=25200}"
+: "${GITLAB_COM_COLLECT:=linux-amd64,linux-arm64,windows}"
 require_var GITLAB_COM_READ_TOKEN
 require_var SOURCE_REF
 [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]] || die "SOURCE_REF must be a full commit SHA"
 [[ "$GITLAB_COM_PROJECT_ID" =~ ^[0-9]+$ ]] || die "GITLAB_COM_PROJECT_ID must be numeric"
+[[ "$GITLAB_COM_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$ ]] || die "GITLAB_COM_REF is not a plausible branch name"
+if [[ "${PUBLISH_PACKAGES:-false}" == true && "$GITLAB_COM_REF" != main ]]; then
+    die "a release builds only from gitlab.com's protected main, not $GITLAB_COM_REF"
+fi
+
+declare -A collect=()
+IFS=',' read -r -a _groups <<<"$GITLAB_COM_COLLECT"
+for group in "${_groups[@]}"; do
+    case "$group" in
+        linux-amd64|linux-arm64|windows) collect[$group]=1 ;;
+        none) ;;
+        *) die "GITLAB_COM_COLLECT: unknown group '$group'" ;;
+    esac
+done
+if [[ -n "${collect[*]:-}" && ",$GITLAB_COM_COLLECT," == *,none,* ]]; then
+    die "GITLAB_COM_COLLECT cannot combine none with a group"
+fi
 
 API="$GITLAB_COM_API/projects/$GITLAB_COM_PROJECT_ID"
 WORK="$(mktemp -d)"
@@ -43,18 +68,16 @@ trap 'rm -rf "$WORK"' EXIT
 ( umask 077; printf 'header = "Authorization: Bearer %s"\n' "$GITLAB_COM_READ_TOKEN" >"$WORK/auth" )
 api() { curl -fsS --retry 5 --retry-all-errors --max-time 120 -K "$WORK/auth" "$API/$1"; }
 
-# Every package the release publishes, by the job that validated it.
-LANE_JOBS=(
-    validate-deb-amd64 validate-deb-arm64
-    validate-deb-ubuntu-amd64 validate-deb-ubuntu-arm64
-    validate-rpm-amd64 validate-rpm-arm64
-    validate-appimage-amd64 validate-appimage-arm64
-    validate-snap-amd64 validate-snap-arm64
-    validate-flatpak-amd64
+# Every Linux package the release publishes, by the job that validated it.
+AMD64_JOBS=(
+    validate-deb-amd64 validate-deb-ubuntu-amd64 validate-rpm-amd64
+    validate-appimage-amd64 validate-snap-amd64 validate-flatpak-amd64
+)
+ARM64_JOBS=(
+    validate-deb-arm64 validate-deb-ubuntu-arm64 validate-rpm-arm64
+    validate-appimage-arm64 validate-snap-arm64
 )
 PACKAGE_GLOB='\.(deb|rpm|AppImage|snap|flatpak)$'
-: "${GITLAB_COM_WINDOWS:=false}"
-[[ "$GITLAB_COM_WINDOWS" == true || "$GITLAB_COM_WINDOWS" == false ]] || die "GITLAB_COM_WINDOWS must be true or false"
 
 pipeline="${GITLAB_COM_PIPELINE_ID:-}"
 if [[ -z "$pipeline" ]]; then
@@ -62,7 +85,7 @@ if [[ -z "$pipeline" ]]; then
     deadline=$(( $(date +%s) + 900 ))
     until [[ "$(api "repository/branches/$GITLAB_COM_REF" | jq -r .commit.id)" == "$SOURCE_REF" ]]; do
         (( $(date +%s) < deadline )) || \
-            die "gitlab.com $GITLAB_COM_REF never reached $SOURCE_REF; the push mirror has not caught up"
+            die "gitlab.com $GITLAB_COM_REF never reached $SOURCE_REF; the push mirror has not caught up, or $GITLAB_COM_REF has moved past it"
         sleep 30
     done
     ( umask 077; printf '%s' "$GITLAB_COM_TRIGGER_TOKEN" >"$WORK/trigger" )
@@ -79,6 +102,8 @@ if [[ -z "$pipeline" ]]; then
 fi
 [[ "$pipeline" =~ ^[0-9]+$ ]] || die "no gitlab.com pipeline id"
 printf 'gitlab.com package lane: pipeline %s\n' "$pipeline"
+mkdir -p "$ROOT/dist"
+printf 'GITLAB_COM_LANE_PIPELINE=%s\n' "$pipeline" >"$ROOT/dist/gitlab-com-lane.env"
 
 # An adopted pipeline must have been asked for exactly what this run needs.
 api "pipelines/$pipeline/variables" >"$WORK/variables.json"
@@ -102,76 +127,114 @@ done
 
 deadline=$(( $(date +%s) + GITLAB_COM_TIMEOUT_S ))
 while :; do
-    status="$(api "pipelines/$pipeline" | jq -er .status)"
+    api "pipelines/$pipeline" >"$WORK/pipeline.json"
+    status="$(jq -er .status "$WORK/pipeline.json")"
     case "$status" in
-        success) break ;;
-        failed|canceled|skipped) die "gitlab.com pipeline $pipeline ended $status" ;;
+        success|failed) break ;;
+        canceled|skipped) die "gitlab.com pipeline $pipeline ended $status" ;;
     esac
     (( $(date +%s) < deadline )) || die "gitlab.com pipeline $pipeline still $status after ${GITLAB_COM_TIMEOUT_S}s"
     sleep 60
 done
-pipeline_sha="$(api "pipelines/$pipeline" | jq -er .sha)"
+pipeline_sha="$(jq -er .sha "$WORK/pipeline.json")"
 [[ "$pipeline_sha" == "$SOURCE_REF" ]] || die "gitlab.com pipeline $pipeline built $pipeline_sha, not $SOURCE_REF"
+pipeline_ref="$(jq -er .ref "$WORK/pipeline.json")"
+[[ "$pipeline_ref" == "$GITLAB_COM_REF" ]] || die "gitlab.com pipeline $pipeline ran on $pipeline_ref, not $GITLAB_COM_REF"
 
 curl -fsS --retry 5 --retry-all-errors --max-time 120 -K "$WORK/auth" -D "$WORK/jobs.headers" \
     -o "$WORK/jobs.json" "$API/pipelines/$pipeline/jobs?per_page=100"
 total="$(tr -d '\r' <"$WORK/jobs.headers" | awk -F': ' 'tolower($1) == "x-total" { print $2 }')"
 [[ "$total" =~ ^[0-9]+$ ]] && (( total <= 100 )) || die "pipeline $pipeline lists '$total' jobs; expected at most one page"
 (( $(jq length "$WORK/jobs.json") == total )) || die "pipeline $pipeline's job list is incomplete"
-# A release may not pass with any job red, canaries included.
+# The arm64 lane is optional, so only an arm64 job may have failed the pipeline.
+if [[ "$status" == failed ]]; then
+    red="$(jq -r '[.[] | select(.status == "failed" and .allow_failure != true and (.name | endswith("-arm64") | not)) | .name] | join(" ")' "$WORK/jobs.json")"
+    [[ -z "$red" ]] || die "gitlab.com pipeline $pipeline failed outside the optional arm64 lane: $red"
+fi
+# A release may not pass with any job red, canaries included; arm64 excepted.
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
-    red="$(jq -r '[.[] | select(.status != "success") | .name] | join(" ")' "$WORK/jobs.json")"
+    red="$(jq -r '[.[] | select(.status != "success" and (.name | endswith("-arm64") | not)) | .name] | join(" ")' "$WORK/jobs.json")"
     [[ -z "$red" ]] || die "gitlab.com pipeline $pipeline has jobs that did not succeed: $red"
 fi
-mkdir -p "$ROOT/dist"
-collected=0
-for name in "${LANE_JOBS[@]}"; do
-    job="$(jq -er --arg n "$name" '[.[] | select(.name == $n and .status == "success")][0].id' "$WORK/jobs.json")" || \
-        die "gitlab.com pipeline $pipeline has no successful $name"
+
+job_id() {
+    jq -er --arg n "$1" '[.[] | select(.name == $n and .status == "success")][0].id' "$WORK/jobs.json"
+}
+
+fetch_artifacts() {
     rm -rf "$WORK/unpack"; mkdir -p "$WORK/unpack"
     curl -fsSL --retry 5 --retry-all-errors --max-time 1800 -K "$WORK/auth" \
-        -o "$WORK/artifacts.zip" "$API/jobs/$job/artifacts"
+        -o "$WORK/artifacts.zip" "$API/jobs/$1/artifacts"
     python3 -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' \
         "$WORK/artifacts.zip" "$WORK/unpack"
-    found=0
-    while IFS= read -r -d '' pkg; do
-        base="$(basename "$pkg")"
-        [[ -f "$pkg.sha256" ]] || die "$name: $base has no .sha256"
-        read -r _ named <"$pkg.sha256"
-        [[ "${named#\*}" == "$base" ]] || die "$name: $base.sha256 names '$named'"
-        ( cd "$(dirname "$pkg")" && sha256sum -c --quiet "$base.sha256" ) || die "$name: $base does not match its .sha256"
-        [[ ! -e "$ROOT/dist/$base" ]] || die "$base was collected twice"
-        install -m 0644 "$pkg" "$pkg.sha256" "$ROOT/dist/"
-        found=$((found + 1))
-    done < <(find "$WORK/unpack/dist" -maxdepth 1 -type f -regextype posix-extended -regex ".*$PACKAGE_GLOB" -print0)
-    (( found == 1 )) || die "$name left $found packages, expected one"
-    collected=$((collected + 1))
-done
-(( collected == ${#LANE_JOBS[@]} )) || die "collected $collected of ${#LANE_JOBS[@]} packages"
+}
 
-if [[ "$GITLAB_COM_WINDOWS" == true ]]; then
-    job="$(jq -er '[.[] | select(.name == "build-windows-amd64" and .status == "success")][0].id' "$WORK/jobs.json")" || \
-        die "gitlab.com pipeline $pipeline has no successful build-windows-amd64"
-    rm -rf "$WORK/unpack"; mkdir -p "$WORK/unpack" "$ROOT/dist/windows"
-    curl -fsSL --retry 5 --retry-all-errors --max-time 1800 -K "$WORK/auth" \
-        -o "$WORK/artifacts.zip" "$API/jobs/$job/artifacts"
-    python3 -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' \
-        "$WORK/artifacts.zip" "$WORK/unpack"
-    win=0
+# Checks $1 against its own .sha256 and installs it into $2 (and the .sha256
+# too when $3 is "with-sum").
+take() {
+    local pkg="$1" dest="$2" job="$3" base named
+    base="$(basename "$pkg")"
+    [[ -f "$pkg.sha256" ]] || die "$job: $base has no .sha256"
+    read -r _ named <"$pkg.sha256"
+    [[ "${named#\*}" == "$base" ]] || die "$job: $base.sha256 names '$named'"
+    ( cd "$(dirname "$pkg")" && sha256sum -c --quiet "$base.sha256" ) || die "$job: $base does not match its .sha256"
+    [[ ! -e "$dest/$base" ]] || die "$base was collected twice"
+    install -m 0644 "$pkg" "$dest/"
+    [[ "${4:-}" != with-sum ]] || install -m 0644 "$pkg.sha256" "$dest/"
+    taken+=("$base")
+}
+
+# Collects one package from each job; a job without a successful run is fatal
+# unless $1 is "optional", when it is recorded as missing.
+collect_linux() {
+    local mode="$1" group="$2"; shift 2
+    local name job found pkg
+    taken=() missing=()
+    for name in "$@"; do
+        if ! job="$(job_id "$name")"; then
+            [[ "$mode" == optional ]] || die "gitlab.com pipeline $pipeline has no successful $name"
+            printf 'optional: gitlab.com pipeline %s has no successful %s; its package is left out\n' "$pipeline" "$name" >&2
+            missing+=("$name")
+            continue
+        fi
+        fetch_artifacts "$job"
+        found=0
+        while IFS= read -r -d '' pkg; do
+            take "$pkg" "$ROOT/dist" "$name" with-sum
+            found=$((found + 1))
+        done < <(find "$WORK/unpack/dist" -maxdepth 1 -type f -regextype posix-extended -regex ".*$PACKAGE_GLOB" -print0)
+        (( found == 1 )) || die "$name left $found packages, expected one"
+    done
+    (( ${#taken[@]} + ${#missing[@]} == $# )) || die "$group: accounted for $(( ${#taken[@]} + ${#missing[@]} )) of $# jobs"
+    record "$group"
+}
+
+record() {
+    jq -n --arg id "$pipeline" --arg sha "$pipeline_sha" --arg group "$1" \
+        --argjson taken "$(printf '%s\n' "${taken[@]}" | jq -R . | jq -s 'map(select(length > 0))')" \
+        --argjson missing "$(printf '%s\n' "${missing[@]}" | jq -R . | jq -s 'map(select(length > 0))')" \
+        '{gitlab_com_pipeline: $id, source_sha: $sha, group: $group,
+          packages: $taken, missing_jobs: $missing}' >"$ROOT/dist/gitlab-com-lane-$1.json"
+    printf 'Collected %d %s package(s) from gitlab.com pipeline %s\n' "${#taken[@]}" "$1" "$pipeline"
+}
+
+if [[ -n "${collect[linux-amd64]:-}" ]]; then
+    collect_linux required linux-amd64 "${AMD64_JOBS[@]}"
+fi
+if [[ -n "${collect[linux-arm64]:-}" ]]; then
+    collect_linux optional linux-arm64 "${ARM64_JOBS[@]}"
+fi
+if [[ -n "${collect[windows]:-}" ]]; then
+    taken=() missing=()
+    job="$(job_id build-windows-amd64)" || die "gitlab.com pipeline $pipeline has no successful build-windows-amd64"
+    fetch_artifacts "$job"
+    mkdir -p "$ROOT/dist/windows"
     for pattern in '*-windows-x86_64-portable.zip' '*-windows-x86_64.msi' '*-windows-x86_64-setup.exe'; do
         mapfile -t hits < <(find "$WORK/unpack/dist/windows" -maxdepth 1 -type f -name "$pattern")
         (( ${#hits[@]} == 1 )) || die "build-windows-amd64 left ${#hits[@]} files matching $pattern, expected one"
-        pkg="${hits[0]}"; base="$(basename "$pkg")"
-        [[ -f "$pkg.sha256" ]] || die "build-windows-amd64: $base has no .sha256"
-        read -r _ named <"$pkg.sha256"
-        [[ "${named#\*}" == "$base" ]] || die "build-windows-amd64: $base.sha256 names '$named'"
-        ( cd "$(dirname "$pkg")" && sha256sum -c --quiet "$base.sha256" ) || die "build-windows-amd64: $base does not match its .sha256"
-        install -m 0644 "$pkg" "$ROOT/dist/windows/"
-        win=$((win + 1))
+        take "${hits[0]}" "$ROOT/dist/windows" build-windows-amd64
     done
-    (( win == 3 )) || die "collected $win of 3 Windows artifacts"
-    collected=$((collected + win))
+    (( ${#taken[@]} == 3 )) || die "collected ${#taken[@]} of 3 Windows artifacts"
+    record windows
 fi
-jq -n --arg id "$pipeline" --arg sha "$pipeline_sha" --argjson n "$collected" \
-    '{gitlab_com_pipeline: $id, source_sha: $sha, packages: $n}' >"$ROOT/dist/gitlab-com-lane.json"
-printf 'Collected %d packages from gitlab.com pipeline %s\n' "$collected" "$pipeline"
+printf 'gitlab.com pipeline %s (%s) accepted\n' "$pipeline" "$pipeline_sha"

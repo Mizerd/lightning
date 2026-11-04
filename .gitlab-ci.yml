@@ -154,6 +154,8 @@ config-tests:
   script:
     - ./packaging-ci/tests/test-version.sh
     - ./packaging-ci/tests/test-publication.sh
+    # The collector of the gitlab.com package lane, against a fake API.
+    - ./packaging-ci/tests/test-gitlab-com-lane.sh
     - ./packaging-ci/tests/test-update-manifest.sh
     - ./packaging-ci/tests/test-gif-key-injection.sh
     - ./packaging-ci/tests/test-windows-version-resources.sh
