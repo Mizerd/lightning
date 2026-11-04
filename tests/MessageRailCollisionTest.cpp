@@ -397,20 +397,25 @@ private Q_SLOTS:
         auto *referenceBody = findVisual(reference.root, QStringLiteral("messageBody"));
         auto *bar = forceActionBar(d.root);
         auto *pile = findVisual(d.root, QStringLiteral("readReceiptRow"));
-        QVERIFY(card && referenceCard && body && referenceBody && bar && pile);
+        QVERIFY(card && referenceCard && bar && pile);
+        QCOMPARE(body != nullptr, referenceBody != nullptr);
+        QCOMPARE(body != nullptr, caption != QLatin1String("none")
+                                      && caption != QLatin1String("reactions"));
         auto rect = [](QQuickItem *item, QQuickItem *in) {
             return item->mapRectToItem(in, item->boundingRect());
         };
         QCOMPARE(d.root->height(), reference.root->height());
-        QCOMPARE(body->width(), referenceBody->width());
-        QCOMPARE(rect(body, d.root), rect(referenceBody, reference.root));
+        if (body) {
+            QCOMPARE(body->width(), referenceBody->width());
+            QCOMPARE(rect(body, d.root), rect(referenceBody, reference.root));
+        }
         QCOMPARE(rect(card, d.root), rect(referenceCard, reference.root));
         const qreal heightBefore = d.root->height();
         const qreal implicitBefore = d.root->implicitHeight();
         const qreal widthBefore = d.root->width();
         const QPointF positionBefore = d.root->position();
-        const qreal captionBefore = body->width();
-        const QRectF captionRectBefore = rect(body, d.root);
+        const qreal captionBefore = body ? body->width() : 0.0;
+        const QRectF captionRectBefore = body ? rect(body, d.root) : QRectF();
         const QRectF cardBefore = rect(card, d.root);
         QVERIFY(heightBefore > 0);
         app.downloads()->download(QStringLiteral("rail-file"),
@@ -431,8 +436,10 @@ private Q_SLOTS:
         QCOMPARE(d.root->implicitHeight(), implicitBefore);
         QCOMPARE(d.root->width(), widthBefore);
         QCOMPARE(d.root->position(), positionBefore);
-        QCOMPARE(body->width(), captionBefore);
-        QCOMPARE(rect(body, d.root), captionRectBefore);
+        if (body) {
+            QCOMPARE(body->width(), captionBefore);
+            QCOMPARE(rect(body, d.root), captionRectBefore);
+        }
         QCOMPARE(rect(card, d.root), cardBefore);
         QList<QQuickItem *> occupied;
         auto *flow = findVisual(d.root, QStringLiteral("reactionsFlow"));
@@ -445,7 +452,7 @@ private Q_SLOTS:
                 occupied.append(chip);
         }
         if (caption == QLatin1String("reactions")) {
-            QVERIFY(!body->isVisible());
+            QVERIFY(!body || !body->isVisible());
             QCOMPARE(occupied.size(), 121);
             QVERIFY(occupied.last()->y() > occupied.first()->y() + 2 * occupied.first()->height());
             QVERIFY(notice->isVisible());
@@ -481,7 +488,7 @@ private Q_SLOTS:
             QVERIFY(band.top() < cardBefore.bottom() && band.bottom() > cardBefore.top());
             QVERIFY(!rect(bar, d.root).intersects(band));
             QVERIFY(!rect(pile, d.root).intersects(band));
-            QVERIFY(!rect(body, d.root).intersects(band));
+            QVERIFY(!body || !rect(body, d.root).intersects(band));
             const QRectF beforeScroll = rect(notice, view);
             view->setProperty("contentY", 70);
             QCoreApplication::processEvents();
@@ -507,8 +514,10 @@ private Q_SLOTS:
         QCOMPARE(d.root->implicitHeight(), implicitBefore);
         QCOMPARE(d.root->width(), widthBefore);
         QCOMPARE(d.root->position(), positionBefore);
-        QCOMPARE(body->width(), captionBefore);
-        QCOMPARE(rect(body, d.root), captionRectBefore);
+        if (body) {
+            QCOMPARE(body->width(), captionBefore);
+            QCOMPARE(rect(body, d.root), captionRectBefore);
+        }
         QCOMPARE(rect(card, d.root), cardBefore);
         d.root->setParentItem(d.window->contentItem());
     }

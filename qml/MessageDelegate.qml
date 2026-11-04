@@ -1443,7 +1443,13 @@ Item {
                 width: root.avatarGutterWidth
                 height: parent.height
                 implicitHeight: root.showsIdentity && !root.smallAvatarMode
-                                ? 34 : bodyLabel.implicitHeight
+                                ? 34 : bodyLoader.item ? bodyLoader.item.implicitHeight
+                                                       : emptyBodyLine.height
+                // An empty body line's height, kept by a row that builds no body.
+                FontMetrics {
+                    id: emptyBodyLine
+                    font: bodyLoader.bodyFont
+                }
 
                 Loader {
                     anchors.top: parent.top
@@ -1969,10 +1975,9 @@ Item {
                         sourceComponent: locationComponent
                     }
 
-                    TextEdit {
-                        id: bodyLabel
-                        objectName: "messageBody"
-                        visible: text.length > 0 && !root.showsDecryptingSkeleton
+                    Loader {
+                        id: bodyLoader
+                        objectName: "messageBodyLoader"
                         readonly property bool isMediaRow: root.mediaRowBody
                         readonly property bool isMediaCaption:
                             root.mediaCaptionBody
@@ -1985,7 +1990,7 @@ Item {
                                   model.body || "")
                         readonly property bool bigEmoji:
                             emojiOnlyCount >= 1 && emojiOnlyCount <= 3
-                        text: {
+                        readonly property string bodyText: {
                             if (root.hasMessageSegments) return ""
                             if (model.redacted) {
                                 return model.deletedGroupCount > 1
@@ -2013,71 +2018,80 @@ Item {
                                         root.searchHighlight,
                                         root.isCurrentSearchHit)
                         }
-                        color: model.undecryptable === true
-                               ? (root.drawsOnOwnBubble
-                                  ? root.ownBubbleSecondaryInk : AppTheme.muted)
-                               : bodyLabel.isMediaCaption ? root.captionInk
-                               : root.drawsOnOwnBubble
-                                 ? AppTheme.ownBubbleText : AppTheme.otherBubbleText
+                        active: bodyText.length > 0
+                        visible: active && !root.showsDecryptingSkeleton
+                        Layout.maximumWidth: bubbleRow.width > 8
+                                             ? Math.max(1, root.bodyTextCap
+                                                   - root.receiptRailReserve)
+                                             : 560
+                        Layout.rightMargin: root.receiptRailReserve
+                        Layout.fillWidth: item ? item.rightToLeft : false
                         // TextEdit does not inherit the Controls font. A whole
                         // font so the colour emoji face is a real per-character
                         // fallback (QML has no families list, and Qt 6.8's
                         // automatic fallback picks a monochrome face). Size and
                         // italic pass through because assigning `font` replaces
                         // them.
-                        font: app.textFontWithEmoji(
+                        readonly property font bodyFont: app.textFontWithEmoji(
                                   AppTheme.uiFont,
-                                  bodyLabel.bigEmoji
+                                  bodyLoader.bigEmoji
                                       ? AppTheme.scaled(root.compactMode
                                                         || root.inThreadPanel ? 48 : 60)
                                       : AppTheme.scaled(
-                                            bodyLabel.isMediaCaption ? 12
+                                            bodyLoader.isMediaCaption ? 12
                                             : root.compactMode || root.inThreadPanel
                                               ? 13 : AppTheme.fontSizeM),
                                   model.redacted || model.undecryptable === true
                                   || root.isEmoteRow)
-                        // No lineHeight: lineHeight/lineHeightMode are
-                        // QQuickText properties, and assigning them on a
-                        // TextEdit is a load-time error. Body leading would
-                        // need a `line-height` from MessageHtml::sanitize or a
-                        // move off TextEdit.
-                        wrapMode: Text.Wrap
-                        readOnly: true
-                        Layout.maximumWidth: bubbleRow.width > 8
-                                             ? Math.max(1, root.bodyTextCap
-                                                   - root.receiptRailReserve)
-                                             : 560
-                        Layout.rightMargin: root.receiptRailReserve
-                        Layout.fillWidth: bodyDirection.rightToLeft
-                        textFormat: Text.RichText
-                        clip: (model.formattedBody || "").indexOf("<table") >= 0
-                        selectByMouse: !/spoiler:toggle[^>]*><span[^>]*;color:/.test(
-                                           model.formattedBody || "")
-                        selectionColor: AppTheme.textSelection
-                        selectedTextColor: AppTheme.text
-                        Accessible.name: model.body || ""
+                        sourceComponent: TextEdit {
+                            id: bodyLabel
+                            objectName: "messageBody"
+                            text: bodyLoader.bodyText
+                            font: bodyLoader.bodyFont
+                            readonly property bool rightToLeft: bodyDirection.rightToLeft
+                            color: model.undecryptable === true
+                                   ? (root.drawsOnOwnBubble
+                                      ? root.ownBubbleSecondaryInk : AppTheme.muted)
+                                   : bodyLoader.isMediaCaption ? root.captionInk
+                                   : root.drawsOnOwnBubble
+                                     ? AppTheme.ownBubbleText : AppTheme.otherBubbleText
+                            // No lineHeight: lineHeight/lineHeightMode are
+                            // QQuickText properties, and assigning them on a
+                            // TextEdit is a load-time error. Body leading would
+                            // need a `line-height` from MessageHtml::sanitize or a
+                            // move off TextEdit.
+                            wrapMode: Text.Wrap
+                            readOnly: true
+                            textFormat: Text.RichText
+                            clip: (model.formattedBody || "").indexOf("<table") >= 0
+                            selectByMouse: !/spoiler:toggle[^>]*><span[^>]*;color:/.test(
+                                               model.formattedBody || "")
+                            selectionColor: AppTheme.textSelection
+                            selectedTextColor: AppTheme.text
+                            Accessible.name: model.body || ""
 
-                        ParagraphDirection {
-                            id: bodyDirection
-                            document: bodyLabel.textDocument
-                        }
+                            ParagraphDirection {
+                                id: bodyDirection
+                                document: bodyLabel.textDocument
+                            }
 
-                        onLinkActivated: function(link) {
-                            root.openMessageLink(link)
-                        }
+                            onLinkActivated: function(link) {
+                                root.openMessageLink(link)
+                            }
 
-                        Loader {
-                            anchors.fill: parent
-                            active: model.undecryptable === true
-                            sourceComponent: Item {
-                                HoverHandler { id: undecryptHover }
-                                ToolTip {
-                                    visible: undecryptHover.hovered
-                                    delay: 400
-                                    text: qsTr(
-                                        "Missing room key. Restore your recovery key " +
-                                        "in Settings, or wait for another verified " +
-                                        "device to share the key.")
+                            Loader {
+                                anchors.fill: parent
+                                active: model.undecryptable === true
+                                sourceComponent: Item {
+                                    HoverHandler { id: undecryptHover }
+                                    ToolTip {
+                                        visible: undecryptHover.hovered
+                                        delay: 400
+                                        text: qsTr(
+                                            "Missing room key. Restore your recovery key " +
+                                            "in Settings, or wait for another verified " +
+                                            "device to share the key.")
+                                    }
                                 }
                             }
                         }

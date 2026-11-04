@@ -268,8 +268,7 @@ private Q_SLOTS:
         QCOMPARE(files.size(), 1);
         QVERIFY(files.at(0)->height() > 0.0);
         auto *body = d.root->findChild<QQuickItem *>(QStringLiteral("messageBody"));
-        QVERIFY(body != nullptr);
-        QVERIFY(!body->isVisible());
+        QVERIFY(!body || !body->isVisible());
         QCOMPARE(d.warnings, QStringList{});
     }
 
@@ -1217,8 +1216,7 @@ QtObject {
         QVERIFY(createDelegate(controller, fixture, d));
         auto *body = d.root->findChild<QQuickItem *>(
             QStringLiteral("messageBody"));
-        QVERIFY(body != nullptr);
-        QVERIFY(!body->isVisible());
+        QVERIFY(!body || !body->isVisible());
         QCOMPARE(d.warnings, QStringList{});
 
         QVariantMap captioned = fixture;
@@ -1313,8 +1311,7 @@ QtObject {
             QVERIFY(createDelegate(controller, echo, e));
             auto *echoBody = e.root->findChild<QQuickItem *>(
                 QStringLiteral("messageBody"));
-            QVERIFY(echoBody != nullptr);
-            QVERIFY(!echoBody->isVisible());
+            QVERIFY(!echoBody || !echoBody->isVisible());
         }
     }
 

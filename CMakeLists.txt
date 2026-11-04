@@ -3038,6 +3038,15 @@ if(BUILD_TESTING)
     set_tests_properties(link-preview-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # What a timeline row builds for subtrees it does not show.
+    qt_add_executable(row-object-census-qml-test
+        tests/RowObjectCensusQmlTest.cpp
+    )
+    lightning_configure_qml_test(row-object-census-qml-test)
+    add_test(NAME row-object-census-qml COMMAND row-object-census-qml-test)
+    set_tests_properties(row-object-census-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A link that is itself an image or a video: the viewer rather than the
     # browser, nothing fetched before Play, the over-cap wording, the plain
     # card with inline media off, collapsed embeds, no remote Image source.

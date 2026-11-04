@@ -1160,7 +1160,8 @@ private Q_SLOTS:
 
         QVERIFY(delegate.contains(QStringLiteral(
             "implicitHeight: root.showsIdentity && !root.smallAvatarMode\n"
-            "                                ? 34 : bodyLabel.implicitHeight")));
+            "                                ? 34 : bodyLoader.item ? bodyLoader.item.implicitHeight\n"
+            "                                                       : emptyBodyLine.height")));
         QVERIFY(delegate.contains(QStringLiteral(
             "objectName: \"continuationTimestamp\"")));
         QVERIFY(delegate.contains(QStringLiteral(
@@ -1293,7 +1294,7 @@ private Q_SLOTS:
     void messageContentAndActionsRemainInteractive()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
-        QVERIFY(delegate.contains(QStringLiteral("TextEdit {\n                        id: bodyLabel")));
+        QVERIFY(delegate.contains(QStringLiteral("TextEdit {\n                            id: bodyLabel")));
         QVERIFY(delegate.contains(QStringLiteral("readOnly: true")));
         QVERIFY(delegate.contains(QStringLiteral("selectByMouse: !/spoiler:toggle")));
         QVERIFY(delegate.contains(QStringLiteral("app.media.openWebUrl(link)")));
