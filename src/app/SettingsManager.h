@@ -254,6 +254,8 @@ class SettingsManager : public QObject
                    NOTIFY timelineReadReceiptsChanged)
     Q_PROPERTY(bool largeEmoji READ largeEmoji WRITE setLargeEmoji
                    NOTIFY largeEmojiChanged)
+    Q_PROPERTY(bool jumpToNewestOnSend READ jumpToNewestOnSend
+                   WRITE setJumpToNewestOnSend NOTIFY jumpToNewestOnSendChanged)
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion
                    NOTIFY reducedMotionChanged)
 
@@ -702,6 +704,8 @@ public:
     void setTimelineReadReceipts(int mode);
     bool largeEmoji() const;
     void setLargeEmoji(bool v);
+    bool jumpToNewestOnSend() const;
+    void setJumpToNewestOnSend(bool v);
     bool reducedMotion() const;
     bool highContrast() const;
     void setHighContrast(bool v);
@@ -1034,6 +1038,7 @@ Q_SIGNALS:
     void timelineReactionsChanged();
     void timelineReadReceiptsChanged();
     void largeEmojiChanged();
+    void jumpToNewestOnSendChanged();
     void reducedMotionChanged();
     void highContrastChanged();
     void underlineLinksChanged();

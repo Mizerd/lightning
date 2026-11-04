@@ -107,6 +107,7 @@ constexpr auto kTimelineAvatars     = "timeline/avatars";
 constexpr auto kTimelineReactions   = "timeline/reactions";
 constexpr auto kTimelineReadReceipts = "timeline/readReceipts";
 constexpr auto kLargeEmoji          = "timeline/largeEmoji";
+constexpr auto kJumpToNewestOnSend  = "timeline/jumpToNewestOnSend";
 constexpr auto kReducedMotion       = "ui/reducedMotion";
 constexpr auto kHighContrast        = "ui/highContrast";
 constexpr auto kUnderlineLinks      = "ui/underlineLinks";
@@ -728,6 +729,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT timelineReactionsChanged();
     Q_EMIT timelineReadReceiptsChanged();
     Q_EMIT largeEmojiChanged();
+    Q_EMIT jumpToNewestOnSendChanged();
     Q_EMIT hiddenComposerButtonsChanged();
     Q_EMIT clockFormatChanged();
     Q_EMIT microphoneGainChanged();
@@ -4184,6 +4186,19 @@ void SettingsManager::setLargeEmoji(bool v)
         return;
     setAppearanceValue(kLargeEmoji, v);
     Q_EMIT largeEmojiChanged();
+}
+
+bool SettingsManager::jumpToNewestOnSend() const
+{
+    return appearanceValue(kJumpToNewestOnSend, true).toBool();
+}
+
+void SettingsManager::setJumpToNewestOnSend(bool v)
+{
+    if (jumpToNewestOnSend() == v)
+        return;
+    setAppearanceValue(kJumpToNewestOnSend, v);
+    Q_EMIT jumpToNewestOnSendChanged();
 }
 
 bool SettingsManager::reducedMotion() const

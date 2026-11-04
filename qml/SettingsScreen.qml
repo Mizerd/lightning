@@ -227,6 +227,11 @@ Item {
           section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           control: "largeEmoji",
           anchor: "largeEmojiCheck" },
+        { title: qsTr("Go to the newest message when I send"),
+          keywords: QT_TR_NOOP("send jump scroll bottom latest newest stay place history"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
+          control: "jumpToNewestOnSend",
+          anchor: "jumpToNewestOnSendCheck" },
         { title: qsTr("Reduce motion"),
           keywords: QT_TR_NOOP("reduced motion animation accessibility vestibular"),
           section: "appearance",
@@ -2242,6 +2247,14 @@ Item {
                                         Accessible.name: qsTr("Show emoji-only messages large")
                                         onToggled: app.settings.largeEmoji =
                                             !app.settings.largeEmoji
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineJumpToNewestOnSend_" + resultRow.index
+                                        visible: resultRow.modelData.control === "jumpToNewestOnSend"
+                                        checked: app.settings.jumpToNewestOnSend
+                                        Accessible.name: qsTr("Go to the newest message when I send")
+                                        onToggled: app.settings.jumpToNewestOnSend =
+                                            !app.settings.jumpToNewestOnSend
                                     }
                                     AppSwitch {
                                         objectName: "settingsSearchInlineReducedMotion_" + resultRow.index
@@ -4854,6 +4867,16 @@ Item {
                                     onToggled: app.settings.largeEmoji = checked
                                     Accessible.description: qsTr(
                                         "Draw a message of one to three emoji at a larger size")
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "jumpToNewestOnSendCheck"
+                                    text: qsTr("Go to the newest message when I send")
+                                    checked: app.settings.jumpToNewestOnSend
+                                    onToggled: app.settings.jumpToNewestOnSend = checked
+                                    Accessible.description: qsTr(
+                                        "When off, sending from up in history keeps your place. "
+                                        + "A reply always keeps your place.")
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8

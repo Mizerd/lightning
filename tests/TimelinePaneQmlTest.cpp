@@ -11190,6 +11190,44 @@ false);
                  "a reply sent from history jumped to the newest");
     }
 
+    void turningOffTheSendJumpKeepsThePlaceOnAPlainSend()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        QObject *settings = controller.settings();
+        QVERIFY(settings->setProperty("jumpToNewestOnSend", false));
+        const auto restore = qScopeGuard(
+            [settings] { settings->setProperty("jumpToNewestOnSend", true); });
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 80, QStringLiteral("own"), QStringLiteral("body")),
+0,600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY2(maxY > minY + 600.0, "fixture is not scrollable");
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(timeline->setProperty("contentY", maxY));
+        QCoreApplication::processEvents();
+
+        const int before = controller.timeline()->rowCount();
+        controller.composer()->setText(QStringLiteral("sent while paging"));
+        controller.composer()->send();
+        QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->rowCount(), before + 1,
+                                  kSignalTimeoutMs);
+        QTest::qWait(600);
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY2(timeline->property("contentY").toDouble() > minY + 300.0,
+                 "a send with the jump turned off went to the newest");
+    }
+
     void theLoadingChipSitsBelowTheFirstUnreadPill()
     {
         AppController controller(AppController::MockBackend);

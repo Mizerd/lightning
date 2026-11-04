@@ -4581,7 +4581,8 @@ Rectangle {
                     // Emitted before the composer clears its reply, so a reply
                     // sent from up in history keeps the reader at that context.
                     function onOwnMessageSent() {
-                        if (!timeline.stickToBottom && !app.composer.isReplying)
+                        if (!timeline.stickToBottom && !app.composer.isReplying
+                                && app.settings.jumpToNewestOnSend)
                             timeline.goToLatest()
                     }
                 }
