@@ -699,7 +699,12 @@ mod sdk_tests {
         cached: Vec<String>,
     }
 
-    fn walk_joined_room(sync: fn() -> String, allow_reopen: bool) -> JoinedWalk {
+    // SQLite as in production: matrix-sdk 0.18's memory store keeps event
+    // positions across a linked-chunk clear and then panics on re-insertion.
+    fn walk_joined_room(tag: &str, sync: fn() -> String, allow_reopen: bool) -> JoinedWalk {
+        let store = std::env::temp_dir()
+            .join(format!("lightning-pagewalk-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&store);
         let tokens: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let addr = serve_room(Arc::clone(&tokens), sync, backfilled_messages);
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -709,6 +714,7 @@ mod sdk_tests {
         let (hit_start, cached) = runtime.block_on(async {
             let client = matrix_sdk::Client::builder()
                 .homeserver_url(format!("http://{addr}"))
+                .sqlite_store(&store, None)
                 .build()
                 .await
                 .expect("client");
@@ -753,13 +759,15 @@ mod sdk_tests {
                 .collect::<Vec<_>>();
             (hit_start, cached)
         });
+        drop(runtime);
+        let _ = std::fs::remove_dir_all(&store);
         let asked = tokens.lock().unwrap().clone();
         JoinedWalk { hit_start, asked, cached }
     }
 
     #[test]
     fn a_start_at_our_own_join_is_asked_of_the_server_once_more() {
-        let walk = walk_joined_room(shared_sync, true);
+        let walk = walk_joined_room("reopen", shared_sync, true);
         assert!(!walk.hit_start, "the start was declared at our own join: {:?}", walk.asked);
         assert_eq!(walk.asked, vec!["t1".to_owned(), String::new()]);
         assert!(walk.cached.iter().any(|id| id == "$older"), "{:?}", walk.cached);
@@ -767,14 +775,14 @@ mod sdk_tests {
 
     #[test]
     fn a_start_at_our_own_join_stands_when_joiners_cannot_see_history() {
-        let walk = walk_joined_room(joined_only_sync, true);
+        let walk = walk_joined_room("hidden", joined_only_sync, true);
         assert!(walk.hit_start);
         assert_eq!(walk.asked, vec!["t1".to_owned()]);
     }
 
     #[test]
     fn a_start_at_our_own_join_is_asked_again_only_when_the_caller_allows_it() {
-        let walk = walk_joined_room(shared_sync, false);
+        let walk = walk_joined_room("claimed", shared_sync, false);
         assert!(walk.hit_start);
         assert_eq!(walk.asked, vec!["t1".to_owned()]);
     }
