@@ -216,11 +216,11 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("call.startCall")]
         }
-        enabled: app.loggedIn && app.currentRoomId !== ""
+        // canStartCall() has no NOTIFY; the revision stands in for it and is
+        // read first, since nothing after a false clause is ever bound.
+        enabled: app.callGateRevision >= 0
+                 && app.loggedIn && app.currentRoomId !== ""
                  && app.canStartCall(app.currentRoomId)
-                 // canStartCall is a Q_INVOKABLE with no NOTIFY;
-                 // callGateRevision re-evaluates it when RTC state lands.
-                 && app.callGateRevision >= 0
                  && !app.groupCall.active
                  && (app.calls.state === CallController.Idle
                      || app.calls.state === CallController.Ended)

@@ -1219,10 +1219,12 @@ Rectangle {
                             roomHeaderActions.foldedActions
                                 .indexOf(objectName) >= 0
                         visible: available && !folded
+                        // The revision is read first: a clause after a false
+                        // canStartCall() would never be read, so never bound.
                         property bool available:
-                            app.currentRoomId !== ""
+                            app.callGateRevision >= 0
+                            && app.currentRoomId !== ""
                             && app.canStartCall(app.currentRoomId)
-                            && app.callGateRevision >= 0
                             && !app.groupCall.active
                             && (app.calls.state === CallController.Idle
                                 || app.calls.state === CallController.Ended)
