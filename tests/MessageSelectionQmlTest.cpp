@@ -1488,7 +1488,7 @@ import QtQuick
 import MatrixClient
 ShortcutRow {
     width: 600
-    actionId: "nav.quickSwitcher"
+    actionId: "composer.bold"
     description: "Test shortcut capture"
 }
 )QML", QUrl(QStringLiteral("timeline-shortcut-capture.qml")));
@@ -1501,7 +1501,7 @@ ShortcutRow {
         QTest::keyClick(m_window, Qt::Key_K);
         QTRY_VERIFY(!row->property("captureError").toString().isEmpty());
         QTRY_VERIFY(row->findChild<QQuickItem *>(
-            QStringLiteral("shortcutCaptureError_nav.quickSwitcher")));
+            QStringLiteral("shortcutCaptureError_composer.bold")));
         QVERIFY(row->setProperty("actionId", QStringLiteral("timeline.olderMessage")));
         QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
         QTest::keyClick(m_window, Qt::Key_H);
