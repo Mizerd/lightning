@@ -35,8 +35,8 @@ variables:
     options: ["false", "true"]
     description: "Safe default false. Set true to publish packages to project 6 and finalize the release."
   BUILD_FORMATS:
-    value: "all"
-    description: "Build-only format selection: 'all' or a comma list from deb,rpm,flatpak,appimage,snap (snap also requires appimage in the list); 'none' builds no Linux package. With PACKAGE_BUILD_SITE=gitlab.com anything but 'none' runs the whole gitlab.com lane. Publishing pipelines always build every format."
+    value: "none"
+    description: "Build-only format selection: 'all' or a comma list from deb,rpm,flatpak,appimage,snap (snap also requires appimage in the list); 'none' (the default, so a pipeline started with no variables spends no gitlab.com minutes) builds no Linux package. With PACKAGE_BUILD_SITE=gitlab.com anything but 'none' runs the whole gitlab.com lane. Publishing pipelines always build every format."
   BUILD_WINDOWS_PACKAGES:
     value: "false"
     options: ["false", "true"]
@@ -239,6 +239,8 @@ resolve-source:
       apt-get install -y --no-install-recommends
       ca-certificates coreutils git jq openssl
   script:
+    # The gitlab.com tokens must be scoped to the `gitlab-com` environment.
+    - test -z "${GITLAB_COM_TRIGGER_TOKEN:-}${GITLAB_COM_READ_TOKEN:-}"
     - ./packaging-ci/scripts/validate-release-request.sh
     - ./packaging-ci/scripts/fetch-lightning-source.sh
     - ./packaging-ci/scripts/resolve-version.sh
@@ -887,12 +889,15 @@ macos-package-test:
   before_script: [apk add --no-cache bash coreutils curl findutils jq python3]
 
 # Not retried: a retry would trigger and pay for a second lane. To resume
-# after this job died while the lane ran, retry it with GITLAB_COM_PIPELINE_ID
-# set to the lane pipeline it printed; the collector adopts it after checking
-# its variables, commit, branch and jobs.
+# after this job died while the lane ran, start a new pipeline with the same
+# variables plus GITLAB_COM_PIPELINE_ID=<the lane pipeline it printed>; the
+# collector adopts it after checking its variables, commit, branch and jobs.
+# Tagged so the hours-long idle wait lands on a package runner, not on
+# whichever untagged runner is free.
 gitlab-com-lane:
   extends: .gitlab-com-job
   stage: build
+  tags: [apt, deb, package]
   # The collector's own wait is 7 h.
   timeout: 7h 30m
   needs:
@@ -900,17 +905,18 @@ gitlab-com-lane:
       artifacts: true
   script:
     - >-
-      GITLAB_COM_REF=main GITLAB_COM_COLLECT=none
+      GITLAB_COM_API=https://gitlab.com/api/v4 GITLAB_COM_PROJECT_ID=88402223
+      GITLAB_COM_FAKE_API_FOR_TESTS= GITLAB_COM_REF=main GITLAB_COM_COLLECT=none
       SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
       ./packaging-ci/scripts/gitlab-com-package-lane.sh
+  # A path, not a dotenv report: a trigger variable would outrank a dotenv.
   artifacts:
     expire_in: 7 days
-    reports:
-      dotenv: dist/gitlab-com-lane.env
+    paths: [dist/gitlab-com-lane.env]
 
-# The collectors only adopt the pipeline gitlab-com-lane accepted, so they are
-# safe to retry; an empty trigger token makes a missing pipeline id fatal
-# instead of a second trigger.
+# The collectors only adopt the pipeline gitlab-com-lane accepted, read from
+# its artifact file, so they are safe to retry; an empty trigger token makes a
+# missing pipeline id fatal instead of a second trigger.
 #
 # Each uploads up to ~550 MB, so they are pinned to the package runners rather
 # than whichever untagged runner is free.
@@ -931,21 +937,19 @@ gitlab-com-lane:
 gitlab-com-packages:
   extends: .gitlab-com-collector
   script:
-    - test -n "${GITLAB_COM_LANE_PIPELINE:-}"
+    - grep -qx 'GITLAB_COM_LANE_PIPELINE=[0-9][0-9]*' dist/gitlab-com-lane.env
     - >-
-      GITLAB_COM_REF=main GITLAB_COM_COLLECT=linux-amd64
-      GITLAB_COM_TRIGGER_TOKEN= GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"
+      GITLAB_COM_API=https://gitlab.com/api/v4 GITLAB_COM_PROJECT_ID=88402223
+      GITLAB_COM_FAKE_API_FOR_TESTS= GITLAB_COM_REF=main GITLAB_COM_COLLECT=linux-amd64
+      GITLAB_COM_TRIGGER_TOKEN=
+      GITLAB_COM_PIPELINE_ID="$(sed -n 's/^GITLAB_COM_LANE_PIPELINE=//p' dist/gitlab-com-lane.env)"
       SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
       ./packaging-ci/scripts/gitlab-com-package-lane.sh
   artifacts:
     expire_in: 7 days
     paths:
-      - dist/*.deb
-      - dist/*.rpm
-      - dist/*.flatpak
-      - dist/*.AppImage
-      - dist/*.snap
-      - dist/*.sha256
+      - dist/*amd64*
+      - dist/*x86_64*
       - dist/gitlab-com-lane-linux-amd64.json
 
 # The arm64 packages are optional release assets (Rokas, 2026-11-04): this job
@@ -965,29 +969,30 @@ gitlab-com-packages-arm64:
       allow_failure: true
     - when: never
   script:
-    - test -n "${GITLAB_COM_LANE_PIPELINE:-}"
+    - grep -qx 'GITLAB_COM_LANE_PIPELINE=[0-9][0-9]*' dist/gitlab-com-lane.env
     - >-
-      GITLAB_COM_REF=main GITLAB_COM_COLLECT=linux-arm64
-      GITLAB_COM_TRIGGER_TOKEN= GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"
+      GITLAB_COM_API=https://gitlab.com/api/v4 GITLAB_COM_PROJECT_ID=88402223
+      GITLAB_COM_FAKE_API_FOR_TESTS= GITLAB_COM_REF=main GITLAB_COM_COLLECT=linux-arm64
+      GITLAB_COM_TRIGGER_TOKEN=
+      GITLAB_COM_PIPELINE_ID="$(sed -n 's/^GITLAB_COM_LANE_PIPELINE=//p' dist/gitlab-com-lane.env)"
       SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
       ./packaging-ci/scripts/gitlab-com-package-lane.sh
   artifacts:
     expire_in: 7 days
     paths:
-      - dist/*.deb
-      - dist/*.rpm
-      - dist/*.AppImage
-      - dist/*.snap
-      - dist/*.sha256
+      - dist/*arm64*
+      - dist/*aarch64*
       - dist/gitlab-com-lane-linux-arm64.json
 
 gitlab-com-windows:
   extends: .gitlab-com-collector
   script:
-    - test -n "${GITLAB_COM_LANE_PIPELINE:-}"
+    - grep -qx 'GITLAB_COM_LANE_PIPELINE=[0-9][0-9]*' dist/gitlab-com-lane.env
     - >-
-      GITLAB_COM_REF=main GITLAB_COM_COLLECT=windows
-      GITLAB_COM_TRIGGER_TOKEN= GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"
+      GITLAB_COM_API=https://gitlab.com/api/v4 GITLAB_COM_PROJECT_ID=88402223
+      GITLAB_COM_FAKE_API_FOR_TESTS= GITLAB_COM_REF=main GITLAB_COM_COLLECT=windows
+      GITLAB_COM_TRIGGER_TOKEN=
+      GITLAB_COM_PIPELINE_ID="$(sed -n 's/^GITLAB_COM_LANE_PIPELINE=//p' dist/gitlab-com-lane.env)"
       SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
       ./packaging-ci/scripts/gitlab-com-package-lane.sh
   artifacts:

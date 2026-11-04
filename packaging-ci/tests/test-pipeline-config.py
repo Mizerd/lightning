@@ -2429,6 +2429,12 @@ for _job in sorted(GITLAB_COM_JOBS):
     _call = _call[0] if _call else ""
     check("GITLAB_COM_REF=main " in _call,
           f"{_job} pins gitlab.com main on the command line, where no trigger variable reaches")
+    check("GITLAB_COM_API=https://gitlab.com/api/v4 " in _call
+          and "GITLAB_COM_PROJECT_ID=88402223 " in _call
+          and "GITLAB_COM_FAKE_API_FOR_TESTS= " in _call,
+          f"{_job} pins the gitlab.com API host and project, which receive both tokens")
+    check("tags" in _j and set(_j["tags"]) == {"apt", "deb", "package"},
+          f"{_job} runs on the package runners, not on any untagged runner")
     check(_SOURCE_FROM_RESOLVE in _call,
           f"{_job} builds the commit resolve-source resolved, not a trigger variable")
     check("resolve-source" in needs_names(_job), f"{_job} needs resolve-source")
@@ -2441,11 +2447,20 @@ check("retry" not in _lane,
       "gitlab-com-lane is not retried: a retry would pay for a second lane")
 check("GITLAB_COM_COLLECT=none " in " ".join(str(x) for x in _lane["script"]),
       "gitlab-com-lane collects nothing itself")
-check((_lane.get("artifacts", {}).get("reports") or {}).get("dotenv") == "dist/gitlab-com-lane.env",
-      "gitlab-com-lane hands the accepted pipeline id on as a dotenv report")
+check("dist/gitlab-com-lane.env" in _lane.get("artifacts", {}).get("paths", []),
+      "gitlab-com-lane hands the accepted pipeline id on as an artifact file")
+check(not any("reports" in resolve_extends(j).get("artifacts", {}) for j in GITLAB_COM_JOBS),
+      "no gitlab.com job uses a dotenv report, which a trigger variable would outrank")
+check("GITLAB_COM_LANE_PIPELINE" not in yaml.dump(doc.get("variables", {}))
+      and not any("$GITLAB_COM_LANE_PIPELINE" in yaml.dump(resolve_extends(j).get("script", []))
+                  or "${GITLAB_COM_LANE_PIPELINE" in yaml.dump(resolve_extends(j).get("script", []))
+                  for j in GITLAB_COM_JOBS),
+      "no job reads the lane pipeline id from a variable a trigger could set")
 _lane_timeout = str(_lane.get("timeout", ""))
 check(_lane_timeout.startswith("7h"),
       f"gitlab-com-lane's timeout covers the collector's 7 h wait ({_lane_timeout})")
+_ADOPT = ('GITLAB_COM_PIPELINE_ID="$(sed -n '
+          "'s/^GITLAB_COM_LANE_PIPELINE=//p' dist/gitlab-com-lane.env)\"")
 _groups = set()
 for _job, _group in _COLLECTORS.items():
     _j = resolve_extends(_job)
@@ -2454,9 +2469,9 @@ for _job, _group in _COLLECTORS.items():
     _groups.add(_group)
     check(f"GITLAB_COM_COLLECT={_group} " in _call, f"{_job} collects {_group}")
     check('GITLAB_COM_TRIGGER_TOKEN= ' in _call
-          and 'GITLAB_COM_PIPELINE_ID="$GITLAB_COM_LANE_PIPELINE"' in _call,
-          f"{_job} only adopts the accepted pipeline and can never trigger one")
-    check(_script and _script[0] == 'test -n "${GITLAB_COM_LANE_PIPELINE:-}"',
+          and _ADOPT in _call,
+          f"{_job} only adopts the pipeline gitlab-com-lane accepted and can never trigger one")
+    check(_script and _script[0] == "grep -qx 'GITLAB_COM_LANE_PIPELINE=[0-9][0-9]*' dist/gitlab-com-lane.env",
           f"{_job} refuses to run without the accepted pipeline id")
     check(set(needs_names(_job)) == {"resolve-source", "gitlab-com-lane"},
           f"{_job} needs resolve-source and gitlab-com-lane")
@@ -2470,6 +2485,27 @@ for _job, _group in _COLLECTORS.items():
           f"{_job} never hands on a second copy of resolve-source's files")
     check(_j.get("artifacts", {}).get("when", "on_success") == "on_success",
           f"{_job} hands on nothing from a failed collection")
+_ARCH_WORDS = {"gitlab-com-packages": ("amd64", "x86_64"),
+               "gitlab-com-packages-arm64": ("arm64", "aarch64")}
+for _job, _words in _ARCH_WORDS.items():
+    _paths = resolve_extends(_job)["artifacts"]["paths"]
+    check(all(any(w in p for w in _words) for p in _paths),
+          f"every artifact glob of {_job} names its architecture ({_paths})")
+_rs = [str(x) for x in resolve_extends("resolve-source")["script"]]
+check('test -z "${GITLAB_COM_TRIGGER_TOKEN:-}${GITLAB_COM_READ_TOKEN:-}"' in _rs
+      and _rs.index('test -z "${GITLAB_COM_TRIGGER_TOKEN:-}${GITLAB_COM_READ_TOKEN:-}"')
+      < _rs.index("./packaging-ci/scripts/validate-release-request.sh"),
+      "resolve-source fails first if it can see a gitlab.com token (they must be environment-scoped)")
+check(str((doc["variables"].get("BUILD_FORMATS") or {}).get("value")) == "none",
+      "BUILD_FORMATS defaults to none")
+for _site in ("gitlab.com", "home"):
+    _bare = {"PACKAGE_BUILD_SITE": _site, "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+             "CI_PIPELINE_SOURCE": "web", "PUBLISH_PACKAGES": "false",
+             "RELEASE_ACTION": "attach-existing", "BUILD_FORMATS": "none",
+             "BUILD_MACOS_PACKAGES": "false", "BUILD_WINDOWS_PACKAGES": "false",
+             "SOURCE_REF": "main", "RELEASE_VERSION": "", "RELEASE_NOTES_B64": ""}
+    check(set(_pipeline(_bare)) == {"config-tests", "resolve-source"},
+          f"a pipeline started with the defaults ({_site}) builds nothing")
 check(_groups == {"linux-amd64", "linux-arm64", "windows"},
       "the collectors cover each group exactly once")
 check(any(p.startswith("dist/windows/") for p in

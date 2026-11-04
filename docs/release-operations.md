@@ -167,14 +167,21 @@ How a gitlab.com pipeline gets its packages:
    trigger variable), triggers the lane there with `PUBLISH_PACKAGES`,
    `RELEASE_ACTION`, `RELEASE_VERSION` and `SOURCE_REF=<sha>`, waits up to 7
    hours, and accepts it only if it built that commit on `main` with those
-   variables, unnarrowed, and every job outside the arm64 lane is green
-   (canaries included when publishing). It hands the pipeline id on as a dotenv.
-2. Three collectors (validate stage) adopt that pipeline, re-run the same
-   checks, and download and SHA-256-verify one group each, because together
+   variables (and, when publishing, the same `RELEASE_ACTION`), unnarrowed,
+   and every job outside the arm64 lane is green (canaries included when
+   publishing). The commit and branch are checked as soon as the pipeline
+   exists, not after the wait. It hands the pipeline id on in the artifact
+   file `dist/gitlab-com-lane.env` — a file, because a trigger variable would
+   outrank a dotenv report.
+2. Three collectors (validate stage) adopt the pipeline named in that file,
+   re-run the same checks, and download and SHA-256-verify one group each, because together
    they exceed this instance's 1 GiB `max_artifacts_size`:
    `gitlab-com-packages` (the six amd64 Linux packages, `dist/*.deb` etc. with
    their `.sha256`), `gitlab-com-packages-arm64` (up to five arm64 packages)
    and `gitlab-com-windows` (`dist/windows/` portable zip, MSI and setup EXE).
+   Each Linux package's name must carry its group's architecture, and the
+   collectors' artifact globs are per architecture, so one group can never
+   hand on a file that overwrites another's in `dist/`.
    The layout is exactly what `validate-*` and `build-windows` left, so
    `write-manifest.sh`, the publish, verify and both mirror jobs are unchanged.
 3. `publish-packages`, `mirror-release-to-github` and
@@ -182,6 +189,11 @@ How a gitlab.com pipeline gets its packages:
    `optional: true`. That only tolerates the site the rules left out; a
    present job that fails still blocks, and `write-manifest.sh` still refuses
    a missing required file.
+
+Every call names `GITLAB_COM_API`, `GITLAB_COM_PROJECT_ID`, `GITLAB_COM_REF`
+and the commit on its command line, where no trigger variable reaches, and the
+script itself refuses any API but `https://gitlab.com/api/v4` project 88402223:
+both tokens go to that host and its answers decide what is published.
 
 In a release the lane is an official build: its own `resolve-source` runs
 `validate-release-request.sh` on gitlab.com (default branch, GIF keys, the
@@ -212,18 +224,32 @@ Constraints, all consequences of the lane building its own checkout:
   free.
 - A build-only pipeline with `BUILD_FORMATS` other than `none`, or
   `BUILD_WINDOWS_PACKAGES=true`, runs the whole lane (it cannot be narrowed),
-  and only on the default branch: the tokens are protected.
-- The lane wait holds one untagged home runner for the lane's duration.
+  and only on the default branch: the tokens are protected. `BUILD_FORMATS`
+  defaults to `none`, so a pipeline started without variables spends no
+  gitlab.com minutes.
+- The lane wait holds one `[apt, deb, package]` home runner for the lane's
+  duration (up to 7 h 30 m).
+
+Operator checks before the first gitlab.com release (NOT verified yet):
+
+- the home runners' maximum job timeout allows `gitlab-com-lane`'s 7 h 30 m;
+- the `[apt, deb, package]` runners upload the collectors' 450–550 MB
+  artifacts (no 413 from the public proxy);
+- a build-only rehearsal (`BUILD_FORMATS=all`, `SOURCE_REF=main`) on the
+  default branch goes green end to end before a release relies on it.
 
 Variables (set by the maintainer; nothing here sets them):
 
 | Project | Variable | Flags |
 |---|---|---|
-| home project 6 | `GITLAB_COM_TRIGGER_TOKEN` — a pipeline trigger token of project 88402223 | masked, protected; may be scoped to environment `gitlab-com` |
-| home project 6 | `GITLAB_COM_READ_TOKEN` — `read_api` token with access to project 88402223's job artifacts | masked, protected; may be scoped to environment `gitlab-com` |
+| home project 6 | `GITLAB_COM_TRIGGER_TOKEN` — a pipeline trigger token of project 88402223 | masked, protected, **scoped to environment `gitlab-com`** |
+| home project 6 | `GITLAB_COM_READ_TOKEN` — `read_api` token with access to project 88402223's job artifacts | masked, protected, **scoped to environment `gitlab-com`** |
 | gitlab.com 88402223 | `GIPHY_API_KEY`, `KLIPY_API_KEY` | masked, protected |
 | gitlab.com 88402223 | `UPDATE_SIGNING_PUBKEY_2026A`, `UPDATE_SIGNING_KEY_ID` | protected |
 
+The scoping is required, not advice: `resolve-source` fails when it can see
+either token, so an unscoped token (which every build job, running project
+CMake and build.rs, would also see) stops the pipeline before any build.
 gitlab.com `main` must be a protected branch, or the protected variables never
 reach the lane and a release lane fails in its `resolve-source`.
 
@@ -533,7 +559,8 @@ grant takes the runner OFFLINE entirely**, which is worse than the 413; it was
 reverted the same session and verifies `is valid`. Full evidence table in
 `docs/macos-packaging.md` under "THE ENDPOINT CHANGE ALONE DOES NOT WORK".
 Once the grant is applied, 0.9.5 can get its macOS asset with
-`RELEASE_ACTION=attach-existing` — no tag is touched.
+`RELEASE_ACTION=attach-existing` and `PACKAGE_BUILD_SITE=home` — no tag is
+touched.
 
 **0.9.5 IS THE FIRST RELEASE WITH TWO `.deb` FILES** (Debian 13 and Ubuntu
 26.04). No version-free suffix separates `lightning_X_amd64.deb` from
