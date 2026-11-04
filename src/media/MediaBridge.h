@@ -168,6 +168,7 @@ public:
     void setCacheLimitBytes(qint64 bytes) { m_cacheLimit = bytes; }
     void setAvatarCacheLimitBytes(qint64 bytes) { m_avatarCacheLimit = bytes; }
     void setDecodeGraceMsForTest(qint64 ms) { m_decodeGraceMs = ms; }
+    void setDecodeShieldBudgetForTest(qint64 bytes) { m_decodeShieldBudget = bytes; }
     qint64 cacheBytesUsed() const;
 
     // Counters since the previous call, for the scroll-perf-window trace.
@@ -285,6 +286,7 @@ private:
     mutable QHash<QString, qint64> m_awaitingDecode;
     QElapsedTimer m_handoutClock;
     qint64 m_decodeGraceMs = 5000;
+    qint64 m_decodeShieldBudget = 4 * 1024 * 1024;
     qint64 m_cacheLimit = 32 * 1024 * 1024;
     qint64 m_avatarCacheLimit = 8 * 1024 * 1024;
     qint64 m_cacheBytesMain = 0;

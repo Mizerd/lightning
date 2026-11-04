@@ -375,11 +375,11 @@ void MediaBridge::trimClassLocked(bool avatarClass, const QString &keep)
     QList<QString> &lru = avatarClass ? m_avatarLru : m_lru;
     const qint64 limit = avatarClass ? m_avatarCacheLimit : m_cacheLimit;
     const qint64 now = m_handoutClock.elapsed();
-    // The second pass ignores the decode shield: shielded bytes may hold at
-    // most one more cache's worth.
+    // The second pass ignores the decode shield, so it never holds more than
+    // a small budget over the limit.
     for (int pass = 0; pass < 2; ++pass) {
         const bool shielded = pass == 0;
-        const qint64 ceiling = shielded ? limit : limit * 2;
+        const qint64 ceiling = shielded ? limit : limit + m_decodeShieldBudget;
         for (qsizetype i = lru.size() - 1; i >= 0 && classTotal > ceiling; --i) {
             const QString victim = lru.at(i);
             if (victim == keep)

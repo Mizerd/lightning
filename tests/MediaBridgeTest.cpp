@@ -491,6 +491,7 @@ private Q_SLOTS:
         QVERIFY(solid.save(&buffer, "PNG"));
         buffer.close();
         bridge.setCacheLimitBytes(2 * png.size());
+        bridge.setDecodeShieldBudgetForTest(png.size());
 
         const QString prefix = QStringLiteral("image://lightning-media/");
         QList<QPair<QString, QString>> decodeQueue;
@@ -523,18 +524,40 @@ private Q_SLOTS:
                 }
             }
         }
+        // Unshielded this costs two misses and six fetches; a one-picture
+        // budget leaves one of each.
         QCOMPARE(decoded, kPictures);
-        QCOMPARE(decodeMisses, 0);
-        QCOMPARE(client.fetches.size(), kPictures);
+        QCOMPARE(decodeMisses, 1);
+        QCOMPARE(client.fetches.size(), kPictures + 1);
         QVERIFY(bridge.cacheBytesUsed() <= 2 * png.size());
 
         const QVariantMap window = bridge.takeTraceWindow();
         QCOMPARE(window.value(QStringLiteral("fetches")).toLongLong(),
-                 qint64(kPictures));
+                 qint64(kPictures + 1));
         QCOMPARE(window.value(QStringLiteral("refetches")).toLongLong(),
-                 qint64(0));
+                 qint64(1));
         QCOMPARE(window.value(QStringLiteral("decodeMisses")).toLongLong(),
-                 qint64(0));
+                 qint64(1));
+    }
+
+    void theDecodeShieldNeverHoldsMoreThanItsBudgetOverTheLimit()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const qint64 mb = 1024 * 1024;
+        connect(&bridge, &MediaBridge::mediaCached, &bridge,
+                [&](const QString &cacheKey) { bridge.cachedSource(cacheKey); });
+        qint64 peak = 0;
+        for (int i = 0; i < 16; ++i) {
+            bridge.mediaSource(QStringLiteral("$undecoded-%1").arg(i),
+                               QStringLiteral("full"));
+            client.succeed(client.fetches.last().opId, QByteArray(3 * mb, 'u'));
+            peak = qMax(peak, bridge.cacheBytesUsed());
+        }
+        QVERIFY2(peak <= 36 * mb,
+                 qPrintable(QStringLiteral("peak %1 MiB").arg(peak / mb)));
+        QVERIFY(peak > 32 * mb);
     }
 
     void theTraceWindowNamesTheKeyThatIsFetchedAgain()
