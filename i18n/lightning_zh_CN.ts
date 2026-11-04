@@ -968,6 +968,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
 </context>
 <context>
+    <name>AppComboBox</name>
+    <message>
+        <source>No matches</source>
+        <translation>没有匹配项</translation>
+    </message>
+</context>
+<context>
     <name>AppController</name>
     <message>
         <location filename="../src/app/AppController.cpp" line="+7076"/>
@@ -25893,6 +25900,10 @@ Note: importing keys does not verify this session.</source>
         <location line="+3709"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>在所有文本输入框中保持文本光标不闪烁。关闭时遵循系统的光标设置。</translation>
+    </message>
+    <message>
+        <source>Search fonts</source>
+        <translation>搜索字体</translation>
     </message>
 </context>
 <context>

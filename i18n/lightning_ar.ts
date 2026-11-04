@@ -1016,6 +1016,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
 </context>
 <context>
+    <name>AppComboBox</name>
+    <message>
+        <source>No matches</source>
+        <translation>لا توجد تطابقات</translation>
+    </message>
+</context>
+<context>
     <name>AppController</name>
     <message>
         <location filename="../src/app/AppController.cpp" line="+7076"/>
@@ -26319,6 +26326,10 @@ Note: importing keys does not verify this session.</source>
         <location line="+3709"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>إبقاء مؤشرات النص ثابتة في جميع حقول النص. عند إيقافه، يُتَّبع إعداد مؤشر النظام.</translation>
+    </message>
+    <message>
+        <source>Search fonts</source>
+        <translation>ابحث عن خط</translation>
     </message>
 </context>
 <context>

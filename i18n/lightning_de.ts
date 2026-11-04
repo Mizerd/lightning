@@ -978,6 +978,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
 </context>
 <context>
+    <name>AppComboBox</name>
+    <message>
+        <source>No matches</source>
+        <translation>Keine Treffer</translation>
+    </message>
+</context>
+<context>
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
@@ -25980,6 +25987,10 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+3709"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>Textcursor in allen Texteingaben ruhig halten. Wenn deaktiviert, gilt die Systemeinstellung für den Cursor.</translation>
+    </message>
+    <message>
+        <source>Search fonts</source>
+        <translation>Schriftarten suchen</translation>
     </message>
 </context>
 <context>

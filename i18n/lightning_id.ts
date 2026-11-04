@@ -968,6 +968,13 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
 </context>
 <context>
+    <name>AppComboBox</name>
+    <message>
+        <source>No matches</source>
+        <translation>Tidak ada yang cocok</translation>
+    </message>
+</context>
+<context>
     <name>AppController</name>
     <message>
         <location filename="../src/app/AppController.cpp" line="+7076"/>
@@ -25893,6 +25900,10 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <location line="+3709"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>Jaga kursor teks tetap diam di semua kolom teks. Jika nonaktif, ikuti pengaturan kursor sistem.</translation>
+    </message>
+    <message>
+        <source>Search fonts</source>
+        <translation>Cari font</translation>
     </message>
 </context>
 <context>

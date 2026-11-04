@@ -988,6 +988,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
 </context>
 <context>
+    <name>AppComboBox</name>
+    <message>
+        <source>No matches</source>
+        <translation>Atitikmenų nėra</translation>
+    </message>
+</context>
+<context>
     <name>AppController</name>
     <message>
         <location filename="../src/app/AppController.cpp" line="+7076"/>
@@ -26067,6 +26074,10 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+3709"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>Laikyti teksto žymeklį nemirksintį visuose teksto laukuose. Kai išjungta, naudojamas sistemos žymeklio nustatymas.</translation>
+    </message>
+    <message>
+        <source>Search fonts</source>
+        <translation>Ieškokite šriftų</translation>
     </message>
 </context>
 <context>
