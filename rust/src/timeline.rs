@@ -415,6 +415,7 @@ pub struct TimelineRegistry {
     send_lanes: Mutex<HashMap<String, SendLane>>,
     send_lane_seq: AtomicU64,
     backup_download_attempts: Mutex<std::collections::HashMap<String, BackupAttempt>>,
+    history_reopened: Mutex<std::collections::HashSet<(u64, String)>>,
     /// The open room, and the `origin_server_ts` of the newest event our own
     /// UNTHREADED read receipt (public or private) points at. By spec such a
     /// receipt covers every thread too, so a thread whose latest reply is no
@@ -480,6 +481,7 @@ impl TimelineRegistry {
             send_lanes: Mutex::new(HashMap::new()),
             send_lane_seq: AtomicU64::new(0),
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
+            history_reopened: Mutex::new(std::collections::HashSet::new()),
             unthreaded_read_cover: Mutex::new(None),
             thread_auto_subscriptions: Mutex::new(Vec::new()),
             threads_in_live: AtomicBool::new(false),
@@ -598,6 +600,14 @@ impl TimelineRegistry {
     fn is_current(&self, room_gen: u64, lifecycle: u64) -> bool {
         self.room_gen.load(Ordering::SeqCst) == room_gen
             && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
+    }
+
+    /// Once per room per lifecycle: a start the server confirms again is believed.
+    fn claim_history_reopen(&self, room_id: &str, lifecycle: u64) -> bool {
+        self.history_reopened
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert((lifecycle, room_id.to_owned()))
     }
 
     pub fn lifecycle(&self) -> u64 {
@@ -1792,10 +1802,12 @@ impl TimelineRegistry {
                 count,
                 crate::pagewalk::FILTERED_RUN_WALK,
                 || registry.is_current(room_gen, lifecycle),
+                || registry.claim_history_reopen(&room_id, lifecycle),
             )
             .await;
-            let walked_pages = walk.as_ref().map(|outcome| outcome.pages).unwrap_or(0);
-            let result = walk.map(|outcome| outcome.hit_start);
+            let walked_pages = walk.as_ref().map(|walk| walk.outcome.pages).unwrap_or(0);
+            let history_reopened = walk.as_ref().is_ok_and(|walk| walk.history_reopened);
+            let result = walk.map(|walk| walk.outcome.hit_start);
             busy.store(false, Ordering::SeqCst);
             if !registry.is_current(room_gen, lifecycle) {
                 return;
@@ -1819,6 +1831,7 @@ impl TimelineRegistry {
                             "filter_dropped_rtc": FILTER_DROP_RTC
                                 .load(Ordering::Relaxed),
                             "walked_pages": walked_pages,
+                            "history_reopened": history_reopened,
                         }),
                     );
                 }

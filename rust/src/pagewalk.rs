@@ -31,6 +31,7 @@ use std::time::Duration;
 
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk::event_cache::{RoomEventCacheSubscriber, RoomEventCacheUpdate};
+use matrix_sdk::ruma::events::room::history_visibility::HistoryVisibility;
 use matrix_sdk::ruma::room_version_rules::RoomVersionRules;
 use matrix_sdk_ui::eyeball_im::VectorDiff;
 use matrix_sdk_ui::timeline::Timeline;
@@ -129,11 +130,66 @@ fn drain_shows_something(
     shown
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BackwardWalk {
+    pub(crate) outcome: WalkOutcome,
+    pub(crate) history_reopened: bool,
+}
+
 pub(crate) async fn walk_backwards(
     timeline: &Arc<Timeline>,
     count: u16,
     budget: WalkBudget,
     still_wanted: impl Fn() -> bool,
+    claim_reopen: impl FnOnce() -> bool,
+) -> Result<BackwardWalk, matrix_sdk_ui::timeline::Error> {
+    let outcome = walk_once(timeline, count, budget, &still_wanted).await?;
+    if !outcome.hit_start
+        || !still_wanted()
+        || !start_is_our_own_membership(timeline).await
+        || !claim_reopen()
+        || !reopen_history(timeline).await
+    {
+        return Ok(BackwardWalk { outcome, history_reopened: false });
+    }
+    let outcome = walk_once(timeline, count, budget, &still_wanted).await?;
+    Ok(BackwardWalk { outcome, history_reopened: true })
+}
+
+// matrix-sdk keeps "start reached" for good once its linked chunk has no gap,
+// e.g. after a `/messages` answered without `end` while the homeserver could
+// not yet backfill a federated join; history the joiner may see is then lost.
+async fn start_is_our_own_membership(timeline: &Timeline) -> bool {
+    let room = timeline.room();
+    if matches!(
+        room.history_visibility_or_default(),
+        HistoryVisibility::Joined | HistoryVisibility::Invited
+    ) {
+        return false;
+    }
+    let Ok((cache, _drop_handles)) = room.event_cache().await else { return false };
+    let Ok(events) = cache.events().await else { return false };
+    let Some(first) = events.first() else { return false };
+    let raw = first.raw();
+    let field = |name: &str| raw.get_field::<String>(name).ok().flatten();
+    field("type").as_deref() == Some("m.room.member")
+        && field("state_key").as_deref() == Some(room.own_user_id().as_str())
+}
+
+// Clearing the room's cache is the SDK's own way back to an unknown start: the
+// next back-pagination asks `/messages` from the live end again.
+async fn reopen_history(timeline: &Timeline) -> bool {
+    match timeline.room().event_cache().await {
+        Ok((cache, _drop_handles)) => cache.clear().await.is_ok(),
+        Err(_) => false,
+    }
+}
+
+async fn walk_once(
+    timeline: &Arc<Timeline>,
+    count: u16,
+    budget: WalkBudget,
+    still_wanted: &impl Fn() -> bool,
 ) -> Result<WalkOutcome, matrix_sdk_ui::timeline::Error> {
     let room = timeline.room();
     let rules = room.clone_info().room_version_rules_or_default();
@@ -317,7 +373,7 @@ mod sdk_tests {
         store::RoomLoadSettings,
         SessionMeta, SessionTokens,
     };
-    use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
+    use matrix_sdk_ui::timeline::{Timeline, TimelineBuilder, TimelineFocus};
     use serde_json::{json, Value};
 
     const ROOM: &str = "!churn:example.org";
@@ -440,6 +496,14 @@ mod sdk_tests {
     }
 
     fn serve(tokens: Arc<Mutex<Vec<String>>>) -> String {
+        serve_room(tokens, sync_body, messages_body)
+    }
+
+    fn serve_room(
+        tokens: Arc<Mutex<Vec<String>>>,
+        sync: fn() -> String,
+        messages: fn(&str) -> String,
+    ) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
         let (ready_tx, ready_rx) = mpsc::channel();
@@ -458,11 +522,11 @@ mod sdk_tests {
                         respond(&mut stream, "200 OK",
                                 r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#);
                     } else if path.ends_with("/sync") {
-                        respond(&mut stream, "200 OK", &sync_body());
+                        respond(&mut stream, "200 OK", &sync());
                     } else if path.ends_with("/messages") {
                         let from = query_value(&target, "from").unwrap_or("").to_owned();
                         tokens.lock().unwrap().push(from.clone());
-                        respond(&mut stream, "200 OK", &messages_body(&from));
+                        respond(&mut stream, "200 OK", &messages(&from));
                     } else if method == "POST" && path.ends_with("/keys/upload") {
                         respond(&mut stream, "200 OK",
                                 r#"{"one_time_key_counts":{"signed_curve25519":50}}"#);
@@ -527,9 +591,11 @@ mod sdk_tests {
                 20,
                 WalkBudget { max_pages: 8, max_time: Duration::from_secs(20) },
                 || true,
+                || true,
             )
             .await
             .expect("walk")
+            .outcome
         });
 
         let asked = tokens.lock().unwrap().clone();
@@ -540,5 +606,176 @@ mod sdk_tests {
                 "the walk went past a page that brought a message: {asked:?}");
         assert!(!outcome.hit_start, "{outcome:?}");
         assert!(outcome.pages >= 3, "{outcome:?}");
+    }
+
+    const JOINED: &str = "!joined:example.org";
+
+    fn joined_room_event(kind: &str, id: &str, ts: u64, sender: &str, extra: Value) -> Value {
+        let mut event = json!({
+            "type": kind,
+            "sender": sender,
+            "event_id": id,
+            "origin_server_ts": ts,
+            "room_id": JOINED,
+        });
+        if let (Some(event), Some(extra)) = (event.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra {
+                event.insert(key.clone(), value.clone());
+            }
+        }
+        event
+    }
+
+    fn joined_text(id: &str, ts: u64) -> Value {
+        joined_room_event("m.room.message", id, ts, "@host:remote.org",
+                          json!({ "content": { "msgtype": "m.text", "body": "hello" } }))
+    }
+
+    fn our_join() -> Value {
+        joined_room_event("m.room.member", "$ourjoin", 5_000_000, ME,
+                          json!({ "state_key": ME, "content": { "membership": "join" } }))
+    }
+
+    fn joined_sync(visibility: &str) -> String {
+        let room = json!({
+            "state": { "events": [
+                joined_room_event("m.room.create", "$create", 1_000, "@host:remote.org",
+                                  json!({ "state_key": "",
+                                          "content": { "creator": "@host:remote.org",
+                                                       "room_version": "10" } })),
+                joined_room_event("m.room.history_visibility", "$vis", 1_001,
+                                  "@host:remote.org",
+                                  json!({ "state_key": "",
+                                          "content": { "history_visibility": visibility } })),
+            ]},
+            "timeline": {
+                "events": [our_join(), joined_text("$after", 6_000_000)],
+                "limited": false,
+                "prev_batch": "t1",
+            },
+        });
+        let mut join = serde_json::Map::new();
+        join.insert(JOINED.to_owned(), room);
+        json!({ "next_batch": "s1", "rooms": { "join": join } }).to_string()
+    }
+
+    fn shared_sync() -> String {
+        joined_sync("shared")
+    }
+
+    fn joined_only_sync() -> String {
+        joined_sync("joined")
+    }
+
+    // Synapse answers `/messages` with no `end` when it could not backfill
+    // over federation; asked again from the live end, it has the history.
+    fn backfilled_messages(from: &str) -> String {
+        let (chunk, end): (Vec<Value>, Option<&str>) = match from {
+            "" => (vec![joined_text("$after", 6_000_000), our_join(),
+                        joined_text("$older", 4_000_000)], Some("t2")),
+            _ => (Vec::new(), None),
+        };
+        let mut body = json!({ "start": from, "chunk": chunk, "state": [] });
+        if let Some(end) = end {
+            body["end"] = json!(end);
+        }
+        body.to_string()
+    }
+
+    async fn walk_for_test(
+        timeline: &Arc<Timeline>,
+        budget: WalkBudget,
+        allow_reopen: bool,
+    ) -> bool {
+        let walk = walk_backwards(timeline, 20, budget, || true, || allow_reopen)
+            .await
+            .expect("walk");
+        walk.outcome.hit_start
+    }
+
+    struct JoinedWalk {
+        hit_start: bool,
+        asked: Vec<String>,
+        cached: Vec<String>,
+    }
+
+    fn walk_joined_room(sync: fn() -> String, allow_reopen: bool) -> JoinedWalk {
+        let tokens: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let addr = serve_room(Arc::clone(&tokens), sync, backfilled_messages);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let (hit_start, cached) = runtime.block_on(async {
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(format!("http://{addr}"))
+                .build()
+                .await
+                .expect("client");
+            client
+                .matrix_auth()
+                .restore_session(
+                    MatrixSession {
+                        meta: SessionMeta {
+                            user_id: OwnedUserId::try_from(ME).expect("user id"),
+                            device_id: OwnedDeviceId::from("TESTDEVICE"),
+                        },
+                        tokens: SessionTokens {
+                            access_token: "test-token".to_owned(),
+                            refresh_token: None,
+                        },
+                    },
+                    RoomLoadSettings::default(),
+                )
+                .await
+                .expect("restore");
+            client.event_cache().subscribe().expect("event cache");
+            client.sync_once(SyncSettings::default()).await.expect("sync");
+            let room_id = OwnedRoomId::try_from(JOINED).expect("room id");
+            let room = client.get_room(&room_id).expect("the synced room");
+            let timeline = Arc::new(
+                TimelineBuilder::new(&room)
+                    .event_filter(crate::timeline::lightning_event_filter)
+                    .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+                    .build()
+                    .await
+                    .expect("timeline"),
+            );
+            let budget = WalkBudget { max_pages: 8, max_time: Duration::from_secs(20) };
+            let hit_start = walk_for_test(&timeline, budget, allow_reopen).await;
+            let (cache, _handles) = room.event_cache().await.expect("room cache");
+            let cached = cache
+                .events()
+                .await
+                .expect("events")
+                .iter()
+                .filter_map(|event| event.event_id().map(|id| id.to_string()))
+                .collect::<Vec<_>>();
+            (hit_start, cached)
+        });
+        let asked = tokens.lock().unwrap().clone();
+        JoinedWalk { hit_start, asked, cached }
+    }
+
+    #[test]
+    fn a_start_at_our_own_join_is_asked_of_the_server_once_more() {
+        let walk = walk_joined_room(shared_sync, true);
+        assert!(!walk.hit_start, "the start was declared at our own join: {:?}", walk.asked);
+        assert_eq!(walk.asked, vec!["t1".to_owned(), String::new()]);
+        assert!(walk.cached.iter().any(|id| id == "$older"), "{:?}", walk.cached);
+    }
+
+    #[test]
+    fn a_start_at_our_own_join_stands_when_joiners_cannot_see_history() {
+        let walk = walk_joined_room(joined_only_sync, true);
+        assert!(walk.hit_start);
+        assert_eq!(walk.asked, vec!["t1".to_owned()]);
+    }
+
+    #[test]
+    fn a_start_at_our_own_join_is_asked_again_only_when_the_caller_allows_it() {
+        let walk = walk_joined_room(shared_sync, false);
+        assert!(walk.hit_start);
+        assert_eq!(walk.asked, vec!["t1".to_owned()]);
     }
 }

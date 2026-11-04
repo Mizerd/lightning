@@ -7826,7 +7826,10 @@ void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
                               .toDouble(0)
                        << "droppedRtc="
                        << event.value(QStringLiteral("filter_dropped_rtc"))
-                              .toDouble(0);
+                              .toDouble(0)
+                       << "historyReopened="
+                       << event.value(QStringLiteral("history_reopened"))
+                              .toBool(false);
     } else if (paginationState == QLatin1String("failed")) {
         state.loading = false;
         state.failed = true;
