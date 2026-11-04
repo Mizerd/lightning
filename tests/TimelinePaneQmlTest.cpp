@@ -33,6 +33,9 @@
 #include "app/RoomDiscoveryController.h"
 #include "app/RoomInfoController.h"
 #include "auth/AuthManager.h"
+#include "calls/CallController.h"
+#include "calls/CallMediaBackend.h"
+#include "calls/OneToOneDm.h"
 #include "media/MediaImageProvider.h"
 #include "models/ContextController.h"
 #include "models/PaginationController.h"
@@ -850,6 +853,68 @@ private Q_SLOTS:
             QStringLiteral("paginationHeader"));
         QVERIFY(header != nullptr);
         QCOMPARE(header->height(), 0.0);
+    }
+
+    void theCallButtonAppearsWhenTheRoomBecomesCallableAfterOpening()
+    {
+        class Engine : public CallMediaBackend
+        {
+        public:
+            using CallMediaBackend::CallMediaBackend;
+            void createOffer(const QString &) override {}
+            void createAnswer(const QString &, const QString &) override {}
+            void setRemoteAnswer(const QString &, const QString &) override {}
+            void addRemoteCandidate(const QString &, const QString &,
+                                    const QString &, int) override {}
+            void setIceServers(const QStringList &, const QString &,
+                               const QString &) override {}
+            void close(const QString &) override {}
+        };
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, 0).isEmpty());
+        const auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        QString dm;
+        for (const RoomInfo &room : mock->rooms()) {
+            if (!calls::oneToOneDmPeer(room, true).isEmpty()) {
+                dm = room.id;
+                break;
+            }
+        }
+        QVERIFY2(!dm.isEmpty(), "the mock needs an unambiguous 1:1 DM");
+        controller.setCurrentRoomId(dm);
+        QVERIFY(!controller.canStartCall(dm));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root);
+        auto *button = root->findChild<QObject *>(
+            QStringLiteral("startVoiceCallButton"));
+        QVERIFY(button);
+        QVERIFY(!button->property("available").toBool());
+
+        Engine media;
+        controller.calls()->setMediaBackend(&media);
+        auto detach = qScopeGuard(
+            [&controller] { controller.calls()->setMediaBackend(nullptr); });
+        QVERIFY(controller.canStartCall(dm));
+        const int revision = controller.callGateRevision();
+        controller.rtc()->setMediaAvailable(
+            !controller.rtc()->mediaAvailable());
+        QVERIFY(controller.callGateRevision() > revision);
+        QCoreApplication::processEvents();
+
+        QVERIFY2(button->property("available").toBool(),
+                 "the room became callable after it was opened and the call "
+                 "gate's revision moved, but the button kept the answer it "
+                 "had at room-open");
     }
 
     void homeSurfaceShownWithNoRoomAndComposerHidden()

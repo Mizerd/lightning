@@ -4523,12 +4523,14 @@ Item {
         QVERIFY(!shell.isEmpty());
 
         const QString vis =
-            QStringLiteral("property bool available: app.currentRoomId !== \"\""
+            QStringLiteral("property bool available: app.callGateRevision >= 0"
+                           " && app.currentRoomId !== \"\""
                            " && app.canStartCall");
         const int from = button.indexOf(vis);
         QVERIFY2(from >= 0,
                  "TimelinePane's call button no longer opens with "
-                 "currentRoomId + canStartCall — re-anchor this slice");
+                 "callGateRevision, then currentRoomId + canStartCall; a "
+                 "revision read after a false canStartCall() is never bound");
         const int to = button.indexOf(QStringLiteral(" enabled:"), from);
         QVERIFY2(to > from, "the call button's available: expression is not "
                             "terminated by an enabled: property");
@@ -4575,6 +4577,11 @@ Item {
         const int end = shell.indexOf(QStringLiteral("onActivated"), at);
         QVERIFY2(end > at, "the call.startCall Shortcut has no onActivated");
         const QString gate = shell.mid(at, end - at);
+        const int revisionAt = gate.indexOf(QStringLiteral("app.callGateRevision"));
+        const int gateAt = gate.indexOf(QStringLiteral("app.canStartCall("));
+        QVERIFY2(revisionAt >= 0 && gateAt > revisionAt,
+                 "the call.startCall Shortcut reads callGateRevision after "
+                 "canStartCall(), so while that is false it is never bound");
 
         for (const QString &clause : std::as_const(clauses)) {
             QVERIFY2(gate.contains(clause),
