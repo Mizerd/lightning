@@ -18,6 +18,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QTemporaryDir>
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -158,12 +159,19 @@ public:
     void retryAvatar(const QString &mxcUri);
 
     QByteArray cachedBytes(const QString &cacheKey) const;
+    // The image provider's read: ends the eviction shield cachedSource() put
+    // on the key.
+    QByteArray bytesForDecode(const QString &cacheKey);
     static QString wideImageCacheKey(const QString &mxcUri);
     QImage cachedArtwork(const QString &cacheKey) const;
 
     void setCacheLimitBytes(qint64 bytes) { m_cacheLimit = bytes; }
     void setAvatarCacheLimitBytes(qint64 bytes) { m_avatarCacheLimit = bytes; }
+    void setDecodeGraceMsForTest(qint64 ms) { m_decodeGraceMs = ms; }
     qint64 cacheBytesUsed() const;
+
+    // Counters since the previous call, for the scroll-perf-window trace.
+    Q_INVOKABLE QVariantMap takeTraceWindow();
 
 Q_SIGNALS:
     void supportedChanged();
@@ -211,6 +219,7 @@ private:
     };
 
     void insertCache(const QString &cacheKey, const QByteArray &bytes);
+    void trimClassLocked(bool avatarClass, const QString &keep);
     void touch(const QString &cacheKey) const;
     void markFailed(const Pending &request, const QString &category,
                     qint64 retryAfterMs = 0);
@@ -269,6 +278,13 @@ private:
     QHash<QString, QByteArray> m_cache;
     mutable QList<QString> m_lru;
     mutable QList<QString> m_avatarLru;
+    // Keys handed to QML whose bytes the image provider has not read yet.
+    // Evicting one makes its Image fail and fetch again, and the provider
+    // reads in hand-out order, which is LRU order: the next read is the next
+    // victim.
+    mutable QHash<QString, qint64> m_awaitingDecode;
+    QElapsedTimer m_handoutClock;
+    qint64 m_decodeGraceMs = 5000;
     qint64 m_cacheLimit = 32 * 1024 * 1024;
     qint64 m_avatarCacheLimit = 8 * 1024 * 1024;
     qint64 m_cacheBytesMain = 0;
@@ -309,6 +325,13 @@ private:
     qint64 m_statCacheMiss = 0;
     qint64 m_statCancelled = 0;
     mutable qint64 m_statContentHashComputed = 0;
+    QHash<QString, int> m_fetchCounts;
+    QHash<QString, int> m_windowRefetches;
+    qint64 m_windowFetches = 0;
+    qint64 m_windowRefetchTotal = 0;
+    qint64 m_windowEvictions = 0;
+    std::atomic<qint64> m_windowDecodeMisses{0};
+    void noteDispatched(const QString &cacheKey);
 
     std::function<QByteArray(const QString &)> m_stagedBytes;
     QHash<QString, QString> m_stagedKeys;

@@ -16,6 +16,8 @@
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
+#include <utility>
+
 namespace {
 
 QStringList &capturedLines()
@@ -438,6 +440,138 @@ private Q_SLOTS:
             QVERIFY(!bridge.cachedBytes(cached.at(i).at(0).toString()).isEmpty());
         QCOMPARE(bridge.cacheBytesUsed(), 4 * chunk);
     }
+    void aSpeculativeVideoPrefetchNeverEvictsAPictureOnScreen()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        const qint64 mb = 1024 * 1024;
+
+        for (int i = 0; i < 4; ++i) {
+            bridge.mediaSource(QStringLiteral("$photo-%1").arg(i),
+                               QStringLiteral("full"));
+            client.succeed(client.fetches.last().opId, QByteArray(6 * mb, 'p'));
+        }
+        for (int i = 0; i < 2; ++i) {
+            const QString clip = QStringLiteral("$clip-%1").arg(i);
+            bridge.prefetchPlayable(clip, 7.0 * mb);
+            QByteArray mp4(7 * mb, 'v');
+            mp4.replace(4, 4, "ftyp");
+            client.succeed(client.fetches.last().opId, mp4,
+                           QStringLiteral("video/mp4"));
+        }
+        QVERIFY(waitForPlayableCount(ready, 2));
+        QVERIFY(!bridge.playableSource(QStringLiteral("$clip-0")).isEmpty());
+        QVERIFY(!bridge.playableSource(QStringLiteral("$clip-1")).isEmpty());
+        for (int i = 0; i < 4; ++i)
+            QVERIFY2(!bridge.cachedBytes(QStringLiteral("full:$photo-%1").arg(i))
+                          .isEmpty(),
+                     qPrintable(QStringLiteral("photo %1 was evicted by a "
+                                               "video prefetch").arg(i)));
+        QCOMPARE(bridge.cacheBytesUsed(), 24 * mb);
+        QCOMPARE(client.fetches.size(), 6);
+    }
+
+    // The image provider reads in hand-out order, which is LRU order, so a
+    // decoder that falls behind the fetches reads exactly the keys that were
+    // evicted, and each Image that fails fetches its picture again.
+    void aBackloggedDecoderDoesNotTurnEvictionIntoRefetches()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        MediaImageProvider provider(&bridge);
+
+        QImage solid(64, 64, QImage::Format_RGB32);
+        solid.fill(Qt::darkCyan);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(solid.save(&buffer, "PNG"));
+        buffer.close();
+        bridge.setCacheLimitBytes(2 * png.size());
+
+        const QString prefix = QStringLiteral("image://lightning-media/");
+        QList<QPair<QString, QString>> decodeQueue;
+        connect(&bridge, &MediaBridge::mediaCached, &bridge,
+                [&](const QString &cacheKey) {
+                    decodeQueue.append({ cacheKey.mid(5),
+                                         bridge.cachedSource(cacheKey) });
+                });
+        constexpr int kPictures = 4;
+        for (int i = 0; i < kPictures; ++i)
+            bridge.mediaSource(QStringLiteral("$band-%1").arg(i),
+                               QStringLiteral("full"));
+
+        int served = 0;
+        int decoded = 0;
+        int decodeMisses = 0;
+        for (int round = 0; round < 20 && decoded < kPictures; ++round) {
+            while (served < client.fetches.size())
+                client.succeed(client.fetches.at(served++).opId, png);
+            const auto queue = std::exchange(decodeQueue, {});
+            for (const auto &[mediaKey, url] : queue) {
+                QVERIFY(url.startsWith(prefix));
+                QSize size;
+                if (!provider.requestImage(url.mid(prefix.size()), &size,
+                                           QSize(640, 0)).isNull()) {
+                    ++decoded;
+                } else {
+                    ++decodeMisses;
+                    bridge.mediaSource(mediaKey, QStringLiteral("full"));
+                }
+            }
+        }
+        QCOMPARE(decoded, kPictures);
+        QCOMPARE(decodeMisses, 0);
+        QCOMPARE(client.fetches.size(), kPictures);
+        QVERIFY(bridge.cacheBytesUsed() <= 2 * png.size());
+
+        const QVariantMap window = bridge.takeTraceWindow();
+        QCOMPARE(window.value(QStringLiteral("fetches")).toLongLong(),
+                 qint64(kPictures));
+        QCOMPARE(window.value(QStringLiteral("refetches")).toLongLong(),
+                 qint64(0));
+        QCOMPARE(window.value(QStringLiteral("decodeMisses")).toLongLong(),
+                 qint64(0));
+    }
+
+    void theTraceWindowNamesTheKeyThatIsFetchedAgain()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setCacheLimitBytes(10);
+        bridge.mediaSource(QStringLiteral("$again"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, QByteArray(8, 'a'));
+        bridge.mediaSource(QStringLiteral("$other"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, QByteArray(8, 'b'));
+        bridge.mediaSource(QStringLiteral("$again"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, QByteArray(8, 'a'));
+        MediaImageProvider provider(&bridge);
+        QSize size;
+        QVERIFY(provider.requestImage(QStringLiteral("full%3A%24other"), &size,
+                                      QSize()).isNull());
+
+        const QVariantMap window = bridge.takeTraceWindow();
+        QCOMPARE(window.value(QStringLiteral("fetches")).toLongLong(), qint64(3));
+        QCOMPARE(window.value(QStringLiteral("refetches")).toLongLong(), qint64(1));
+        QCOMPARE(window.value(QStringLiteral("refetchKeys")).toLongLong(), qint64(1));
+        QCOMPARE(window.value(QStringLiteral("evictions")).toLongLong(), qint64(2));
+        QCOMPARE(window.value(QStringLiteral("decodeMisses")).toLongLong(), qint64(1));
+        const QString top = window.value(QStringLiteral("topRefetch")).toString();
+        QVERIFY2(top.startsWith(QStringLiteral("full#")) && top.endsWith(QStringLiteral("x1")),
+                 qPrintable(top));
+        QVERIFY2(!top.contains(QStringLiteral("again")), qPrintable(top));
+
+        const QVariantMap empty = bridge.takeTraceWindow();
+        QCOMPARE(empty.value(QStringLiteral("fetches")).toLongLong(), qint64(0));
+        QCOMPARE(empty.value(QStringLiteral("evictions")).toLongLong(), qint64(0));
+        QCOMPARE(empty.value(QStringLiteral("topRefetch")).toString(),
+                 QStringLiteral("-"));
+    }
+
     void avatarClassEvictionIsBoundedLru()
     {
         FakeClient client;
@@ -790,6 +924,7 @@ private Q_SLOTS:
         MediaBridge bridge;
         bridge.setClient(&client);
         bridge.setAvatarCacheLimitBytes(10);
+        bridge.setDecodeGraceMsForTest(0);
 
         bridge.avatarSource(kMxc, 64);
         client.succeed(client.fetches.at(0).opId, QByteArray(6, 'a'));

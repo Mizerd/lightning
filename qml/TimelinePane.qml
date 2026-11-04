@@ -3522,6 +3522,7 @@ Rectangle {
                     repeat: true
                     running: timeline.scrollTrace
                     onTriggered: {
+                        var media = app.mediaBridge.takeTraceWindow()
                         console.info("scroll-perf-window"
                             + " rows=" + timeline.count
                             + " srcRows=" + (app.timeline ? app.timeline.count : -1)
@@ -3531,7 +3532,14 @@ Rectangle {
                             + " bandLast=" + timeline.mediaBandLastRow
                             + " mediaCached=" + timeline.perfMediaCached
                             + " previewRefreshes=" + timeline.perfPreviewRefreshes
-                            + " motion=" + (timeline.userScrollActive ? 1 : 0))
+                            + " motion=" + (timeline.userScrollActive ? 1 : 0)
+                            + " fetches=" + media.fetches
+                            + " refetches=" + media.refetches
+                            + " refetchKeys=" + media.refetchKeys
+                            + " topRefetch=" + media.topRefetch
+                            + " evictions=" + media.evictions
+                            + " decodeMisses=" + media.decodeMisses
+                            + " cacheKiB=" + Math.round(media.cacheBytes / 1024))
                         timeline.perfMediaCached = 0
                         timeline.perfPreviewRefreshes = 0
                     }

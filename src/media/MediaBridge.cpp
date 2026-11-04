@@ -94,6 +94,7 @@ MediaBridge::MediaBridge(QObject *parent)
     , m_playableMaxBytes(kPlayableCacheBytes)
 {
     m_failureClock.start();
+    m_handoutClock.start();
     connect(this, &MediaBridge::saveFinished, this,
             [this](bool, const QString &, const QString &mediaKey) {
                 removeActiveSave(mediaKey);
@@ -233,6 +234,7 @@ QString MediaBridge::cachedSource(const QString &cacheKey) const
     if (!m_cache.contains(cacheKey))
         return {};
     touch(cacheKey);
+    m_awaitingDecode.insert(cacheKey, m_handoutClock.elapsed());
     return QStringLiteral("image://lightning-media/")
         + QString::fromUtf8(QUrl::toPercentEncoding(cacheKey))
         + QStringLiteral("?r=")
@@ -325,6 +327,20 @@ QByteArray MediaBridge::cachedBytes(const QString &cacheKey) const
     return it.value();
 }
 
+QByteArray MediaBridge::bytesForDecode(const QString &cacheKey)
+{
+    QMutexLocker lock(&m_cacheMutex);
+    const auto it = m_cache.constFind(cacheKey);
+    if (it == m_cache.constEnd()) {
+        m_windowDecodeMisses.fetch_add(1, std::memory_order_relaxed);
+        return {};
+    }
+    const QByteArray bytes = it.value();
+    if (m_awaitingDecode.remove(cacheKey) > 0)
+        trimClassLocked(isAvatarClassKey(cacheKey), cacheKey);
+    return bytes;
+}
+
 qint64 MediaBridge::cacheBytesUsed() const
 {
     QMutexLocker lock(&m_cacheMutex);
@@ -350,15 +366,36 @@ void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
     classTotal += bytes.size();
     ++m_revision[cacheKey];
     touch(cacheKey);
+    trimClassLocked(avatarClass, cacheKey);
+}
+
+void MediaBridge::trimClassLocked(bool avatarClass, const QString &keep)
+{
+    qint64 &classTotal = avatarClass ? m_cacheBytesAvatar : m_cacheBytesMain;
     QList<QString> &lru = avatarClass ? m_avatarLru : m_lru;
     const qint64 limit = avatarClass ? m_avatarCacheLimit : m_cacheLimit;
-    while (classTotal > limit && lru.size() > 1) {
-        const QString victim = lru.takeLast();
-        if (victim == cacheKey)
-            continue;
-        classTotal -= m_cache.value(victim).size();
-        m_cache.remove(victim);
-        m_contentHashCache.remove(victim);
+    const qint64 now = m_handoutClock.elapsed();
+    // The second pass ignores the decode shield: shielded bytes may hold at
+    // most one more cache's worth.
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool shielded = pass == 0;
+        const qint64 ceiling = shielded ? limit : limit * 2;
+        for (qsizetype i = lru.size() - 1; i >= 0 && classTotal > ceiling; --i) {
+            const QString victim = lru.at(i);
+            if (victim == keep)
+                continue;
+            const auto mark = m_awaitingDecode.constFind(victim);
+            if (mark != m_awaitingDecode.constEnd()) {
+                if (shielded && now - mark.value() < m_decodeGraceMs)
+                    continue;
+                m_awaitingDecode.erase(mark);
+            }
+            classTotal -= m_cache.value(victim).size();
+            m_cache.remove(victim);
+            m_contentHashCache.remove(victim);
+            lru.removeAt(i);
+            ++m_windowEvictions;
+        }
     }
 }
 
@@ -1317,11 +1354,60 @@ void MediaBridge::dispatch(const Pending &request)
         }
         return;
     }
+    if (!tracked.saveRequest && !tracked.starRequest)
+        noteDispatched(tracked.cacheKey);
     qCDebug(lcMediaTrace, "fetch %s opId=%llu inflight=%lld",
             qUtf8Printable(keyTag(tracked.cacheKey)),
             static_cast<unsigned long long>(opId),
             static_cast<long long>(m_inflight.size() + 1));
     m_inflight.insert(opId, tracked);
+}
+
+void MediaBridge::noteDispatched(const QString &cacheKey)
+{
+    ++m_windowFetches;
+    if (m_fetchCounts.size() >= 4096)
+        m_fetchCounts.clear();
+    if (++m_fetchCounts[cacheKey] < 2)
+        return;
+    ++m_windowRefetchTotal;
+    if (m_windowRefetches.size() < 256 || m_windowRefetches.contains(cacheKey))
+        ++m_windowRefetches[cacheKey];
+}
+
+QVariantMap MediaBridge::takeTraceWindow()
+{
+    QString top;
+    int topCount = 0;
+    for (auto it = m_windowRefetches.constBegin();
+         it != m_windowRefetches.constEnd(); ++it) {
+        if (it.value() > topCount) {
+            topCount = it.value();
+            top = keyTag(it.key());
+        }
+    }
+    QVariantMap out;
+    out.insert(QStringLiteral("fetches"), m_windowFetches);
+    out.insert(QStringLiteral("refetches"), m_windowRefetchTotal);
+    out.insert(QStringLiteral("refetchKeys"),
+               static_cast<qint64>(m_windowRefetches.size()));
+    out.insert(QStringLiteral("topRefetch"),
+               topCount > 0
+                   ? QString(top + QLatin1Char('x') + QString::number(topCount))
+                   : QStringLiteral("-"));
+    {
+        QMutexLocker lock(&m_cacheMutex);
+        out.insert(QStringLiteral("evictions"), m_windowEvictions);
+        out.insert(QStringLiteral("cacheBytes"),
+                   m_cacheBytesMain + m_cacheBytesAvatar);
+        m_windowEvictions = 0;
+    }
+    out.insert(QStringLiteral("decodeMisses"),
+               m_windowDecodeMisses.exchange(0, std::memory_order_relaxed));
+    m_windowFetches = 0;
+    m_windowRefetchTotal = 0;
+    m_windowRefetches.clear();
+    return out;
 }
 
 quint64 MediaBridge::dispatchLinkMedia(Pending &request)
@@ -1522,7 +1608,12 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
                                    static_cast<qint64>(bytes.size()));
     const bool motionProbe =
         request.cacheKey.startsWith(QLatin1String("motion:"));
-    if (!motionProbe
+    // A speculative A/V payload is served from its playable file; in the byte
+    // cache it would only evict pictures that are on screen.
+    const bool speculativeAv = prefetchWanted && !playableWanted
+        && !m_animatedWanted.contains(request.cacheKey)
+        && looksLikeAvContainer(bytes);
+    if (!motionProbe && !speculativeAv
         && !((playableWanted || prefetchWanted)
              && bytes.size() > kLargeCacheSkipBytes))
         insertCache(request.cacheKey, bytes);
@@ -2229,7 +2320,10 @@ void MediaBridge::clear()
         m_artworkBytes = 0;
         m_revision.clear();
         m_contentHashCache.clear();
+        m_awaitingDecode.clear();
     }
+    m_fetchCounts.clear();
+    m_windowRefetches.clear();
     m_inflight.clear();
     m_queue.clear();
     if (!m_activeSaves.isEmpty()) {

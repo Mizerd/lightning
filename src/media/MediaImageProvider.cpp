@@ -159,7 +159,7 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
         return image;
     }
 
-    QByteArray bytes = m_bridge->cachedBytes(cacheKey);
+    QByteArray bytes = m_bridge->bytesForDecode(cacheKey);
     if (bytes.isEmpty())
         return {};
 
