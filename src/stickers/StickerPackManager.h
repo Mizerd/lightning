@@ -300,7 +300,7 @@ private:
     void onLoggedOut();
     void applySnapshot(const QString &roomId, bool roomCanManage,
                        const QVariantList &packs);
-    void rebuildImages();
+    void rebuildImages(bool keepUnchangedRows = false);
     void emitStateChanged();
     QVariantList collectEmoticons(const QString &prefix, int limit,
                                   bool uniqueShortcodes,

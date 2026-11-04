@@ -212,7 +212,7 @@ void StickerPackManager::setFilter(const QString &text)
     if (m_filter == normalized)
         return;
     m_filter = normalized;
-    rebuildImages();
+    rebuildImages(true);
     Q_EMIT filterChanged();
 }
 
@@ -1014,7 +1014,7 @@ void StickerPackManager::applySnapshot(const QString &roomId,
     emitStateChanged();
 }
 
-void StickerPackManager::rebuildImages()
+void StickerPackManager::rebuildImages(bool keepUnchangedRows)
 {
     const QString editorId =
         m_editorPackId.isEmpty() ? m_selectedPackId : m_editorPackId;
@@ -1043,7 +1043,7 @@ void StickerPackManager::rebuildImages()
                 matches.append(image);
             }
         }
-        if (!m_images->sameRows(matches))
+        if (!keepUnchangedRows || !m_images->sameRows(matches))
             m_images->reset(matches);
         return;
     }
