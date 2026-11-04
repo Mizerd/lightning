@@ -370,6 +370,12 @@ private:
         return hit;
     }
 
+    void typeInto(const QString &text)
+    {
+        for (const QChar c : text)
+            QTest::keyClick(m_window, c.toLatin1());
+    }
+
     static QRectF paintedSceneRect(QQuickItem *it)
     {
         QRectF out;
@@ -1507,19 +1513,19 @@ private slots:
         QVERIFY(grid);
         QTRY_COMPARE(grid->property("count").toInt(), 3);
 
-        QTest::keyClicks(m_window, QStringLiteral("dog"));
+        typeInto(QStringLiteral("dog"));
         QTRY_COMPARE(m_controller->stickers()->property("filter").toString(), QStringLiteral("dog"));
         QTRY_COMPARE(grid->property("count").toInt(), 2);
         QCOMPARE(m_controller->stickers()->selectedPackId(), roomPackId());
 
         field->setProperty("text", QString());
-        QTest::keyClicks(m_window, QStringLiteral("sleepy"));
+        typeInto(QStringLiteral("sleepy"));
         QTRY_COMPARE(grid->property("count").toInt(), 1);
         QVERIFY2(!item("stickerPackUseEverywhere")->isVisible(),
                  "a pack's own toggle shows over results from every pack");
 
         field->setProperty("text", QString());
-        QTest::keyClicks(m_window, QStringLiteral("zzqx"));
+        typeInto(QStringLiteral("zzqx"));
         QTRY_COMPARE(grid->property("count").toInt(), 0);
         QVERIFY(!grid->isVisible());
         auto *empty = item("stickerEmptyTitle");
