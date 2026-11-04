@@ -37,6 +37,11 @@ QString pickerQml()
     return readFile(QStringLiteral(QML_DIR "/StickerPicker.qml"));
 }
 
+QString chipStripQml()
+{
+    return readFile(QStringLiteral(QML_DIR "/PackChipStrip.qml"));
+}
+
 QString mediaBridgeCpp()
 {
     return readFile(QStringLiteral(LIGHTNING_SRC_DIR "/media/MediaBridge.cpp"));
@@ -61,8 +66,10 @@ class StickerPickerTileContractTest : public QObject
 private slots:
     void everyRequiredPropertyOfAPickerTileIsARoleSomeModelServes()
     {
-        const QString qml = pickerQml();
-        QVERIFY2(!qml.isEmpty(), "StickerPicker.qml could not be read");
+        const QString strip = chipStripQml();
+        QVERIFY2(!strip.isEmpty(), "PackChipStrip.qml could not be read");
+        const QString qml = pickerQml() + strip;
+        QVERIFY2(!pickerQml().isEmpty(), "StickerPicker.qml could not be read");
 
         QSet<QString> served{ QStringLiteral("index") };
         const auto collect = [&served](const QHash<int, QByteArray> &roles) {
@@ -161,7 +168,8 @@ private slots:
         QVERIFY(picker.contains(QStringLiteral("Keys.onSpacePressed")));
         QVERIFY(picker.contains(QStringLiteral("Qt.Key_PageDown")));
         QVERIFY(picker.contains(QStringLiteral("Qt.Key_End")));
-        QVERIFY(picker.contains(QStringLiteral("packTile.visualFocus")));
+        QVERIFY(chipStripQml().contains(QStringLiteral("chip.visualFocus")));
+        QVERIFY(picker.contains(QStringLiteral("Keys.onShortcutOverride")));
     }
 };
 

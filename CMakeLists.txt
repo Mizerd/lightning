@@ -1266,6 +1266,7 @@ set(APP_QML_FILES
     qml/StickerPackEditor.qml
     qml/PrivateImageRepublishDialog.qml
     qml/StickerPicker.qml
+    qml/PackChipStrip.qml
     qml/PolicyListDialog.qml
     qml/AddWidgetDialog.qml
     qml/QrLoginDialog.qml

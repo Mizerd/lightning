@@ -73,6 +73,7 @@ constexpr const char *kComponents[] = {
     "RoomInfoPanel",
     "GifPicker",
     "StickerPicker",
+    "PackChipStrip",
     "EmojiPicker",
     "QuickSwitcher",
     "MessageSearchDialog",

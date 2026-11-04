@@ -127,10 +127,18 @@ AnchoredPopup {
     // the composer a pick inserts the shortcode text, bound to that exact image.
     // Doesn't call recordUse(): recents are the Unicode catalogue's.
     readonly property bool customEmojiOffered: allowCustomEmoji && app.stickers.available
+    // Empty: every pack, favourites and recents first.
+    property string customPackId: ""
     readonly property var customEmoji: {
         var _live = app.stickers.revision
-        return picker.customEmojiOffered && picker.visible && !picker.compact
-            ? app.stickers.reactionEmoticons() : []
+        if (!(picker.customEmojiOffered && picker.visible && !picker.compact))
+            return []
+        if (picker.customPackId.length > 0) {
+            var rows = app.stickers.packEmoticons(picker.customPackId)
+            if (rows.length > 0)
+                return rows
+        }
+        return app.stickers.reactionEmoticons()
     }
     function chooseCustom(url, row) {
         if (!url || url.indexOf("mxc://") !== 0) return
@@ -188,6 +196,7 @@ AnchoredPopup {
         previewEmoji = ""
         previewName = ""
         previewCell = null
+        customPackId = ""
         quickBar.focusIndex = 0
         if (picker.customEmojiOffered)
             app.stickers.refreshIfStale()
@@ -548,6 +557,18 @@ AnchoredPopup {
                     visible: picker.customEmoji.length > 0
                     text: qsTr("Custom emoji")
                 }
+                PackChipStrip {
+                    id: customPackStrip
+                    objectName: "customEmojiPackStrip"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    visible: picker.customEmoji.length > 0 && packCount > 1
+                    usage: "emoticon"
+                    showAll: true
+                    allCurrent: picker.customPackId.length === 0
+                    currentPackId: picker.customPackId
+                    onPackChosen: (packId) => picker.customPackId = packId
+                }
                 ListView {
                     id: customEmojiStrip
                     objectName: "customEmojiStrip"
@@ -572,7 +593,10 @@ AnchoredPopup {
                         Accessible.name: customCell.modelData.shortcode
                         Accessible.description: qsTr("Right-click to add to or "
                                                      + "remove from favourites")
-                        ToolTip.text: ":" + customCell.modelData.shortcode + ":"
+                        ToolTip.text: customCell.modelData.packName
+                                      ? ":" + customCell.modelData.shortcode + ":  ·  "
+                                        + customCell.modelData.packName
+                                      : ":" + customCell.modelData.shortcode + ":"
                         ToolTip.visible: hovered
                         ToolTip.delay: 400
                         background: Rectangle {

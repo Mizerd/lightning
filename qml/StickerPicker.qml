@@ -16,10 +16,17 @@ AnchoredPopup {
 
     widthFraction: 0.38
     heightFraction: 0.64
-    minWidth: 300
-    minHeight: 320
+    minWidth: 300 + gripGrab
+    minHeight: 320 + gripGrab
     sizeSettingsKey: "picker"
     padding: AppTheme.spacingS
+    // The same transparent grab band as GifPicker: a press just outside the
+    // popup's item closes it and reaches the chat behind.
+    readonly property real gripGrab: 8
+    leftInset: gripGrab
+    topInset: gripGrab
+    leftPadding: padding + gripGrab
+    topPadding: padding + gripGrab
     modal: false
     dim: false
     focus: true
@@ -39,7 +46,11 @@ AnchoredPopup {
         close()
     }
 
+    readonly property bool searching: picker.stickers.filter.length > 0
+
     onAboutToShow: {
+        searchField.clear()
+        picker.stickers.filter = ""
         picker.stickers.usage = "sticker"
         grid.currentIndex = -1
         activated = false
@@ -47,6 +58,14 @@ AnchoredPopup {
         // room pack, made when the picker opens, never on navigation or a
         // timer.
         picker.stickers.refreshIfStale()
+        Qt.callLater(searchField.forceActiveFocus)
+    }
+    onClosed: searchField.clear()
+
+    function focusGrid() {
+        grid.forceActiveFocus()
+        if (grid.currentIndex < 0 && grid.count > 0)
+            grid.currentIndex = 0
     }
 
     readonly property var selectedPack: {
@@ -63,6 +82,7 @@ AnchoredPopup {
     background: Item {
         Rectangle {
             id: pickerPanel
+            objectName: "stickerPickerPanel"
             anchors.fill: parent
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
@@ -75,6 +95,8 @@ AnchoredPopup {
             // first.
             MouseArea {
                 anchors.fill: parent
+                anchors.leftMargin: -picker.leftInset
+                anchors.topMargin: -picker.topInset
                 acceptedButtons: Qt.AllButtons
             }
         }
@@ -94,6 +116,8 @@ AnchoredPopup {
 
     ColumnLayout {
         anchors.fill: parent
+        anchors.leftMargin: AppTheme.spacingXS
+        anchors.rightMargin: AppTheme.spacingXS
         anchors.bottomMargin: footerRow.implicitHeight + AppTheme.spacing4 * 2
         spacing: AppTheme.spacingS
 
@@ -118,22 +142,34 @@ AnchoredPopup {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
 
-            Label {
-                objectName: "stickerPickerTitle"
+            AppTextField {
+                id: searchField
+                objectName: "stickerSearchField"
                 Layout.fillWidth: true
-                text: qsTr("Stickers")
-                color: AppTheme.stormText
-                font.family: AppTheme.uiFont
-                font.pixelSize: AppTheme.textTitle
-                font.weight: AppTheme.weightStrong
-                elide: Label.ElideRight
-                verticalAlignment: Text.AlignVCenter
-            }
-            AppBusyIndicator {
-                objectName: "stickerPickerBusy"
-                visible: picker.stickers.loading
-                implicitWidth: 18
-                implicitHeight: 18
+                Layout.minimumWidth: 0
+                searchIcon: true
+                clearButton: true
+                storm: true
+                placeholderText: qsTr("Search stickers")
+                Accessible.name: qsTr("Search stickers by name or description")
+                selectByMouse: true
+                onTextChanged: picker.stickers.filter = text
+                // Escape clears a query first; on an empty field it closes.
+                Keys.onShortcutOverride: (event) => {
+                    if (event.key === Qt.Key_Escape && searchField.text.length > 0)
+                        event.accepted = true
+                }
+                Keys.onEscapePressed: (event) => {
+                    if (searchField.text.length > 0) {
+                        searchField.clear()
+                        event.accepted = true
+                    } else {
+                        event.accepted = false
+                    }
+                }
+                Keys.onDownPressed: picker.focusGrid()
+                Keys.onReturnPressed: picker.focusGrid()
+                Keys.onEnterPressed: picker.focusGrid()
             }
             NativeFileDialog {
                 id: stickerFileDialog
@@ -180,17 +216,27 @@ AnchoredPopup {
                 }
             }
             IconButton {
+                id: refreshButton
+                objectName: "stickerRefreshButton"
                 storm: true
                 size: "md"
-                iconName: "refresh"
+                iconName: picker.stickers.loading ? "" : "refresh"
                 enabled: !picker.stickers.loading
                 Accessible.name: qsTr("Reload sticker packs")
                 ToolTip.text: qsTr("Reload packs")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 onClicked: picker.stickers.refresh()
+
+                AppBusyIndicator {
+                    objectName: "stickerPickerBusy"
+                    anchors.centerIn: parent
+                    size: 16
+                    visible: picker.stickers.loading
+                }
             }
             IconButton {
+                objectName: "stickerCloseButton"
                 storm: true
                 size: "md"
                 iconName: "close"
@@ -199,74 +245,18 @@ AnchoredPopup {
             }
         }
 
-        ListView {
+        PackChipStrip {
             id: packStrip
             objectName: "stickerPackStrip"
             Layout.fillWidth: true
-            Layout.preferredHeight: 40
+            Layout.preferredHeight: implicitHeight
             visible: picker.stickers.usablePackCount > 0
-            orientation: ListView.Horizontal
-            clip: true
-            spacing: AppTheme.spacingXS
-            model: picker.stickers.packs
-            boundsBehavior: Flickable.StopAtBounds
-            SmoothWheelArea { axis: "horizontal" }
-
-            delegate: AbstractButton {
-                id: packTile
-                required property int index
-                required property string packId
-                required property string displayName
-                required property string avatarUrl
-                required property string source
-                required property int stickerCount
-                required property bool hidden
-
-                visible: stickerCount > 0 && !hidden
-                width: visible ? 36 : 0
-                height: 36
-                hoverEnabled: true
-                focusPolicy: Qt.TabFocus
-                Accessible.role: Accessible.Button
-                Accessible.name: packTile.displayName
-                ToolTip.text: packTile.displayName
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-                readonly property bool current:
-                    packTile.packId === picker.stickers.selectedPackId
-
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: -2
-                    z: 1
-                    radius: AppTheme.radiusControl + 2
-                    color: "transparent"
-                    border.color: AppTheme.bolt
-                    border.width: 2
-                    visible: packTile.visualFocus
-                }
-
-                background: Rectangle {
-                    anchors.fill: parent
-                    radius: AppTheme.radiusControl
-                    color: packTile.current ? AppTheme.selected
-                         : (packTile.down || packTile.hovered)
-                           ? AppTheme.hover : "transparent"
-                    border.width: packTile.current ? 2 : 0
-                    border.color: AppTheme.accent
-                }
-                contentItem: Item {
-                    Avatar {
-                        anchors.centerIn: parent
-                        size: 26
-                        circle: false
-                        squareRadius: AppTheme.radiusSm
-                        mxc: packTile.avatarUrl
-                        name: packTile.displayName
-                        colorKey: packTile.packId
-                    }
-                }
-                onClicked: picker.stickers.selectedPackId = packTile.packId
+            stickers: picker.stickers
+            usage: "sticker"
+            currentPackId: picker.searching ? "" : picker.stickers.selectedPackId
+            onPackChosen: (packId) => {
+                searchField.clear()
+                picker.stickers.selectedPackId = packId
             }
         }
 
@@ -274,7 +264,8 @@ AnchoredPopup {
             id: useEverywhereRow
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            visible: picker.selectedPack !== null
+            visible: !picker.searching
+                     && picker.selectedPack !== null
                      && picker.selectedPack.source === "room"
 
             AppSwitch {
@@ -361,6 +352,14 @@ AnchoredPopup {
             }
             Keys.onEnterPressed: if (grid.currentIndex >= 0)
                                      picker.choose(grid.currentIndex)
+            Keys.onUpPressed: (event) => {
+                var cols = Math.max(1, Math.floor(grid.width / grid.cellWidth))
+                if (grid.currentIndex >= cols) {
+                    event.accepted = false
+                    return
+                }
+                searchField.forceActiveFocus()
+            }
 
             delegate: Item {
                 id: tile
@@ -516,6 +515,7 @@ AnchoredPopup {
 
                 Label {
                     objectName: "stickerEmptyTitle"
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
@@ -525,6 +525,9 @@ AnchoredPopup {
                     font.weight: AppTheme.weightStrong
                     text: {
                         var rev = picker.stickers.revision
+                        if (picker.searching)
+                            return qsTr("No stickers match “%1”")
+                                .arg(picker.stickers.filter)
                         if (!picker.stickers.available)
                             return qsTr("Stickers are unavailable on this backend")
                         if (picker.stickers.loading && !picker.stickers.loaded)
@@ -547,6 +550,9 @@ AnchoredPopup {
                     visible: text.length > 0
                     text: {
                         var rev = picker.stickers.revision
+                        if (picker.searching)
+                            return qsTr("Try another word, or clear the search "
+                                        + "to browse your packs.")
                         if (!picker.stickers.available)
                             return ""
                         if (picker.stickers.loading && !picker.stickers.loaded)
@@ -571,6 +577,8 @@ AnchoredPopup {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: AppTheme.spacing4
+        anchors.leftMargin: AppTheme.spacing4 + AppTheme.spacingXS
+        anchors.rightMargin: AppTheme.spacing4 + AppTheme.spacingXS
         spacing: AppTheme.spacing6
 
         Label {
@@ -583,6 +591,8 @@ AnchoredPopup {
             font.pixelSize: AppTheme.textMicro
             elide: Text.ElideRight
             text: {
+                if (picker.searching)
+                    return qsTr("Results from all your packs")
                 var pack = picker.selectedPack
                 if (!pack)
                     return ""
@@ -611,12 +621,13 @@ AnchoredPopup {
 
     PopupResizeGrip {
         popup: picker
+        grabMargin: picker.gripGrab
         arcCentre: AppTheme.radiusLg + 6
         outerRadius: AppTheme.radiusLg + 2
         anchors.left: parent.left
         anchors.top: parent.top
-        anchors.leftMargin: -picker.padding
-        anchors.topMargin: -picker.padding
+        anchors.leftMargin: -picker.leftPadding
+        anchors.topMargin: -picker.topPadding
     }
 
     }
