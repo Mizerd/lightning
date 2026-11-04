@@ -13,6 +13,9 @@
 #   GITLAB_COM_COLLECT        comma list of linux-amd64, linux-arm64, windows,
 #                             or none (default: all three)
 #
+# Only https://gitlab.com/api/v4 and project 88402223 are accepted, unless
+# GITLAB_COM_FAKE_API_FOR_TESTS=1 (tests/test-gitlab-com-lane.sh).
+#
 # linux-amd64 and windows are required: each of their packages must have
 # validated. linux-arm64 is optional: whatever validated is collected, and a
 # red arm64 job neither fails the lane nor this script.
@@ -41,6 +44,11 @@ require_var GITLAB_COM_READ_TOKEN
 require_var SOURCE_REF
 [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]] || die "SOURCE_REF must be a full commit SHA"
 [[ "$GITLAB_COM_PROJECT_ID" =~ ^[0-9]+$ ]] || die "GITLAB_COM_PROJECT_ID must be numeric"
+# Both tokens go to this host, and its answers decide what is published.
+if [[ "${GITLAB_COM_FAKE_API_FOR_TESTS:-}" != 1 ]]; then
+    [[ "$GITLAB_COM_API" == https://gitlab.com/api/v4 && "$GITLAB_COM_PROJECT_ID" == 88402223 ]] || \
+        die "GITLAB_COM_API/GITLAB_COM_PROJECT_ID must be https://gitlab.com/api/v4 and 88402223"
+fi
 [[ "$GITLAB_COM_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$ ]] || die "GITLAB_COM_REF is not a plausible branch name"
 if [[ "${PUBLISH_PACKAGES:-false}" == true && "$GITLAB_COM_REF" != main ]]; then
     die "a release builds only from gitlab.com's protected main, not $GITLAB_COM_REF"
@@ -78,6 +86,12 @@ ARM64_JOBS=(
     validate-appimage-arm64 validate-snap-arm64
 )
 PACKAGE_GLOB='\.(deb|rpm|AppImage|snap|flatpak)$'
+# The architecture each group's package names must carry, so one group can
+# never deliver a file that overwrites another's.
+declare -A ARCH_NAME=(
+    [linux-amd64]='(_amd64\.(deb|flatpak|snap)|\.x86_64\.rpm|-x86_64\.AppImage)$'
+    [linux-arm64]='(_arm64\.(deb|snap)|\.aarch64\.rpm|-aarch64\.AppImage)$'
+)
 
 pipeline="${GITLAB_COM_PIPELINE_ID:-}"
 if [[ -z "$pipeline" ]]; then
@@ -114,6 +128,10 @@ var() { jq -r --arg k "$1" '[.[] | select(.key == $k) | .value][0] // ""' "$WORK
     die "pipeline $pipeline ran with PUBLISH_PACKAGES=$(var PUBLISH_PACKAGES)"
 [[ "$(var RELEASE_VERSION)" == "${RELEASE_VERSION:-}" ]] || \
     die "pipeline $pipeline ran with RELEASE_VERSION=$(var RELEASE_VERSION)"
+if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+    [[ "$(var RELEASE_ACTION)" == "${RELEASE_ACTION:-}" ]] || \
+        die "pipeline $pipeline ran with RELEASE_ACTION=$(var RELEASE_ACTION)"
+fi
 for narrowing in PACKAGE_ARCH PACKAGE_FORMATS; do
     [[ "$(var "$narrowing")" == "" || "$(var "$narrowing")" == all ]] || \
         die "pipeline $pipeline was narrowed by $narrowing=$(var "$narrowing")"
@@ -124,6 +142,15 @@ for forbidden in LIGHTNING_SOURCE_FROM_CHECKOUT LIGHTNING_REPOSITORY; do
     [[ -z "$(jq -r --arg k "$forbidden" '.[] | select(.key == $k) | .key' "$WORK/variables.json")" ]] || \
         die "pipeline $pipeline overrides $forbidden"
 done
+
+check_identity() {
+    pipeline_sha="$(jq -er .sha "$WORK/pipeline.json")"
+    [[ "$pipeline_sha" == "$SOURCE_REF" ]] || die "gitlab.com pipeline $pipeline built $pipeline_sha, not $SOURCE_REF"
+    pipeline_ref="$(jq -er .ref "$WORK/pipeline.json")"
+    [[ "$pipeline_ref" == "$GITLAB_COM_REF" ]] || die "gitlab.com pipeline $pipeline ran on $pipeline_ref, not $GITLAB_COM_REF"
+}
+api "pipelines/$pipeline" >"$WORK/pipeline.json"
+check_identity
 
 deadline=$(( $(date +%s) + GITLAB_COM_TIMEOUT_S ))
 while :; do
@@ -136,10 +163,7 @@ while :; do
     (( $(date +%s) < deadline )) || die "gitlab.com pipeline $pipeline still $status after ${GITLAB_COM_TIMEOUT_S}s"
     sleep 60
 done
-pipeline_sha="$(jq -er .sha "$WORK/pipeline.json")"
-[[ "$pipeline_sha" == "$SOURCE_REF" ]] || die "gitlab.com pipeline $pipeline built $pipeline_sha, not $SOURCE_REF"
-pipeline_ref="$(jq -er .ref "$WORK/pipeline.json")"
-[[ "$pipeline_ref" == "$GITLAB_COM_REF" ]] || die "gitlab.com pipeline $pipeline ran on $pipeline_ref, not $GITLAB_COM_REF"
+check_identity
 
 curl -fsS --retry 5 --retry-all-errors --max-time 120 -K "$WORK/auth" -D "$WORK/jobs.headers" \
     -o "$WORK/jobs.json" "$API/pipelines/$pipeline/jobs?per_page=100"
@@ -200,6 +224,8 @@ collect_linux() {
         fetch_artifacts "$job"
         found=0
         while IFS= read -r -d '' pkg; do
+            [[ "$(basename "$pkg")" =~ ${ARCH_NAME[$group]} ]] || \
+                die "$name left $(basename "$pkg"), which is not named as a $group package"
             take "$pkg" "$ROOT/dist" "$name" with-sum
             found=$((found + 1))
         done < <(find "$WORK/unpack/dist" -maxdepth 1 -type f -regextype posix-extended -regex ".*$PACKAGE_GLOB" -print0)

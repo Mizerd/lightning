@@ -130,6 +130,7 @@ lane() {
     env -u GITLAB_COM_PIPELINE_ID -u GITLAB_COM_COLLECT -u GITLAB_COM_REF \
         PATH="$WORK/bin:$PATH" CI_PROJECT_DIR="$FAKE_DIR/project" \
         GITLAB_COM_API=https://gitlab.example/api/v4 GITLAB_COM_PROJECT_ID=88402223 \
+        GITLAB_COM_FAKE_API_FOR_TESTS=1 \
         GITLAB_COM_READ_TOKEN="$READ_TOKEN" GITLAB_COM_TRIGGER_TOKEN="$TRIGGER_TOKEN" \
         SOURCE_REF="$SHA" PUBLISH_PACKAGES=false RELEASE_ACTION= RELEASE_VERSION= \
         "$@" "$LANE" >"$FAKE_DIR/out.log" 2>&1
@@ -180,7 +181,7 @@ if lane GITLAB_COM_PIPELINE_ID=777 PUBLISH_PACKAGES=true RELEASE_ACTION=create R
 else
     note "a release cannot adopt a build-only lane"
 fi
-jq 'map(if .key == "PUBLISH_PACKAGES" then .value = "true" else . end) + [{key: "RELEASE_VERSION", value: "'$VER'"}]' \
+jq 'map(if .key == "PUBLISH_PACKAGES" then .value = "true" else . end) + [{key: "RELEASE_VERSION", value: "'$VER'"}, {key: "RELEASE_ACTION", value: "create"}]' \
     "$FAKE_DIR/variables.json" >"$FAKE_DIR/v.tmp" && mv "$FAKE_DIR/v.tmp" "$FAKE_DIR/variables.json"
 if lane GITLAB_COM_PIPELINE_ID=777 PUBLISH_PACKAGES=true RELEASE_ACTION=create RELEASE_VERSION=$VER GITLAB_COM_REF=main; then
     note "a release accepts a lane whose only red jobs are arm64"
@@ -201,7 +202,7 @@ if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=windows; then bad "a faile
 setup
 set_job copr-srpm failed true
 lane GITLAB_COM_PIPELINE_ID=777 && note "a build-only lane tolerates a red canary" || bad "build-only refused a red canary"
-jq 'map(if .key == "PUBLISH_PACKAGES" then .value = "true" else . end) + [{key: "RELEASE_VERSION", value: "'$VER'"}]' \
+jq 'map(if .key == "PUBLISH_PACKAGES" then .value = "true" else . end) + [{key: "RELEASE_VERSION", value: "'$VER'"}, {key: "RELEASE_ACTION", value: "create"}]' \
     "$FAKE_DIR/variables.json" >"$FAKE_DIR/v.tmp" && mv "$FAKE_DIR/v.tmp" "$FAKE_DIR/variables.json"
 if lane GITLAB_COM_PIPELINE_ID=777 PUBLISH_PACKAGES=true RELEASE_ACTION=create RELEASE_VERSION=$VER; then
     bad "a release accepted a red canary"
@@ -241,6 +242,59 @@ id="$(jq -r '.[] | select(.name == "validate-deb-amd64") | .id' "$FAKE_DIR/jobs.
 printf 'second\n' >"$FAKE_DIR/stage/$id/dist/extra.deb"; ( cd "$FAKE_DIR/stage/$id/dist" && sha256sum extra.deb >extra.deb.sha256 )
 zipdir "$FAKE_DIR/stage/$id" "$FAKE_DIR/artifacts/$id.zip.new" && mv "$FAKE_DIR/artifacts/$id.zip.new" "$FAKE_DIR/artifacts/$id.zip"
 if lane GITLAB_COM_PIPELINE_ID=777; then bad "a validator with two packages was accepted"; else note "exactly one package per validator"; fi
+
+printf '== architecture ==\n'
+setup
+id="$(jq -r '.[] | select(.name == "validate-deb-arm64") | .id' "$FAKE_DIR/jobs.json")"
+mv "$FAKE_DIR/stage/$id/dist/lightning_${VER}_arm64.deb" "$FAKE_DIR/stage/$id/dist/lightning_${VER}_amd64.deb"
+( cd "$FAKE_DIR/stage/$id/dist" && rm -f ./*.sha256 && sha256sum "lightning_${VER}_amd64.deb" >"lightning_${VER}_amd64.deb.sha256" )
+zipdir "$FAKE_DIR/stage/$id" "$FAKE_DIR/artifacts/$id.zip.new" && mv "$FAKE_DIR/artifacts/$id.zip.new" "$FAKE_DIR/artifacts/$id.zip"
+if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=linux-arm64; then
+    bad "an arm64 job delivering an amd64-named package was accepted"
+else
+    grep -q "not named as a linux-arm64 package" "$FAKE_DIR/out.log" \
+        && note "an arm64 job cannot deliver an amd64-named package" || bad "misnamed arm64 package refused for the wrong reason"
+fi
+setup
+id="$(jq -r '.[] | select(.name == "validate-rpm-amd64") | .id' "$FAKE_DIR/jobs.json")"
+mv "$FAKE_DIR/stage/$id/dist/lightning-${VER}-1.x86_64.rpm" "$FAKE_DIR/stage/$id/dist/lightning-${VER}-1.aarch64.rpm"
+( cd "$FAKE_DIR/stage/$id/dist" && rm -f ./*.sha256 && sha256sum "lightning-${VER}-1.aarch64.rpm" >"lightning-${VER}-1.aarch64.rpm.sha256" )
+zipdir "$FAKE_DIR/stage/$id" "$FAKE_DIR/artifacts/$id.zip.new" && mv "$FAKE_DIR/artifacts/$id.zip.new" "$FAKE_DIR/artifacts/$id.zip"
+if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=linux-amd64; then
+    bad "an amd64 job delivering an aarch64-named package was accepted"
+else
+    note "an amd64 job cannot deliver an aarch64-named package"
+fi
+
+printf '== the API host ==\n'
+setup
+if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_FAKE_API_FOR_TESTS=; then
+    bad "a host other than gitlab.com was accepted"
+else
+    grep -q "must be https://gitlab.com/api/v4 and 88402223" "$FAKE_DIR/out.log" && [[ ! -s "$FAKE_DIR/argv.log" ]] \
+        && note "only gitlab.com is ever contacted" || bad "foreign host refused too late or for the wrong reason"
+fi
+if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_FAKE_API_FOR_TESTS= GITLAB_COM_API=https://gitlab.com/api/v4 GITLAB_COM_PROJECT_ID=1; then
+    bad "another gitlab.com project was accepted"
+else
+    note "only project 88402223 is ever contacted"
+fi
+
+printf '== identity is checked before the wait ==\n'
+setup; set_pipeline '.status = "running" | .sha = "ffffffffffffffffffffffffffffffffffffffff"'
+if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_TIMEOUT_S=0; then bad "a running lane for another commit was accepted"; else
+    grep -q "built ffffffff" "$FAKE_DIR/out.log" && note "another commit is refused before waiting" || bad "commit checked only after the wait"
+fi
+
+printf '== release action ==\n'
+setup
+jq 'map(if .key == "PUBLISH_PACKAGES" then .value = "true" else . end) + [{key: "RELEASE_VERSION", value: "'$VER'"}, {key: "RELEASE_ACTION", value: "attach-existing"}]' \
+    "$FAKE_DIR/variables.json" >"$FAKE_DIR/v.tmp" && mv "$FAKE_DIR/v.tmp" "$FAKE_DIR/variables.json"
+if lane GITLAB_COM_PIPELINE_ID=777 PUBLISH_PACKAGES=true RELEASE_ACTION=create RELEASE_VERSION=$VER; then
+    bad "a release adopted a lane run for another release action"
+else
+    grep -q "ran with RELEASE_ACTION=attach-existing" "$FAKE_DIR/out.log" && note "a release adopts only a lane with its own release action" || bad "release action refused for the wrong reason"
+fi
 
 printf '== triggering ==\n'
 setup
