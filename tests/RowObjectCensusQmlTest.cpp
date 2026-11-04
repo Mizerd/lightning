@@ -443,13 +443,24 @@ private Q_SLOTS:
     void anImageBuildsItsSkeletonOnlyWhileItCanShow()
     {
         AppController controller(AppController::MockBackend);
+        QVariantMap pending = imageFixture(controller, QStringLiteral("image/png"));
+        pending.insert(QStringLiteral("mediaUrl"), QUrl{});
         {
-            QVariantMap pending = imageFixture(controller, QStringLiteral("image/png"));
-            pending.insert(QStringLiteral("mediaUrl"), QUrl{});
             Delegate d;
             QVERIFY(createDelegate(controller, pending, d));
             auto *skeleton = d.root->findChild<QQuickItem *>(QStringLiteral("imageSkeleton"));
             QVERIFY2(skeleton && skeleton->isVisible(), "a loading image shows no skeleton");
+
+            QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
+            QTRY_VERIFY(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")));
+            d.host->setProperty("userScrollActive", true);
+            QVERIFY(d.root->setProperty("mediaPixmapRetained", true));
+            QTest::qWait(20);
+            QVERIFY2(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")),
+                     "the skeleton was built mid-scroll");
+            d.host->setProperty("userScrollActive", false);
+            QTRY_VERIFY(d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")));
+            QCOMPARE(d.warnings, QStringList{});
         }
         Delegate d;
         QVERIFY(createDelegate(controller, imageFixture(controller, QStringLiteral("image/png")), d));
@@ -458,18 +469,6 @@ private Q_SLOTS:
         QTRY_COMPARE(image->property("status").toInt(), 1);
         QTRY_VERIFY2(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")),
                      "a drawn image still carries its loading skeleton");
-
-        QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
-        QTRY_COMPARE(image->property("status").toInt(), 0);
-        QVERIFY(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")));
-        d.host->setProperty("userScrollActive", true);
-        QVERIFY(d.root->setProperty("mediaPixmapRetained", true));
-        QVERIFY2(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")),
-                 "the skeleton was built mid-scroll");
-        QTRY_COMPARE(image->property("status").toInt(), 1);
-        d.host->setProperty("userScrollActive", false);
-        QTest::qWait(20);
-        QVERIFY(!d.root->findChild<QObject *>(QStringLiteral("imageSkeleton")));
         QCOMPARE(d.warnings, QStringList{});
     }
 
