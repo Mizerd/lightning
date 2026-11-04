@@ -270,6 +270,119 @@ private:
             .arg(r.width(), 0, 'f', 1).arg(r.height(), 0, 'f', 1);
     }
 
+    static QVariantMap stickerImage(const QString &code, const QString &body)
+    {
+        QVariantMap m;
+        m.insert(QStringLiteral("shortcode"), code);
+        m.insert(QStringLiteral("url"),
+                 QStringLiteral("mxc://mock.local/sticker-") + code);
+        m.insert(QStringLiteral("body"), body);
+        m.insert(QStringLiteral("mimetype"), QStringLiteral("image/png"));
+        m.insert(QStringLiteral("isSticker"), true);
+        m.insert(QStringLiteral("isEmoticon"), false);
+        return m;
+    }
+    static QVariantMap stickerPack(const QString &id, const QString &source,
+                                   const QString &name,
+                                   const QVariantList &images)
+    {
+        QVariantMap p;
+        p.insert(QStringLiteral("id"), id);
+        p.insert(QStringLiteral("displayName"), name);
+        p.insert(QStringLiteral("source"), source);
+        p.insert(QStringLiteral("roomId"),
+                 source == QLatin1String("room")
+                     ? QStringLiteral("!general:mock.local") : QString());
+        p.insert(QStringLiteral("images"), images);
+        return p;
+    }
+    static const QString &roomPackId()
+    {
+        static const QString id = QStringLiteral("room:!general:mock.local:");
+        return id;
+    }
+
+    // Opens the composer's sticker picker over three packs, the room pack
+    // selected so the "Use everywhere" row shows.
+    QObject *openStickerPickerWithPacks()
+    {
+        auto *bar = item("composerBar");
+        if (!bar)
+            return nullptr;
+        QMetaObject::invokeMethod(bar, "openStickerPicker");
+        QTest::qWait(80);
+        auto *picker = m_root->findChild<QObject *>(
+            QStringLiteral("composerStickerPicker"));
+        if (!picker || !picker->property("opened").toBool())
+            return nullptr;
+        QVariantList packs;
+        packs << stickerPack(QStringLiteral("user"), QStringLiteral("user"),
+                             QStringLiteral("My stickers"),
+                             { stickerImage(QStringLiteral("cat"),
+                                            QStringLiteral("A sleepy cat")),
+                               stickerImage(QStringLiteral("bolt"),
+                                            QStringLiteral("Lightning bolt")) });
+        packs << stickerPack(roomPackId(), QStringLiteral("room"),
+                             QStringLiteral("General room pack"),
+                             { stickerImage(QStringLiteral("dog"),
+                                            QStringLiteral("Happy dog")),
+                               stickerImage(QStringLiteral("wave"),
+                                            QStringLiteral("Waving hand")),
+                               stickerImage(QStringLiteral("doggo"),
+                                            QStringLiteral("Another dog")) });
+        packs << stickerPack(QStringLiteral("room:!general:mock.local:flags"),
+                             QStringLiteral("room"),
+                             QStringLiteral("Flags of the world"),
+                             { stickerImage(QStringLiteral("lt"),
+                                            QStringLiteral("Lithuania")) });
+        m_controller->stickers()->applySnapshotForTest(
+            QStringLiteral("!general:mock.local"), false, packs);
+        m_controller->stickers()->setSelectedPackId(roomPackId());
+        QTest::qWait(80);
+        return picker;
+    }
+
+    void closeStickerPicker(QObject *picker)
+    {
+        if (picker)
+            QMetaObject::invokeMethod(picker, "close");
+        QTest::qWait(80);
+        m_controller->stickers()->applySnapshotForTest(
+            QStringLiteral("!general:mock.local"), false, {});
+    }
+
+    QRectF stickerPanelRect(QObject *picker) const
+    {
+        return popupSceneRect(picker).adjusted(
+            picker->property("leftInset").toReal(),
+            picker->property("topInset").toReal(),
+            -picker->property("rightInset").toReal(),
+            -picker->property("bottomInset").toReal());
+    }
+
+    static QQuickItem *gridItemAt(QQuickItem *grid, int index)
+    {
+        QQuickItem *hit = nullptr;
+        if (grid)
+            QMetaObject::invokeMethod(grid, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, hit),
+                                      Q_ARG(int, index));
+        return hit;
+    }
+
+    static QRectF paintedSceneRect(QQuickItem *it)
+    {
+        QRectF out;
+        if (!it || !it->isVisible())
+            return out;
+        const auto children = it->childItems();
+        if (children.isEmpty() && it->width() > 0 && it->height() > 0)
+            return it->mapRectToScene(QRectF(0, 0, it->width(), it->height()));
+        for (QQuickItem *child : children)
+            out = out.united(paintedSceneRect(child));
+        return out;
+    }
+
 private slots:
     void initTestCase()
     {
@@ -1281,6 +1394,191 @@ private slots:
 
         m_controller->setCurrentRoomId(previousRoom);
         QTest::qWait(30);
+    }
+
+    void stickerPickerContentClearsThePanelEdges()
+    {
+        QObject *picker = openStickerPickerWithPacks();
+        QVERIFY2(picker, "the sticker picker did not open");
+        auto cleanup = qScopeGuard([&] { closeStickerPicker(picker); });
+
+        const QRectF panel = stickerPanelRect(picker);
+        QVERIFY(panel.width() > 200 && panel.height() > 200);
+        const qreal side = themeInt("spacing12");
+        const qreal edge = themeInt("spacingS");
+        QVERIFY(side > 0 && edge > 0);
+
+        auto *grid = item("stickerGrid");
+        QVERIFY(grid);
+        QTRY_VERIFY(grid->property("count").toInt() == 3);
+        QQuickItem *firstTile = nullptr;
+        QTRY_VERIFY((firstTile = gridItemAt(grid, 0)) != nullptr);
+
+        struct Probe { const char *name; QQuickItem *item; bool checkBottom; };
+        const QList<Probe> probes = {
+            { "stickerPickerTitle", item("stickerPickerTitle"), true },
+            { "stickerSearchField", item("stickerSearchField"), true },
+            { "stickerAddButton", item("stickerAddButton"), true },
+            { "stickerManageButton", item("stickerManageButton"), true },
+            { "stickerRefreshButton", item("stickerRefreshButton"), true },
+            { "stickerCloseButton", item("stickerCloseButton"), true },
+            { "stickerPackUseEverywhere", item("stickerPackUseEverywhere"), true },
+            { "first sticker tile", firstTile, false },
+        };
+        QStringList outside;
+        QStringList missing;
+        int measured = 0;
+        for (const Probe &p : probes) {
+            if (!p.item || !p.item->isVisible()) {
+                missing << QLatin1String(p.name);
+                continue;
+            }
+            ++measured;
+            const QRectF r = sceneRect(p.item);
+            const bool ok = r.left() >= panel.left() + side - 0.5
+                && r.right() <= panel.right() - side + 0.5
+                && r.top() >= panel.top() + edge - 0.5
+                && (!p.checkBottom || r.bottom() <= panel.bottom() - edge + 0.5);
+            if (!ok)
+                outside << QStringLiteral("%1 %2").arg(QLatin1String(p.name),
+                                                       r2s(r));
+        }
+        QVERIFY2(outside.isEmpty(),
+                 qPrintable(QStringLiteral("not %1px inside the panel %2: %3")
+                                .arg(side).arg(r2s(panel))
+                                .arg(outside.join(QStringLiteral("; ")))));
+        // The title gave way to the search field; everything else must exist.
+        missing.removeAll(QStringLiteral("stickerPickerTitle"));
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("not shown: %1")
+                                .arg(missing.join(QStringLiteral(", ")))));
+        QCOMPARE(measured, 7);
+    }
+
+    void stickerPickerSpinnerOverlapsNoHeaderButton()
+    {
+        QObject *picker = openStickerPickerWithPacks();
+        QVERIFY2(picker, "the sticker picker did not open");
+        auto *busy = item("stickerPickerBusy");
+        QVERIFY(busy);
+        auto cleanup = qScopeGuard([&] {
+            busy->setVisible(false);
+            closeStickerPicker(picker);
+        });
+        // The mock never loads; show it as a load would.
+        busy->setVisible(true);
+        QTest::qWait(60);
+        const QRectF painted = paintedSceneRect(busy);
+        QVERIFY2(painted.isValid() && painted.width() > 4,
+                 qPrintable(r2s(painted)));
+
+        QStringList hits;
+        int buttons = 0;
+        for (const char *name : { "stickerAddButton", "stickerManageButton",
+                                  "stickerRefreshButton", "stickerCloseButton" }) {
+            QQuickItem *b = item(name);
+            if (!b || !b->isVisible())
+                continue;
+            ++buttons;
+            const QRectF r = sceneRect(b);
+            if (r.contains(painted))
+                continue;
+            if (r.intersects(painted))
+                hits << QStringLiteral("%1 %2").arg(QLatin1String(name), r2s(r));
+        }
+        QVERIFY2(buttons >= 3, "the header buttons were not found");
+        QVERIFY2(hits.isEmpty(),
+                 qPrintable(QStringLiteral("the spinner %1 is drawn over %2")
+                                .arg(r2s(painted),
+                                     hits.join(QStringLiteral("; ")))));
+    }
+
+    void stickerSearchFiltersEveryPackAndEscapeClearsIt()
+    {
+        QObject *picker = openStickerPickerWithPacks();
+        QVERIFY2(picker, "the sticker picker did not open");
+        auto cleanup = qScopeGuard([&] { closeStickerPicker(picker); });
+
+        auto *field = item("stickerSearchField");
+        QVERIFY2(field, "the sticker picker has no search field");
+        QTRY_VERIFY2(field->hasActiveFocus(),
+                     "opening the picker did not focus its search");
+        auto *grid = item("stickerGrid");
+        QVERIFY(grid);
+        QTRY_COMPARE(grid->property("count").toInt(), 3);
+
+        QTest::keyClicks(m_window, QStringLiteral("dog"));
+        QTRY_COMPARE(m_controller->stickers()->filter(), QStringLiteral("dog"));
+        QTRY_COMPARE(grid->property("count").toInt(), 2);
+        QCOMPARE(m_controller->stickers()->selectedPackId(), roomPackId());
+
+        field->setProperty("text", QString());
+        QTest::keyClicks(m_window, QStringLiteral("sleepy"));
+        QTRY_COMPARE(grid->property("count").toInt(), 1);
+        QVERIFY2(!item("stickerPackUseEverywhere")->isVisible(),
+                 "a pack's own toggle shows over results from every pack");
+
+        field->setProperty("text", QString());
+        QTest::keyClicks(m_window, QStringLiteral("zzqx"));
+        QTRY_COMPARE(grid->property("count").toInt(), 0);
+        QVERIFY(!grid->isVisible());
+        auto *empty = item("stickerEmptyTitle");
+        QVERIFY(empty);
+        QTRY_VERIFY(empty->isVisible());
+        QVERIFY2(empty->property("text").toString().contains(
+                     QStringLiteral("zzqx")),
+                 qPrintable(empty->property("text").toString()));
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_COMPARE(field->property("text").toString(), QString());
+        QVERIFY2(picker->property("opened").toBool(),
+                 "Escape over a query closed the picker instead of clearing it");
+        QTRY_COMPARE(grid->property("count").toInt(), 3);
+        QCOMPARE(m_controller->stickers()->filter(), QString());
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY2(!picker->property("opened").toBool(),
+                     "Escape on an empty search did not close the picker");
+    }
+
+    void stickerPackStripNamesEachPack()
+    {
+        QObject *picker = openStickerPickerWithPacks();
+        QVERIFY2(picker, "the sticker picker did not open");
+        auto cleanup = qScopeGuard([&] { closeStickerPicker(picker); });
+
+        auto *strip = item("stickerPackStrip");
+        QVERIFY(strip);
+        QList<QQuickItem *> labels;
+        QTRY_VERIFY((labels.clear(), collectItems(strip, QStringLiteral("packChipLabel"), labels),
+                     labels.size() == 3));
+        QStringList names;
+        for (QQuickItem *label : labels) {
+            if (label->isVisible())
+                names << label->property("text").toString();
+        }
+        names.sort();
+        QCOMPARE(names, (QStringList{ QStringLiteral("Flags of the world"),
+                                      QStringLiteral("General room pack"),
+                                      QStringLiteral("My stickers") }));
+
+        QList<QQuickItem *> chips;
+        collectItems(strip, QStringLiteral("packChip"), chips);
+        QQuickItem *flags = nullptr;
+        for (QQuickItem *chip : chips) {
+            if (chip->property("packId").toString().endsWith(QStringLiteral(":flags")))
+                flags = chip;
+        }
+        QVERIFY(flags);
+        auto *field = item("stickerSearchField");
+        QVERIFY(field);
+        field->setProperty("text", QStringLiteral("dog"));
+        QTRY_COMPARE(m_controller->stickers()->filter(), QStringLiteral("dog"));
+        QMetaObject::invokeMethod(flags, "clicked");
+        QTRY_COMPARE(m_controller->stickers()->selectedPackId(),
+                     QStringLiteral("room:!general:mock.local:flags"));
+        QCOMPARE(field->property("text").toString(), QString());
+        QTRY_COMPARE(item("stickerGrid")->property("count").toInt(), 1);
     }
 
     void sendOptionsSitRightOfSendAndOfferBothActions()
