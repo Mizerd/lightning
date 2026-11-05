@@ -9,6 +9,7 @@
 
 #include <QFile>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
@@ -778,6 +779,9 @@ private Q_SLOTS:
         c.model.notificationModeChanged();
         QVERIFY(!dotOf(kR1));
         QVERIFY(!dotOf(kR2));
+        QVERIFY2(c.model.data(c.model.index(idsOf(c.model).indexOf(kR2)),
+                              RoomListModel::RawUnreadRole).toBool(),
+                 "a quiet room lost the state Mark as read needs");
         QCOMPARE(c.model.data(c.model.index(idsOf(c.model).indexOf(kR3)),
                               RoomListModel::UnreadCountRole).toInt(), 0);
         QCOMPARE(c.model.data(c.model.index(idsOf(c.model).indexOf(kR4)),
@@ -799,6 +803,12 @@ private Q_SLOTS:
         for (RoomInfo &r : rooms)
             r.hasUnreadMessages = true;
         Channels c;
+        const auto restore = qScopeGuard([&c] {
+            c.settings.setAccountRulesQuiet({});
+            c.settings.setUnreadDotMode(roomunread::kUnreadDotNotifying);
+            c.settings.setRoomNotificationMode(kR1, roomunread::kModeAllMessages);
+            c.settings.setRoomNotificationMode(kR2, roomunread::kModeAllMessages);
+        });
         c.settings.setRoomNotificationMode(kR1, roomunread::kModeMentions);
         c.settings.setRoomNotificationMode(kR2, roomunread::kModeMute);
         c.build(false, rooms);
@@ -825,10 +835,6 @@ private Q_SLOTS:
         QVERIFY(dotOf(kR1));
         QVERIFY(!dotOf(kR2));
         QVERIFY(dotOf(kR3));
-        c.settings.setAccountRulesQuiet({});
-        c.settings.setUnreadDotMode(roomunread::kUnreadDotNotifying);
-        c.settings.setRoomNotificationMode(kR1, roomunread::kModeAllMessages);
-        c.settings.setRoomNotificationMode(kR2, roomunread::kModeAllMessages);
     }
 
     static QList<RoomInfo> spaceRooms()

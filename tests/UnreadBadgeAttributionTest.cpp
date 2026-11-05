@@ -1,11 +1,13 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomUnreadRule.h"
 #include "models/SpaceChannelModel.h"
 #include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
 #include "spaces/SpaceManager.h"
 
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
@@ -207,6 +209,7 @@ private slots:
     void aRoomInTwoSpacesIsCountedOnceByTheirFolder();
     void directMessagesCountLikeMentionsUnlessMuted();
     void aMentionsOnlyDirectMessageCountsOnlyItsRealMentions();
+    void neverLeavesADirectMessageOnlyItsMentionsOnTheRail();
     void aThreadOnlyDirectMessageShowsNoNumberAnywhereOnTheRail();
     void theRailRevealFollowsMuteAndMarkedUnread();
 
@@ -544,6 +547,24 @@ void UnreadBadgeAttributionTest::aMentionsOnlyDirectMessageCountsOnlyItsRealMent
     QVERIFY(railHasUnread(*m_rail, SpaceManager::peopleId()));
     QCOMPARE(railMentions(*m_rail, SpaceManager::allRoomsId()), 3 + 1);
     m_settings->setRoomNotificationMode(quietDm, 0);
+}
+
+void UnreadBadgeAttributionTest::neverLeavesADirectMessageOnlyItsMentionsOnTheRail()
+{
+    QList<RoomInfo> rooms = workspace(0, 0, 3);
+    rooms[3].hasUnreadMessages = true;
+    const auto restore = qScopeGuard([this] {
+        m_settings->setUnreadDotMode(roomunread::kUnreadDotNotifying);
+    });
+    m_settings->setUnreadDotMode(roomunread::kUnreadDotNever);
+    load(rooms, true);
+    QCOMPARE(railMentions(*m_rail, SpaceManager::peopleId()), 0);
+    QVERIFY(!railHasUnread(*m_rail, SpaceManager::peopleId()));
+
+    rooms[3].highlightCount = 1;
+    load(rooms, true);
+    QCOMPARE(railMentions(*m_rail, SpaceManager::peopleId()), 1);
+    QVERIFY(railHasUnread(*m_rail, SpaceManager::peopleId()));
 }
 
 void UnreadBadgeAttributionTest::aThreadOnlyDirectMessageShowsNoNumberAnywhereOnTheRail()

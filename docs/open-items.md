@@ -2,6 +2,20 @@
 
 
 
+## 2026-11-05 — ACCEPTED FOLLOW-UPS from the unread-dot round
+
+- **Render stable polls.** The automatic read receipt now moves past an
+  unrendered stable `m.poll.start` (and past poll ends aimed at a known,
+  unthreaded poll, like reactions), because matrix-sdk counts them as unread
+  and no row shows them. The cost: another client that renders stable polls
+  shows that poll as read here. Rendering `m.poll.start` (matrix-sdk-ui's
+  default filter drops it) is the real fix; the receipt skip then goes.
+- **Auto mark-read cost.** One pass is O(rooms²): every `mark_room_read`
+  ends in `enqueue_rooms`, and `AutoMarkReadController::next()` re-scans
+  `roomsToMarkRead()` per room. And the 15 s step timeout does not cancel the
+  request, so a slow server can have about 2-3 mark-reads in flight. Bounded,
+  not a storm; worth fixing before a very large account turns it on.
+
 ## 2026-11-05 — ACCEPTED FOLLOW-UP: the start-at-own-join check clears an open thread panel
 
 `RoomEventCache::clear()` (the reopen in `pagewalk::walk_backwards`, see

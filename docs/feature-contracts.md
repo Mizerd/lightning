@@ -1488,6 +1488,23 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   master mute is on (`PushRulesController`) AND it has no notifying unread.
   A quiet room keeps what notified (counts, mentions) and a marked-unread
   mark; Never also drops the plain count and keeps only mentions.
+  Background-account badges apply the dot setting and the room's own mode
+  but NOT the account-default part (Lightning holds no push rules for a
+  background account), so such a badge can count a room that account then
+  shows without a dot once it is in front.
+  "Mark as read" in the row menu follows the RAW unread state
+  (`RoomListModel` `rawUnread`), not the dot, so a quiet room that matrix-sdk
+  still counts can be marked read, as mark-all-read does.
+- **Receipts past events no row shows (2026-11-05).** matrix-sdk counts
+  `m.room.message`, encrypted, sticker and poll start/end events after the
+  newest receipt; the automatic receipt lands on the newest visible row.
+  `receipt_target_past_relations` (`rust/src/lib.rs`) therefore moves it past
+  trailing reactions and poll ends aimed at a known unthreaded event, and
+  past an unrendered stable `m.poll.start` / `m.message`; otherwise the room
+  kept an unread dot with nothing new on screen. Consequence: a client that
+  renders stable polls shows such a poll as read here (follow-up in
+  `docs/open-items.md`). `ReadReceiptCoordinator` resends the same event once
+  when only the unread flag stays set, as it already did for counts.
 - **Mark all rooms read automatically (2026-11-05).** Off (default) / 15 /
   30 / 60 minutes / custom 5..1440, a device setting. `AutoMarkReadController`
   runs one pass per interval for the active account only, through

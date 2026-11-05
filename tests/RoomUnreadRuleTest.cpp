@@ -365,6 +365,8 @@ private Q_SLOTS:
         QVERIFY(at >= 0);
         const QString decl = row.mid(at, 200);
         QVERIFY(decl.contains(QStringLiteral("model.unreadCount > 0")));
+        QVERIFY2(decl.contains(QStringLiteral("model.rawUnread === true")),
+                 "Mark as read follows the dot policy instead of the raw unread state");
         QVERIFY(decl.contains(QStringLiteral("model.highlightCount > 0")));
         QCOMPARE(row.count(QStringLiteral("isUnread: root.canMarkRead")), 2);
     }

@@ -50,8 +50,8 @@ Item {
                                               : AppTheme.textMuted
 
     readonly property bool isUnread: model.hasUnread || model.markedUnread
-    readonly property bool canMarkRead:
-        isUnread || model.unreadCount > 0 || model.highlightCount > 0
+    readonly property bool canMarkRead: model.rawUnread === true
+        || isUnread || model.unreadCount > 0 || model.highlightCount > 0
 
     readonly property string roomId: model.roomId || ""
     property int notificationMode: 0

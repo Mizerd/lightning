@@ -70,6 +70,7 @@ public:
         NetworkRole,
         NetworkLabelRole,
         ThreadUnreadKindRole,
+        RawUnreadRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);

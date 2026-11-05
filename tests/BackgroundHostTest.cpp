@@ -16,6 +16,7 @@
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -94,6 +95,7 @@ private Q_SLOTS:
     void cleanup();
     void theSummaryIsTheForegroundRuleOverTheWholeCountsTable();
     void modesAreReadPerAccountNeverFromTheActiveOne();
+    void thePolicyCarriesTheDotSettingAndTheActiveAccountRulesOnly();
     void aBackgroundEventGetsItsOwnAccountsContext();
     void aLateForwardedDecryptionIsANewCandidate();
     void theBacklogFloorIsTheLaterOfAppStartAndLastLiveAt();
@@ -193,6 +195,7 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
     m_activity->setLiveState(kAlice, AccountActivityModel::Running);
 
     QJsonArray counts;
+    QHash<QString, int> modes;
     for (int i = 0; i < 260; ++i) {
         const QString room = QStringLiteral("!r%1:example.org").arg(i);
         int flags = kEncryptionKnown;
@@ -214,6 +217,7 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
             mode = roomunread::kModeMentions;
         if (mode != roomunread::kModeAllMessages)
             setModeFor(kAlice, room, mode);
+        modes.insert(room, mode);
         counts.append(QJsonArray{room, unread, highlight, flags});
     }
 
@@ -233,7 +237,8 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
         r.mentionInThreads = flags & kMentionInThreads;
         r.encrypted = flags & kEncrypted;
         r.encryptionKnown = flags & kEncryptionKnown;
-        const int mode = m_settings->roomUnreadPolicyFor(kAlice, r.id);
+        const int mode = roomunread::withDotPolicy(
+            modes.value(r.id), roomunread::kUnreadDotNotifying, false);
         if (roomunread::countsAsUnread(r, mode)) {
             ++expectedRooms;
             expectedMentions += roomunread::mentionCount(r, mode);
@@ -266,6 +271,38 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
     m_fake->setCounts(handleOf(*host), counts, 3);
     host->drainOnce();
     QCOMPARE(dataChanged.size(), 0);
+}
+
+void BackgroundHostTest::thePolicyCarriesTheDotSettingAndTheActiveAccountRulesOnly()
+{
+    const QString loud = QStringLiteral("!policy-loud:example.org");
+    const QString quiet = QStringLiteral("!policy-quiet:example.org");
+    const auto restore = qScopeGuard([this, quiet] {
+        m_settings->setUnreadDotMode(roomunread::kUnreadDotNotifying);
+        m_settings->setAccountRulesQuiet({});
+        setModeFor(kAlice, quiet, roomunread::kModeAllMessages);
+    });
+    setModeFor(kAlice, quiet, roomunread::kModeMute);
+    m_settings->setActiveAccountUserId(kAlice);
+    m_settings->setAccountRulesQuiet([](const QString &) { return true; });
+
+    QCOMPARE(m_settings->roomUnreadPolicy(loud),
+             roomunread::kModeAllMessages | roomunread::kDotNotifying
+                 | roomunread::kAccountQuiet);
+    QCOMPARE(m_settings->roomUnreadPolicy(quiet),
+             roomunread::kModeMute | roomunread::kDotNotifying);
+    QCOMPARE(m_settings->roomUnreadPolicyFor(kAlice, loud),
+             roomunread::kModeAllMessages | roomunread::kDotNotifying);
+    QCOMPARE(m_settings->roomUnreadPolicyFor(kAlice, quiet),
+             roomunread::kModeMute | roomunread::kDotNotifying);
+
+    m_settings->setUnreadDotMode(roomunread::kUnreadDotNever);
+    QCOMPARE(m_settings->roomUnreadPolicyFor(kAlice, loud),
+             roomunread::kModeAllMessages | roomunread::kDotNever);
+    QCOMPARE(m_settings->roomUnreadPolicy(loud),
+             roomunread::kModeAllMessages | roomunread::kDotNever);
+    m_settings->setUnreadDotMode(roomunread::kUnreadDotAll);
+    QCOMPARE(m_settings->roomUnreadPolicy(loud), roomunread::kModeAllMessages);
 }
 
 void BackgroundHostTest::modesAreReadPerAccountNeverFromTheActiveOne()

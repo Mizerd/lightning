@@ -316,7 +316,7 @@ void RailEntryModel::stampActivity(QVector<QVariantMap> &rows) const
             activity.mentions = roomunread::mentionCount(r, mode);
             if (r.isDirect
                 && roomunread::baseMode(mode) == kNotificationModeAllMessages
-                && !r.unreadThreadsOnly)
+                && !(mode & roomunread::kDotNever) && !r.unreadThreadsOnly)
                 activity.mentions = std::max(r.unreadCount, r.highlightCount);
             rooms.insert(r.id, activity);
         }

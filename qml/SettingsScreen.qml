@@ -7222,11 +7222,15 @@ Item {
                                         Accessible.name: qsTr("Minutes between automatic mark-read passes")
                                         inputMethodHints: Qt.ImhDigitsOnly
                                         validator: IntValidator { bottom: 5; top: 1440 }
-                                        onEditingFinished: {
+                                        function commitMinutes() {
                                             if (acceptableInput)
                                                 app.settings.autoMarkReadMinutes =
                                                     parseInt(text, 10)
+                                            text = Qt.binding(() => String(autoReadRow.minutes))
                                         }
+                                        onEditingFinished: commitMinutes()
+                                        // A validator suppresses editingFinished for "3".
+                                        onActiveFocusChanged: if (!activeFocus) commitMinutes()
                                     }
                                 }
                                 Label {
