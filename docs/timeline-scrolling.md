@@ -679,12 +679,17 @@ restarts, while FluffyChat on the same account showed the history.
 per lifecycle (`TimelineRegistry::claim_start_check`) when all of these hold:
 the walk reported the start, the earliest cached event is our own
 `m.room.member`, and history visibility is neither `joined` nor `invited`. The
-check is `/context` on our join (limit 0) for the token just before it, then one
-`/messages` page of 5 backwards from there, 20 s timeout. Only if that page
-carries an event the cache does not hold, and the walk is still wanted, does it
-call `RoomEventCache::clear()` and walk again; the SDK then pages from the live
-end. A failed check (offline, error) or an empty page keeps the start and the
-cache untouched. The pagination event's `start_check` (`not_asked`, `failed`,
+check is `/context` on our join with limit 2 (Synapse and Continuwuity both
+give `limit / 2` to `events_before`; measured on the local Continuwuity, limit 0
+and 1 return `start` and no `events_before`). An uncached event there is proof
+enough; otherwise one `/messages` page of 5 backwards from `start`, 20 s
+timeout, and no `start` means nothing older. Only an event the cache does not
+hold, with the walk still wanted, leads to `RoomEventCache::clear()` and a
+second walk; the SDK then pages from the live end. A failed check (offline,
+error) or an empty answer keeps the start and the cache untouched. A failed or
+abandoned check gives the claim back, so the next approach (the room's next
+open: `reached` and `pagination_busy` still stop repeats within one) asks
+again; a confirmed start or a reopen spends it. The pagination event's `start_check` (`not_asked`, `failed`,
 `nothing_older`, `abandoned`, `reopened`) is in the `timeline pagination
 complete` log line.
 

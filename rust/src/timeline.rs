@@ -397,6 +397,22 @@ struct ActiveThreadList {
     pagination_busy: Arc<AtomicBool>,
 }
 
+pub(crate) struct StartCheckClaim<'a> {
+    registry: &'a TimelineRegistry,
+    room_id: &'a str,
+    lifecycle: u64,
+}
+
+impl StartCheckClaim<'_> {
+    pub(crate) fn take(&self) -> bool {
+        self.registry.claim_start_check(self.room_id, self.lifecycle)
+    }
+
+    pub(crate) fn release(&self) {
+        self.registry.release_start_check(self.room_id, self.lifecycle);
+    }
+}
+
 pub struct TimelineRegistry {
     events: EventQueue,
     active: Mutex<Option<ActiveTimeline>>,
@@ -610,6 +626,21 @@ impl TimelineRegistry {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         claimed.retain(|(claimed_in, _)| *claimed_in == lifecycle);
         claimed.insert((lifecycle, room_id.to_owned()))
+    }
+
+    fn release_start_check(&self, room_id: &str, lifecycle: u64) {
+        self.start_checks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&(lifecycle, room_id.to_owned()));
+    }
+
+    pub(crate) fn start_check_claim<'a>(
+        &'a self,
+        room_id: &'a str,
+        lifecycle: u64,
+    ) -> StartCheckClaim<'a> {
+        StartCheckClaim { registry: self, room_id, lifecycle }
     }
 
     pub fn lifecycle(&self) -> u64 {
@@ -1804,7 +1835,7 @@ impl TimelineRegistry {
                 count,
                 crate::pagewalk::FILTERED_RUN_WALK,
                 || registry.is_current(room_gen, lifecycle),
-                || registry.claim_start_check(&room_id, lifecycle),
+                &registry.start_check_claim(&room_id, lifecycle),
             )
             .await;
             let walked_pages = walk.as_ref().map(|walk| walk.outcome.pages).unwrap_or(0);
