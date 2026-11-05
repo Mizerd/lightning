@@ -306,6 +306,30 @@ private Q_SLOTS:
         QTRY_COMPARE(rig.client.receiptEvents.size(), 3);
     }
 
+    void anUnreadFlagAfterTheNewestRowGetsItsReceiptResentOnce()
+    {
+        Rig rig;
+        RoomInfo info;
+        info.id = kRoomA;
+        info.membership = RoomInfo::Joined;
+        rig.client.roomInfos = { info };
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
+        rig.accept(kRoomA, QStringLiteral("$1"));
+
+        rig.client.roomInfos[0].hasUnreadMessages = true;
+        Q_EMIT rig.client.roomsChanged();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
+        QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$1"));
+        rig.accept(kRoomA, QStringLiteral("$1"));
+
+        Q_EMIT rig.client.roomsChanged();
+        QTest::qWait(20);
+        QCOMPARE(rig.client.receiptEvents.size(), 2);
+    }
+
     void aCountThatReturnsToTheSameValueIsResent()
     {
         Rig rig;

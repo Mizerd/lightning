@@ -192,16 +192,17 @@ int ReadReceiptCoordinator::roomCount(const QString &roomId) const
 {
     for (const auto &room : m_client->rooms()) {
         if (room.id == roomId)
-            return qMax(0, room.unreadCount) + qMax(0, room.highlightCount);
+            return qMax(0, room.unreadCount) + qMax(0, room.highlightCount)
+                + (room.hasUnreadMessages ? 1 : 0);
     }
     return 0;
 }
 
-// A reaction is not a timeline row, so the newest READABLE event does not move
-// when one arrives, yet the server counts it (reactions notify when the user
-// turned them on) and the receipt at that older event never covered it. The
-// same event is therefore sent again, once per distinct non-zero count; a
-// server that does not clear the count after the resend is not asked again.
+// A reaction or an ended poll is not a timeline row, so the newest READABLE
+// event does not move when one arrives, yet the server or matrix-sdk counts it
+// and the receipt at that older event never covered it. The same event is
+// therefore sent again (the backend moves it past such events), once per
+// distinct non-zero count; a count that does not clear is not asked again.
 bool ReadReceiptCoordinator::roomCountMovedSinceReceipt(const QString &eventId) const
 {
     const QString roomId = m_model->roomId();

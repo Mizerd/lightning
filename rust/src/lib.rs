@@ -2684,7 +2684,11 @@ pub(crate) fn receipt_target_past_relations(
         tail.iter().any(|e| &e.id == id && !e.threaded && e.kind.is_some())
     };
     let skippable = |e: &TailEvent| match e.kind.as_deref() {
-        Some("m.reaction") => e.target.as_ref().is_some_and(known_main),
+        Some("m.reaction" | "org.matrix.msc3381.poll.end" | "m.poll.end") => {
+            e.target.as_ref().is_some_and(known_main)
+        }
+        // matrix-sdk counts these as unread, and no timeline row ever shows them.
+        Some("m.poll.start" | "m.message") => !e.threaded,
         Some("m.room.redaction") => e.target.as_ref().is_some_and(|t| {
             tail.iter().any(|x| &x.id == t && x.kind.as_deref() == Some("m.reaction"))
         }),
@@ -14740,6 +14744,25 @@ mod tests {
         assert_eq!(pick("$m2:x", &poll), id("$m2:x"));
         let redact_msg = vec![msg("$m1:x"), msg("$m2:x"), ev("$d:x", "m.room.redaction", Some("$m1:x"), false)];
         assert_eq!(pick("$m2:x", &redact_msg), id("$m2:x"));
+
+        let ended = vec![
+            ev("$p:x", "org.matrix.msc3381.poll.start", None, false),
+            msg("$m2:x"),
+            ev("$pe:x", "org.matrix.msc3381.poll.end", Some("$p:x"), false),
+        ];
+        assert_eq!(pick("$m2:x", &ended), id("$pe:x"));
+        let ended_stable = vec![
+            ev("$p:x", "org.matrix.msc3381.poll.start", None, false),
+            msg("$m2:x"),
+            ev("$pe:x", "m.poll.end", Some("$p:x"), false),
+        ];
+        assert_eq!(pick("$m2:x", &ended_stable), id("$pe:x"));
+        let ended_unknown = vec![msg("$m2:x"), ev("$pe:x", "m.poll.end", Some("$gone:x"), false)];
+        assert_eq!(pick("$m2:x", &ended_unknown), id("$m2:x"));
+        let unrendered = vec![msg("$m2:x"), ev("$ps:x", "m.poll.start", None, false)];
+        assert_eq!(pick("$m2:x", &unrendered), id("$ps:x"));
+        let unrendered_thread = vec![msg("$m2:x"), ev("$ps:x", "m.poll.start", None, true)];
+        assert_eq!(pick("$m2:x", &unrendered_thread), id("$m2:x"));
     }
 
     #[test]

@@ -8937,6 +8937,10 @@ mod thread_auto_subscription_tests {
 mod edit_regression_tests;
 
 #[cfg(test)]
+#[path = "unread_receipt_tests.rs"]
+mod unread_receipt_tests;
+
+#[cfg(test)]
 mod start_check_claim_tests {
     use super::TimelineRegistry;
     use std::collections::VecDeque;
