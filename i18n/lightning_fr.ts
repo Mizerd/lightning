@@ -988,7 +988,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7076"/>
+        <location filename="../src/app/AppController.cpp" line="+7115"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1109,7 +1109,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5489"/>
+        <location filename="../src/app/AppController.cpp" line="-5496"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1129,7 +1129,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Vous avez manqué un appel vocal dans %1</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+670"/>
+        <location filename="../src/app/AppController.cpp" line="+677"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Le salon a été créé, mais son ajout à l&apos;espace a échoué.</translation>
     </message>
@@ -1265,18 +1265,18 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-4707"/>
-        <location line="+2673"/>
+        <location line="-4724"/>
+        <location line="+2690"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2672"/>
+        <location line="-2689"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ceci est une notification de test. Si vous pouvez la lire, les notifications du bureau fonctionnent.</translation>
     </message>
     <message>
-        <location line="+337"/>
+        <location line="+347"/>
         <source>New mentions</source>
         <translation>Nouvelles mentions</translation>
     </message>
@@ -1286,7 +1286,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel lancé</translation>
     </message>
     <message>
-        <location line="+925"/>
+        <location line="+932"/>
         <source>Joined the space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16558,7 +16558,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+240"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+239"/>
         <source>Direct Messages</source>
         <translation>Messages directs</translation>
     </message>
@@ -19701,7 +19701,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4482"/>
+        <location line="+4485"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19710,15 +19710,15 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4861"/>
+        <location line="-4864"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4668"/>
+        <location line="+4671"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
     </message>
     <message>
-        <location line="-4863"/>
+        <location line="-4866"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19901,7 +19901,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>[déchiffrement impossible pour l&apos;instant]</translation>
     </message>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+577"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+580"/>
         <source>Rust SDK send failed.</source>
         <translation>Échec de l&apos;envoi via le Rust SDK.</translation>
     </message>
@@ -21155,36 +21155,36 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+4"/>
         <location line="+4"/>
         <location line="+3"/>
-        <location line="+1435"/>
+        <location line="+1446"/>
         <location line="+860"/>
-        <location line="+5101"/>
+        <location line="+5214"/>
         <source>Account</source>
         <translation>Compte</translation>
     </message>
     <message>
-        <location line="-7408"/>
+        <location line="-7532"/>
         <source>account profile</source>
         <translation>compte profil</translation>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+8290"/>
+        <location line="+8414"/>
         <source>Homeserver</source>
         <translation>Serveur d&apos;accueil</translation>
     </message>
     <message>
-        <location line="-8290"/>
+        <location line="-8414"/>
         <source>homeserver server url</source>
         <translation>serveur d&apos;accueil url serveur</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8325"/>
+        <location line="+8449"/>
         <source>Start minimized</source>
         <translation>Démarrer réduit</translation>
     </message>
     <message>
-        <location line="-8325"/>
+        <location line="-8449"/>
         <source>startup minimized</source>
         <translation>démarrage réduit</translation>
     </message>
@@ -21195,13 +21195,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+824"/>
-        <location line="+1740"/>
+        <location line="+834"/>
+        <location line="+1741"/>
         <source>Theme</source>
         <translation>Thème</translation>
     </message>
     <message>
-        <location line="-2563"/>
+        <location line="-2574"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>thème moss indigo teal clair sombre graphite midnight nordic purple warm</translation>
     </message>
@@ -21212,23 +21212,23 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+6"/>
         <location line="+3"/>
         <location line="+11"/>
-        <location line="+559"/>
-        <location line="+784"/>
+        <location line="+569"/>
+        <location line="+785"/>
         <location line="+884"/>
         <location line="+231"/>
         <source>Appearance</source>
         <translation>Apparence</translation>
     </message>
     <message>
-        <location line="-2541"/>
-        <location line="+2096"/>
+        <location line="-2552"/>
+        <location line="+2107"/>
         <location line="+921"/>
         <location line="+43"/>
         <source>Match system light/dark</source>
         <translation>Suivre le mode clair/sombre du système</translation>
     </message>
     <message>
-        <location line="-3059"/>
+        <location line="-3070"/>
         <source>match system auto theme</source>
         <translation>suivre système thème automatique</translation>
     </message>
@@ -21239,64 +21239,64 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+7"/>
-        <location line="+4120"/>
+        <location line="+4131"/>
         <source>Message layout</source>
         <translation>Disposition des messages</translation>
     </message>
     <message>
-        <location line="-4071"/>
-        <location line="+3039"/>
+        <location line="-4082"/>
+        <location line="+3050"/>
         <source>Text size</source>
         <translation>Taille du texte</translation>
     </message>
     <message>
-        <location line="-3039"/>
+        <location line="-3050"/>
         <source>text size font scale</source>
         <translation>taille texte police échelle</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3129"/>
+        <location line="+3140"/>
         <location line="+20"/>
         <source>Interface zoom</source>
         <translation>Zoom de l&apos;interface</translation>
     </message>
     <message>
-        <location line="-3148"/>
+        <location line="-3159"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>zoom interface échelle taille ui plus grand</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3209"/>
+        <location line="+3220"/>
         <location line="+26"/>
         <source>Text rendering</source>
         <translation>Rendu du texte</translation>
     </message>
     <message>
-        <location line="-3234"/>
+        <location line="-3245"/>
         <source>text rendering anti-aliasing antialiasing aliasing smooth hinting font native blurry fuzzy sharp subpixel fontconfig</source>
         <translation>rendu du texte anticrénelage crénelage lissage hinting police native floue nette sous-pixel fontconfig</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3246"/>
+        <location line="+3257"/>
         <source>Font</source>
         <translation>Police</translation>
     </message>
     <message>
-        <location line="-3246"/>
+        <location line="-3257"/>
         <source>font family typeface</source>
         <translation>police famille caractères</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3384"/>
+        <location line="+3395"/>
         <source>Code font</source>
         <translation>Police de code</translation>
     </message>
     <message>
-        <location line="-3383"/>
+        <location line="-3394"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>code police monospace mono police de caractères à largeur fixe</translation>
     </message>
@@ -21308,30 +21308,30 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3452"/>
+        <location line="+3463"/>
         <source>Your own fonts</source>
         <translation>Vos propres polices</translation>
     </message>
     <message>
-        <location line="-3451"/>
+        <location line="-3462"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>importer un fichier de police ttf otf installer une police de caractères personnalisée</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+745"/>
-        <location line="+2918"/>
+        <location line="+755"/>
+        <location line="+2919"/>
         <source>Language</source>
         <translation>Langue</translation>
     </message>
     <message>
-        <location line="-3663"/>
+        <location line="-3674"/>
         <source>language locale</source>
         <translation>langue locale</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2020"/>
+        <location line="+2031"/>
         <location line="+2497"/>
         <location line="+28"/>
         <location line="+12"/>
@@ -21339,54 +21339,54 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Afficher l&apos;activité du salon</translation>
     </message>
     <message>
-        <location line="-4556"/>
+        <location line="-4567"/>
         <source>room activity membership joins leaves profile</source>
         <translation>activité salon adhésion arrivées départs profil</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4702"/>
+        <location line="+4713"/>
         <source>Mouse-wheel speed</source>
         <translation>Vitesse de la molette</translation>
     </message>
     <message>
-        <location line="-4701"/>
+        <location line="-4712"/>
         <source>wheel speed scroll timeline</source>
         <translation>vitesse molette défilement conversation</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+2028"/>
+        <location line="+2039"/>
         <location line="+2494"/>
         <source>Joins, leaves and invites</source>
         <translation>Rejoint, quitte et invite</translation>
     </message>
     <message>
-        <location line="-4521"/>
+        <location line="-4532"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>adhésion rejoindre quitter inviter kick interdire activité cacher</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2032"/>
+        <location line="+2043"/>
         <location line="+2497"/>
         <source>Display name and avatar changes</source>
         <translation>Modifications du nom d’affichage et de l’avatar</translation>
     </message>
     <message>
-        <location line="-4528"/>
+        <location line="-4539"/>
         <source>profile change display name avatar activity hide</source>
         <translation>profil changer nom d&apos;affichage avatar activité masquer</translation>
     </message>
     <message>
         <location line="+35"/>
-        <location line="+2028"/>
+        <location line="+2039"/>
         <location line="+1718"/>
         <source>Reduce motion</source>
         <translation>Réduire les mouvements</translation>
     </message>
     <message>
-        <location line="-3745"/>
+        <location line="-3756"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>animation à mouvement réduit accessibilité vestibulaire</translation>
     </message>
@@ -21401,48 +21401,48 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-9"/>
-        <location line="+2003"/>
+        <location line="+2014"/>
         <location line="+1728"/>
         <source>Smooth scrolling</source>
         <translation>Défilement fluide</translation>
     </message>
     <message>
-        <location line="-3730"/>
+        <location line="-3741"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>molette de défilement fluide, animation de glissement, souris sautillante instantanée</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3795"/>
+        <location line="+3806"/>
         <source>Clock</source>
         <translation>Horloge</translation>
     </message>
     <message>
-        <location line="-3794"/>
+        <location line="-3805"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>horloge format de l&apos;heure 24 heures am pm horodatage</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2000"/>
+        <location line="+2011"/>
         <location line="+2280"/>
         <location line="+12"/>
         <source>Show Space banners</source>
         <translation>Afficher les bannières de l&apos;espace</translation>
     </message>
     <message>
-        <location line="-4291"/>
+        <location line="-4302"/>
         <source>space banner header image hide show</source>
         <translation>espace bannière en-tête image masquer afficher</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+4227"/>
+        <location line="+4238"/>
         <source>Conversation list width</source>
         <translation>Largeur de la liste de conversations</translation>
     </message>
     <message>
-        <location line="-4226"/>
+        <location line="-4237"/>
         <source>room list width panel size sidebar</source>
         <translation>liste des salles largeur taille du panneau barre latérale</translation>
     </message>
@@ -21458,70 +21458,70 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4275"/>
+        <location line="+4286"/>
         <source>Side panel width</source>
         <translation>Largeur du panneau latéral</translation>
     </message>
     <message>
-        <location line="-4274"/>
+        <location line="-4285"/>
         <source>side panel width members threads size</source>
         <translation>largeur du panneau latéral dimensions des filetages des éléments</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1978"/>
+        <location line="+1989"/>
         <location line="+2706"/>
         <source>Enter starts a new line</source>
         <translation>Entrée démarre une nouvelle ligne</translation>
     </message>
     <message>
-        <location line="-4683"/>
+        <location line="-4694"/>
         <source>enter newline send composer message box return</source>
         <translation>entrer une nouvelle ligne envoyer la boîte de message du compositeur retourner</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1981"/>
+        <location line="+1992"/>
         <location line="+3020"/>
         <source>Send text with an attachment as its caption</source>
         <translation>Envoyer un texte avec une pièce jointe comme légende</translation>
     </message>
     <message>
-        <location line="-5000"/>
+        <location line="-5011"/>
         <source>caption attachment upload text description</source>
         <translation>légende pièce jointe télécharger texte description</translation>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+5028"/>
+        <location line="+5039"/>
         <source>Message box buttons</source>
         <translation>Boutons de la zone de saisie</translation>
     </message>
     <message>
-        <location line="-5027"/>
+        <location line="-5038"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation>boutons zone de saisie composer afficher masquer cacher emoji gif autocollant autocollants stickers voix micro microphone mise en forme programmer envoyer plus tard désencombrer simplifier</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+4676"/>
+        <location line="+4687"/>
         <source>Check spelling as you type</source>
         <translation>Vérifier l&apos;orthographe pendant la saisie</translation>
     </message>
     <message>
-        <location line="-4675"/>
+        <location line="-4686"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation>orthographe correcteur dictionnaire faute souligner langue spell spelling</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4683"/>
+        <location line="+4694"/>
         <location line="+14"/>
         <source>Spelling language</source>
         <translation>Langue de l&apos;orthographe</translation>
     </message>
     <message>
-        <location line="-4696"/>
+        <location line="-4707"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation>orthographe langue dictionnaire automatique système spell language</translation>
     </message>
@@ -21531,25 +21531,25 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+2"/>
         <location line="+4"/>
         <location line="+4"/>
-        <location line="+1140"/>
+        <location line="+1151"/>
         <location line="+899"/>
         <location line="+3026"/>
         <source>Keyboard shortcuts</source>
         <translation>Raccourcis clavier</translation>
     </message>
     <message>
-        <location line="-5074"/>
+        <location line="-5085"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>raccourci clavier raccourcis touche touches liaison rebind raccourci clavier</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+5241"/>
+        <location line="+5252"/>
         <source>Reset all shortcuts</source>
         <translation>Réinitialiser tous les raccourcis</translation>
     </message>
     <message>
-        <location line="-5240"/>
+        <location line="-5251"/>
         <source>reset shortcuts default keys</source>
         <translation>réinitialiser les touches par défaut des raccourcis</translation>
     </message>
@@ -21570,98 +21570,100 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+564"/>
+        <location line="+575"/>
         <source>Microphone</source>
         <translation>Micro</translation>
     </message>
     <message>
-        <location line="-541"/>
+        <location line="-552"/>
         <source>Output device</source>
         <translation>Périphérique de sortie</translation>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+6859"/>
+        <location line="+6983"/>
         <location line="+10"/>
         <source>Album art</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6864"/>
-        <location line="+522"/>
+        <location line="-6988"/>
+        <location line="+533"/>
         <source>Camera</source>
         <translation>Appareil photo</translation>
     </message>
     <message>
-        <location line="-521"/>
+        <location line="-532"/>
         <source>camera webcam video device call</source>
         <translation>caméra webcam vidéo appareil appel</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+480"/>
-        <location line="+1276"/>
+        <location line="+490"/>
+        <location line="+1277"/>
         <location line="+4678"/>
         <location line="+207"/>
         <source>Desktop notifications</source>
         <translation>Notifications du bureau</translation>
     </message>
     <message>
-        <location line="-6640"/>
+        <location line="-6651"/>
         <source>notifications desktop enable</source>
         <translation>notifications bureau activer</translation>
     </message>
     <message>
         <location line="-3"/>
         <location line="+4"/>
+        <location line="+6"/>
         <location line="+5"/>
+        <location line="+4"/>
         <location line="+6"/>
         <location line="+4"/>
         <location line="+5"/>
-        <location line="+1042"/>
+        <location line="+1043"/>
         <location line="+909"/>
         <location line="+4449"/>
         <source>Notifications</source>
         <translation>Notifications</translation>
     </message>
     <message>
-        <location line="-6583"/>
-        <location line="+1991"/>
+        <location line="-6594"/>
+        <location line="+2002"/>
         <location line="+2238"/>
         <source>Keep the room list still while I use it</source>
         <translation>Garder la liste des salons immobile pendant que je l&apos;utilise</translation>
     </message>
     <message>
-        <location line="-4228"/>
+        <location line="-4239"/>
         <source>room list order sort reorder jump move still hold freeze stable recent activity conversation list sidebar channels new message</source>
         <translation>liste des salons ordre tri trier réordonner aller déplacer immobile figer stable récent activité conversation barre latérale canaux nouveau message</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+4322"/>
+        <location line="+4333"/>
         <source>Keep running in the tray</source>
         <translation>Continuer à fonctionner dans la zone de notification</translation>
     </message>
     <message>
-        <location line="-4292"/>
-        <location line="+1979"/>
+        <location line="-4303"/>
+        <location line="+1990"/>
         <location line="+3032"/>
         <source>Convert :shortcode: to emoji</source>
         <translation>Convertir :raccourci: en emoji</translation>
     </message>
     <message>
-        <location line="-5010"/>
+        <location line="-5021"/>
         <source>emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</source>
         <translation>emoji raccourci deux-points conversion conversion automatique thumbsup smiley slack discord</translation>
     </message>
     <message>
-        <location line="+128"/>
-        <location line="+6434"/>
+        <location line="+138"/>
+        <location line="+6435"/>
         <source>Notification preview</source>
         <translation>Aperçu des notifications</translation>
     </message>
     <message>
-        <location line="-6433"/>
+        <location line="-6434"/>
         <source>notification preview privacy sender message</source>
         <translation>aperçu notification confidentialité expéditeur message</translation>
     </message>
@@ -21677,23 +21679,23 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6490"/>
+        <location line="+6491"/>
         <source>Notification sound</source>
         <translation>Son de notification</translation>
     </message>
     <message>
-        <location line="-6489"/>
+        <location line="-6490"/>
         <source>notification sound mute</source>
         <translation>son notification muet</translation>
     </message>
     <message>
         <location line="+45"/>
-        <location line="+5171"/>
+        <location line="+5172"/>
         <source>Only exchange messages with verified devices</source>
         <translation>N&apos;échanger des messages qu&apos;avec des appareils vérifiés</translation>
     </message>
     <message>
-        <location line="-5170"/>
+        <location line="-5171"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation>invisible crypto msc4153 signé croisé vérifié confiance appareil non sécurisé exclure chiffrement</translation>
     </message>
@@ -21704,12 +21706,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6120"/>
+        <location line="+6121"/>
         <source>Keep downloaded media on this device</source>
         <translation>Conserver les médias téléchargés sur cet appareil</translation>
     </message>
     <message>
-        <location line="-6119"/>
+        <location line="-6120"/>
         <source>media cache video image picture file download offline storage disk keep clear</source>
         <translation>cache média vidéo image photo fichier téléchargement hors ligne stockage disque conserver vider</translation>
     </message>
@@ -21719,15 +21721,15 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Confidentialité et sécurité · Médias conservés sur cet appareil</translation>
     </message>
     <message>
-        <location line="-308"/>
-        <location line="+324"/>
-        <location line="+4276"/>
+        <location line="-318"/>
+        <location line="+334"/>
+        <location line="+4277"/>
         <location line="+920"/>
         <source>Read receipts</source>
         <translation>Accusés de lecture</translation>
     </message>
     <message>
-        <location line="-5195"/>
+        <location line="-5196"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation>accusé de lecture accusés reçus vu coches bleues m.read.private confidentialité</translation>
     </message>
@@ -21739,23 +21741,23 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-4"/>
-        <location line="+5234"/>
+        <location line="+5235"/>
         <source>Let others see when I am typing</source>
         <translation>Laisser les autres voir quand je suis en train d&apos;écrire</translation>
     </message>
     <message>
-        <location line="-5233"/>
+        <location line="-5234"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation>indicateur de saisie notification écriture en cours confidentialité</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+5274"/>
+        <location line="+5275"/>
         <source>Share my online status</source>
         <translation>Partager mon statut en ligne</translation>
     </message>
     <message>
-        <location line="-5273"/>
+        <location line="-5274"/>
         <source>presence online idle offline status share</source>
         <translation>présence en ligne inactif hors ligne statut partager</translation>
     </message>
@@ -21766,13 +21768,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+399"/>
+        <location line="+400"/>
         <location line="+4894"/>
         <source>Ignored users</source>
         <translation>Utilisateurs ignorés</translation>
     </message>
     <message>
-        <location line="-5292"/>
+        <location line="-5293"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>ignorer ignoré bloquer utilisateur masquer personne</translation>
     </message>
@@ -21808,22 +21810,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+4"/>
         <location line="+5"/>
         <location line="+5"/>
-        <location line="+861"/>
+        <location line="+862"/>
         <location line="+864"/>
-        <location line="+6435"/>
+        <location line="+6548"/>
         <location line="+509"/>
         <source>Sessions</source>
         <translation>Sessions</translation>
     </message>
     <message>
-        <location line="-8751"/>
-        <location line="+1623"/>
+        <location line="-8865"/>
+        <location line="+1624"/>
         <location line="+4080"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Charger automatiquement les aperçus dans les salons non chiffrés</translation>
     </message>
     <message>
-        <location line="-5702"/>
+        <location line="-5703"/>
         <source>link preview privacy</source>
         <translation>aperçu lien confidentialité</translation>
     </message>
@@ -21836,12 +21838,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-7"/>
-        <location line="+5701"/>
+        <location line="+5702"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Charger les aperçus dans les salons chiffrés</translation>
     </message>
     <message>
-        <location line="-5700"/>
+        <location line="-5701"/>
         <source>link preview encrypted</source>
         <translation>aperçu lien chiffré</translation>
     </message>
@@ -21853,12 +21855,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5841"/>
+        <location line="+5842"/>
         <source>GIF safe search</source>
         <translation>Recherche sécurisée des GIF</translation>
     </message>
     <message>
-        <location line="-5840"/>
+        <location line="-5841"/>
         <source>gif safe search rating</source>
         <translation>gif recherche sécurisée classification</translation>
     </message>
@@ -21871,55 +21873,55 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-6"/>
-        <location line="+5864"/>
+        <location line="+5865"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Fournisseur de GIF préféré</translation>
     </message>
     <message>
-        <location line="-5870"/>
+        <location line="-5871"/>
         <source>gif provider giphy klipy</source>
         <translation>fournisseur gif giphy klipy</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5906"/>
+        <location line="+5907"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Conserver les GIF utilisés récemment</translation>
     </message>
     <message>
-        <location line="-5908"/>
+        <location line="-5909"/>
         <source>gif recents store</source>
         <translation>gif récents conserver</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7867"/>
+        <location line="+7981"/>
         <source>Security status</source>
         <translation>État de la sécurité</translation>
     </message>
     <message>
-        <location line="-7866"/>
+        <location line="-7980"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee chiffrement état signature croisée sauvegarde</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+895"/>
+        <location line="+896"/>
         <location line="+859"/>
         <location line="+3255"/>
         <source>Privacy &amp; security</source>
         <translation>Confidentialité et sécurité</translation>
     </message>
     <message>
-        <location line="-5007"/>
-        <location line="+9211"/>
+        <location line="-5008"/>
+        <location line="+9325"/>
         <source>Recovery key or passphrase</source>
         <translation>Clé de récupération ou phrase secrète</translation>
     </message>
     <message>
-        <location line="-9210"/>
+        <location line="-9324"/>
         <source>recovery key passphrase backup restore</source>
         <translation>clé récupération phrase secrète sauvegarde restaurer</translation>
     </message>
@@ -21933,23 +21935,23 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-11"/>
-        <location line="+9221"/>
+        <location line="+9335"/>
         <source>Import room keys</source>
         <translation>Importer des clés de salon</translation>
     </message>
     <message>
-        <location line="-9220"/>
+        <location line="-9334"/>
         <source>import room keys export</source>
         <translation>importer clés salon export</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9436"/>
+        <location line="+9550"/>
         <source>Danger Zone</source>
         <translation>Zone de danger</translation>
     </message>
     <message>
-        <location line="-9435"/>
+        <location line="-9549"/>
         <source>reset danger local session</source>
         <translation>réinitialiser danger session locale</translation>
     </message>
@@ -21960,34 +21962,34 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8989"/>
+        <location line="+9103"/>
         <source>Current session</source>
         <translation>Session actuelle</translation>
     </message>
     <message>
-        <location line="-8988"/>
+        <location line="-9102"/>
         <source>device id session status</source>
         <translation>identifiant appareil état session</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8191"/>
+        <location line="+8305"/>
         <source>Sign in another device</source>
         <translation>Connecter un autre appareil</translation>
     </message>
     <message>
-        <location line="-8190"/>
+        <location line="-8304"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation>code QR scanner connecter un autre appareil téléphone lien msc4108 connexion</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+9034"/>
+        <location line="+9148"/>
         <source>Verify this session</source>
         <translation>Vérifier cette session</translation>
     </message>
     <message>
-        <location line="-9033"/>
+        <location line="-9147"/>
         <source>verify verification sas cross-signing</source>
         <translation>vérifier vérification sas signature croisée</translation>
     </message>
@@ -22010,14 +22012,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+3"/>
         <location line="+3"/>
         <location line="+4"/>
-        <location line="+830"/>
+        <location line="+831"/>
         <location line="+917"/>
-        <location line="+7732"/>
+        <location line="+7845"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-9487"/>
+        <location line="-9601"/>
         <source>Sync mode</source>
         <translation>Mode de synchronisation</translation>
     </message>
@@ -22038,40 +22040,40 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+9601"/>
+        <location line="+9715"/>
         <source>Refresh current room</source>
         <translation>Actualiser le salon actuel</translation>
     </message>
     <message>
-        <location line="-9600"/>
+        <location line="-9714"/>
         <source>refresh reload timeline</source>
         <translation>actualiser recharger conversation</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
-        <location line="+819"/>
+        <location line="+820"/>
         <location line="+955"/>
         <location line="+11"/>
-        <location line="+7835"/>
+        <location line="+7948"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-9621"/>
+        <location line="-9735"/>
         <source>about version license</source>
         <translation>à propos version licence</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+2"/>
-        <location line="+813"/>
+        <location line="+814"/>
         <location line="+962"/>
         <source>Updates</source>
         <translation>Mises à jour</translation>
     </message>
     <message>
-        <location line="-1776"/>
+        <location line="-1777"/>
         <source>update version upgrade check download install</source>
         <translation>mise à jour version télécharger installer vérifier</translation>
     </message>
@@ -22091,20 +22093,20 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Mises à jour · Vérifications automatiques</translation>
     </message>
     <message>
-        <location line="+451"/>
+        <location line="+452"/>
         <source>Confirm</source>
         <translation>Confirmer</translation>
     </message>
     <message>
         <location line="+48"/>
-        <location line="+6519"/>
+        <location line="+6632"/>
         <location line="+183"/>
         <location line="+1232"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-7677"/>
+        <location line="-7790"/>
         <source>Needs attention</source>
         <translation>Attention requise</translation>
     </message>
@@ -22136,14 +22138,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+1"/>
-        <location line="+5911"/>
+        <location line="+6024"/>
         <location line="+366"/>
         <location line="+1816"/>
         <source>Clear</source>
         <translation>Effacer</translation>
     </message>
     <message>
-        <location line="-8083"/>
+        <location line="-8196"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Supprimer de cet appareil tous les GIF de fournisseurs que vous avez enregistrés ? Les GIF enregistrés depuis des conversations ne sont pas affectés. Cette action est irréversible.</translation>
     </message>
@@ -22225,12 +22227,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="-2083"/>
         <location line="+2084"/>
         <location line="+31"/>
-        <location line="+3041"/>
+        <location line="+3154"/>
         <source>Compact</source>
         <translation>Compact</translation>
     </message>
     <message>
-        <location line="-4968"/>
+        <location line="-5081"/>
         <source>theme</source>
         <translation>thème</translation>
     </message>
@@ -22510,7 +22512,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Jouer le son des mentions</translation>
     </message>
     <message>
-        <location line="+175"/>
+        <location line="+288"/>
         <source>Media playback</source>
         <translation>Lecture des médias</translation>
     </message>
@@ -22554,8 +22556,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Volume des sons d&apos;appel</translation>
     </message>
     <message>
-        <location line="-378"/>
-        <location line="+363"/>
+        <location line="-491"/>
+        <location line="+476"/>
         <location line="+40"/>
         <source>Test</source>
         <translation>Tester</translation>
@@ -22682,12 +22684,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>La réinitialisation supprime uniquement le stockage local du SDK Rust de Lightning pour ce compte (également disponible depuis un terminal : lightning-matrix --reset-crypto-store). Elle ne touche ni aux messages du serveur ni aux données d&apos;Element. Vous devrez vous reconnecter ensuite.</translation>
     </message>
     <message>
-        <location line="-7435"/>
+        <location line="-7548"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
     <message>
-        <location line="-2595"/>
+        <location line="-2606"/>
         <source>Change password</source>
         <translation>Changer le mot de passe</translation>
     </message>
@@ -22698,24 +22700,24 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+69"/>
-        <location line="+4284"/>
+        <location line="+4295"/>
         <source>Spaces rail depth</source>
         <translation>Profondeur du rail des espaces</translation>
     </message>
     <message>
-        <location line="-4283"/>
+        <location line="-4294"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
         <translation>profondeur rail des espaces barre latérale imbrication régions classique ancien style plat teinte retrait niveaux</translation>
     </message>
     <message>
         <location line="+61"/>
-        <location line="+2035"/>
+        <location line="+2046"/>
         <location line="+2500"/>
         <source>Collapse media and link embeds</source>
         <translation>Réduire les aperçus de médias et de liens</translation>
     </message>
     <message>
-        <location line="-4534"/>
+        <location line="-4545"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
         <translation>aperçu aperçus réduire réduit compact une ligne désencombrer médias image photo gif autocollant vidéo audio vocal fichier pièce jointe lien aperçu développer flèche</translation>
     </message>
@@ -22754,13 +22756,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6825"/>
+        <location line="+6949"/>
         <location line="+20"/>
         <source>Media playback volume</source>
         <translation>Volume de lecture des médias</translation>
     </message>
     <message>
-        <location line="-6844"/>
+        <location line="-6968"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation>volume son audio vidéo message vocal niveau de lecture médias fort</translation>
     </message>
@@ -22777,13 +22779,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+3"/>
-        <location line="+519"/>
-        <location line="+6362"/>
+        <location line="+530"/>
+        <location line="+6475"/>
         <source>Call sounds</source>
         <translation>Sons d&apos;appel</translation>
     </message>
     <message>
-        <location line="-6880"/>
+        <location line="-7004"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
         <translation>sons appel arrivée départ couper son micro sourdine réactiver partage d&apos;écran main levée carillon bip effets</translation>
     </message>
@@ -22795,13 +22797,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-3"/>
-        <location line="+6979"/>
+        <location line="+7103"/>
         <location line="+28"/>
         <source>Ringer volume</source>
         <translation>Volume de la sonnerie</translation>
     </message>
     <message>
-        <location line="-7006"/>
+        <location line="-7130"/>
         <source>ringer ringtone ring volume incoming call loud</source>
         <translation>sonnerie son de sonnerie volume appel entrant fort</translation>
     </message>
@@ -22826,25 +22828,25 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>sonner sonnerie son de sonnerie son appel entrant alerte</translation>
     </message>
     <message>
-        <location line="+146"/>
-        <location line="+5709"/>
+        <location line="+156"/>
+        <location line="+5710"/>
         <source>Show images and videos from links inline</source>
         <translation>Afficher les images et vidéos des liens directement</translation>
     </message>
     <message>
-        <location line="-5708"/>
+        <location line="-5709"/>
         <source>link preview image video embed inline media player viewer</source>
         <translation>aperçu de lien image vidéo intégré média lecteur visionneuse</translation>
     </message>
     <message>
-        <location line="+921"/>
+        <location line="+922"/>
         <location line="+914"/>
-        <location line="+4707"/>
+        <location line="+4820"/>
         <source>Sound &amp; video</source>
         <translation>Son et vidéo</translation>
     </message>
     <message>
-        <location line="-4984"/>
+        <location line="-5097"/>
         <location line="+2280"/>
         <source>Regions</source>
         <translation>Régions</translation>
@@ -22870,12 +22872,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Plus de thèmes</translation>
     </message>
     <message>
-        <location line="-2705"/>
+        <location line="-2716"/>
         <source>Custom theme</source>
         <translation>Thème personnalisé</translation>
     </message>
     <message>
-        <location line="+2847"/>
+        <location line="+2858"/>
         <source>Build your own theme</source>
         <translation>Créez votre propre thème</translation>
     </message>
@@ -23088,8 +23090,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Les régions teintent le rail derrière un espace et tout ce qu&apos;il contient. Classique est le rail plat des versions précédentes, où un espace imbriqué est décalé à la place. Les deux affichent les mêmes espaces.</translation>
     </message>
     <message>
-        <location line="-3533"/>
-        <location line="+3668"/>
+        <location line="-3534"/>
+        <location line="+3669"/>
         <source>System tray</source>
         <translation>Zone de notification</translation>
     </message>
@@ -23099,13 +23101,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Continuer à fonctionner dans la zone de notification à la fermeture de la fenêtre</translation>
     </message>
     <message>
-        <location line="-4298"/>
-        <location line="+4313"/>
+        <location line="-4309"/>
+        <location line="+4324"/>
         <source>Start in the tray</source>
         <translation>Démarrer dans la zone de notification</translation>
     </message>
     <message>
-        <location line="-4503"/>
+        <location line="-4514"/>
         <source>Chat background</source>
         <translation>Arrière-plan de discussion</translation>
     </message>
@@ -23115,7 +23117,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Profondeur</translation>
     </message>
     <message>
-        <location line="+339"/>
+        <location line="+349"/>
         <source>Notification sound style and volume</source>
         <translation>Style et volume du son de notification</translation>
     </message>
@@ -23126,12 +23128,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+61"/>
-        <location line="+6297"/>
+        <location line="+6298"/>
         <source>Always ask where to save files</source>
         <translation>Toujours demander où enregistrer les fichiers</translation>
     </message>
     <message>
-        <location line="-6296"/>
+        <location line="-6297"/>
         <source>download downloads save folder location directory ask where file</source>
         <translation>téléchargement téléchargements dossier enregistrer emplacement répertoire demander où fichier</translation>
     </message>
@@ -23143,24 +23145,24 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+124"/>
-        <location line="+6522"/>
+        <location line="+6636"/>
         <location line="+3002"/>
         <source>Microphone noise suppression</source>
         <translation>Suppression du bruit du microphone</translation>
     </message>
     <message>
-        <location line="-9523"/>
+        <location line="-9637"/>
         <source>noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</source>
         <translation>suppression du bruit annulation microphone arrière-plan webrtc rnnoise deepfilternet débruitage</translation>
     </message>
     <message>
-        <location line="+3978"/>
+        <location line="+3979"/>
         <source>Click the tray icon to bring the window back. Ctrl+Q quits.</source>
         <translation>Cliquez sur l&apos;icône de la zone de notification pour rouvrir la fenêtre. Ctrl+Q quitte.</translation>
     </message>
     <message>
-        <location line="-3715"/>
-        <location line="+3755"/>
+        <location line="-3716"/>
+        <location line="+3756"/>
         <source>Timeline</source>
         <translation>Conversation</translation>
     </message>
@@ -23220,9 +23222,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Distance dont un cran physique de molette déplace la conversation. Le pavé tactile et le défilement de précision restent fins quel que soit ce réglage.</translation>
     </message>
     <message>
-        <location line="-4190"/>
+        <location line="-4191"/>
         <location line="+186"/>
-        <location line="+2824"/>
+        <location line="+2825"/>
         <source>Application icon</source>
         <translation>Icône de l&apos;application</translation>
     </message>
@@ -23238,12 +23240,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+24"/>
-        <location line="+4468"/>
+        <location line="+4581"/>
         <source>Choose image…</source>
         <translation>Choisir une image…</translation>
     </message>
     <message>
-        <location line="-4461"/>
+        <location line="-4574"/>
         <source>Reset to Lightning default</source>
         <translation>Rétablir l&apos;icône Lightning par défaut</translation>
     </message>
@@ -23283,8 +23285,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>L&apos;interface change immédiatement. Quelques textes déjà à l&apos;écran se mettront à jour à la prochaine ouverture de leur panneau.</translation>
     </message>
     <message>
-        <location line="-2961"/>
-        <location line="+3053"/>
+        <location line="-2962"/>
+        <location line="+3054"/>
         <source>Motion and time</source>
         <translation>Mouvement et temps</translation>
     </message>
@@ -23344,8 +23346,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Largeur du panneau latéral&#xa0;: %1 px</translation>
     </message>
     <message>
-        <location line="-3644"/>
-        <location line="+4062"/>
+        <location line="-3645"/>
+        <location line="+4063"/>
         <source>Message box</source>
         <translation>Boîte de message</translation>
     </message>
@@ -23651,12 +23653,12 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+8"/>
-        <location line="+394"/>
+        <location line="+507"/>
         <source>Change…</source>
         <translation>Modifier…</translation>
     </message>
     <message>
-        <location line="-383"/>
+        <location line="-496"/>
         <source>Use the Downloads folder</source>
         <translation>Utiliser le dossier Téléchargements</translation>
     </message>
@@ -23691,11 +23693,12 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     <message>
         <location line="-3003"/>
         <location line="+3023"/>
+        <location line="+209"/>
         <source>Off</source>
         <translation>Désactivé</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-208"/>
         <source>Mentions and direct messages</source>
         <translation>Mentions et conversations privées</translation>
     </message>
@@ -23710,7 +23713,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Le son n&apos;est joué que lorsqu&apos;une notification est affichée : les salons en sourdine et actifs restent silencieux. Les rafales sont regroupées en une seule alerte.</translation>
     </message>
     <message>
-        <location line="+3193"/>
+        <location line="+3306"/>
         <source>Experimental features, and diagnostics.</source>
         <translation>Fonctionnalités expérimentales et diagnostics.</translation>
     </message>
@@ -23720,8 +23723,8 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Filtre les bruits de fond de votre microphone pendant les appels. Une seule méthode fonctionne à la fois, et une modification s&apos;applique à un appel en cours.</translation>
     </message>
     <message>
-        <location line="-9746"/>
-        <location line="+6631"/>
+        <location line="-9870"/>
+        <location line="+6642"/>
         <source>Ring for incoming voice calls</source>
         <translation>Sonnerie pour les appels vocaux entrants</translation>
     </message>
@@ -23736,7 +23739,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Les modes de notification par salon (définis depuis les Informations du salon) s&apos;appliquent à cet appareil uniquement — ce ne sont pas des règles push du serveur. </translation>
     </message>
     <message>
-        <location line="+458"/>
+        <location line="+571"/>
         <source>(signed out)</source>
         <translation>(déconnecté)</translation>
     </message>
@@ -23773,13 +23776,13 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-4493"/>
+        <location line="-4606"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>Lorsqu&apos;il est allumé, Lightning suit le schéma du système&#xa0;: Moss Light en mode clair, Indigo Night en mode sombre.</translation>
     </message>
     <message>
-        <location line="-2456"/>
-        <location line="+3624"/>
+        <location line="-2457"/>
+        <location line="+3625"/>
         <source>Conversation list</source>
         <translation>Liste de conversations</translation>
     </message>
@@ -23816,7 +23819,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Votre serveur domestique charge l&apos;aperçu, de sorte que le site lié voit votre serveur plutôt que vous. Si votre serveur ne le peut pas (beaucoup ont les aperçus désactivés), Lightning le charge directement à la place, ce qui peut révéler votre adresse IP et demander une synchronisation avec un site choisi par l&apos;expéditeur. Demander à votre serveur domestique lui indique également quel lien a été prévisualisé, ce qu&apos;il ne saurait autrement dans une pièce cryptée. Aucun JavaScript n&apos;est exécuté. Les deux commutateurs sont désactivés par défaut&#xa0;; laissez-les de côté et utilisez le bouton «&#xa0;Afficher&#xa0;» sur la carte de lien de chaque message pour en décider un à la fois.</translation>
     </message>
     <message>
-        <location line="+1327"/>
+        <location line="+1440"/>
         <source>Edit display name</source>
         <translation>Modifier le nom affiché</translation>
     </message>
@@ -23913,14 +23916,14 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Aucune bannière</translation>
     </message>
     <message>
-        <location line="-4589"/>
-        <location line="+4323"/>
+        <location line="-4702"/>
+        <location line="+4436"/>
         <location line="+285"/>
         <source>Remove</source>
         <translation>Supprimer</translation>
     </message>
     <message>
-        <location line="-8149"/>
+        <location line="-8273"/>
         <source>chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</source>
         <translation>arrière-plan de discussion fond d&apos;écran papier peint image photo toile de fond salon conversation propre personnalisé autres partagé masquer</translation>
     </message>
@@ -23977,7 +23980,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>suppression du bruit annulation débruitage arrière-plan microphone micro ventilateur clavier</translation>
     </message>
     <message>
-        <location line="+126"/>
+        <location line="+136"/>
         <source>Download folder</source>
         <translation>Dossier de téléchargement</translation>
     </message>
@@ -23988,7 +23991,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+36"/>
-        <location line="+5673"/>
+        <location line="+5674"/>
         <source>Index encrypted rooms</source>
         <translation>Indexer les salons chiffrés</translation>
     </message>
@@ -24008,30 +24011,30 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>microphone</translation>
     </message>
     <message>
-        <location line="-1420"/>
-        <location line="+2004"/>
+        <location line="-1421"/>
+        <location line="+2005"/>
         <source>Custom colours and gradients</source>
         <translation>Couleurs et dégradés personnalisés</translation>
     </message>
     <message>
-        <location line="-2002"/>
+        <location line="-2003"/>
         <source>Chat background and depth</source>
         <translation>Arrière-plan de discussion et profondeur</translation>
     </message>
     <message>
-        <location line="+604"/>
+        <location line="+605"/>
         <location line="+889"/>
         <location line="+1706"/>
         <source>Layout</source>
         <translation>Disposition</translation>
     </message>
     <message>
-        <location line="-3197"/>
+        <location line="-3198"/>
         <source>Text and fonts</source>
         <translation>Texte et polices</translation>
     </message>
     <message>
-        <location line="+2077"/>
+        <location line="+2078"/>
         <source>Pick a colour for any part of the window, or a gradient for its large areas, and watch a sample room repaint.</source>
         <translation>Choisissez une couleur pour n&apos;importe quelle partie de la fenêtre, ou un dégradé pour ses grandes zones, et regardez un salon d&apos;exemple se recolorer.</translation>
     </message>
@@ -24066,7 +24069,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Utiliser ce thème</translation>
     </message>
     <message>
-        <location line="-2985"/>
+        <location line="-2996"/>
         <source>Network and proxy</source>
         <translation>Réseau et proxy</translation>
     </message>
@@ -24077,12 +24080,12 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+18"/>
-        <location line="+4045"/>
+        <location line="+4056"/>
         <source>Layout preset</source>
         <translation>Préréglage de disposition</translation>
     </message>
     <message>
-        <location line="-4044"/>
+        <location line="-4055"/>
         <source>layout preset nheko compact density dense lightning one click</source>
         <translation>disposition préréglage nheko compact densité dense lightning un clic layout preset</translation>
     </message>
@@ -24093,91 +24096,91 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4200"/>
+        <location line="+4211"/>
         <source>Thread style</source>
         <translation>Style des fils</translation>
     </message>
     <message>
-        <location line="-4199"/>
+        <location line="-4210"/>
         <source>thread threads style panel inline nheko element interleaved</source>
         <translation>fil fils style panneau intégré nheko element entrelacé thread</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4165"/>
+        <location line="+4176"/>
         <source>Threads open in</source>
         <translation>Les fils s’ouvrent dans</translation>
     </message>
     <message>
-        <location line="-4164"/>
+        <location line="-4175"/>
         <source>thread threads open placement main view side panel column full width nheko element</source>
         <translation>fil fils ouvrir emplacement vue principale panneau latéral colonne pleine largeur nheko element thread</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4139"/>
+        <location line="+4150"/>
         <source>Message spacing</source>
         <translation>Espacement des messages</translation>
     </message>
     <message>
-        <location line="-4138"/>
+        <location line="-4149"/>
         <source>message spacing density compact cozy roomy gap padding</source>
         <translation>espacement des messages densité compact confortable aéré écart marge</translation>
     </message>
     <message>
         <location line="+70"/>
-        <location line="+4742"/>
+        <location line="+4753"/>
         <source>When returning to a conversation</source>
         <translation>En revenant à une conversation</translation>
     </message>
     <message>
-        <location line="-4741"/>
+        <location line="-4752"/>
         <source>return reopen room position latest selected message reading restore remember scroll</source>
         <translation>retour rouvrir salon position derniers sélectionné message lecture restaurer mémoriser défilement</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4788"/>
+        <location line="+4799"/>
         <source>Show the message selection outline when returning</source>
         <translation>Afficher le contour de sélection du message au retour</translation>
     </message>
     <message>
-        <location line="-4787"/>
+        <location line="-4798"/>
         <source>selection outline highlight return reopen keyboard</source>
         <translation>sélection contour surbrillance retour rouvrir clavier</translation>
     </message>
     <message>
         <location line="+39"/>
-        <location line="+2025"/>
+        <location line="+2036"/>
         <location line="+2619"/>
         <source>Go to the newest message when I send</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4643"/>
+        <location line="-4654"/>
         <source>send jump scroll bottom latest newest stay place history</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+3779"/>
+        <location line="+3790"/>
         <location line="+10"/>
         <source>Animated images</source>
         <translation>Images animées</translation>
     </message>
     <message>
-        <location line="-3788"/>
+        <location line="-3799"/>
         <source>gif gifs autoplay animated animation avatar avatars banner sticker stickers emoji webp background play hover pause stop focus cpu battery resources</source>
         <translation>gif gifs lecture automatique animé animation avatar avatars bannière sticker stickers autocollants émoji webp arrière-plan lire survol pause arrêter focus processeur cpu batterie ressources</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+3666"/>
+        <location line="+3677"/>
         <source>Increase contrast</source>
         <translation>Augmenter le contraste</translation>
     </message>
     <message>
-        <location line="-3665"/>
+        <location line="-3676"/>
         <source>high contrast accessibility borders text readable vision</source>
         <translation>contraste élevé accessibilité bordures texte lisible vision</translation>
     </message>
@@ -24190,34 +24193,34 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="-8"/>
-        <location line="+3674"/>
+        <location line="+3685"/>
         <source>Always underline links</source>
         <translation>Toujours souligner les liens</translation>
     </message>
     <message>
-        <location line="-3673"/>
+        <location line="-3684"/>
         <source>underline links mentions accessibility colour blind</source>
         <translation>souligner liens mentions accessibilité daltonisme</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3682"/>
+        <location line="+3693"/>
         <source>Name colour readability</source>
         <translation>Lisibilité de la couleur des noms</translation>
     </message>
     <message>
-        <location line="-3681"/>
+        <location line="-3692"/>
         <source>name color colour contrast sender readable strong weak off</source>
         <translation>couleur nom contraste expéditeur lisible fort faible désactivé</translation>
     </message>
     <message>
         <location line="+25"/>
-        <location line="+4198"/>
+        <location line="+4209"/>
         <source>Show bridge badges in the room list</source>
         <translation>Afficher les badges de pont dans la liste des salons</translation>
     </message>
     <message>
-        <location line="-4197"/>
+        <location line="-4208"/>
         <source>bridge network badge chip tag whatsapp rcs sms telegram room list hide</source>
         <translation>pont réseau badge puce étiquette whatsapp rcs sms telegram liste des salons masquer</translation>
     </message>
@@ -24233,45 +24236,45 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+38"/>
-        <location line="+606"/>
+        <location line="+616"/>
         <source>Emoji and sticker packs</source>
         <translation>Packs d&apos;emoji et d&apos;autocollants</translation>
     </message>
     <message>
-        <location line="-605"/>
+        <location line="-615"/>
         <source>emoji sticker pack custom emote use everywhere room space export import zip share</source>
         <translation>pack emoji autocollant emote personnalisé utiliser partout salon espace exporter importer zip partager</translation>
     </message>
     <message>
         <location line="+25"/>
-        <location line="+4766"/>
+        <location line="+4777"/>
         <source>Also check</source>
         <translation>Vérifier aussi</translation>
     </message>
     <message>
-        <location line="-4765"/>
+        <location line="-4776"/>
         <source>spell spelling languages several multiple second extra dictionary bilingual</source>
         <translation>orthographe correcteur langues plusieurs multiple seconde supplémentaire dictionnaire bilingue</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4881"/>
+        <location line="+4892"/>
         <source>Correct obvious typos as you type</source>
         <translation>Corriger les fautes évidentes pendant la frappe</translation>
     </message>
     <message>
-        <location line="-4880"/>
+        <location line="-4891"/>
         <source>autocorrect auto correct autocorrection typo fix replace capital</source>
         <translation>autocorrection correction automatique faute coquille corriger remplacer majuscule</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4899"/>
+        <location line="+4910"/>
         <source>Personal dictionary</source>
         <translation>Dictionnaire personnel</translation>
     </message>
     <message>
-        <location line="-4898"/>
+        <location line="-4909"/>
         <source>spell spelling dictionary personal words added learned remove</source>
         <translation>orthographe dictionnaire personnel mots ajoutés appris supprimer retirer</translation>
     </message>
@@ -24311,7 +24314,30 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Son et vidéo · Lecture multimédia</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+32"/>
+        <location line="+490"/>
+        <location line="+6188"/>
+        <source>Unread dot</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-6677"/>
+        <source>unread dot badge indicator room list bold muted mentions hide</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+6706"/>
+        <source>Mark all rooms read automatically</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-6705"/>
+        <source>mark all read automatically auto timer interval minutes unread clear</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+128"/>
         <source>Allow incoming room invitations</source>
         <translation>Autoriser les invitations entrantes aux salons</translation>
     </message>
@@ -24338,24 +24364,24 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+13"/>
-        <location line="+5770"/>
+        <location line="+5771"/>
         <location line="+3"/>
         <source>Preload videos and audio</source>
         <translation>Précharger les vidéos et l&apos;audio</translation>
     </message>
     <message>
-        <location line="-5772"/>
+        <location line="-5773"/>
         <source>video audio voice preload prefetch download size megabytes data disk instant play</source>
         <translation>vidéo audio vocal précharger préchargement télécharger taille mégaoctets données disque lecture instantanée</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5843"/>
+        <location line="+5844"/>
         <source>Photo details when sending</source>
         <translation>Détails des photos à l&apos;envoi</translation>
     </message>
     <message>
-        <location line="-5842"/>
+        <location line="-5843"/>
         <source>photo image exif gps location metadata strip remove privacy upload picture camera</source>
         <translation>photo image exif gps position lieu métadonnées supprimer retirer confidentialité envoi image appareil</translation>
     </message>
@@ -24381,12 +24407,12 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9570"/>
+        <location line="+9684"/>
         <source>Music activity</source>
         <translation>Activité musicale</translation>
     </message>
     <message>
-        <location line="-9569"/>
+        <location line="-9683"/>
         <source>listening music spotify song status presence activity</source>
         <translation>écoute musique spotify titre chanson statut présence activité</translation>
     </message>
@@ -24497,12 +24523,12 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+11"/>
-        <location line="+2987"/>
+        <location line="+2988"/>
         <source>Accessibility</source>
         <translation>Accessibilité</translation>
     </message>
     <message>
-        <location line="-2967"/>
+        <location line="-2968"/>
         <source>Previews</source>
         <translation>Aperçus</translation>
     </message>
@@ -24517,7 +24543,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Appels</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+13"/>
         <source>Speaker</source>
         <translation>Haut-parleur</translation>
     </message>
@@ -24548,12 +24574,12 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+2"/>
-        <location line="+8851"/>
+        <location line="+8964"/>
         <source>Recovery key</source>
         <translation>Clé de récupération</translation>
     </message>
     <message>
-        <location line="-8395"/>
+        <location line="-8508"/>
         <source>Collapse %1</source>
         <translation>Replier %1</translation>
     </message>
@@ -24672,8 +24698,8 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Espace entre les messages et entre les expéditeurs</translation>
     </message>
     <message>
-        <location line="-3542"/>
-        <location line="+3726"/>
+        <location line="-3543"/>
+        <location line="+3727"/>
         <source>Show the Spaces rail</source>
         <translation>Afficher le rail des espaces</translation>
     </message>
@@ -24908,7 +24934,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Lightning ne s&apos;enregistre pas pour les notifications push : ses notifications n&apos;arrivent que lorsqu&apos;il est lancé, dans la fenêtre ou dans la zone de notification.</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+194"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
         <translation>%1 · une expérience, réglée dans Labo ou depuis le menu du microphone de l&apos;appel</translation>
     </message>
@@ -25052,13 +25078,13 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Non</translation>
     </message>
     <message>
-        <location line="-7852"/>
-        <location line="+7852"/>
+        <location line="-7966"/>
+        <location line="+7966"/>
         <source>Unknown</source>
         <translation>Inconnu</translation>
     </message>
     <message>
-        <location line="-8139"/>
+        <location line="-8253"/>
         <source>Mute all notifications</source>
         <translation>Couper toutes les notifications</translation>
     </message>
@@ -25079,72 +25105,72 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="-28"/>
-        <location line="+456"/>
+        <location line="+457"/>
         <source>Default alerts</source>
         <translation>Alertes par défaut</translation>
     </message>
     <message>
-        <location line="-455"/>
+        <location line="-456"/>
         <source>default alerts direct messages rooms all messages mentions only push rules</source>
         <translation>alertes par défaut messages privés salons tous les messages mentions uniquement règles de notification</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+451"/>
+        <location line="+452"/>
         <source>Mentions</source>
         <translation>Mentions</translation>
     </message>
     <message>
-        <location line="-450"/>
+        <location line="-451"/>
         <source>mention mentions @room user id display name username highlight alert</source>
         <translation>mention mentions @room identifiant utilisateur nom d&apos;affichage nom d&apos;utilisateur surbrillance alerte</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+446"/>
+        <location line="+447"/>
         <source>Keywords</source>
         <translation>Mots-clés</translation>
     </message>
     <message>
-        <location line="-445"/>
+        <location line="-446"/>
         <source>keyword keywords word notify when someone says push rules</source>
         <translation>mot-clé mots-clés mot notifier quand quelqu&apos;un dit règles de notification</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+441"/>
+        <location line="+442"/>
         <source>Other events</source>
         <translation>Autres événements</translation>
     </message>
     <message>
-        <location line="-440"/>
+        <location line="-441"/>
         <source>other events reactions invitations invites bots bot notices</source>
         <translation>autres événements réactions invitations invitations robots robot notices</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+437"/>
+        <location line="+438"/>
         <source>Not getting notifications?</source>
         <translation>Vous ne recevez pas de notifications ?</translation>
     </message>
     <message>
-        <location line="-436"/>
+        <location line="-437"/>
         <source>troubleshoot troubleshooter not getting notifications missing no notification test check</source>
         <translation>dépannage dépanneur pas de notifications notifications manquantes aucune notification test vérifier</translation>
     </message>
     <message>
         <location line="+164"/>
-        <location line="+9564"/>
+        <location line="+9678"/>
         <source>Game activity</source>
         <translation>Activité de jeu</translation>
     </message>
     <message>
-        <location line="-9563"/>
+        <location line="-9677"/>
         <source>playing game status steam presence activity</source>
         <translation>jeu jouer statut steam présence activité</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+266"/>
         <source>Mute all</source>
         <translation>Tout couper</translation>
     </message>
@@ -25200,8 +25226,8 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Fermer la fenêtre la masque toujours, et Lightning continue de fonctionner. Cliquez sur l&apos;icône de la barre de menus pour rouvrir la fenêtre. Cmd+Q quitte l&apos;application.</translation>
     </message>
     <message>
-        <location line="-4268"/>
-        <location line="+5096"/>
+        <location line="-4279"/>
+        <location line="+5107"/>
         <source>Use call keys from any window</source>
         <translation>Utiliser les touches d&apos;appel depuis n&apos;importe quelle fenêtre</translation>
     </message>
@@ -25216,7 +25242,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Vue principale</translation>
     </message>
     <message>
-        <location line="-4181"/>
+        <location line="-4192"/>
         <location line="+4"/>
         <location line="+5"/>
         <location line="+5"/>
@@ -25232,14 +25258,14 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <location line="+4"/>
         <location line="+6"/>
         <location line="+15"/>
-        <location line="+406"/>
+        <location line="+416"/>
         <location line="+4"/>
         <location line="+4"/>
         <source>Layout · Room list and panels</source>
         <translation>Disposition · Liste des salons et panneaux</translation>
     </message>
     <message>
-        <location line="-551"/>
+        <location line="-561"/>
         <location line="+5"/>
         <location line="+5"/>
         <location line="+4"/>
@@ -25279,7 +25305,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Discussion · Packs d&apos;emoji et d&apos;autocollants</translation>
     </message>
     <message>
-        <location line="+389"/>
+        <location line="+399"/>
         <source>conversation list classic channels folders room list layout</source>
         <translation>conversation list classic channels folders room list layout liste de conversations canaux dossiers liste des salons disposition</translation>
     </message>
@@ -25305,13 +25331,13 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     </message>
     <message>
         <location line="+191"/>
-        <location line="+3210"/>
+        <location line="+3211"/>
         <source>Messages and threads</source>
         <translation>Messages et fils</translation>
     </message>
     <message>
-        <location line="-3208"/>
-        <location line="+3411"/>
+        <location line="-3209"/>
+        <location line="+3412"/>
         <source>Room list and panels</source>
         <translation>Liste des salons et panneaux</translation>
     </message>
@@ -25398,7 +25424,62 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Répéter la sonnerie tant qu&apos;un appel vocal entrant sonne. Ce réglage est indépendant de Son de notification : la sonnerie ne suit que lui. Le désactiver affiche tout de même l&apos;appel — cela ne coupe que la sonnerie.</translation>
     </message>
     <message>
-        <location line="+1531"/>
+        <location line="+49"/>
+        <source>All rooms</source>
+        <translation type="unfinished">Tous les salons</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Only rooms with notifications on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Never</source>
+        <translation type="unfinished">Jamais</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Muted rooms never show it. With notifications on only, a room set to mentions and keywords, or following an account default of mentions only, shows no dot. Mention badges are always shown.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Every 15 minutes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Every 30 minutes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Every hour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Custom</source>
+        <translation type="unfinished">Personnalisé</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Minutes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Minutes between automatic mark-read passes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Sends read receipts for every unread room except the one you have open, as Mark all as read does, following your read receipt privacy. Custom takes 5 to 1440 minutes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1506"/>
         <source>Current session verified: %1</source>
         <translation>Session actuelle vérifiée : %1</translation>
     </message>
@@ -25769,15 +25850,15 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <translation>Cette session</translation>
     </message>
     <message>
-        <location line="-8709"/>
-        <location line="+8615"/>
+        <location line="-8823"/>
+        <location line="+8729"/>
         <location line="+100"/>
         <source>Verified</source>
         <translation>Vérifiée</translation>
     </message>
     <message>
-        <location line="-8714"/>
-        <location line="+8716"/>
+        <location line="-8828"/>
+        <location line="+8830"/>
         <source>Not verified</source>
         <translation>Non vérifiée</translation>
     </message>
@@ -25933,14 +26014,14 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La vérification établit la confiance dans cette session. La sauvegarde sécurisée et l&apos;import de clés de salon fournissent des clés de déchiffrement pour l&apos;historique des messages. Ce sont des opérations distinctes.</translation>
     </message>
     <message>
-        <location line="-9987"/>
-        <location line="+10020"/>
+        <location line="-10111"/>
+        <location line="+10144"/>
         <source>Hide</source>
         <translation>Masquer</translation>
     </message>
     <message>
-        <location line="-10022"/>
-        <location line="+10022"/>
+        <location line="-10146"/>
+        <location line="+10146"/>
         <source>Show</source>
         <translation>Afficher</translation>
     </message>
@@ -26015,18 +26096,18 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Licence : GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location line="-10124"/>
-        <location line="+3727"/>
+        <location line="-10248"/>
+        <location line="+3738"/>
         <source>Disable cursor blinking</source>
         <translation>Désactiver le clignotement du curseur</translation>
     </message>
     <message>
-        <location line="-3726"/>
+        <location line="-3737"/>
         <source>text cursor caret blink steady accessibility</source>
         <translation>curseur de texte point d’insertion clignotement fixe accessibilité</translation>
     </message>
     <message>
-        <location line="+3729"/>
+        <location line="+3740"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>Garder le curseur de texte fixe dans tous les champs de saisie. Désactivé, le réglage du curseur du système s’applique.</translation>
     </message>
@@ -26037,29 +26118,29 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Rechercher une police</translation>
     </message>
     <message>
-        <location line="-3494"/>
+        <location line="-3505"/>
         <source>On hover</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+147"/>
-        <location line="+4555"/>
+        <location line="+4566"/>
         <source>Avatars in messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4554"/>
+        <location line="-4565"/>
         <source>avatar avatars picture profile sender hide hover gutter declutter</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4577"/>
+        <location line="+4588"/>
         <source>Reactions</source>
         <translation type="unfinished">Réactions</translation>
     </message>
     <message>
-        <location line="-4576"/>
+        <location line="-4587"/>
         <source>reaction reactions emoji chips hide hover declutter</source>
         <translation type="unfinished"></translation>
     </message>
@@ -26070,18 +26151,18 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2022"/>
+        <location line="+2033"/>
         <location line="+2618"/>
         <source>Show emoji-only messages large</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4639"/>
+        <location line="-4650"/>
         <source>big large emoji jumbo size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4564"/>
+        <location line="+4575"/>
         <source>Show sender pictures beside messages, only on the message under the pointer, or not at all</source>
         <translation type="unfinished"></translation>
     </message>
