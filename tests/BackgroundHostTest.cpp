@@ -193,7 +193,6 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
     m_activity->setLiveState(kAlice, AccountActivityModel::Running);
 
     QJsonArray counts;
-    QHash<QString, int> modes;
     for (int i = 0; i < 260; ++i) {
         const QString room = QStringLiteral("!r%1:example.org").arg(i);
         int flags = kEncryptionKnown;
@@ -215,7 +214,6 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
             mode = roomunread::kModeMentions;
         if (mode != roomunread::kModeAllMessages)
             setModeFor(kAlice, room, mode);
-        modes.insert(room, mode);
         counts.append(QJsonArray{room, unread, highlight, flags});
     }
 
@@ -235,7 +233,7 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
         r.mentionInThreads = flags & kMentionInThreads;
         r.encrypted = flags & kEncrypted;
         r.encryptionKnown = flags & kEncryptionKnown;
-        const int mode = modes.value(r.id);
+        const int mode = m_settings->roomUnreadPolicyFor(kAlice, r.id);
         if (roomunread::countsAsUnread(r, mode)) {
             ++expectedRooms;
             expectedMentions += roomunread::mentionCount(r, mode);
