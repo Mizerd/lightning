@@ -1474,6 +1474,28 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   Syncing (not on every status change), and a room leaves the failed set
   ONLY when the server acknowledges it, never merely because a retry was
   attempted. Live homeserver validation: NOT TESTED
+- **Unread dot setting (2026-11-05).** Settings → Notifications → "Unread
+  dot": All rooms / Only rooms with notifications on (default) / Never. It is
+  one policy, `roomunread` in `src/matrix/RoomUnreadRule.h`, carried as bits
+  above the notification mode by `SettingsManager::roomUnreadPolicy`, so every
+  surface that already read the shared rule follows it: the classic row's
+  dot and bold (`HasUnreadRole`), the Channels feed, the Spaces rail
+  aggregates, the Unreads chip, the unread locator, recents, the quick
+  switcher, the tray and the background accounts' badges. Muted rooms show
+  nothing in every mode. "Notifications on" means: the room's own mode is
+  not Mentions/Muted, and a room following the account (mode 0 or 3) is
+  quiet only when the account default for its kind is mentions-only or the
+  master mute is on (`PushRulesController`) AND it has no notifying unread.
+  A quiet room keeps what notified (counts, mentions) and a marked-unread
+  mark; Never also drops the plain count and keeps only mentions.
+- **Mark all rooms read automatically (2026-11-05).** Off (default) / 15 /
+  30 / 60 minutes / custom 5..1440, a device setting. `AutoMarkReadController`
+  runs one pass per interval for the active account only, through
+  `RoomListModel::roomsToMarkRead` + `markRoomRead` (the bulk action's path,
+  so the receipt-privacy mode applies), one room in flight at a time, never
+  the open room or the open thread's room, never a marked-unread room. A pass
+  still running when the next interval fires is not doubled; an account
+  switch, sign-out or Off abandons it. Live: NOT TESTED.
 
 ### Settings, usability, and accessibility
 

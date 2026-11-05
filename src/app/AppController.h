@@ -17,6 +17,7 @@
 #include "models/WidgetController.h"
 #include "app/RoomInfoController.h"
 #include "app/RoomBatchController.h"
+#include "app/AutoMarkReadController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
 #include "app/NetworkRouteController.h"
@@ -1240,6 +1241,7 @@ private:
     std::unique_ptr<DirectAvatarResolver> m_directAvatars;
     std::unique_ptr<RoomListModel> m_roomList;
     std::unique_ptr<RoomBatchController> m_roomBatch;
+    std::unique_ptr<AutoMarkReadController> m_autoMarkRead;
     std::unique_ptr<RoomListModel> m_allRooms;
     std::unique_ptr<SpaceChannelModel> m_spaceChannels;
     std::unique_ptr<WidgetController> m_widgets;

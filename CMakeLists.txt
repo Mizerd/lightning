@@ -578,6 +578,8 @@ set(APP_SOURCES
     src/app/RoomInfoController.cpp
     src/app/RoomBatchController.h
     src/app/RoomBatchController.cpp
+    src/app/AutoMarkReadController.h
+    src/app/AutoMarkReadController.cpp
     src/app/PinnedMessagesController.h
     src/app/PinnedMessagesController.cpp
     src/app/SavedMessagesController.h
@@ -3928,6 +3930,19 @@ if(BUILD_TESTING)
     target_include_directories(room-batch-controller-test PRIVATE src)
     target_link_libraries(room-batch-controller-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-batch-controller COMMAND room-batch-controller-test)
+
+    qt_add_executable(auto-mark-read-test
+        tests/AutoMarkReadControllerTest.cpp
+        src/app/AutoMarkReadController.h src/app/AutoMarkReadController.cpp
+        src/models/RoomListModel.h src/models/RoomListModel.cpp
+        src/models/DirectAvatarResolver.h src/models/DirectAvatarResolver.cpp
+        src/matrix/BridgeNetwork.h src/matrix/BridgeNetwork.cpp
+        src/spaces/SpaceManager.h src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(auto-mark-read-test PRIVATE src)
+    target_link_libraries(auto-mark-read-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME auto-mark-read COMMAND auto-mark-read-test)
 
     # Export a room. The renderers are pure (events in, string out). The key
     # case is the encrypted one: a decrypted body reaches a file only when the

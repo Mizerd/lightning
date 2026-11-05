@@ -274,7 +274,7 @@ int BackgroundSessionHost::modeFor(const QString &roomId)
     if (it != m_modes.cend())
         return it.value();
     const int mode = m_deps.settings
-        ? m_deps.settings->roomNotificationModeFor(m_identity.userId, roomId)
+        ? m_deps.settings->roomUnreadPolicyFor(m_identity.userId, roomId)
         : roomunread::kModeAllMessages;
     m_modes.insert(roomId, mode);
     return mode;

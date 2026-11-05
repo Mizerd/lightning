@@ -459,6 +459,16 @@ Item {
           section: "notifications", breadcrumb: qsTr("Notifications"),
           control: "notificationsEnabled",
           anchor: "notificationsEnabledCheck" },
+        { title: qsTr("Unread dot"),
+          keywords: QT_TR_NOOP("unread dot badge indicator room list bold "
+                         + "muted mentions hide"),
+          section: "notifications", breadcrumb: qsTr("Notifications"),
+          anchor: "unreadDotModeCombo" },
+        { title: qsTr("Mark all rooms read automatically"),
+          keywords: QT_TR_NOOP("mark all read automatically auto timer interval "
+                         + "minutes unread clear"),
+          section: "notifications", breadcrumb: qsTr("Notifications"),
+          anchor: "autoMarkReadCombo" },
         { title: qsTr("Notification preview"),
           keywords: QT_TR_NOOP("notification preview privacy sender message"),
           section: "notifications", breadcrumb: qsTr("Notifications"),
@@ -939,6 +949,7 @@ Item {
             { label: qsTr("Previews"), anchors: ["notificationPreviewCombo"] },
             { label: qsTr("Sound"), anchors: ["notificationSoundCombo"] },
             { label: qsTr("Calls"), anchors: ["ringForCallsCheck"] },
+            { label: qsTr("Unread dot"), anchors: ["unreadDotModeCombo"] },
             { label: qsTr("Mute all"), anchors: ["pushMasterMuteSwitch"] },
             { label: qsTr("Default alerts"), anchors: ["pushDmDefaultCombo"] },
             { label: qsTr("Mentions"), anchors: ["pushMentionUserIdCombo"] },
@@ -7117,6 +7128,119 @@ Item {
                                                  + "push, so its notifications arrive "
                                                  + "only while it is running, in the "
                                                  + "window or the tray.")
+                                }
+                            }
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                Label {
+                                    text: qsTr("Unread dot")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    objectName: "unreadDotModeCombo"
+                                    Layout.fillWidth: true
+                                    model: [
+                                        qsTr("All rooms"),
+                                        qsTr("Only rooms with notifications on"),
+                                        qsTr("Never")
+                                    ]
+                                    currentIndex: app.settings.unreadDotMode
+                                    onActivated: (index) =>
+                                        app.settings.unreadDotMode = index
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Muted rooms never show it. With "
+                                               + "notifications on only, a room set to "
+                                               + "mentions and keywords, or following "
+                                               + "an account default of mentions only, "
+                                               + "shows no dot. Mention badges are "
+                                               + "always shown.")
+                                }
+                                Label {
+                                    text: qsTr("Mark all rooms read automatically")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                RowLayout {
+                                    id: autoReadRow
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    readonly property var presets: [0, 15, 30, 60]
+                                    property bool custom: false
+                                    readonly property int minutes:
+                                        app.settings.autoMarkReadMinutes
+                                    readonly property int presetIndex:
+                                        presets.indexOf(minutes)
+                                    AppComboBox {
+                                        storm: true
+                                        objectName: "autoMarkReadCombo"
+                                        Layout.fillWidth: true
+                                        model: [
+                                            qsTr("Off"),
+                                            qsTr("Every 15 minutes"),
+                                            qsTr("Every 30 minutes"),
+                                            qsTr("Every hour"),
+                                            qsTr("Custom")
+                                        ]
+                                        currentIndex: autoReadRow.custom
+                                                      || autoReadRow.presetIndex < 0
+                                                      ? 4 : autoReadRow.presetIndex
+                                        onActivated: (index) => {
+                                            if (index === 4) {
+                                                autoReadRow.custom = true
+                                                if (autoReadRow.minutes === 0)
+                                                    app.settings.autoMarkReadMinutes = 45
+                                                return
+                                            }
+                                            autoReadRow.custom = false
+                                            app.settings.autoMarkReadMinutes =
+                                                autoReadRow.presets[index]
+                                        }
+                                    }
+                                    AppTextField {
+                                        objectName: "autoMarkReadMinutesField"
+                                        storm: true
+                                        visible: autoReadRow.custom
+                                                 || autoReadRow.presetIndex < 0
+                                        Layout.preferredWidth: 96
+                                        text: String(autoReadRow.minutes)
+                                        placeholderText: qsTr("Minutes")
+                                        Accessible.name: qsTr("Minutes between automatic mark-read passes")
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        validator: IntValidator { bottom: 5; top: 1440 }
+                                        onEditingFinished: {
+                                            if (acceptableInput)
+                                                app.settings.autoMarkReadMinutes =
+                                                    parseInt(text, 10)
+                                        }
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Sends read receipts for every unread "
+                                               + "room except the one you have open, "
+                                               + "as Mark all as read does, following "
+                                               + "your read receipt privacy. Custom "
+                                               + "takes 5 to 1440 minutes.")
                                 }
                             }
                         }

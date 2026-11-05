@@ -518,6 +518,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         refreshStoredNotificationModes();
         requestRoomNotificationMode(m_currentRoomId);
     });
+    m_settings->setAccountRulesQuiet([this](const QString &roomId) {
+        if (!m_pushRules || !m_pushRules->loaded())
+            return false;
+        if (m_pushRules->masterMute())
+            return true;
+        const bool dmAll = m_pushRules->dmAll();
+        const bool roomsAll = m_pushRules->roomsAll();
+        if (dmAll == roomsAll)
+            return !dmAll;
+        const bool direct = m_client && m_client->roomInfo(roomId).isDirect;
+        return direct ? !dmAll : !roomsAll;
+    });
+    connect(m_pushRules.get(), &PushRulesController::stateChanged, this,
+            [this, last = std::make_shared<int>(-1)] {
+        const int now = !m_pushRules->loaded() ? 0
+            : 1 | (m_pushRules->masterMute() ? 2 : 0)
+                | (m_pushRules->dmAll() ? 4 : 0) | (m_pushRules->roomsAll() ? 8 : 0);
+        if (now == *last)
+            return;
+        *last = now;
+        m_settings->accountRulesChanged();
+    });
     m_notificationTroubleshooter =
         std::make_unique<NotificationTroubleshooter>(this);
     m_notificationTroubleshooter->setInputsProvider(
@@ -556,6 +578,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_bulkRedaction = std::make_unique<BulkRedactionController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_roomBatch    = std::make_unique<RoomBatchController>(this);
+    m_autoMarkRead = std::make_unique<AutoMarkReadController>(this);
+    m_autoMarkRead->setExcludedRooms([this] {
+        QStringList open{ m_currentRoomId };
+        if (m_thread && m_thread->active())
+            open.append(m_thread->roomId());
+        return open;
+    });
+    m_autoMarkRead->setIntervalMinutes(m_settings->autoMarkReadMinutes());
+    connect(m_settings.get(), &SettingsManager::autoMarkReadMinutesChanged, this,
+            [this] { m_autoMarkRead->setIntervalMinutes(m_settings->autoMarkReadMinutes()); });
     m_spaceModeration = std::make_unique<SpaceModerationController>(this);
     m_spaceModeration->setScopeResolver([this](const QString &spaceId) {
         return m_spaces ? m_spaces->moderationScopeRoomIds(spaceId)
@@ -2093,13 +2125,13 @@ true, ringSeconds, acceptOffered,
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
     m_roomList->setNotificationModeSource([this](const QString &id) {
-        return m_settings->roomUnreadMode(id);
+        return m_settings->roomUnreadPolicy(id);
     });
     m_spaces->setNotificationModeSource([this](const QString &id) {
-        return m_settings->roomUnreadMode(id);
+        return m_settings->roomUnreadPolicy(id);
     });
     m_quickSwitcher->setNotificationModeSource([this](const QString &id) {
-        return m_settings->roomUnreadMode(id);
+        return m_settings->roomUnreadPolicy(id);
     });
     connect(m_settings.get(), &SettingsManager::roomNotificationModeChanged,
             m_spaces.get(),
@@ -2198,6 +2230,13 @@ true, ringSeconds, acceptOffered,
             [this](const QString &id) { m_roomBatch->setAccount(id); });
     connect(this, &AppController::accountSwitchingChanged, m_roomBatch.get(),
             [this] { if (m_accountSwitching) m_roomBatch->setAccount({}); });
+    m_autoMarkRead->setSources(m_client.get(), m_roomList.get());
+    if (m_client->isLoggedIn())
+        m_autoMarkRead->setAccount(m_client->currentUserId());
+    connect(m_client.get(), &MatrixClient::loginSucceeded, m_autoMarkRead.get(),
+            [this](const QString &id) { m_autoMarkRead->setAccount(id); });
+    connect(this, &AppController::accountSwitchingChanged, m_autoMarkRead.get(),
+            [this] { if (m_accountSwitching) m_autoMarkRead->setAccount({}); });
     m_spaceModeration->setClient(m_client.get());
     m_roomClosure->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
@@ -6556,7 +6595,7 @@ void AppController::refreshTrayUnread()
     const roomunread::Summary unread = roomunread::summarize(
         m_client->rooms(),
         [this](const QString &id) {
-            return m_settings ? m_settings->roomUnreadMode(id)
+            return m_settings ? m_settings->roomUnreadPolicy(id)
                               : roomunread::kModeAllMessages;
         },
         [this, &liveForeground](const RoomInfo &room, bool roomUnread) {

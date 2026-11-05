@@ -203,7 +203,10 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
                                         ? QStringLiteral("call") : categoryOf(r);
     case HighlightCountRole:     return r.highlightCount;
     case MarkedUnreadRole:       return r.markedUnread;
-    case HasUnreadRole:          return r.hasUnreadMessages;
+    case HasUnreadRole:
+        return r.membership == RoomInfo::Joined
+            ? roomunread::showsActivityDot(r, notificationModeOf(r.id))
+            : r.hasUnreadMessages;
     case ThreadUnreadKindRole:
         return r.membership == RoomInfo::Joined
             ? roomunread::threadUnreadKind(r, notificationModeOf(r.id)) : 0;
@@ -835,9 +838,17 @@ void RoomListModel::rejectInvite(const QString &roomId)
 
 int RoomListModel::markAllRoomsRead()
 {
-    if (!m_client)
-        return 0;
+    const QStringList targets = roomsToMarkRead();
+    for (const QString &roomId : targets)
+        markRoomRead(roomId);
+    return targets.size();
+}
+
+QStringList RoomListModel::roomsToMarkRead() const
+{
     QStringList targets;
+    if (!m_client)
+        return targets;
     for (const RoomInfo &room : m_client->rooms()) {
         if (room.membership != RoomInfo::Joined || room.isSpace
             || room.markedUnread) {
@@ -849,9 +860,7 @@ int RoomListModel::markAllRoomsRead()
         }
         targets.append(room.id);
     }
-    for (const QString &roomId : targets)
-        markRoomRead(roomId);
-    return targets.size();
+    return targets;
 }
 
 void RoomListModel::markRoomRead(const QString &roomId)
@@ -976,7 +985,7 @@ void RoomListModel::notificationModeChanged()
     updateUnreadTotals();
     if (!m_rooms.isEmpty())
         Q_EMIT dataChanged(index(0, 0), index(int(m_rooms.size()) - 1, 0),
-                           { UnreadCountRole, ThreadUnreadKindRole });
+                           { UnreadCountRole, ThreadUnreadKindRole, HasUnreadRole });
     if (m_filterMode == 3)
         reconcileRooms();
 }

@@ -244,6 +244,55 @@ private Q_SLOTS:
         QCOMPARE(reported, 1);
     }
 
+    void theDotPolicyKeepsWhatNotifiedAndDropsTheRest()
+    {
+        using namespace roomunread;
+        RoomInfo activity = room(QStringLiteral("!act:x"), 0, true);
+        RoomInfo counted = room(QStringLiteral("!cnt:x"), 3, true);
+        RoomInfo mention = room(QStringLiteral("!men:x"), 0, true);
+        mention.highlightCount = 1;
+        RoomInfo marked = room(QStringLiteral("!mrk:x"), 0);
+        marked.markedUnread = true;
+
+        const int notifyingAll = withDotPolicy(kModeAllMessages, kUnreadDotNotifying, false);
+        QVERIFY(showsActivityDot(activity, notifyingAll));
+        QVERIFY(countsAsUnread(activity, notifyingAll));
+
+        const int notifyingMentions = withDotPolicy(kModeMentions, kUnreadDotNotifying, false);
+        QVERIFY2(!showsActivityDot(activity, notifyingMentions),
+                 "a mentions-only room drew the activity dot");
+        QVERIFY(!countsAsUnread(activity, notifyingMentions));
+        QVERIFY(countsAsUnread(mention, notifyingMentions));
+        QCOMPARE(mentionCount(mention, notifyingMentions), 1);
+        QVERIFY(countsAsUnread(marked, notifyingMentions));
+
+        const int followsQuietDefault = withDotPolicy(kModeAllMessages, kUnreadDotNotifying, true);
+        QVERIFY(!showsActivityDot(activity, followsQuietDefault));
+        QVERIFY(!countsAsUnread(activity, followsQuietDefault));
+        QCOMPARE(visibleUnreadCount(counted, followsQuietDefault), 3);
+        QVERIFY(countsAsUnread(counted, followsQuietDefault));
+        QVERIFY2(showsActivityDot(activity, withDotPolicy(kModeAllMessages, kUnreadDotAll, true)),
+                 "All rooms must not consult the account rules");
+
+        const int muted = withDotPolicy(kModeMute, kUnreadDotAll, false);
+        QVERIFY(!showsActivityDot(activity, muted));
+        QVERIFY(!countsAsUnread(mention, muted));
+
+        const int never = withDotPolicy(kModeAllMessages, kUnreadDotNever, false);
+        QVERIFY(!showsActivityDot(activity, never));
+        QCOMPARE(visibleUnreadCount(counted, never), 0);
+        QVERIFY(!countsAsUnread(counted, never));
+        QVERIFY(countsAsUnread(mention, never));
+        QCOMPARE(mentionCount(mention, never), 1);
+
+        const QList<RoomInfo> rooms{ activity, counted, mention };
+        const Summary trayNever = summarize(
+            rooms, [never](const QString &) { return never; },
+            [](const RoomInfo &, bool) {});
+        QVERIFY(trayNever.any);
+        QCOMPARE(trayNever.total, 1);
+    }
+
     void everyUnreadSurfaceReadsTheSharedRule()
     {
         const auto read = [](const char *path) {

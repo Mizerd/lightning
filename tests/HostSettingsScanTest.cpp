@@ -75,7 +75,7 @@ const QList<QRegularExpression> &activeStatePatterns()
         QRegularExpression(QStringLiteral(
             "\\b(roomNotificationMode|roomNotificationModeUnsynced|"
             "roomNotificationModeUnsyncedBase|roomNotificationModeDeviceOnly|"
-            "hasStoredRoomNotificationMode|roomUnreadMode|roomNotificationModeDecidesLocally)"
+            "hasStoredRoomNotificationMode|roomUnreadMode|roomUnreadPolicy|roomNotificationModeDecidesLocally)"
             "\\s*\\(")),
         QRegularExpression(QStringLiteral("\\bm_client\\b")),
         QRegularExpression(QStringLiteral("\\bMediaBridge\\b")),

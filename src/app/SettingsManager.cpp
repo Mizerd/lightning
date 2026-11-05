@@ -2837,6 +2837,77 @@ int SettingsManager::roomUnreadModeFor(const QString &userId,
     return roomUnreadModeInScope(slugForAccountScope(userId), roomId);
 }
 
+int SettingsManager::roomUnreadPolicy(const QString &roomId) const
+{
+    const int mode = roomUnreadMode(roomId);
+    const int dot = unreadDotMode();
+    const bool followsAccount = mode == roomunread::kModeAllMessages || mode == 3;
+    return roomunread::withDotPolicy(
+        mode, dot,
+        dot == roomunread::kUnreadDotNotifying && followsAccount
+            && m_accountRulesQuiet && m_accountRulesQuiet(roomId));
+}
+
+int SettingsManager::roomUnreadPolicyFor(const QString &userId,
+                                         const QString &roomId) const
+{
+    return roomunread::withDotPolicy(roomUnreadModeFor(userId, roomId),
+                                     unreadDotMode(), false);
+}
+
+void SettingsManager::setAccountRulesQuiet(
+    std::function<bool(const QString &)> quiet)
+{
+    m_accountRulesQuiet = std::move(quiet);
+    accountRulesChanged();
+}
+
+void SettingsManager::accountRulesChanged()
+{
+    Q_EMIT roomNotificationModeChanged(QString());
+}
+
+int SettingsManager::unreadDotMode() const
+{
+    const int mode = m_store->value(QStringLiteral("notifications/unreadDot"),
+                                    roomunread::kUnreadDotNotifying).toInt();
+    return (mode < roomunread::kUnreadDotAll || mode > roomunread::kUnreadDotNever)
+        ? roomunread::kUnreadDotNotifying : mode;
+}
+
+void SettingsManager::setUnreadDotMode(int mode)
+{
+    if (mode < roomunread::kUnreadDotAll || mode > roomunread::kUnreadDotNever)
+        mode = roomunread::kUnreadDotNotifying;
+    if (unreadDotMode() == mode)
+        return;
+    m_store->setValue(QStringLiteral("notifications/unreadDot"), mode);
+    Q_EMIT unreadDotModeChanged();
+    Q_EMIT roomNotificationModeChanged(QString());
+}
+
+int SettingsManager::autoMarkReadMinutes() const
+{
+    const int minutes =
+        m_store->value(QStringLiteral("notifications/autoMarkReadMinutes"), 0).toInt();
+    if (minutes <= 0)
+        return 0;
+    return std::clamp(minutes, kAutoMarkReadMinMinutes, kAutoMarkReadMaxMinutes);
+}
+
+void SettingsManager::setAutoMarkReadMinutes(int minutes)
+{
+    minutes = minutes <= 0 ? 0
+        : std::clamp(minutes, kAutoMarkReadMinMinutes, kAutoMarkReadMaxMinutes);
+    if (autoMarkReadMinutes() == minutes)
+        return;
+    if (minutes == 0)
+        m_store->remove(QStringLiteral("notifications/autoMarkReadMinutes"));
+    else
+        m_store->setValue(QStringLiteral("notifications/autoMarkReadMinutes"), minutes);
+    Q_EMIT autoMarkReadMinutesChanged();
+}
+
 namespace {
 QString videoDimsHash(const QString &mediaKey)
 {

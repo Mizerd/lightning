@@ -778,9 +778,9 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     row.isInvite = info.membership == RoomInfo::Invited;
     row.encrypted = info.encrypted && info.encryptionKnown;
     const int mode = (m_settings && !row.isInvite)
-        ? m_settings->roomUnreadMode(info.id)
+        ? m_settings->roomUnreadPolicy(info.id)
         : roomunread::kModeAllMessages;
-    const bool muted = mode == roomunread::kModeMute;
+    const bool muted = roomunread::baseMode(mode) == roomunread::kModeMute;
     row.unread = roomunread::visibleUnreadCount(info, mode);
     row.highlight = roomunread::mentionCount(info, mode);
     row.hasUnread = row.isInvite

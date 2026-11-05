@@ -97,6 +97,7 @@ public:
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);
     Q_INVOKABLE int markAllRoomsRead();
+    QStringList roomsToMarkRead() const;
     Q_INVOKABLE int attentionRowFrom(int fromRow, int step,
                                      bool mentionsOnly = false) const;
     Q_INVOKABLE void markRoomUnread(const QString &roomId);

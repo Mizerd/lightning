@@ -14,6 +14,7 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <functional>
 #include <memory>
 #include <utility>
 
@@ -94,6 +95,10 @@ class SettingsManager : public QObject
                    WRITE setDownloadFolder NOTIFY downloadFolderChanged)
     Q_PROPERTY(int readReceiptMode READ readReceiptMode
                    WRITE setReadReceiptMode NOTIFY readReceiptModeChanged)
+    Q_PROPERTY(int unreadDotMode READ unreadDotMode
+                   WRITE setUnreadDotMode NOTIFY unreadDotModeChanged)
+    Q_PROPERTY(int autoMarkReadMinutes READ autoMarkReadMinutes
+                   WRITE setAutoMarkReadMinutes NOTIFY autoMarkReadMinutesChanged)
     Q_PROPERTY(bool sendTypingNotifications READ sendTypingNotifications
                    WRITE setSendTypingNotifications
                    NOTIFY sendTypingNotificationsChanged)
@@ -520,6 +525,18 @@ public:
     void setNotificationPreview(int mode);
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     int roomUnreadMode(const QString &roomId) const;
+    int roomUnreadPolicy(const QString &roomId) const;
+    int roomUnreadPolicyFor(const QString &userId, const QString &roomId) const;
+    // Whether the active account's own rules keep a room that follows them
+    // quiet (account default of mentions only, or the master mute).
+    void setAccountRulesQuiet(std::function<bool(const QString &roomId)> quiet);
+    void accountRulesChanged();
+    int unreadDotMode() const;
+    void setUnreadDotMode(int mode);
+    int autoMarkReadMinutes() const;
+    void setAutoMarkReadMinutes(int minutes);
+    static constexpr int kAutoMarkReadMinMinutes = 5;
+    static constexpr int kAutoMarkReadMaxMinutes = 1440;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
     bool roomNotificationModeUnsynced(const QString &roomId) const;
     int roomNotificationModeUnsyncedBase(const QString &roomId) const;
@@ -989,6 +1006,8 @@ Q_SIGNALS:
     void alwaysAskWhereToSaveChanged();
     void downloadFolderChanged();
     void readReceiptModeChanged();
+    void unreadDotModeChanged();
+    void autoMarkReadMinutesChanged();
     void sendTypingNotificationsChanged();
     void notificationSoundChanged();
     void notificationSoundSourceChanged();
@@ -1145,6 +1164,7 @@ private:
     bool hasStoredRoomNotificationModeInScope(const QString &slug,
                                               const QString &roomId) const;
     int roomUnreadModeInScope(const QString &slug, const QString &roomId) const;
+    std::function<bool(const QString &)> m_accountRulesQuiet;
     static QString mediaInfoIndexKeyForSlug(const QString &slug);
     void touchMediaInfoIndex(const QString &slug, const QString &hash);
     // roomNotificationMode() runs for every appended remote event, so the

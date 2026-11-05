@@ -734,6 +734,103 @@ private Q_SLOTS:
         QVERIFY(idsOf(c.model).contains(kR1));
     }
 
+    void classicUnreadDotSettingDecidesTheDotTheFilterAndTheLocator()
+    {
+        QList<RoomInfo> rooms = rooms3();
+        rooms.append(room(kR4, QStringLiteral("delta"), 200));
+        rooms[0].hasUnreadMessages = true;
+        rooms[1].hasUnreadMessages = true;
+        rooms[2].hasUnreadMessages = true;
+        rooms[2].unreadCount = 2;
+        rooms[3].hasUnreadMessages = true;
+        rooms[3].highlightCount = 1;
+        Classic c;
+        int dot = roomunread::kUnreadDotNotifying;
+        c.model.setNotificationModeSource([&dot](const QString &id) {
+            const int base = id == kR2 ? roomunread::kModeAllMessages
+                : id == kR3 ? roomunread::kModeAllMessages
+                            : roomunread::kModeMentions;
+            return roomunread::withDotPolicy(base, dot, false);
+        });
+        c.build(false, rooms);
+        const auto dotOf = [&c](const QString &id) {
+            const int row = idsOf(c.model).indexOf(id);
+            return c.model.data(c.model.index(row), RoomListModel::HasUnreadRole).toBool();
+        };
+        const auto unreadsFilter = [&c] {
+            c.model.setFilterMode(3);
+            const QStringList ids = idsOf(c.model);
+            c.model.setFilterMode(0);
+            return ids;
+        };
+        const auto firstAttention = [&c] {
+            const int row = c.model.attentionRowFrom(0, 1);
+            return row < 0 ? QString() : idsOf(c.model).at(row);
+        };
+
+        QVERIFY2(!dotOf(kR1), "a mentions-only room drew the activity dot");
+        QVERIFY(dotOf(kR2));
+        QCOMPARE(unreadsFilter(), (QStringList{ kR2, kR3, kR4 }));
+        QCOMPARE(firstAttention(), kR2);
+        QCOMPARE(c.model.unreadRoomCount(), 3);
+
+        dot = roomunread::kUnreadDotNever;
+        c.model.notificationModeChanged();
+        QVERIFY(!dotOf(kR1));
+        QVERIFY(!dotOf(kR2));
+        QCOMPARE(c.model.data(c.model.index(idsOf(c.model).indexOf(kR3)),
+                              RoomListModel::UnreadCountRole).toInt(), 0);
+        QCOMPARE(c.model.data(c.model.index(idsOf(c.model).indexOf(kR4)),
+                              RoomListModel::HighlightCountRole).toInt(), 1);
+        QCOMPARE(unreadsFilter(), QStringList{ kR4 });
+        QCOMPARE(firstAttention(), kR4);
+        QCOMPARE(c.model.unreadRoomCount(), 1);
+
+        dot = roomunread::kUnreadDotAll;
+        c.model.notificationModeChanged();
+        QVERIFY(dotOf(kR1));
+        QCOMPARE(unreadsFilter(), (QStringList{ kR1, kR2, kR3, kR4 }));
+        QCOMPARE(firstAttention(), kR1);
+    }
+
+    void channelsDotFollowsTheSettingAndTheAccountRules()
+    {
+        QList<RoomInfo> rooms = rooms3();
+        for (RoomInfo &r : rooms)
+            r.hasUnreadMessages = true;
+        Channels c;
+        c.settings.setRoomNotificationMode(kR1, roomunread::kModeMentions);
+        c.settings.setRoomNotificationMode(kR2, roomunread::kModeMute);
+        c.build(false, rooms);
+        c.settle();
+        const auto dotOf = [&c](const QString &id) {
+            for (int i = 0; i < c.model.rowCount(); ++i) {
+                const QModelIndex idx = c.model.index(i, 0);
+                if (c.model.data(idx, SpaceChannelModel::RoomIdRole).toString() == id)
+                    return c.model.data(idx, SpaceChannelModel::HasUnreadRole).toBool();
+            }
+            return false;
+        };
+        QCOMPARE(c.settings.unreadDotMode(), roomunread::kUnreadDotNotifying);
+        QVERIFY2(!dotOf(kR1), "a mentions-only channel drew the dot by default");
+        QVERIFY2(!dotOf(kR2), "a muted channel drew the dot");
+        QVERIFY(dotOf(kR3));
+
+        c.settings.setAccountRulesQuiet([](const QString &) { return true; });
+        c.settle();
+        QVERIFY2(!dotOf(kR3), "a room following a quiet account default drew the dot");
+
+        c.settings.setUnreadDotMode(roomunread::kUnreadDotAll);
+        c.settle();
+        QVERIFY(dotOf(kR1));
+        QVERIFY(!dotOf(kR2));
+        QVERIFY(dotOf(kR3));
+        c.settings.setAccountRulesQuiet({});
+        c.settings.setUnreadDotMode(roomunread::kUnreadDotNotifying);
+        c.settings.setRoomNotificationMode(kR1, roomunread::kModeAllMessages);
+        c.settings.setRoomNotificationMode(kR2, roomunread::kModeAllMessages);
+    }
+
     static QList<RoomInfo> spaceRooms()
     {
         RoomInfo work = room(kWork, QStringLiteral("Work"), 500);

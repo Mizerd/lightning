@@ -15,7 +15,6 @@ namespace {
 const QString kKindFolder = QStringLiteral("folder");
 const QString kKindSpace = QStringLiteral("space");
 constexpr int kNotificationModeAllMessages = roomunread::kModeAllMessages;
-constexpr int kNotificationModeMute = roomunread::kModeMute;
 
 bool isPseudoId(const QString &id)
 {
@@ -311,12 +310,12 @@ void RailEntryModel::stampActivity(QVector<QVariantMap> &rows) const
             activity.direct = r.isDirect;
             const bool unread = roomunread::rawUnread(r);
             const int mode = unread && m_settings
-                            ? m_settings->roomNotificationMode(r.id)
+                            ? m_settings->roomUnreadPolicy(r.id)
                             : kNotificationModeAllMessages;
-            const bool muted = unread && mode == kNotificationModeMute;
-            activity.unread = unread && !muted;
+            activity.unread = unread && roomunread::countsAsUnread(r, mode);
             activity.mentions = roomunread::mentionCount(r, mode);
-            if (r.isDirect && mode == kNotificationModeAllMessages
+            if (r.isDirect
+                && roomunread::baseMode(mode) == kNotificationModeAllMessages
                 && !r.unreadThreadsOnly)
                 activity.mentions = std::max(r.unreadCount, r.highlightCount);
             rooms.insert(r.id, activity);
