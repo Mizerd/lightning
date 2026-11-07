@@ -884,6 +884,11 @@ void PaginationController::failNavigation(bool tooFar)
         return;
     }
     if (wasRestore) {
+        if (tooFar) {
+            m_navigationMessage = restoreTooFarMessage();
+            m_navigationMessageTimer.start(kNavigationMessageDurationMs);
+            Q_EMIT navigationChanged();
+        }
         Q_EMIT restoreLatestRequested();
         return;
     }

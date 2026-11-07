@@ -87,6 +87,12 @@ public:
             "PaginationController",
             "This message is too far back to open here yet.");
     }
+    static QString restoreTooFarMessage()
+    {
+        return QCoreApplication::translate(
+            "PaginationController",
+            "Your earlier place is too far back to restore.");
+    }
 
     static constexpr int kMaxFilteredRunStrikes = 60;
     static constexpr int kMaxNearTopEmptyStrikes = 12;

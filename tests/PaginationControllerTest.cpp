@@ -1678,6 +1678,71 @@ private Q_SLOTS:
                  "ended, not still active");
     }
 
+    void aRestoreBeyondThePageCapSaysSoAndLandsOnTheLatest()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+
+        controller.saveScrollAnchor(kRoomA, QStringLiteral("$far-anchor"),
+                                    40.0, false);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        QSignalSpy latest(&controller,
+                          &PaginationController::restoreLatestRequested);
+        controller.restoreScrollAnchor(kRoomA);
+        int pages = 0;
+        while (latest.isEmpty() && pages < 40) {
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 5, false);
+            ++pages;
+            QTest::qWait(10);
+        }
+        QCOMPARE(latest.count(), 1);
+        QCOMPARE(located.count(), 0);
+        QCOMPARE(controller.navigationMessage(),
+                 PaginationController::restoreTooFarMessage());
+    }
+
+    void aSuccessfulRestoreShowsNoNotice()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+
+        controller.saveScrollAnchor(kRoomA, QStringLiteral("$near-anchor"),
+                                    40.0, false);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        QSignalSpy latest(&controller,
+                          &PaginationController::restoreLatestRequested);
+        controller.restoreScrollAnchor(kRoomA);
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+        QTest::qWait(10);
+        client.beginLoading(kRoomA);
+        client.completeEvents(kRoomA,
+                              { makeEvent(QStringLiteral("$near-anchor")) },
+                              false);
+        QTRY_COMPARE(located.count(), 1);
+        QCOMPARE(latest.count(), 0);
+        QCOMPARE(controller.navigationMessage(), QString());
+    }
+
     void cancellingNavigationStopsASlowRestoreFromEverLanding()
     {
         FakeClient client;
