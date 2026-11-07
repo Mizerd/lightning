@@ -2672,6 +2672,8 @@ pub(crate) struct TailEvent {
     pub kind: Option<String>,
     pub target: Option<OwnedEventId>,
     pub threaded: bool,
+    /// An `m.poll.start` the timeline filter refused, so no row shows it.
+    pub unrendered_start: bool,
 }
 
 pub(crate) fn receipt_target_past_relations(
@@ -2690,6 +2692,7 @@ pub(crate) fn receipt_target_past_relations(
         }
         // matrix-sdk counts these as unread, and no timeline row ever shows them.
         Some("m.message") => !e.threaded,
+        Some("m.poll.start") => e.unrendered_start && !e.threaded,
         Some("m.room.redaction") => e.target.as_ref().is_some_and(|t| {
             tail.iter().any(|x| &x.id == t && x.kind.as_deref() == Some("m.reaction"))
         }),
@@ -2735,7 +2738,9 @@ async fn in_room_receipt_target(room: &Room, chosen: OwnedEventId) -> OwnedEvent
                 .and_then(|r| r.get("rel_type"))
                 .and_then(|v| v.as_str())
                 == Some("m.thread");
-            Some(TailEvent { id, kind, target, threaded })
+            let unrendered_start = kind.as_deref() == Some(stablepoll::START_TYPE)
+                && !raw.deserialize().is_ok_and(|e| stablepoll::is_start(&e));
+            Some(TailEvent { id, kind, target, threaded, unrendered_start })
         })
         .collect();
     receipt_target_past_relations(&chosen, &tail)
@@ -14702,6 +14707,7 @@ mod tests {
             kind: Some(t.to_owned()),
             target: target.map(id),
             threaded,
+            unrendered_start: false,
         };
         let msg = |s: &str| ev(s, "m.room.message", None, false);
         let thread_reply = |s: &str| ev(s, "m.room.message", None, true);
@@ -14722,7 +14728,8 @@ mod tests {
         assert_eq!(pick("$zz:x", &tail), id("$zz:x"));
         let utd = vec![
             msg("$m2:x"),
-            TailEvent { id: id("$u:x"), kind: None, target: None, threaded: false },
+            TailEvent { id: id("$u:x"), kind: None, target: None, threaded: false,
+                        unrendered_start: false },
         ];
         assert_eq!(pick("$m2:x", &utd), id("$m2:x"));
 
@@ -14771,6 +14778,8 @@ mod tests {
             ev("$pe:x", "m.poll.end", Some("$ps:x"), false),
         ];
         assert_eq!(pick("$m2:x", &stable_ended), id("$pe:x"));
+        let malformed = TailEvent { unrendered_start: true, ..ev("$ps:x", "m.poll.start", None, false) };
+        assert_eq!(pick("$m2:x", &[msg("$m2:x"), malformed]), id("$ps:x"));
         let unrendered = vec![msg("$m2:x"), ev("$em:x", "m.message", None, false)];
         assert_eq!(pick("$m2:x", &unrendered), id("$em:x"));
     }

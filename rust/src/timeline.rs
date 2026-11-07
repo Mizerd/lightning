@@ -375,6 +375,7 @@ struct ActiveThread {
     task: Option<tokio::task::JoinHandle<()>>,
     pagination_busy: Arc<AtomicBool>,
     reached_start: Arc<AtomicBool>,
+    clear_epoch: Arc<AtomicU64>,
 }
 
 struct ActiveContext {
@@ -911,6 +912,7 @@ impl TimelineRegistry {
                 task: None,
                 pagination_busy: Arc::clone(&pagination_busy),
                 reached_start: Arc::clone(&reached_start),
+                clear_epoch: Arc::new(AtomicU64::new(0)),
             });
         }
 
@@ -1310,13 +1312,14 @@ impl TimelineRegistry {
         else {
             return Err("No live thread timeline is open for that root.".to_owned());
         };
-        let (busy, reached) = {
+        let (busy, reached, epoch) = {
             let guard = self
                 .active_thread
                 .lock()
                 .map_err(|_| "thread registry lock poisoned".to_owned())?;
             let thread = guard.as_ref().ok_or("thread timeline gone")?;
-            (Arc::clone(&thread.pagination_busy), Arc::clone(&thread.reached_start))
+            (Arc::clone(&thread.pagination_busy), Arc::clone(&thread.reached_start),
+             Arc::clone(&thread.clear_epoch))
         };
         if reached.load(Ordering::SeqCst) {
             return Ok(());
@@ -1336,24 +1339,14 @@ impl TimelineRegistry {
             thread_pagination_json(&room_id, &root_event_id, thread_gen, lifecycle,
                                    "loading", json!({})),
         );
+        let started = epoch.load(Ordering::SeqCst);
         runtime.spawn(async move {
             let result = timeline.paginate_backwards(count).await;
             busy.store(false, Ordering::SeqCst);
-            if !registry.thread_current(thread_gen, lifecycle) {
-                return;
-            }
-            let payload = match result {
-                Ok(hit_start) => {
-                    reached.store(hit_start, Ordering::SeqCst);
-                    thread_pagination_json(&room_id, &root_event_id, thread_gen,
-                                           lifecycle, "idle",
-                                           json!({ "reached_start": hit_start }))
-                }
-                Err(_err) => thread_pagination_json(&room_id, &root_event_id,
-                                                    thread_gen, lifecycle, "failed",
-                                                    json!({ "category": "network" })),
-            };
-            enqueue(&events, payload);
+            finish_thread_pagination(
+                &registry, &timeline, &events, &room_id, &root_event_id, thread_gen,
+                lifecycle, &reached, &epoch, started, result.map_err(|_| ()),
+            );
         });
         Ok(())
     }
@@ -1737,6 +1730,13 @@ impl TimelineRegistry {
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
+        self.clear_stable_poll_tallies();
+    }
+
+    fn clear_stable_poll_tallies(&self) {
+        if let Ok(mut guard) = self.stable_poll_tallies.lock() {
+            guard.clear();
+        }
     }
 
     pub fn shutdown(&self, runtime: &tokio::runtime::Runtime) {
@@ -1756,6 +1756,7 @@ impl TimelineRegistry {
         if let Ok(mut guard) = self.reaction_inflight.lock() {
             guard.clear();
         }
+        self.clear_stable_poll_tallies();
         // Each holds a Client of the departing session. After the lifecycle
         // bump above, so register_thread_auto_subscription() can tell.
         self.abort_thread_auto_subscriptions();
@@ -2998,7 +2999,11 @@ impl StablePollRepaint<'_> {
             return;
         }
         watch.subscribe(self.room).await;
-        let changed = watch.refresh(self.room, &self.registry.stable_poll_tallies, ids).await;
+        let changed = watch
+            .refresh(self.room, &self.registry.stable_poll_tallies, ids, || {
+                self.registry.is_current(self.room_gen, self.lifecycle)
+            })
+            .await;
         for id in changed {
             let Some((index, item)) = tail.find_event(&id) else { continue };
             let repaint = VectorDiff::Set { index, value: item };
@@ -3228,17 +3233,19 @@ fn backfill_thread(
     lifecycle: u64,
     restart: bool,
 ) -> bool {
-    let (busy, reached) = match registry.active_thread.lock() {
+    let (busy, reached, epoch) = match registry.active_thread.lock() {
         Ok(guard) => match guard.as_ref() {
             Some(thread) if thread.thread_gen == thread_gen => (
                 Arc::clone(&thread.pagination_busy),
                 Arc::clone(&thread.reached_start),
+                Arc::clone(&thread.clear_epoch),
             ),
             _ => return false,
         },
         Err(_) => return false,
     };
     if restart {
+        epoch.fetch_add(1, Ordering::SeqCst);
         reached.store(false, Ordering::SeqCst);
     }
     if reached.load(Ordering::SeqCst)
@@ -3258,26 +3265,53 @@ fn backfill_thread(
     let timeline = Arc::clone(timeline);
     let room_id = room_id.to_owned();
     let root_event_id = root_event_id.to_owned();
+    let started = epoch.load(Ordering::SeqCst);
     tokio::spawn(async move {
         let result = timeline.paginate_backwards(PAGINATION_BATCH).await;
         busy.store(false, Ordering::SeqCst);
-        if !registry.thread_current(thread_gen, lifecycle) {
-            return;
-        }
-        let payload = match result {
-            Ok(hit_start) => {
-                reached.store(hit_start, Ordering::SeqCst);
-                thread_pagination_json(&room_id, &root_event_id,
-                                       thread_gen, lifecycle, "idle",
-                                       json!({ "reached_start": hit_start }))
-            }
-            Err(_err) => thread_pagination_json(
-                &room_id, &root_event_id, thread_gen, lifecycle,
-                "failed", json!({ "category": "network" })),
-        };
-        enqueue(&events, payload);
+        finish_thread_pagination(
+            &registry, &timeline, &events, &room_id, &root_event_id, thread_gen,
+            lifecycle, &reached, &epoch, started, result.map_err(|_| ()),
+        );
     });
     true
+}
+
+/// A pagination that began before the thread was cleared answers for the old
+/// chunk: its start is not this thread's start, so it pages once more instead.
+#[allow(clippy::too_many_arguments)]
+fn finish_thread_pagination(
+    registry: &Arc<TimelineRegistry>,
+    timeline: &Arc<Timeline>,
+    events: &EventQueue,
+    room_id: &str,
+    root_event_id: &str,
+    thread_gen: u64,
+    lifecycle: u64,
+    reached: &AtomicBool,
+    epoch: &AtomicU64,
+    started: u64,
+    result: Result<bool, ()>,
+) {
+    if !registry.thread_current(thread_gen, lifecycle) {
+        return;
+    }
+    let cleared_meanwhile = epoch.load(Ordering::SeqCst) != started;
+    let payload = match result {
+        Ok(hit_start) => {
+            let hit_start = hit_start && !cleared_meanwhile;
+            reached.store(hit_start, Ordering::SeqCst);
+            thread_pagination_json(room_id, root_event_id, thread_gen, lifecycle, "idle",
+                                   json!({ "reached_start": hit_start }))
+        }
+        Err(()) => thread_pagination_json(room_id, root_event_id, thread_gen, lifecycle,
+                                          "failed", json!({ "category": "network" })),
+    };
+    enqueue(events, payload);
+    if cleared_meanwhile {
+        backfill_thread(registry, timeline, events, room_id, root_event_id, thread_gen,
+                        lifecycle, false);
+    }
 }
 
 fn context_pagination_json(

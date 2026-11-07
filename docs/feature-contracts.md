@@ -1526,8 +1526,10 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   event once when only the unread flag stays set, as it already did for
   counts.
 - **Stable polls (2026-11-07).** matrix-sdk-ui knows only the MSC3381
-  unstable namespace, so `lightning_event_filter` admits a stable
-  `m.poll.start` itself and it reaches the timeline as an "other" row;
+  unstable namespace, so `lightning_event_filter` admits an UNTHREADED stable
+  `m.poll.start` itself and it reaches the timeline as an "other" row (a
+  threaded one stays hidden: the SDK never marks an "other" row as threaded,
+  so it would leak into main, §8);
   `rust/src/stablepoll.rs` reads the poll from that row's JSON and tallies
   responses of BOTH namespaces from the room's event cache with ruma's
   `compile_poll_results` (latest response per user, a spoiled vote counts for
@@ -1537,15 +1539,19 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   room's event cache only once it shows a stable poll, and repaints a poll's
   row when its tally moves; a thread panel shows the tally the main timeline
   last computed. Votes and ends are still sent in the unstable namespace,
-  which this tally and Element both count. The row is a real row now, so the
-  automatic receipt no longer skips it.
+  which this tally counts (Element's counting both is assumed, not checked).
+  The row is a real row now, so the automatic receipt no longer skips it; it
+  still skips an `m.poll.start` the filter refused (threaded aside), by the
+  same predicate.
 - **Mark all rooms read automatically (2026-11-05).** Off (default) / 15 /
   30 / 60 minutes / custom 5..1440, a device setting. `AutoMarkReadController`
   runs one pass per interval for the active account only, through
   `RoomListModel::roomsToMarkRead` + `markRoomRead` (the bulk action's path,
-  so the receipt-privacy mode applies; each mark-read refreshes only its own
-  room), one room in flight at a time (a step past its timeout holds the slot
-  one more timeout, then the pass ends), never
+  so the receipt-privacy mode applies; each mark-read re-sends only its own
+  room's payload, though every `roomsChanged` still refreshes the models over
+  all rooms), one room in flight at a time within a pass (a step past its
+  timeout holds the slot one more timeout, then the pass ends; a request still
+  stuck then can overlap the NEXT pass), never
   the open room or the open thread's room, never a marked-unread room. A pass
   still running when the next interval fires is not doubled; an account
   switch, sign-out or Off abandons it. Live: NOT TESTED.

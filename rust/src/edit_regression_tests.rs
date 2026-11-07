@@ -576,6 +576,7 @@ async fn an_open_thread_refills_after_its_room_cache_is_cleared() {
         task: None,
         pagination_busy: Arc::new(AtomicBool::new(false)),
         reached_start: Arc::clone(&reached),
+        clear_epoch: Arc::new(AtomicU64::new(0)),
     });
     let lifecycle = registry.lifecycle_gen.load(Ordering::SeqCst);
     let task = tokio::spawn(open_thread_task(
@@ -596,6 +597,21 @@ async fn an_open_thread_refills_after_its_room_cache_is_cleared() {
     next_event(&events, |v| v["type"] == "thread_diff" && v["op"] == "clear").await;
     next_event(&events, |v| v["type"] == "thread_pagination" && v["state"] == "loading").await;
     next_event(&events, |v| v["type"] == "thread_diff" && has_reply(v)).await;
+    next_event(&events, |v| v["type"] == "thread_pagination" && v["state"] == "idle").await;
+
+    // A pagination that began before a clear must not mark the new thread as started.
+    let (timeline, epoch) = {
+        let guard = registry.active_thread.lock().unwrap();
+        let thread = guard.as_ref().unwrap();
+        (thread.timeline.clone().unwrap(), Arc::clone(&thread.clear_epoch))
+    };
+    let started = epoch.load(Ordering::SeqCst);
+    epoch.fetch_add(1, Ordering::SeqCst);
+    reached.store(false, Ordering::SeqCst);
+    finish_thread_pagination(&registry, &timeline, &events, ROOM, "$root", 1, lifecycle,
+                             &reached, &epoch, started, Ok(true));
+    assert!(!reached.load(Ordering::SeqCst), "a stale answer marked the thread as started");
+    next_event(&events, |v| v["type"] == "thread_pagination" && v["state"] == "loading").await;
     task.abort();
 }
 
@@ -659,7 +675,7 @@ async fn a_stable_poll_is_a_poll_row_with_votes_from_both_namespaces() {
     let ids = watch.observe(items.iter());
     assert_eq!(ids, vec!["$poll".to_owned()]);
     let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
-    let changed = watch.refresh(&room, &registry.stable_poll_tallies, &ids).await;
+    let changed = watch.refresh(&room, &registry.stable_poll_tallies, &ids, || true).await;
     assert_eq!(changed, ids);
     let poll_item = items
         .iter()
@@ -671,4 +687,31 @@ async fn a_stable_poll_is_a_poll_row_with_votes_from_both_namespaces() {
     assert_eq!(pizza["count"], 2);
     assert_eq!(pizza["by_me"], true);
     assert_eq!(rendered["poll_total_voters"], 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_threaded_stable_poll_stays_out_of_the_main_timeline() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| {
+            b.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: false,
+            })
+        })
+        .build()
+        .await;
+    client.event_cache().subscribe().unwrap();
+    let poll = json!({"type":"m.poll.start", "event_id":"$tpoll", "sender":SENDER,
+        "origin_server_ts":2000, "content":{"m.text":[{"body":"In a thread?"}],
+        "m.relates_to":{"rel_type":"m.thread", "event_id":"$root"},
+        "m.poll":{"kind":"m.disclosed", "max_selections":1,
+            "question":{"m.text":[{"body":"In a thread?"}]},
+            "answers":[{"m.id":"y", "m.text":[{"body":"Yes"}]},
+                       {"m.id":"n", "m.text":[{"body":"No"}]}]}}});
+    sync(&client, vec![message("$root", "root", 1000), poll, message("$after", "after", 3000)],
+         "1").await;
+    let timeline = build(&client).await;
+    wait_body(&timeline, "$after", "after").await;
+    assert!(row(&timeline, "$tpoll").await.is_null(), "a threaded poll leaked into main");
 }

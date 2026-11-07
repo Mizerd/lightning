@@ -9,9 +9,11 @@
   Votes and ends are still SENT in the unstable namespace. A thread panel
   shows the tally the main timeline last computed and does not refresh it
   live.
-- **Auto mark-read pass**: a mark-read refreshes only its own room
-  (`room_refreshed`), the controller checks the next room by id, and a timed
-  out step holds the slot one more step and then ends the pass.
+- **Auto mark-read pass**: a mark-read re-sends only its own room
+  (`room_refreshed`) and the controller checks the next room by id, so the
+  controller is linear; each `roomsChanged` model refresh is still O(rooms). A
+  timed out step holds the slot one more step and then ends the pass, so one
+  request is in flight per pass.
 - **An open thread panel refills** after the own-join reopen clears the room's
   event cache: a Clear (or a batch leaving no remote rows) forgets the known
   start and paginates the thread once.
@@ -19,6 +21,14 @@
 - **#64 LOW-2/LOW-3**: the focus refusal logs `lanAllowance=` (applied,
   not_advertised, unknown, not_applied); the focus well-known is fetched by an
   https-only client on the account's proxy route.
+
+ACCEPTED FOLLOW-UPS from the §18 review of `followups`:
+
+- L2: a redacted stable-poll vote or end is not re-tallied until the next
+  response or end arrives (a redaction is not a reference to the poll).
+- L6: the https-only test asks for plain http directly; no test drives a real
+  https -> http redirect hop (needs a local TLS server).
+- Threaded stable polls stay unrendered everywhere, the thread panel included.
 
 ## 2026-11-02 — OPEN after the echo-cancellation fix
 

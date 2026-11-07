@@ -222,3 +222,16 @@ async fn a_stable_poll_is_a_row_and_its_receipt_reads_the_room() {
     sync(&client, &srv, vec![], Some(receipt(target.as_str(), Some("main"))), "3").await;
     assert_eq!(settled_unread(&client).await, 0);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stable_poll_start_no_row_shows_does_not_leave_the_room_unread() {
+    let edit = json!({"type":"m.poll.start","event_id":"$pe","sender":ALICE,
+        "origin_server_ts":3,"content":{"m.text":[{"body":"q2"}],
+        "m.relates_to":{"rel_type":"m.replace","event_id":"$old"},
+        "m.new_content":{"m.text":[{"body":"q2"}],
+            "m.poll":{"kind":"m.disclosed","max_selections":1,"question":{"m.text":[{"body":"q2"}]},
+            "answers":[{"m.id":"a","m.text":[{"body":"a"}]},{"m.id":"b","m.text":[{"body":"b"}]}]}},
+        "m.poll":{"kind":"m.disclosed","max_selections":1,"question":{"m.text":[{"body":"q2"}]},
+        "answers":[{"m.id":"a","m.text":[{"body":"a"}]},{"m.id":"b","m.text":[{"body":"b"}]}]}}});
+    assert_eq!(read_then_receipt_where_lightning_puts_it(vec![edit]).await, 0);
+}

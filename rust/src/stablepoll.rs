@@ -26,13 +26,17 @@ pub(crate) const START_TYPE: &str = "m.poll.start";
 const RESPONSE_TYPES: [&str; 2] = ["m.poll.response", "org.matrix.msc3381.poll.response"];
 const END_TYPES: [&str; 2] = ["m.poll.end", "org.matrix.msc3381.poll.end"];
 
-/// A new stable poll, not an edit of one.
+/// A new, unthreaded stable poll. matrix-sdk-ui never marks an "other" row as
+/// threaded, so a threaded one would leak into the main timeline (§8).
 pub(crate) fn is_start(event: &AnySyncTimelineEvent) -> bool {
     matches!(
         event,
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::PollStart(
             SyncMessageLikeEvent::Original(start),
-        )) if !matches!(start.content.relates_to, Some(Relation::Replacement(_)))
+        )) if !matches!(
+            start.content.relates_to,
+            Some(Relation::Replacement(_) | Relation::Thread(_))
+        )
     )
 }
 
@@ -235,12 +239,16 @@ impl Watch {
         room: &Room,
         store: &std::sync::Mutex<HashMap<String, Tally>>,
         ids: &[String],
+        still_current: impl Fn() -> bool,
     ) -> Vec<String> {
         let mut changed = Vec::new();
         for id in ids {
             let Some((sender, start)) = self.polls.get(id) else { continue };
             let Ok(event_id) = EventId::parse(id) else { continue };
             let tally = load_tally(room, &event_id, sender, start).await;
+            if !still_current() {
+                return Vec::new();
+            }
             let Ok(mut map) = store.lock() else { continue };
             if map.get(id) != Some(&tally) {
                 if map.len() >= MAX_TALLIES {
@@ -313,6 +321,11 @@ mod tests {
         edit["content"]["m.new_content"] = edit["content"].clone();
         let event: AnySyncTimelineEvent = raw(edit).deserialize().unwrap();
         assert!(!is_start(&event));
+        let mut threaded = start_json();
+        threaded["content"]["m.relates_to"] = json!({"rel_type": "m.thread", "event_id": "$root"});
+        let event: AnySyncTimelineEvent = raw(threaded).deserialize().unwrap();
+        assert!(!is_start(&event), "a threaded stable poll would leak into main");
+        assert!(!crate::timeline::lightning_event_filter(&event, &rules));
         let response: AnySyncTimelineEvent =
             raw(response("$v", "@bob:x", 2000, &["a"], true)).deserialize().unwrap();
         assert!(!crate::timeline::lightning_event_filter(&response, &rules));
