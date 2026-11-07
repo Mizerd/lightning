@@ -134,7 +134,9 @@ pub(crate) fn lightning_event_filter(
     rules: &RoomVersionRules,
 ) -> bool {
     FILTER_OFFERED.fetch_add(1, Ordering::Relaxed);
-    if !default_event_filter(event, rules) && !is_visible_room_message(event) {
+    if !default_event_filter(event, rules) && !is_visible_room_message(event)
+        && !crate::stablepoll::is_start(event)
+    {
         FILTER_DROP_SDK.fetch_add(1, Ordering::Relaxed);
         return false;
     }
@@ -149,7 +151,8 @@ pub(crate) fn shown_by_lightning_filter(
     event: &AnySyncTimelineEvent,
     rules: &RoomVersionRules,
 ) -> bool {
-    (default_event_filter(event, rules) || is_visible_room_message(event))
+    (default_event_filter(event, rules) || is_visible_room_message(event)
+        || crate::stablepoll::is_start(event))
         && !is_rtc_membership_event(event)
 }
 
@@ -443,6 +446,7 @@ pub struct TimelineRegistry {
     thread_auto_subscriptions: Mutex<Vec<tokio::task::AbortHandle>>,
     threads_in_live: AtomicBool,
     unthreaded_receipts: AtomicBool,
+    stable_poll_tallies: Mutex<HashMap<String, crate::stablepoll::Tally>>,
 }
 
 #[derive(Clone, Copy)]
@@ -502,6 +506,7 @@ impl TimelineRegistry {
             thread_auto_subscriptions: Mutex::new(Vec::new()),
             threads_in_live: AtomicBool::new(false),
             unthreaded_receipts: AtomicBool::new(false),
+            stable_poll_tallies: Mutex::new(HashMap::new()),
         }
     }
 
@@ -2852,6 +2857,8 @@ send queue owes nothing for them: {in_flight:?}"
         opened_ms,
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
     );
+    let mut stable_polls = crate::stablepoll::Watch::default();
+    let polls_seen = stable_polls.observe(items.iter());
     let mut tail = LiveTail::new(items.clone());
     enqueue(
         &events,
@@ -2865,6 +2872,11 @@ send queue owes nothing for them: {in_flight:?}"
             "trim_shrunk": trim_report.map(|(_, shrunk)| shrunk),
         }),
     );
+    let poll_view = StablePollRepaint {
+        room: &room, registry: &registry, events: &events, room_id: &room_id,
+        room_gen, lifecycle, own_user: &own_user,
+    };
+    poll_view.refresh(&mut stable_polls, &polls_seen, &tail).await;
 
     {
         let registry = Arc::clone(&registry);
@@ -2908,6 +2920,12 @@ send queue owes nothing for them: {in_flight:?}"
                     );
                 }
             }
+            polls = stable_polls.next_update(), if stable_polls.watching() => {
+                if !registry.is_current(room_gen, lifecycle) {
+                    break;
+                }
+                poll_view.refresh(&mut stable_polls, &polls, &tail).await;
+            }
             maybe_diffs = stream.next() => {
                 let Some(diffs) = maybe_diffs else { break };
                 if !registry.is_current(room_gen, lifecycle) {
@@ -2915,8 +2933,10 @@ send queue owes nothing for them: {in_flight:?}"
                 }
                 let mut push_context = None;
                 backlog.begin_batch();
+                let mut polls_seen = Vec::new();
                 for diff in diffs {
                     let changed = diff_items(&diff);
+                    polls_seen.extend(stable_polls.observe(changed.iter()));
                     fetch_missing_reply_details(
                         &timeline, changed.iter(), &reply_details_fetched,
                     );
@@ -2948,7 +2968,45 @@ send queue owes nothing for them: {in_flight:?}"
                     );
                     enqueue(&events, value);
                 }
+                if !polls_seen.is_empty() {
+                    poll_view.refresh(&mut stable_polls, &polls_seen, &tail).await;
+                }
             }
+        }
+    }
+}
+
+/// Re-tallies stable polls and repaints the rows whose tally moved.
+struct StablePollRepaint<'a> {
+    room: &'a matrix_sdk::Room,
+    registry: &'a Arc<TimelineRegistry>,
+    events: &'a EventQueue,
+    room_id: &'a str,
+    room_gen: u64,
+    lifecycle: u64,
+    own_user: &'a str,
+}
+
+impl StablePollRepaint<'_> {
+    async fn refresh(
+        &self,
+        watch: &mut crate::stablepoll::Watch,
+        ids: &[String],
+        tail: &LiveTail<Arc<TimelineItem>>,
+    ) {
+        if ids.is_empty() {
+            return;
+        }
+        watch.subscribe(self.room).await;
+        let changed = watch.refresh(self.room, &self.registry.stable_poll_tallies, ids).await;
+        for id in changed {
+            let Some((index, item)) = tail.find_event(&id) else { continue };
+            let repaint = VectorDiff::Set { index, value: item };
+            enqueue(
+                self.events,
+                diff_to_json(self.room_id, self.room_gen, self.lifecycle, &repaint,
+                             self.own_user, self.registry),
+            );
         }
     }
 }
@@ -3723,6 +3781,13 @@ impl<T: Clone + RemoteEventItem> LiveTail<T> {
 }
 
 impl LiveTail<Arc<TimelineItem>> {
+    fn find_event(&self, event_id: &str) -> Option<(usize, Arc<TimelineItem>)> {
+        self.items()?.iter().enumerate().find_map(|(index, item)| {
+            (item.as_event()?.event_id()?.as_str() == event_id)
+                .then(|| (index, Arc::clone(item)))
+        })
+    }
+
     fn thread_roots_flipped_by(
         &self,
         before: Option<u64>,
@@ -4535,9 +4600,26 @@ fn event_item_to_json(
                         own_user,
                     );
                 }
-                MsgLikeKind::Other(_) => {
-                    out["msgtype"] = "unsupported".into();
-                    out["body"] = "[unsupported event]".into();
+                MsgLikeKind::Other(other) => {
+                    let stable_poll = (other.event_type().to_string()
+                        == crate::stablepoll::START_TYPE)
+                        .then(|| event.original_json().and_then(crate::stablepoll::parse_start))
+                        .flatten();
+                    if let Some(start) = stable_poll {
+                        let tally = event.event_id().and_then(|id| {
+                            registry.stable_poll_tallies.lock().ok()?.get(id.as_str()).cloned()
+                        }).unwrap_or_default();
+                        let fallback = start.text.find_plain().map(ToOwned::to_owned);
+                        fill_poll_content(
+                            &mut out,
+                            &PollView::from_stable(start, tally),
+                            fallback,
+                            own_user,
+                        );
+                    } else {
+                        out["msgtype"] = "unsupported".into();
+                        out["body"] = "[unsupported event]".into();
+                    }
                 }
                 MsgLikeKind::LiveLocation(state) => {
                     let latest = state.latest_location();
@@ -5718,6 +5800,30 @@ pub(crate) struct PollView {
 }
 
 impl PollView {
+    fn from_stable(
+        start: matrix_sdk::ruma::events::poll::start::PollStartEventContent,
+        tally: crate::stablepoll::Tally,
+    ) -> Self {
+        use matrix_sdk::ruma::events::poll::start::PollKind as StableKind;
+        let text = |block: &matrix_sdk::ruma::events::message::TextContentBlock| {
+            block.find_plain().unwrap_or_default().to_owned()
+        };
+        PollView {
+            question: text(&start.poll.question.text),
+            disclosed: matches!(start.poll.kind, StableKind::Disclosed),
+            max_selections: u64::from(start.poll.max_selections),
+            answers: start
+                .poll
+                .answers
+                .iter()
+                .map(|answer| (answer.id.clone(), text(&answer.text)))
+                .collect(),
+            votes: tally.votes,
+            ended: tally.ended,
+            edited: false,
+        }
+    }
+
     fn from_results(results: PollResult) -> Self {
         PollView {
             question: results.question,
@@ -5801,6 +5907,11 @@ fn content_kind(content: &TimelineItemContent) -> (&'static str, usize) {
             MsgLikeKind::UnableToDecrypt(_) => ("encrypted", 0),
             MsgLikeKind::Sticker(_) => ("sticker", 0),
             MsgLikeKind::Poll(_) => ("poll", 0),
+            MsgLikeKind::Other(other)
+                if other.event_type().to_string() == crate::stablepoll::START_TYPE =>
+            {
+                ("poll", 0)
+            }
             _ => ("unsupported", 0),
         },
         _ => ("unsupported", 0),
@@ -5846,6 +5957,11 @@ fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
                 } else {
                     format!("Poll: {question}")
                 }
+            }
+            MsgLikeKind::Other(other)
+                if other.event_type().to_string() == crate::stablepoll::START_TYPE =>
+            {
+                "[poll]".to_owned()
             }
             MsgLikeKind::Other(_) | MsgLikeKind::LiveLocation(_) => {
                 "[unsupported event]".to_owned()

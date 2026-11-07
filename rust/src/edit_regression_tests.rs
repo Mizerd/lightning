@@ -624,3 +624,51 @@ async fn next_event(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stable_poll_is_a_poll_row_with_votes_from_both_namespaces() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let poll = json!({"type":"m.poll.start", "event_id":"$poll", "sender":SENDER,
+        "origin_server_ts":1000, "content":{"m.text":[{"body":"Lunch?"}],
+        "m.poll":{"kind":"m.disclosed", "max_selections":1,
+            "question":{"m.text":[{"body":"Lunch?"}]},
+            "answers":[{"m.id":"a", "m.text":[{"body":"Pizza"}]},
+                       {"m.id":"b", "m.text":[{"body":"Soup"}]}]}}});
+    let reference = json!({"rel_type":"m.reference", "event_id":"$poll"});
+    let stable_vote = json!({"type":"m.poll.response", "event_id":"$v1",
+        "sender":"@bob:localhost", "origin_server_ts":2000,
+        "content":{"m.selections":["a"], "m.relates_to":reference}});
+    let unstable_vote = json!({"type":"org.matrix.msc3381.poll.response", "event_id":"$v2",
+        "sender":"@carol:localhost", "origin_server_ts":2100,
+        "content":{"org.matrix.msc3381.poll.response":{"answers":["a"]},
+            "m.relates_to":reference}});
+    sync(&client, vec![poll, stable_vote, unstable_vote, message("$after", "after", 3000)], "1")
+        .await;
+    let timeline = build(&client).await;
+    let poll_row = wait_field(&timeline, "$poll", "msgtype", "poll").await;
+    assert_eq!(poll_row["poll_question"], "Lunch?");
+    assert_eq!(poll_row["poll_answers"].as_array().map(Vec::len), Some(2));
+    wait_body(&timeline, "$after", "after").await;
+    assert!(row(&timeline, "$v1").await.is_null(), "a vote is never a row");
+
+    let room = client.get_room(room_id!("!edits:localhost")).unwrap();
+    let mut watch = crate::stablepoll::Watch::default();
+    let items = timeline.items().await;
+    let ids = watch.observe(items.iter());
+    assert_eq!(ids, vec!["$poll".to_owned()]);
+    let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+    let changed = watch.refresh(&room, &registry.stable_poll_tallies, &ids).await;
+    assert_eq!(changed, ids);
+    let poll_item = items
+        .iter()
+        .find(|item| item.as_event().and_then(|e| e.event_id()).map(|e| e.as_str()) == Some("$poll"))
+        .unwrap();
+    let rendered = item_to_json(poll_item, ROOM, "@bob:localhost", &registry);
+    let pizza = &rendered["poll_answers"][0];
+    assert_eq!(pizza["id"], "a");
+    assert_eq!(pizza["count"], 2);
+    assert_eq!(pizza["by_me"], true);
+    assert_eq!(rendered["poll_total_voters"], 2);
+}

@@ -1521,11 +1521,24 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   newest receipt; the automatic receipt lands on the newest visible row.
   `receipt_target_past_relations` (`rust/src/lib.rs`) therefore moves it past
   trailing reactions and poll ends aimed at a known unthreaded event, and
-  past an unrendered stable `m.poll.start` / `m.message`; otherwise the room
-  kept an unread dot with nothing new on screen. Consequence: a client that
-  renders stable polls shows such a poll as read here (follow-up in
-  `docs/open-items.md`). `ReadReceiptCoordinator` resends the same event once
-  when only the unread flag stays set, as it already did for counts.
+  past an unrendered extensible `m.message`; otherwise the room kept an unread
+  dot with nothing new on screen. `ReadReceiptCoordinator` resends the same
+  event once when only the unread flag stays set, as it already did for
+  counts.
+- **Stable polls (2026-11-07).** matrix-sdk-ui knows only the MSC3381
+  unstable namespace, so `lightning_event_filter` admits a stable
+  `m.poll.start` itself and it reaches the timeline as an "other" row;
+  `rust/src/stablepoll.rs` reads the poll from that row's JSON and tallies
+  responses of BOTH namespaces from the room's event cache with ruma's
+  `compile_poll_results` (latest response per user, a spoiled vote counts for
+  nothing, responses after the end are dropped). An end counts only from the
+  poll's sender or someone allowed to redact other people's events (the SDK
+  checks neither for unstable polls). The main timeline subscribes to the
+  room's event cache only once it shows a stable poll, and repaints a poll's
+  row when its tally moves; a thread panel shows the tally the main timeline
+  last computed. Votes and ends are still sent in the unstable namespace,
+  which this tally and Element both count. The row is a real row now, so the
+  automatic receipt no longer skips it.
 - **Mark all rooms read automatically (2026-11-05).** Off (default) / 15 /
   30 / 60 minutes / custom 5..1440, a device setting. `AutoMarkReadController`
   runs one pass per interval for the active account only, through

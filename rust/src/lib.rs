@@ -109,6 +109,7 @@ mod pagewalk;
 mod pinned;
 mod search;
 mod sso;
+mod stablepoll;
 mod stickers;
 mod uia;
 mod warm_rooms;
@@ -2688,7 +2689,7 @@ pub(crate) fn receipt_target_past_relations(
             e.target.as_ref().is_some_and(known_main)
         }
         // matrix-sdk counts these as unread, and no timeline row ever shows them.
-        Some("m.poll.start" | "m.message") => !e.threaded,
+        Some("m.message") => !e.threaded,
         Some("m.room.redaction") => e.target.as_ref().is_some_and(|t| {
             tail.iter().any(|x| &x.id == t && x.kind.as_deref() == Some("m.reaction"))
         }),
@@ -14759,10 +14760,16 @@ mod tests {
         assert_eq!(pick("$m2:x", &ended_stable), id("$pe:x"));
         let ended_unknown = vec![msg("$m2:x"), ev("$pe:x", "m.poll.end", Some("$gone:x"), false)];
         assert_eq!(pick("$m2:x", &ended_unknown), id("$m2:x"));
-        let unrendered = vec![msg("$m2:x"), ev("$ps:x", "m.poll.start", None, false)];
-        assert_eq!(pick("$m2:x", &unrendered), id("$ps:x"));
-        let unrendered_thread = vec![msg("$m2:x"), ev("$ps:x", "m.poll.start", None, true)];
-        assert_eq!(pick("$m2:x", &unrendered_thread), id("$m2:x"));
+        let stable_start = vec![msg("$m2:x"), ev("$ps:x", "m.poll.start", None, false)];
+        assert_eq!(pick("$m2:x", &stable_start), id("$m2:x"));
+        let stable_ended = vec![
+            ev("$ps:x", "m.poll.start", None, false),
+            msg("$m2:x"),
+            ev("$pe:x", "m.poll.end", Some("$ps:x"), false),
+        ];
+        assert_eq!(pick("$m2:x", &stable_ended), id("$pe:x"));
+        let unrendered = vec![msg("$m2:x"), ev("$em:x", "m.message", None, false)];
+        assert_eq!(pick("$m2:x", &unrendered), id("$em:x"));
     }
 
     #[test]
