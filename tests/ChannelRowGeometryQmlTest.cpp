@@ -685,6 +685,30 @@ private Q_SLOTS:
                     .contains(QStringLiteral("RoomActionsMenu")));
     }
 
+    void aQuietRoomTheServerStillCountsOffersMarkAsRead()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "quiet"
+            notificationMode: 2
+            rawUnread: true
+        })")));
+        QQuickItem *row = h.item();
+        QVERIFY(row);
+        QVERIFY(!row->property("readsUnread").toBool());
+        QVERIFY(QMetaObject::invokeMethod(row, "openContextMenu"));
+        QCoreApplication::processEvents();
+        QObject *menu =
+            row->findChild<QObject *>(QStringLiteral("channelContextMenu"));
+        QVERIFY(menu);
+        QVERIFY(menu->property("isUnread").toBool());
+        row->setProperty("rawUnread", false);
+        QVERIFY(!menu->property("isUnread").toBool());
+    }
+
     void aRecycledRowClosesItsOpenMenu()
     {
         Harness h;

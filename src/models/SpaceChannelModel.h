@@ -73,6 +73,7 @@ public:
         IsFavouriteRole,
         IsLowPriorityRole,
         IconNameRole,
+        RawUnreadRole,
     };
 
     explicit SpaceChannelModel(QObject *parent = nullptr);
@@ -163,6 +164,7 @@ private:
         int unread = 0;
         int highlight = 0;
         bool hasUnread = false;
+        bool rawUnread = false;
         int threadUnreadKind = 0;
         bool favourite = false;
         bool lowPriority = false;

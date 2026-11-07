@@ -220,6 +220,7 @@ Item {
                     unreadCount: rowLoader.model.unreadCount
                     highlightCount: rowLoader.model.highlightCount
                     hasUnread: rowLoader.model.hasUnread
+                    rawUnread: rowLoader.model.rawUnread === true
                     threadUnreadKind: rowLoader.model.threadUnreadKind || 0
                     isFavourite: rowLoader.model.isFavourite
                     isLowPriority: rowLoader.model.isLowPriority

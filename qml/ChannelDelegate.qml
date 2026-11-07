@@ -28,6 +28,7 @@ ItemDelegate {
     property int threadUnreadKind: 0
     readonly property bool threadOnly: threadUnreadKind > 0 && !isInvite && !muted
     property bool hasUnread: false
+    property bool rawUnread: false
     property bool active: false
     property bool batchSelected: false
     property int depth: 0
@@ -384,7 +385,7 @@ ItemDelegate {
             isFavourite: root.isFavourite
             isLowPriority: root.isLowPriority
             isInvite: root.isInvite
-            isUnread: root.readsUnread
+            isUnread: root.readsUnread || root.rawUnread
             onAcceptInviteRequested: root.acceptInvite()
             onRejectInviteRequested: root.rejectInvite()
             onMarkRead: root.markRead()

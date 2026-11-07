@@ -52,6 +52,7 @@ bool SpaceChannelModel::Row::operator==(const Row &other) const
            && isDirect == other.isDirect && isInvite == other.isInvite
            && encrypted == other.encrypted && unread == other.unread
            && highlight == other.highlight && hasUnread == other.hasUnread
+           && rawUnread == other.rawUnread
            && threadUnreadKind == other.threadUnreadKind
            && favourite == other.favourite
            && lowPriority == other.lowPriority
@@ -608,6 +609,7 @@ QHash<int, QByteArray> SpaceChannelModel::roleNames() const
         { IsFavouriteRole, "isFavourite" },
         { IsLowPriorityRole, "isLowPriority" },
         { IconNameRole, "iconName" },
+        { RawUnreadRole, "rawUnread" },
     };
 }
 
@@ -669,6 +671,8 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
         return row.lowPriority;
     case IconNameRole:
         return row.iconName;
+    case RawUnreadRole:
+        return row.rawUnread;
     default:
         return {};
     }
@@ -785,6 +789,7 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     row.highlight = roomunread::mentionCount(info, mode);
     row.hasUnread = row.isInvite
                     || roomunread::countsAsUnread(info, mode);
+    row.rawUnread = !row.isInvite && roomunread::rawUnread(info);
     row.threadUnreadKind =
         row.isInvite ? 0 : roomunread::threadUnreadKind(info, mode);
     row.favourite = info.isFavourite;

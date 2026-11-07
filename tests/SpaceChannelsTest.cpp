@@ -1201,6 +1201,31 @@ private Q_SLOTS:
                               SpaceChannelModel::UnreadCountRole).toInt(), 7);
     }
 
+    void aQuietRoomKeepsItsRawUnreadForTheMenu()
+    {
+        Fixture f;
+        QList<RoomInfo> rooms = {
+            space(QStringLiteral("!s:x"), QStringLiteral("Space"),
+                  { QStringLiteral("!quiet:x"), QStringLiteral("!read:x") }),
+            room(QStringLiteral("!quiet:x"), QStringLiteral("quiet"), 3),
+            room(QStringLiteral("!read:x"), QStringLiteral("read")),
+        };
+        f.settings.setRoomNotificationMode(QStringLiteral("!quiet:x"),
+                                           roomunread::kModeMute);
+        f.build(rooms);
+        f.selectSpace(QStringLiteral("!s:x"));
+        const int quiet = f.model.rowForRoom(QStringLiteral("!quiet:x"));
+        const int read = f.model.rowForRoom(QStringLiteral("!read:x"));
+        QVERIFY(quiet >= 0 && read >= 0);
+        QVERIFY(!f.model.data(f.model.index(quiet, 0),
+                              SpaceChannelModel::HasUnreadRole).toBool());
+        QVERIFY(f.model.data(f.model.index(quiet, 0),
+                             SpaceChannelModel::RawUnreadRole).toBool());
+        QVERIFY(!f.model.data(f.model.index(read, 0),
+                              SpaceChannelModel::RawUnreadRole).toBool());
+        QVERIFY(f.model.roleNames().values().contains("rawUnread"));
+    }
+
     void anEncryptedRoomOnlyClaimsEncryptionItKnowsAbout()
     {
         Fixture f;
