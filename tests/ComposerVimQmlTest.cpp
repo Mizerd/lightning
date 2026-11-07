@@ -236,6 +236,29 @@ private Q_SLOTS:
         QCOMPARE(text(), QStringLiteral("draft"));
     }
 
+    void completionPopupsStayClosedInNormalMode()
+    {
+        m_controller->settings()->setVimComposer(true);
+        focusFresh();
+        QObject *popup = m_root->findChild<QObject *>(QStringLiteral("mentionPopup"));
+        QVERIFY(popup);
+        type(QStringLiteral("@roo"));
+        QTRY_VERIFY(popup->property("visible").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QVERIFY(!vim()->normal());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY(vim()->normal());
+        type(QStringLiteral("h"));
+        QTest::qWait(50);
+        QVERIFY(!popup->property("visible").toBool());
+        type(QStringLiteral("A"));
+        QVERIFY(!vim()->normal());
+        type(QStringLiteral("m"));
+        QTRY_VERIFY(popup->property("visible").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+    }
+
     void disablingTheSettingReturnsToInsert()
     {
         m_controller->settings()->setVimComposer(true);

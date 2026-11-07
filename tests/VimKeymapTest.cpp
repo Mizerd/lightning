@@ -268,6 +268,23 @@ private Q_SLOTS:
         QCOMPARE(e.marked(), expected);
     }
 
+    void richLineSeparatorsAreLineBreaks()
+    {
+        VimKeymap vim;
+        vim.setUseSystemClipboard(false);
+        const QString buf = QStringLiteral("ab") + QChar(QChar::LineSeparator)
+            + QStringLiteral("cd") + QChar(QChar::ParagraphSeparator)
+            + QStringLiteral("ef");
+        QCOMPARE(vim.enterNormal(buf, 5), 4);
+        auto r = vim.handle(Qt::Key_K, Qt::NoModifier, QStringLiteral("k"), buf, 4);
+        QCOMPARE(r.cursor, 1);
+        r = vim.handle(Qt::Key_J, Qt::NoModifier, QStringLiteral("j"), buf, 1);
+        QCOMPARE(r.cursor, 4);
+        r = vim.handle(Qt::Key_J, Qt::NoModifier, QStringLiteral("j"), buf, 4);
+        QCOMPARE(r.cursor, 7);
+        QCOMPARE(vim.clampNormal(buf, 2), 1);
+    }
+
     void arrowKeysMove()
     {
         Editor e(QStringLiteral("ab|c\ndef"), true);

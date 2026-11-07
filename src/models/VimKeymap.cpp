@@ -144,6 +144,16 @@ int endOfCurrentWord(const QString &buf, int pos)
     return p;
 }
 
+// A rich editor separates lines with U+2028/U+2029; both are one position.
+QString lineBreaksAsNewlines(QString text)
+{
+    for (QChar &c : text) {
+        if (c == QChar::LineSeparator || c == QChar::ParagraphSeparator)
+            c = u'\n';
+    }
+    return text;
+}
+
 QString repeated(const QString &text, int count)
 {
     QString out;
@@ -234,8 +244,9 @@ QString VimKeymap::readRegister() const
     return m_register;
 }
 
-int VimKeymap::enterNormal(const QString &buffer, int cursor)
+int VimKeymap::enterNormal(const QString &raw, int cursor)
 {
+    const QString buffer = lineBreaksAsNewlines(raw);
     clearPending();
     m_wantColumn = -1;
     setNormal(true);
@@ -254,7 +265,7 @@ void VimKeymap::enterInsert()
 
 int VimKeymap::clampNormal(const QString &buffer, int cursor) const
 {
-    return clampToLine(buffer, cursor);
+    return clampToLine(lineBreaksAsNewlines(buffer), cursor);
 }
 
 QString VimKeymap::richInsertHtml(const QString &text)
@@ -289,9 +300,10 @@ QVariantMap VimKeymap::handleKey(int key, int modifiers, const QString &text,
 }
 
 VimKeymap::Result VimKeymap::handle(int key, Qt::KeyboardModifiers modifiers,
-                                    const QString &text, const QString &buffer,
+                                    const QString &text, const QString &raw,
                                     int cursor)
 {
+    const QString buffer = lineBreaksAsNewlines(raw);
     Result r;
     if (!m_normal)
         return r;

@@ -462,7 +462,7 @@ Item {
     function updateRichMentionState() {
         if (!root.richMode)
             return
-        if (app.currentRoomId === "") {
+        if (app.currentRoomId === "" || root.vimNormal) {
             mentionPopup.tokenActive = false
             mentionPopup.close()
             return
@@ -662,7 +662,7 @@ Item {
     function updateCommandPopupState() {
         var comps = app.composer.commandCompletions
         var flick = root.richMode ? richFlick : inputFlick
-        if (comps.length > 0 && !root.commandPopupDismissed
+        if (comps.length > 0 && !root.commandPopupDismissed && !root.vimNormal
                 && root.activeInput().activeFocus && app.currentRoomId !== "") {
             commandPopup.anchorInputTop = root.composerPopupAnchor(flick)
             commandPopup.anchorWidth = flick.width
@@ -709,7 +709,8 @@ Item {
             return
         }
         var editor = root.activeInput()
-        if (!editor || !editor.activeFocus || app.currentRoomId === "") {
+        if (!editor || !editor.activeFocus || app.currentRoomId === ""
+                || root.vimNormal) {
             emojiPopup.close()
             return
         }
@@ -844,7 +845,7 @@ Item {
             return
         root.lastMentionScanText = input.text
         root.lastMentionScanCursor = input.cursorPosition
-        if (app.currentRoomId === "") {
+        if (app.currentRoomId === "" || root.vimNormal) {
             mentionPopup.tokenActive = false
             mentionPopup.close()
             root.refreshMentionHighlight()
