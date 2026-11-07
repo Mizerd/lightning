@@ -3076,53 +3076,8 @@ async fn open_thread_task(
     );
 
     if !has_event_rows {
-        let atomics = match registry.active_thread.lock() {
-            Ok(guard) => match guard.as_ref() {
-                Some(thread) if thread.thread_gen == thread_gen => Some((
-                    Arc::clone(&thread.pagination_busy),
-                    Arc::clone(&thread.reached_start),
-                )),
-                _ => return,
-            },
-            Err(_) => return,
-        };
-        if let Some((busy, reached)) = atomics {
-            if !reached.load(Ordering::SeqCst)
-                && busy
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-            {
-                enqueue(
-                    &events,
-                    thread_pagination_json(&room_id, &root_event_id, thread_gen,
-                                           lifecycle, "loading", json!({})),
-                );
-                let events = Arc::clone(&events);
-                let registry = Arc::clone(&registry);
-                let timeline = Arc::clone(&timeline);
-                let room_id = room_id.clone();
-                let root_event_id = root_event_id.clone();
-                tokio::spawn(async move {
-                    let result = timeline.paginate_backwards(PAGINATION_BATCH).await;
-                    busy.store(false, Ordering::SeqCst);
-                    if !registry.thread_current(thread_gen, lifecycle) {
-                        return;
-                    }
-                    let payload = match result {
-                        Ok(hit_start) => {
-                            reached.store(hit_start, Ordering::SeqCst);
-                            thread_pagination_json(&room_id, &root_event_id,
-                                                   thread_gen, lifecycle, "idle",
-                                                   json!({ "reached_start": hit_start }))
-                        }
-                        Err(_err) => thread_pagination_json(
-                            &room_id, &root_event_id, thread_gen, lifecycle,
-                            "failed", json!({ "category": "network" })),
-                    };
-                    enqueue(&events, payload);
-                });
-            }
-        }
+        backfill_thread(&registry, &timeline, &events, &room_id, &root_event_id,
+                        thread_gen, lifecycle, false);
     }
 
     let fetch_timeline = Arc::clone(&timeline);
@@ -3141,7 +3096,13 @@ async fn open_thread_task(
                 }
                 let mut push_context = None;
                 backlog.begin_batch();
+                let mut cleared = false;
+                let mut removed = false;
                 for diff in diffs {
+                    cleared |= matches!(diff, VectorDiff::Clear);
+                    removed |= matches!(diff, VectorDiff::Remove { .. }
+                        | VectorDiff::Truncate { .. } | VectorDiff::PopFront
+                        | VectorDiff::PopBack);
                     let changed = diff_items(&diff);
                     fetch_missing_reply_details(
                         &timeline, changed.iter(), &reply_details_fetched,
@@ -3179,9 +3140,86 @@ async fn open_thread_task(
                     );
                     enqueue(&events, value);
                 }
+                // The room's event cache was cleared under us (the own-join
+                // reopen): the thread is empty and its start is unknown again.
+                // With a local echo pending the SDK removes rows instead of Clear.
+                if !cleared && removed {
+                    cleared = !timeline.items().await.iter().any(|item| {
+                        item.as_event().is_some_and(|event| !event.is_local_echo())
+                    });
+                }
+                if cleared {
+                    backfill_thread(&registry, &timeline, &events, &room_id,
+                                    &root_event_id, thread_gen, lifecycle, true);
+                }
             }
         }
     }
+}
+
+/// Paginates an open thread backwards once, unless its start is known or a
+/// pagination is already running. `restart` forgets a known start first.
+#[allow(clippy::too_many_arguments)]
+fn backfill_thread(
+    registry: &Arc<TimelineRegistry>,
+    timeline: &Arc<Timeline>,
+    events: &EventQueue,
+    room_id: &str,
+    root_event_id: &str,
+    thread_gen: u64,
+    lifecycle: u64,
+    restart: bool,
+) -> bool {
+    let (busy, reached) = match registry.active_thread.lock() {
+        Ok(guard) => match guard.as_ref() {
+            Some(thread) if thread.thread_gen == thread_gen => (
+                Arc::clone(&thread.pagination_busy),
+                Arc::clone(&thread.reached_start),
+            ),
+            _ => return false,
+        },
+        Err(_) => return false,
+    };
+    if restart {
+        reached.store(false, Ordering::SeqCst);
+    }
+    if reached.load(Ordering::SeqCst)
+        || busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+    {
+        return false;
+    }
+    enqueue(
+        events,
+        thread_pagination_json(room_id, root_event_id, thread_gen,
+                               lifecycle, "loading", json!({})),
+    );
+    let events = Arc::clone(events);
+    let registry = Arc::clone(registry);
+    let timeline = Arc::clone(timeline);
+    let room_id = room_id.to_owned();
+    let root_event_id = root_event_id.to_owned();
+    tokio::spawn(async move {
+        let result = timeline.paginate_backwards(PAGINATION_BATCH).await;
+        busy.store(false, Ordering::SeqCst);
+        if !registry.thread_current(thread_gen, lifecycle) {
+            return;
+        }
+        let payload = match result {
+            Ok(hit_start) => {
+                reached.store(hit_start, Ordering::SeqCst);
+                thread_pagination_json(&room_id, &root_event_id,
+                                       thread_gen, lifecycle, "idle",
+                                       json!({ "reached_start": hit_start }))
+            }
+            Err(_err) => thread_pagination_json(
+                &room_id, &root_event_id, thread_gen, lifecycle,
+                "failed", json!({ "category": "network" })),
+        };
+        enqueue(&events, payload);
+    });
+    true
 }
 
 fn context_pagination_json(

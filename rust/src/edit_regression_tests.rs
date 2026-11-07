@@ -526,3 +526,101 @@ async fn sdk_edit_redaction(with_forgery: bool) {
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_thread_refills_after_its_room_cache_is_cleared() {
+    use matrix_sdk::deserialized_responses::TimelineEvent;
+    use matrix_sdk::test_utils::mocks::RoomRelationsResponseTemplate;
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| {
+            b.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: false,
+            })
+        })
+        .build()
+        .await;
+    client.event_cache().subscribe().unwrap();
+    let root = message("$root", "root", 1000);
+    let mut reply = message("$reply", "in the thread", 2000);
+    reply["content"]["m.relates_to"] = json!({"rel_type":"m.thread", "event_id":"$root",
+        "is_falling_back":true, "m.in_reply_to":{"event_id":"$root"}});
+    sync(&client, vec![root.clone(), reply.clone()], "1").await;
+
+    let mut fetched = reply.clone();
+    fetched["room_id"] = json!(ROOM);
+    server
+        .mock_room_relations()
+        .match_target_event(matrix_sdk::ruma::EventId::parse("$root").unwrap())
+        .ok(RoomRelationsResponseTemplate::default()
+            .events(vec![Raw::from_json_string(fetched.to_string()).unwrap()]))
+        .mount()
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(TimelineEvent::from_plaintext(Raw::from_json_string(root.to_string()).unwrap()))
+        .mount()
+        .await;
+
+    let events: EventQueue = Arc::new(Mutex::new(VecDeque::new()));
+    let registry = Arc::new(TimelineRegistry::new(Arc::clone(&events)));
+    registry.thread_gen.store(1, Ordering::SeqCst);
+    let reached = Arc::new(AtomicBool::new(true));
+    *registry.active_thread.lock().unwrap() = Some(ActiveThread {
+        room_id: ROOM.to_owned(),
+        root_event_id: "$root".to_owned(),
+        thread_gen: 1,
+        timeline: None,
+        task: None,
+        pagination_busy: Arc::new(AtomicBool::new(false)),
+        reached_start: Arc::clone(&reached),
+    });
+    let lifecycle = registry.lifecycle_gen.load(Ordering::SeqCst);
+    let task = tokio::spawn(open_thread_task(
+        Arc::clone(&registry), client.clone(), ROOM.to_owned(), "$root".to_owned(),
+        1, lifecycle, Arc::clone(&events)));
+
+    let has_reply = |v: &serde_json::Value| v.to_string().contains("\"$reply\"");
+    next_event(&events, |v| {
+        (v["type"] == "thread_reset" || v["type"] == "thread_diff") && has_reply(v)
+    }).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    reached.store(true, Ordering::SeqCst);
+
+    let room = client.get_room(room_id!("!edits:localhost")).unwrap();
+    let (cache, _handles) = room.event_cache().await.unwrap();
+    cache.clear().await.unwrap();
+
+    next_event(&events, |v| v["type"] == "thread_diff" && v["op"] == "clear").await;
+    next_event(&events, |v| v["type"] == "thread_pagination" && v["state"] == "loading").await;
+    next_event(&events, |v| v["type"] == "thread_diff" && has_reply(v)).await;
+    task.abort();
+}
+
+async fn next_event(
+    events: &EventQueue,
+    pred: impl Fn(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let found = {
+            let mut queue = events.lock().unwrap();
+            let mut hit = None;
+            while let Some(raw) = queue.pop_front() {
+                let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+                if pred(&value) {
+                    hit = Some(value);
+                    break;
+                }
+            }
+            hit
+        };
+        if let Some(value) = found {
+            return value;
+        }
+        assert!(Instant::now() < deadline, "the expected thread event never arrived");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
