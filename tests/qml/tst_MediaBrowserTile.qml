@@ -70,7 +70,7 @@ TestCase {
             mimetype: "image/png", size: 200 * 1024, mediaWidth: 0,
             mediaHeight: 0, mxc: "mxc://example.org/file", thumbnailMxc: "",
             mediaKey: "$enc", encrypted: true, sender: "@a:example.org",
-            eventId: "$enc"
+            eventId: "$enc", spoiler: false
         }
         for (var k in overrides)
             r[k] = overrides[k]

@@ -280,7 +280,7 @@ private Q_SLOTS:
             "    }\n"
             "    function reveal(key) { SpoilerState.reveal(key) }\n"
             "}\n"
-            "\n"), QUrl(QStringLiteral("inline:SpoilerViewer.qml")));
+            "\n"), QUrl(QStringLiteral("file:///SpoilerViewer.qml")));
         std::unique_ptr<QObject> root(component.create());
         QVERIFY2(root, qPrintable(component.errorString()));
         const auto open = [&](int index) {
@@ -319,7 +319,7 @@ private Q_SLOTS:
             "        onActivated: opened++\n"
             "    }\n"
             "}\n"
-            "\n"), QUrl(QStringLiteral("inline:SpoilerTile.qml")));
+            "\n"), QUrl(QStringLiteral("file:///SpoilerTile.qml")));
         std::unique_ptr<QObject> root(component.create());
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *tile = root->property("tile").value<QObject *>();

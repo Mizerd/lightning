@@ -75,7 +75,7 @@ TestCase {
                 mxc: "mxc://x/" + i, thumbnailMxc: "", mediaKey: "",
                 encrypted: false, url: "", host: "", sender: "@a:x",
                 timestampMs: 1700000000000 + i * 1000, eventId: "$e" + i,
-                dateGroup: "Today"
+                dateGroup: "Today", spoiler: false
             })
     }
     function make(kind, n, category) {

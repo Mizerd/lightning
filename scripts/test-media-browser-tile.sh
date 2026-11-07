@@ -9,9 +9,10 @@ trap 'rm -rf "$imports"' EXIT
 mkdir -p "$imports/MatrixClient"
 ln -s "$repo/qml/IconGlyphs.js" "$imports/MatrixClient/IconGlyphs.js"
 printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
-for name in AppTheme MediaBrowserTile Icon AppMenu AppMenuItem MenuKeycap StormNode; do
+for name in AppTheme MediaBrowserTile Icon AppMenu AppMenuItem MenuKeycap StormNode \
+            SpoilerCover SpoilerState; do
     ln -s "$repo/qml/$name.qml" "$imports/MatrixClient/$name.qml"
-    if [[ $name = AppTheme ]]; then
+    if [[ $name = AppTheme || $name = SpoilerState ]]; then
         printf 'singleton '
     fi
     printf '%s 1.0 %s.qml\n' "$name" "$name"

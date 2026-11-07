@@ -11,9 +11,10 @@ ln -s "$repo/qml/IconGlyphs.js" "$imports/MatrixClient/IconGlyphs.js"
 printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
 for name in AppTheme MediaBrowser MediaBrowserTile MediaBrowserRow Icon AppMenu \
             AppMenuItem AppMenuSeparator MenuKeycap StormNode AppButton AppTextField AppComboBox \
-            AppScrollBar SmoothWheelArea MiddleClickScroller IconButton AppBusyIndicator; do
+            AppScrollBar SmoothWheelArea MiddleClickScroller IconButton AppBusyIndicator \
+            SpoilerCover SpoilerState; do
     ln -s "$repo/qml/$name.qml" "$imports/MatrixClient/$name.qml"
-    if [[ $name = AppTheme ]]; then
+    if [[ $name = AppTheme || $name = SpoilerState ]]; then
         printf 'singleton '
     fi
     printf '%s 1.0 %s.qml\n' "$name" "$name"
