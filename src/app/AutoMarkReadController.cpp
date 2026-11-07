@@ -18,20 +18,7 @@ AutoMarkReadController::AutoMarkReadController(QObject *parent)
     connect(&m_interval, &QTimer::timeout, this, &AutoMarkReadController::startPass);
     m_stepTimeout.setSingleShot(true);
     m_stepTimeout.setInterval(kStepTimeoutMs);
-    // A timed-out request is still in flight: wait for it once more rather
-    // than start another, then give the pass up.
-    connect(&m_stepTimeout, &QTimer::timeout, this, [this] {
-        if (m_active.isEmpty())
-            return;
-        if (!m_overdue) {
-            m_overdue = true;
-            qCInfo(lcAutoMarkRead) << "step overdue; holding the pass";
-            m_stepTimeout.start();
-            return;
-        }
-        qCInfo(lcAutoMarkRead) << "step abandoned; pass stopped left=" << m_queue.size();
-        stopPass();
-    });
+    connect(&m_stepTimeout, &QTimer::timeout, this, &AutoMarkReadController::stepTimedOut);
 }
 
 void AutoMarkReadController::setSources(MatrixClient *client, RoomListModel *rooms)
@@ -128,6 +115,22 @@ void AutoMarkReadController::finishRoom(const QString &roomId)
         if (generation == m_generation)
             next();
     }, Qt::QueuedConnection);
+}
+
+// A timed-out request is still in flight: wait for it once more rather than
+// start another, then give the pass up.
+void AutoMarkReadController::stepTimedOut()
+{
+    if (m_active.isEmpty())
+        return;
+    if (!m_overdue) {
+        m_overdue = true;
+        qCInfo(lcAutoMarkRead) << "step overdue; holding the pass";
+        m_stepTimeout.start();
+        return;
+    }
+    qCInfo(lcAutoMarkRead) << "step abandoned; pass stopped left=" << m_queue.size();
+    stopPass();
 }
 
 void AutoMarkReadController::stopPass()

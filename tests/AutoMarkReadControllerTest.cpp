@@ -185,14 +185,14 @@ private Q_SLOTS:
     void aTimedOutStepHoldsThePassThenGivesItUp()
     {
         Fixture f(15);
-        f.controller.setStepTimeoutMsForTest(80);
         QTRY_COMPARE(f.client.readRequests, QStringList{ A });
         f.controller.setIntervalMsForTest(600000);
-        QTest::qWait(120);
+        f.controller.expireStepForTest();
+        QTest::qWait(60);
         QCOMPARE(f.client.readRequests, QStringList{ A });
         QVERIFY(f.controller.passRunning());
-        QTRY_VERIFY(!f.controller.passRunning());
-        QCOMPARE(f.client.readRequests, QStringList{ A });
+        f.controller.expireStepForTest();
+        QVERIFY(!f.controller.passRunning());
         Q_EMIT f.client.readMarkerAdvanced(A);
         QTest::qWait(60);
         QCOMPARE(f.client.readRequests, QStringList{ A });
@@ -201,10 +201,10 @@ private Q_SLOTS:
     void anOverdueStepThatSettlesLetsThePassGoOn()
     {
         Fixture f(15);
-        f.controller.setStepTimeoutMsForTest(80);
         QTRY_COMPARE(f.client.readRequests, QStringList{ A });
         f.controller.setIntervalMsForTest(600000);
-        QTest::qWait(120);
+        f.controller.expireStepForTest();
+        QTest::qWait(60);
         QCOMPARE(f.client.readRequests, QStringList{ A });
         Q_EMIT f.client.readMarkerAdvanced(A);
         QTRY_COMPARE(f.client.readRequests, (QStringList{ A, B }));

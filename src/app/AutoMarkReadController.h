@@ -29,6 +29,7 @@ public:
 
     void setIntervalMsForTest(int ms) { m_testIntervalMs = ms; rearm(); }
     void setStepTimeoutMsForTest(int ms) { m_stepTimeout.setInterval(ms); }
+    void expireStepForTest() { stepTimedOut(); }
 
 Q_SIGNALS:
     void passStarted(int rooms);
@@ -38,6 +39,7 @@ private:
     void startPass();
     void next();
     void finishRoom(const QString &roomId);
+    void stepTimedOut();
     void stopPass();
 
     QPointer<MatrixClient> m_client;
