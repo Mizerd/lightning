@@ -4768,6 +4768,33 @@ false);
         QCOMPARE(watchedBy(fake), QStringList{});
     }
 
+    void theHeaderNeverShowsARawRoomId()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString listed = loginAndRoomIdAt(controller, 0);
+        QVERIFY(!listed.isEmpty());
+        const QString unlisted = QStringLiteral("!xCR0notlistedyet:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, unlisted,
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        auto *title = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderTitle"));
+        auto *avatar = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderAvatar"));
+        QVERIFY(title && avatar);
+        QTRY_VERIFY(!title->property("text").toString().isEmpty());
+        QVERIFY2(!title->property("text").toString().startsWith(QLatin1Char('!')),
+                 qPrintable(title->property("text").toString()));
+        QVERIFY(!avatar->property("name").toString().startsWith(QLatin1Char('!')));
+
+        controller.setCurrentRoomId(listed);
+        const QString name = controller.roomList()->findRoom(listed)
+                                 .value(QStringLiteral("name")).toString();
+        QVERIFY(!name.isEmpty());
+        QTRY_COMPARE(title->property("text").toString(), name);
+    }
+
     void aDmHeaderAvatarAndNameOpenThePeersProfile()
     {
         AppController controller(AppController::MockBackend);

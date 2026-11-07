@@ -321,10 +321,20 @@ Rectangle {
         : (searchOpen ? "search" : (infoOpen ? "info" : "none"))
 
     function refreshCurrentRoom() {
-        currentRoom = app.currentRoomId === ""
-                      ? ({})
-                      : app.roomList.findRoom(app.currentRoomId)
+        if (app.currentRoomId === "") {
+            currentRoom = ({})
+            return
+        }
+        var found = app.roomList.findRoom(app.currentRoomId)
+        // A room can drop out of the list for one update; keep what we knew
+        // rather than blank the header.
+        if (!found.name && currentRoom.id === app.currentRoomId && currentRoom.name)
+            return
+        currentRoom = found
     }
+    // Never the raw room id: it reads as garbage while a name is on its way.
+    readonly property string currentRoomTitle:
+        currentRoom.name || currentRoom.canonicalAlias || qsTr("Room")
 
     // Cancels a middle-click autoscroll. Called from every site that moves the
     // view (wheel, keyboard page, jump to latest, reply jump) so the two never
@@ -658,6 +668,7 @@ Rectangle {
         target: app.roomList
         function onDataChanged() { refreshCurrentRoom() }
         function onModelReset() { refreshCurrentRoom() }
+        function onRowsInserted() { refreshCurrentRoom() }
     }
     Component.onCompleted: {
         refreshCurrentRoom()
@@ -1068,7 +1079,7 @@ Rectangle {
                     visible: app.currentRoomId !== ""
                     size: 34
                     squareRadius: 9
-                    name: root.currentRoom.name || app.currentRoomId
+                    name: root.currentRoomTitle
                     mxc: root.inviteAvatarWithheld
                          ? "" : (root.currentRoom.avatarUrl || "")
                     colorKey: root.currentRoom.identityColorKey
@@ -1119,10 +1130,8 @@ Rectangle {
                             // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             text: {
-                                if (root.currentRoom.name)
-                                    return root.currentRoom.name
                                 if (app.currentRoomId !== "")
-                                    return app.currentRoomId
+                                    return root.currentRoomTitle
                                 var _dep = root.spacesTick
                                 if (app.spaces
                                         && app.spaces.activeSpaceId.length > 0
@@ -5074,7 +5083,7 @@ Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         size: 64
                         squareRadius: AppTheme.radiusLg
-                        name: root.currentRoom.name || app.currentRoomId
+                        name: root.currentRoomTitle
                         mxc: root.inviteAvatarWithheld
                              ? "" : (root.currentRoom.avatarUrl || "")
                         colorKey: root.currentRoom.identityColorKey
