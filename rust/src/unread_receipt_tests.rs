@@ -204,10 +204,21 @@ async fn an_ended_poll_after_the_newest_row_does_not_leave_the_room_unread() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_stable_poll_no_row_shows_does_not_leave_the_room_unread() {
+async fn a_stable_poll_is_a_row_and_its_receipt_reads_the_room() {
+    let (srv, client) = client().await;
+    sync(&client, &srv, vec![msg("$m2", 2)], Some(receipt("$m2", Some("main"))), "1").await;
+    assert_eq!(settled_unread(&client).await, 0, "the room starts read");
     let start = json!({"type":"m.poll.start","event_id":"$ps","sender":ALICE,
         "origin_server_ts":3,"content":{"m.text":[{"body":"q"}],
         "m.poll":{"kind":"m.disclosed","max_selections":1,"question":{"m.text":[{"body":"q"}]},
         "answers":[{"m.id":"a","m.text":[{"body":"a"}]},{"m.id":"b","m.text":[{"body":"b"}]}]}}});
-    assert_eq!(read_then_receipt_where_lightning_puts_it(vec![start]).await, 0);
+    sync(&client, &srv, vec![start], None, "2").await;
+    let row = latest_visible(&client).await.expect("a visible row");
+    assert_eq!(row, "$ps", "a stable poll draws a row of its own");
+    let room = client.get_room(room_id!("!unread:localhost")).unwrap();
+    let target = crate::in_room_receipt_target(
+        &room, matrix_sdk::ruma::OwnedEventId::try_from(row).unwrap()).await;
+    assert_eq!(target.as_str(), "$ps");
+    sync(&client, &srv, vec![], Some(receipt(target.as_str(), Some("main"))), "3").await;
+    assert_eq!(settled_unread(&client).await, 0);
 }
