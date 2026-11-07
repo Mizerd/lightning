@@ -1385,3 +1385,10 @@ After a resume the publisher is renegotiated (an offer or answer lost with the
 old socket would otherwise block every later renegotiation), the microphone mute
 is re-sent, the first participant list is taken as complete, and a publisher
 that is not connected gets the 10 s ICE grace and then the full rejoin.
+
+A publisher that is dead but still reports "connected" is not caught by that
+grace: the server does not restart the publisher's ICE, webrtcbin cannot, and
+libnice only notices when its consent freshness checks go unanswered, about 30 s
+later. Until then the call is one-way; the failure then takes the full rejoin.
+An answer to a publisher offer that a post-resume renegotiation superseded is
+dropped by its id, so it cannot be applied to the newer offer.

@@ -2749,12 +2749,13 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
     if (!sfuSessionLive())
         return;
     noteRemoteTrackMutes(updates);
-    if (std::exchange(m_resumeSnapshotPending, false)) {
-        // The first update after a resume lists everyone still in the room;
-        // a leave sent while our socket was down never reached us.
-        QSet<QString> present;
-        for (const QVariant &row : updates)
-            present.insert(row.toMap().value(QStringLiteral("identity")).toString());
+    QSet<QString> present;
+    for (const QVariant &row : updates)
+        present.insert(row.toMap().value(QStringLiteral("identity")).toString());
+    // The resume snapshot lists everyone, us included; a one-participant
+    // broadcast that lands first must not drop the rest.
+    if (m_resumeSnapshotPending && present.contains(m_ownIdentity)) {
+        m_resumeSnapshotPending = false;
         for (auto it = m_publisherParticipants.begin(); it != m_publisherParticipants.end();) {
             if (present.contains(it.key()))
                 ++it;

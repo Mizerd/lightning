@@ -8878,18 +8878,24 @@ QString(),
         RecordingCallClient client;
         SfuCallController call;
         connectRecoverableCall(client, call);
-        const QVariantList both{
-            sfuParticipant(QStringLiteral("@a:x:A"), QStringLiteral("PA_A"), {}),
-            sfuParticipant(QStringLiteral("@b:x:B"), QStringLiteral("PA_B"), {}),
-        };
-        Q_EMIT client.sfuParticipantsChanged(both);
-        QCOMPARE(call.participantCount(), 2);
-        const QVariantList onlyA{both.first()};
-        Q_EMIT client.sfuParticipantsChanged(onlyA);
-        QCOMPARE(call.participantCount(), 2);
+        call.setOwnIdentityForTest(QStringLiteral("@me:x:M"));
+        const QVariantMap me =
+            sfuParticipant(QStringLiteral("@me:x:M"), QStringLiteral("PA_M"), {});
+        const QVariantMap a =
+            sfuParticipant(QStringLiteral("@a:x:A"), QStringLiteral("PA_A"), {});
+        const QVariantMap b =
+            sfuParticipant(QStringLiteral("@b:x:B"), QStringLiteral("PA_B"), {});
+        Q_EMIT client.sfuParticipantsChanged({me, a, b});
+        const int everyone = call.participantCount();
+        Q_EMIT client.sfuParticipantsChanged({a});
+        QCOMPARE(call.participantCount(), everyone);
+
         client.emitSfuState(QStringLiteral("resumed"), QStringLiteral("signal_lost"));
-        Q_EMIT client.sfuParticipantsChanged(onlyA);
-        QCOMPARE(call.participantCount(), 1);
+        Q_EMIT client.sfuParticipantsChanged({a});
+        QVERIFY2(call.participantCount() == everyone,
+                 "a broadcast without us is not the resume snapshot");
+        Q_EMIT client.sfuParticipantsChanged({me, a});
+        QCOMPARE(call.participantCount(), everyone - 1);
     }
 
     void aReconnectThatNeverGetsBackEndsHonestly()

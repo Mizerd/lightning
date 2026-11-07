@@ -2,6 +2,15 @@
 
 
 
+## 2026-11-07 — ACCEPTED FOLLOW-UP: secondary multi-SFU connections do not act on a resume
+
+A signalling resume (GitHub #70) is handled for every connection in Rust, but
+`SfuCallController::onSfuConnectionEvent` forwards only failed / reconnecting /
+closed / ended for connections other than 0. A subscriber-only connection to
+another SFU therefore resumes without the controller's post-resume steps (ICE
+grace check, participant snapshot). Its subscriber ICE restart still runs in its
+own engine. NOT TESTED: no second SFU was available.
+
 ## 2026-11-07 — ACCEPTED FOLLOW-UPS from the spoiler-media review (GitHub #69)
 
 - The sender's own LOCAL ECHO of a spoiler is not covered: the send queue

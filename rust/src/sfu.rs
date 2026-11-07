@@ -695,6 +695,12 @@ pub(crate) fn signal_url(
     url
 }
 
+/// After a resume the publisher re-offers, and an answer to the superseded
+/// offer must not be applied to the new one. Id 0 is a server without ids.
+pub(crate) fn answer_is_current(answer_id: u32, last_offer_id: u32) -> bool {
+    answer_id == 0 || answer_id == last_offer_id
+}
+
 pub(crate) fn leave_asks_resume(action: i32) -> bool {
     matches!(lkp::leave_request::Action::try_from(action),
              Ok(lkp::leave_request::Action::Resume))
@@ -1239,7 +1245,9 @@ async fn run_session(
                             }
                         }
                         lkp::signal_response::Message::Answer(sdp) => {
-                            if media_capable.load(Ordering::SeqCst) {
+                            if media_capable.load(Ordering::SeqCst)
+                                && answer_is_current(sdp.id, local_offer_id[0])
+                            {
                                 emit(json!({
                                     "type": "sfu_remote_description",
                                     "generation": generation,
@@ -2466,6 +2474,13 @@ mod tests {
         assert_eq!(resumed.get("access_token").map(String::as_str), Some("tok2"));
         assert_eq!(resumed.get("protocol").map(String::as_str),
                    Some(LK_PROTOCOL_VERSION.to_string().as_str()));
+    }
+
+    #[test]
+    fn an_answer_to_a_superseded_offer_is_dropped() {
+        assert!(answer_is_current(2, 2));
+        assert!(!answer_is_current(1, 2));
+        assert!(answer_is_current(0, 2));
     }
 
     #[test]
