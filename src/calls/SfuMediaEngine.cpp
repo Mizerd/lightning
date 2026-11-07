@@ -279,11 +279,9 @@ GObject *iceStreamOf(GstElement *webrtc)
     return stream;
 }
 
-// Restarts the ICE stream behind webrtcbin, which never restarts on its own: it
-// answers an ICE-restart offer with its old credentials and keeps the pair the
-// remote side has just forgotten.
-// libnice's restart also forgets the remote credentials, so the offer's are
-// installed again.
+// webrtcbin never restarts ICE: libnice keeps checking the pair the remote side
+// has just forgotten. libnice's restart also clears the remote credentials, so
+// the offer's are installed again.
 bool restartIceStream(GstElement *webrtc, const QByteArray &remoteUfrag,
                       const QByteArray &remotePwd)
 {
@@ -311,53 +309,6 @@ bool restartIceStream(GstElement *webrtc, const QByteArray &remoteUfrag,
         g_object_unref(agent);
     g_object_unref(ice);
     return ok;
-}
-
-void replaceIceCredentials(GstSDPMessage *sdp, const QString &ufrag, const QString &pwd)
-{
-    if (!sdp)
-        return;
-    const QByteArray ufragBytes = ufrag.toUtf8();
-    const QByteArray pwdBytes = pwd.toUtf8();
-    const auto valueFor = [&](const gchar *key) -> const char * {
-        if (g_strcmp0(key, "ice-ufrag") == 0)
-            return ufragBytes.constData();
-        if (g_strcmp0(key, "ice-pwd") == 0)
-            return pwdBytes.constData();
-        return nullptr;
-    };
-    for (guint j = 0; j < gst_sdp_message_attributes_len(sdp); ++j) {
-        const GstSDPAttribute *old = gst_sdp_message_get_attribute(sdp, j);
-        if (const char *value = valueFor(old->key)) {
-            GstSDPAttribute attr{};
-            gst_sdp_attribute_set(&attr, old->key, value);
-            gst_sdp_message_replace_attribute(sdp, j, &attr);
-        }
-    }
-    for (guint i = 0; i < gst_sdp_message_medias_len(sdp); ++i) {
-        auto *media = const_cast<GstSDPMedia *>(gst_sdp_message_get_media(sdp, i));
-        for (guint j = 0; j < gst_sdp_media_attributes_len(media); ++j) {
-            const GstSDPAttribute *old = gst_sdp_media_get_attribute(media, j);
-            if (const char *value = valueFor(old->key)) {
-                GstSDPAttribute attr{};
-                gst_sdp_attribute_set(&attr, old->key, value);
-                gst_sdp_media_replace_attribute(media, j, &attr);
-            }
-        }
-    }
-}
-
-QString randomIceToken(int length)
-{
-    static constexpr char kAlphabet[] =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    QString token;
-    token.reserve(length);
-    for (int i = 0; i < length; ++i) {
-        token.append(QLatin1Char(kAlphabet[QRandomGenerator::system()->bounded(
-            static_cast<int>(sizeof(kAlphabet) - 1))]));
-    }
-    return token;
 }
 
 QString candidateInitJson(const QString &candidate, int mlineIndex)
@@ -9154,13 +9105,10 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     }
 
     if (iceRestart) {
-        // Restart first: it regenerates the agent's credentials, and the
-        // set-local-description below installs the ones the answer carries.
+        // The answer keeps the old local credentials on purpose: libnice's
+        // peer-reflexive candidates carry them and survive the restart, and the
+        // set-local-description below puts them back on the stream.
         const bool restarted = restartIceStream(webrtc, remoteIceUfrag, remoteIcePwd);
-        if (restarted) {
-            replaceIceCredentials(description->sdp, randomIceToken(16),
-                                  randomIceToken(32));
-        }
         qCInfo(lcSfuMedia) << "subscriber ICE restart answered restarted=" << restarted;
     }
 
