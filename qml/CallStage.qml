@@ -11,11 +11,15 @@ Rectangle {
     color: AppTheme.stormCanvas
 
     StreamInfoOverlay {
+        objectName: "callStageStreamInfo"
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.margins: AppTheme.spacing12
+        anchors.topMargin: stageColumn.y + callHeaderRow.y + callHeaderRow.height
+                           + AppTheme.spacing8
         width: Math.max(0, Math.min(480, parent.width - 2 * AppTheme.spacing12))
-        height: Math.max(0, Math.min(implicitHeight, parent.height - 2 * AppTheme.spacing12))
+        height: Math.max(0, Math.min(implicitHeight, parent.height
+                                     - anchors.topMargin - AppTheme.spacing12))
         z: 100
         visible: app.groupCall.streamInfoVisible && !root.fullScreenActive
         controller: app.groupCall
@@ -335,6 +339,7 @@ Rectangle {
     }
 
     ColumnLayout {
+        id: stageColumn
         anchors.fill: parent
         anchors.margins: root.collapsed ? AppTheme.spacing8 : AppTheme.spacing12
         spacing: AppTheme.spacing8

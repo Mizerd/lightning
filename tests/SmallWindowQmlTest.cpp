@@ -412,6 +412,18 @@ private Q_SLOTS:
                                   .arg(overlap.width());
             }
         }
+        if (!collapsed) {
+            call->setStreamInfoVisible(true);
+            QQuickItem *info = item("callStageStreamInfo");
+            QTRY_VERIFY(info && info->isVisible());
+            const QRectF ib = box(info);
+            for (const auto &cell : cells) {
+                const QRectF overlap = ib.intersected(cell.second);
+                if (overlap.width() > 1 && overlap.height() > 1)
+                    faults << QStringLiteral("Stream Info covers %1").arg(cell.first);
+            }
+            call->setStreamInfoVisible(false);
+        }
         pane->setProperty("callPanelCollapsed", false);
         call->setCallStateForTest(SfuCallController::State::Idle);
         Q_EMIT call->stateChanged();
