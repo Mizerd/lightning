@@ -164,6 +164,30 @@ ApplicationWindow {
         QVERIFY(m_controller->thread()->active());
     }
 
+    void theModeBadgeTakesNoWidthFromTheTextField()
+    {
+        openThreadPanel();
+        auto *editor = item("threadComposerInput");
+        auto *badge = item("threadVimMode");
+        QVERIFY(editor && badge);
+        QTRY_VERIFY(editor->width() > 0);
+        const qreal widthOff = editor->width();
+
+        m_controller->settings()->setVimComposer(true);
+        QTRY_VERIFY(badge->isVisible());
+        QTest::qWait(100);
+        QCOMPARE(editor->width(), widthOff);
+
+        const QRectF b = badge->mapRectToScene(
+            QRectF(0, 0, badge->width(), badge->height()));
+        const QRectF e = editor->mapRectToScene(
+            QRectF(0, 0, editor->width(), editor->height()));
+        QVERIFY2(!b.intersects(e),
+                 qPrintable(QStringLiteral("badge %1,%2 %3x%4 overlaps the field %5,%6 %7x%8")
+                                .arg(b.x()).arg(b.y()).arg(b.width()).arg(b.height())
+                                .arg(e.x()).arg(e.y()).arg(e.width()).arg(e.height())));
+    }
+
     void withVimOffEscapeStillClosesThePanel()
     {
         openThreadPanel();

@@ -1920,10 +1920,27 @@ Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: composerRow.implicitHeight
                                     + AppTheme.spacing8 * 2
+                                    + (threadVimBadge.visible
+                                       ? threadVimBadge.height + AppTheme.spacing4 : 0)
                     radius: AppTheme.radiusLg
                     color: AppTheme.surface
                     border.color: AppTheme.border
                     border.width: 1
+
+                    // Above the row, not in it: the panel is narrow and the
+                    // badge's width would come out of the text field.
+                    VimModeBadge {
+                        id: threadVimBadge
+                        objectName: "threadVimMode"
+                        labelObjectName: "threadVimModeLabel"
+                        visible: panel.vimEnabled
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.topMargin: AppTheme.spacing8
+                        anchors.leftMargin: AppTheme.spacing12
+                        normal: panel.vimNormal
+                        pending: app.composer.threadVim.pending
+                    }
 
                     RowLayout {
                         id: composerRow
@@ -1949,14 +1966,6 @@ Rectangle {
                             ToolTip.visible: hovered
                             ToolTip.delay: 500
                             onClicked: threadAttachDialog.open()
-                        }
-                        VimModeBadge {
-                            objectName: "threadVimMode"
-                            labelObjectName: "threadVimModeLabel"
-                            visible: panel.vimEnabled
-                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
-                            normal: panel.vimNormal
-                            pending: app.composer.threadVim.pending
                         }
                         Flickable {
                             id: threadRichFlick
