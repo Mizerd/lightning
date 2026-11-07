@@ -109,6 +109,12 @@ unsafe; it is built with `strict` confinement.
 
 ## NixOS
 
+See the [NixOS guide](nixos.md) for host-package-set overlays, both
+flake and non-flake `configuration.nix` examples, installed debug
+symbols, and incremental development from a local clone. Aligning the
+package set matters when the host graphics drivers require a newer
+runtime than Lightning's own flake pin.
+
 If you want to use it without installing:
 
 ```sh
