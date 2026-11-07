@@ -334,6 +334,17 @@ void instrumentKeyframeRequests(GstPad *pad, const StreamInfoPtr &stats,
                 return GST_PAD_PROBE_DROP;
             ctx->lastMs.store(now);
             ctx->stats->keyframeRequests.fetch_add(1);
+            gboolean allHeaders = FALSE;
+            gst_video_event_parse_upstream_force_key_unit(event, nullptr,
+                                                          &allHeaders, nullptr);
+            if (ctx->minIntervalMs > 0 && allHeaders) {
+                // rtpsession turns all-headers into a FIR, which LiveKit was
+                // not seen to pass on to the publisher; ask with a PLI.
+                GST_PAD_PROBE_INFO_DATA(info) =
+                    gst_video_event_new_upstream_force_key_unit(
+                        GST_CLOCK_TIME_NONE, FALSE, 0);
+                gst_event_unref(event);
+            }
             return GST_PAD_PROBE_OK;
         }, new Context{stats, minIntervalMs, {}},
         [](gpointer data) { delete static_cast<Context *>(data); });
@@ -706,7 +717,7 @@ void loseVideoReference(CryptoProbeCtx *ctx, GstPad *depayOut)
     ctx->lastKeyframeRequestMs = now;
     if (depayOut)
         gst_pad_send_event(depayOut, gst_video_event_new_upstream_force_key_unit(
-                                         GST_CLOCK_TIME_NONE, TRUE, 0));
+                                         GST_CLOCK_TIME_NONE, FALSE, 0));
 }
 
 void noteReceivedKeyframe(CryptoProbeCtx *ctx, GstBuffer *buffer)
