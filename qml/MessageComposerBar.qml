@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 import "ComposerBehavior.js" as ComposerBehavior
+import "VimEditing.js" as VimEditing
 
 Item {
     id: root
@@ -84,46 +85,18 @@ Item {
     readonly property bool vimNormal: root.vimEnabled && app.composer.vim.normal
     onVimEnabledChanged: if (!root.vimEnabled) app.composer.vim.enterInsert()
     function _vimEnterNormal(editor) {
-        var pos = app.composer.vim.enterNormal(editor.getText(0, editor.length),
-                                               editor.cursorPosition)
-        editor.cursorPosition = Math.min(pos, editor.length)
+        VimEditing.enterNormal(app.composer.vim, editor)
     }
     function _vimOverride(event) {
-        if (!root.vimNormal)
-            return false
-        var chord = event.modifiers & (Qt.ControlModifier | Qt.AltModifier
-                                       | Qt.MetaModifier)
-        if (chord === Qt.ControlModifier && event.key === Qt.Key_R)
-            return true
-        return chord === 0 && event.text.length > 0
+        return VimEditing.shortcutOverride(root.vimNormal, event)
     }
     function _vimKey(event, editor) {
         if (!root.vimNormal)
             return false
-        var vim = app.composer.vim
-        var r = vim.handleKey(event.key, event.modifiers, event.text,
-                              editor.getText(0, editor.length),
-                              editor.cursorPosition)
-        if (!r.accepted)
+        var r = VimEditing.handleKey(app.composer.vim, event, editor,
+                                     editor === richInput)
+        if (!r)
             return false
-        event.accepted = true
-        if (r.hasEdit) {
-            if (r.editEnd > r.editStart)
-                editor.remove(r.editStart, r.editEnd)
-            if (r.editText.length > 0)
-                editor.insert(r.editStart, editor === richInput
-                              ? vim.richInsertHtml(r.editText) : r.editText)
-        }
-        for (var u = 0; u < r.undo; ++u)
-            editor.undo()
-        for (var d = 0; d < r.redo; ++d)
-            editor.redo()
-        var pos = r.cursor
-        if (r.clampAfter)
-            pos = vim.clampNormal(editor.getText(0, editor.length),
-                                  editor.cursorPosition)
-        if (pos >= 0)
-            editor.cursorPosition = Math.min(pos, editor.length)
         if (r.send) {
             root.submitComposer()
             editor.forceActiveFocus()
@@ -2235,34 +2208,13 @@ Item {
                         onClicked: root.toolbarExpanded = !root.toolbarExpanded
                     }
 
-                    Rectangle {
-                        id: vimModeBadge
+                    VimModeBadge {
                         objectName: "composerVimMode"
+                        labelObjectName: "composerVimModeLabel"
                         visible: root.vimEnabled
                         Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
-                        implicitWidth: vimModeLabel.implicitWidth + AppTheme.spacing8
-                        implicitHeight: vimModeLabel.implicitHeight + AppTheme.spacing4
-                        radius: AppTheme.radiusControl
-                        color: root.vimNormal ? AppTheme.accent : "transparent"
-                        border.width: root.vimNormal ? 0 : 1
-                        border.color: AppTheme.border
-                        readonly property string modeText: root.vimNormal
-                            ? qsTr("NORMAL", "Vim editing mode") : qsTr("INSERT", "Vim editing mode")
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: qsTr("Editing mode: %1").arg(modeText)
-                        Label {
-                            id: vimModeLabel
-                            objectName: "composerVimModeLabel"
-                            anchors.centerIn: parent
-                            text: app.composer.vim.pending.length > 0
-                                  ? vimModeBadge.modeText + " " + app.composer.vim.pending
-                                  : vimModeBadge.modeText
-                            textFormat: Text.PlainText
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.scaled(10)
-                            font.weight: AppTheme.weightStrong
-                            color: root.vimNormal ? AppTheme.accentText : AppTheme.textMuted
-                        }
+                        normal: root.vimNormal
+                        pending: app.composer.vim.pending
                     }
 
                     Flickable {

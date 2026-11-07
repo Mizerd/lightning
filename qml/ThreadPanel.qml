@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 import "ComposerBehavior.js" as ComposerBehavior
+import "VimEditing.js" as VimEditing
 
 Rectangle {
     id: panel
@@ -33,6 +34,28 @@ Rectangle {
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
     readonly property int editorCornerReserve: 26
     property string richTextAtLeave: ""
+    // Vim-style editing: same keymap and Esc order as MessageComposerBar,
+    // except that a final Esc in Normal still closes the panel.
+    readonly property bool vimEnabled: !!app.settings
+                                       && app.settings.vimComposer === true
+    readonly property bool vimNormal: panel.vimEnabled
+                                      && app.composer.threadVim.normal
+    onVimEnabledChanged: if (!panel.vimEnabled) app.composer.threadVim.enterInsert()
+    readonly property bool vimEscapeIsOurs: panel.vimEnabled
+        && (!panel.vimNormal || app.composer.threadVim.pending.length > 0)
+    function vimKey(event, editor) {
+        if (!panel.vimNormal)
+            return false
+        var r = VimEditing.handleKey(app.composer.threadVim, event, editor,
+                                     editor === threadRichInput)
+        if (!r)
+            return false
+        if (r.send) {
+            panel.sendComposerText()
+            editor.forceActiveFocus()
+        }
+        return true
+    }
     function returnShouldSend(modifiers) {
         return ComposerBehavior.returnShouldSend(
             modifiers, app.settings.enterInsertsNewline,
@@ -1906,6 +1929,14 @@ Rectangle {
                             ToolTip.delay: 500
                             onClicked: threadAttachDialog.open()
                         }
+                        VimModeBadge {
+                            objectName: "threadVimMode"
+                            labelObjectName: "threadVimModeLabel"
+                            visible: panel.vimEnabled
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
+                            normal: panel.vimNormal
+                            pending: app.composer.threadVim.pending
+                        }
                         Flickable {
                             id: threadRichFlick
                             onContentYChanged: threadRichSpellTimer.restart()
@@ -1998,10 +2029,19 @@ Rectangle {
                                     threadRichAutocorrect.cursorMoved()
                                     threadRichSpellTimer.restart()
                                 }
+                                readOnly: panel.vimNormal
+                                cursorDelegate: threadRichInputCaret.item ? threadRichInputCaret.item.delegate : null
+                                Loader {
+                                    id: threadRichInputCaret
+                                    active: panel.vimEnabled
+                                    sourceComponent: IdleCaret { block: panel.vimNormal; field: threadRichInput }
+                                }
                                 Keys.onShortcutOverride: (event) => {
+                                    if (VimEditing.shortcutOverride(panel.vimNormal, event))
+                                        event.accepted = true
                                     if (event.key === Qt.Key_Escape
                                             && event.modifiers === Qt.NoModifier
-                                            && (app.thread.inReply
+                                            && (app.thread.inReply || panel.vimEscapeIsOurs
                                                 || threadMentionPopup.visible
                                                 || threadEmojiPopup.visible))
                                         event.accepted = true
@@ -2012,6 +2052,8 @@ Rectangle {
                                         event.accepted = true
                                 }
                                 Keys.onPressed: (event) => {
+                                    if (panel.vimKey(event, threadRichInput))
+                                        return
                                     if (threadRichInput.preeditText !== "")
                                         return
                                     if (threadRichAutocorrect.handleKey(event))
@@ -2062,7 +2104,7 @@ Rectangle {
                                     var richFormatAction =
                                         app.shortcuts.editorActionForKey(
                                             event.key, event.modifiers)
-                                    if (richFormatAction !== "") {
+                                    if (richFormatAction !== "" && !panel.vimNormal) {
                                         event.accepted = true
                                         if (richFormatAction === "composer.toggleHeight")
                                             panel.toggleComposerHeight()
@@ -2080,6 +2122,8 @@ Rectangle {
                                     } else if (event.key === Qt.Key_Escape) {
                                         if (app.thread.inReply)
                                             app.thread.cancelReply()
+                                        else if (panel.vimEnabled && !panel.vimNormal)
+                                            VimEditing.enterNormal(app.composer.threadVim, threadRichInput)
                                         else
                                             panel.closeRequested()
                                         event.accepted = true
@@ -2263,13 +2307,22 @@ Rectangle {
                                     onTriggered: panel.activeThreadEditor().selectAll()
                                 }
                             }
+                            readOnly: panel.vimNormal
+                            cursorDelegate: threadComposerInputCaret.item ? threadComposerInputCaret.item.delegate : null
+                            Loader {
+                                id: threadComposerInputCaret
+                                active: panel.vimEnabled
+                                sourceComponent: IdleCaret { block: panel.vimNormal; field: threadComposerInput }
+                            }
                             // Accept ShortcutOverride only for keys this box
                             // handles, so the key arrives here as a plain
                             // press; Ctrl+K and Ctrl+Q still reach the window.
                             Keys.onShortcutOverride: (event) => {
+                                if (VimEditing.shortcutOverride(panel.vimNormal, event))
+                                    event.accepted = true
                                 if (event.key === Qt.Key_Escape
                                         && event.modifiers === Qt.NoModifier
-                                        && (app.thread.inReply
+                                        && (app.thread.inReply || panel.vimEscapeIsOurs
                                             || threadMentionPopup.visible
                                             || threadEmojiPopup.visible))
                                     event.accepted = true
@@ -2280,6 +2333,8 @@ Rectangle {
                                     event.accepted = true
                             }
                             Keys.onPressed: (event) => {
+                                if (panel.vimKey(event, threadComposerInput))
+                                    return
                                 if (threadComposerInput.preeditText !== "")
                                     return
                                 if (threadPlainAutocorrect.handleKey(event))
@@ -2330,7 +2385,7 @@ Rectangle {
                                 var threadFormatAction =
                                     app.shortcuts.editorActionForKey(
                                         event.key, event.modifiers)
-                                if (threadFormatAction !== "") {
+                                if (threadFormatAction !== "" && !panel.vimNormal) {
                                     event.accepted = true
                                     if (threadFormatAction === "composer.toggleHeight")
                                         panel.toggleComposerHeight()
@@ -2348,6 +2403,8 @@ Rectangle {
                                 } else if (event.key === Qt.Key_Escape) {
                                     if (app.thread.inReply)
                                         app.thread.cancelReply()
+                                    else if (panel.vimEnabled && !panel.vimNormal)
+                                        VimEditing.enterNormal(app.composer.threadVim, threadComposerInput)
                                     else
                                         panel.closeRequested()
                                     event.accepted = true
@@ -2774,7 +2831,8 @@ Rectangle {
     function updateThreadEmojiState() {
         var editor = panel.activeThreadEditor()
         if (threadMentionPopup.visible || !editor || !editor.activeFocus
-                || !app.thread.active || panel.threadEmojiPopupDismissed) {
+                || !app.thread.active || panel.threadEmojiPopupDismissed
+                || panel.vimNormal) {
             threadEmojiPopup.close()
             return
         }
@@ -2830,7 +2888,7 @@ Rectangle {
             return
         panel.lastThreadMentionScanText = threadComposerInput.text
         panel.lastThreadMentionScanCursor = threadComposerInput.cursorPosition
-        if (!app.thread.active) {
+        if (!app.thread.active || panel.vimNormal) {
             threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             panel.refreshThreadMentionHighlight()
@@ -3404,7 +3462,7 @@ Rectangle {
     function updateThreadRichMentionState() {
         if (!panel.richMode)
             return
-        if (!app.thread.active) {
+        if (!app.thread.active || panel.vimNormal) {
             threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             return

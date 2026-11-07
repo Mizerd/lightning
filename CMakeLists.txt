@@ -1136,6 +1136,7 @@ set(APP_QML_FILES
     qml/AppProgressBar.qml
     qml/AppBusyIndicator.qml
     qml/IdleCaret.qml
+    qml/VimModeBadge.qml
     qml/AppScrollBar.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
@@ -1208,6 +1209,7 @@ set(APP_QML_FILES
     qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
     qml/ComposerBehavior.js
+    qml/VimEditing.js
     qml/LeaveAdminCheck.js
     qml/SpellAutocorrect.qml
     qml/MentionPopup.qml
@@ -5400,6 +5402,16 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME thread-style-qml COMMAND thread-style-qml-test)
     set_tests_properties(thread-style-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Vim-style editing in the thread panel's composer.
+    qt_add_executable(thread-composer-vim-qml-test
+        tests/ThreadComposerVimQmlTest.cpp
+    )
+    lightning_configure_qml_test(thread-composer-vim-qml-test)
+    target_include_directories(thread-composer-vim-qml-test PRIVATE src)
+    add_test(NAME thread-composer-vim-qml COMMAND thread-composer-vim-qml-test)
+    set_tests_properties(thread-composer-vim-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # A finger is not a right button: a touch tap on a room row opens the

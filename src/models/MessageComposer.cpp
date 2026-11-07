@@ -40,6 +40,7 @@ MessageComposer::MessageComposer(QObject *parent)
     : QObject(parent)
     , m_attachments(new AttachmentQueueModel(this))
     , m_vim(new VimKeymap(this))
+    , m_threadVim(new VimKeymap(this))
 {
     m_typingRefresh.setInterval(kTypingRefreshMs);
     connect(&m_typingRefresh, &QTimer::timeout, this, [this] {
@@ -628,6 +629,7 @@ void MessageComposer::setRoomId(const QString &r)
     if (!m_roomId.isEmpty()) stopTyping();
     cancelReplyOrEdit();
     m_vim->enterInsert();
+    m_threadVim->enterInsert();
     if (!m_threadTargetRootId.isEmpty()) {
         m_threadTargetRootId.clear();
         Q_EMIT threadStateChanged();

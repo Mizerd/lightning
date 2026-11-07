@@ -2192,8 +2192,10 @@ moment ago and the very next thing is a click on its own button.
 Settings › Chat › Message box, off by default. The keymap is C++
 (`src/models/VimKeymap.*`, exposed as `app.composer.vim`); the composer QML only
 routes keys and applies the result through the TextArea, so undo, drafts,
-mentions and the send path are the existing ones. Covers both the markdown and
-the rich editor; the thread panel composer is NOT wired.
+mentions and the send path are the existing ones. Covers the markdown and the
+rich editor in the room composer and in the thread panel; the thread panel has
+its own mode and register (`app.composer.threadVim`), and there a final Esc in
+Normal mode still closes the panel. The setting is exported and synced.
 
 - **Esc order.** Insert: open completion popup, then reply/edit/thread cancel,
   then Normal. Normal: a pending count/operator, then reply/edit/thread cancel,
