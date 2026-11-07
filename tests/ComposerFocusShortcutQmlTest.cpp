@@ -311,8 +311,11 @@ Popup {
         QVERIFY2(popup, qPrintable(component.errorString()));
         popup->setParent(m_window->contentItem());
         popup->setProperty("parent", QVariant::fromValue(m_window->contentItem()));
+        QQuickItem *timeline = item("timelinePane");
+        timeline->forceActiveFocus();
         QMetaObject::invokeMethod(popup, "open");
         QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(timeline->hasActiveFocus());
 
         QKeyEvent numpad(QEvent::KeyPress, Qt::Key_Period, Qt::KeypadModifier,
                          QStringLiteral("."));
@@ -321,7 +324,7 @@ Popup {
 
         QMetaObject::invokeMethod(popup, "close");
         QTRY_VERIFY(!popup->property("visible").toBool());
-        item("timelinePane")->forceActiveFocus();
+        timeline->forceActiveFocus();
         QVERIFY(registry->eventFilter(m_window, &numpad));
         QCOMPARE(fired.count(), 1);
     }
