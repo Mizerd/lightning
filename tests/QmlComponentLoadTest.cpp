@@ -296,9 +296,9 @@ Item {
                  qPrintable(rows[0]));
         QVERIFY2(rows[0].contains(QStringLiteral("Keyframes: 4 · Keyframes asked for: 3 · Resend requests: 12")),
                  qPrintable(rows[0]));
-        QVERIFY2(rows[1].contains(QStringLiteral("Lost on the way to the server: —")),
+        QVERIFY2(rows[1].contains(QStringLiteral("RTP packets sent: — · Lost on the way to the server: —")),
                  qPrintable(rows[1]));
-        QVERIFY2(rows[1].contains(QStringLiteral("Keyframes sent: 9 · Keyframe requests: 2 · Resend requests: —")),
+        QVERIFY2(rows[1].contains(QStringLiteral("Keyframes encoded: 9 · Keyframe requests: 2 · Resend requests: —")),
                  qPrintable(rows[1]));
         item->setParentItem(nullptr);
     }

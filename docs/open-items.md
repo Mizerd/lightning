@@ -150,8 +150,12 @@ that predates the fix was NOT retested and is expected to stay refused.
 - **No retransmission on the hardware H.264 path**: `offerForSfu()` renumbers
   codecs there, so `do-nack` stays off for those transceivers. Its viewers still
   freeze and ask for a keyframe instead of decoding garbage.
-- The decrypt-drop keyframe hold has no test that fails without it, and was not
-  exercised live.
+- The decrypt-drop keyframe hold is unit-tested only; not exercised live.
+- **No fallback when keyframe requests never reach the sender.** A viewer that
+  freezes after a gap waits for its PLI to be answered, else for the sender's
+  periodic keyframe (2 s for a software share). An SFU or sender that drops
+  PLIs leaves only that period; a hardware encoder's `gop-size` is the same 2 s.
+- Element, Element Call and Sable interop on this change: NOT TESTED.
 - DECISION for Rokas: NVENC `profile=high` measured +0-3 dB over
   `constrained-baseline` at 3 Mbit/s, but Firefox's OpenH264 decodes only
   constrained baseline and LiveKit's offer pins `42e01f`. Not changed.

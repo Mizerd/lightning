@@ -314,7 +314,7 @@ void instrumentStreamInfo(GstPad *pad, const StreamInfoPtr &stats, bool rtp)
 void instrumentKeyframeRequests(GstPad *pad, const StreamInfoPtr &stats,
                                 qint64 minIntervalMs = 0)
 {
-    if (!pad || !stats)
+    if (!pad)
         return;
     struct Context {
         StreamInfoPtr stats;
@@ -333,7 +333,8 @@ void instrumentKeyframeRequests(GstPad *pad, const StreamInfoPtr &stats,
                 && now - last < ctx->minIntervalMs)
                 return GST_PAD_PROBE_DROP;
             ctx->lastMs.store(now);
-            ctx->stats->keyframeRequests.fetch_add(1);
+            if (ctx->stats)
+                ctx->stats->keyframeRequests.fetch_add(1);
             gboolean allHeaders = FALSE;
             gst_video_event_parse_upstream_force_key_unit(event, nullptr,
                                                           &allHeaders, nullptr);
@@ -705,19 +706,31 @@ bool tailIsBase62(const QByteArray &wire, int n)
 }
 
 // A received video frame we could not hand on breaks the decoder's reference
-// chain: hold the deltas after it and ask the sender for a keyframe.
-void loseVideoReference(CryptoProbeCtx *ctx, GstPad *depayOut)
+// chain, so the deltas after it are held until a keyframe. A keyframe is only
+// asked for once a held frame decrypts: without the key it cannot help.
+void loseVideoReference(CryptoProbeCtx *ctx)
 {
-    if (ctx->encrypting || !ctx->video)
-        return;
-    ctx->awaitingKeyframe = true;
+    if (!ctx->encrypting && ctx->video)
+        ctx->awaitingKeyframe = true;
+}
+
+// For a frame that is about to pass: false when it is a delta to hold.
+bool releaseHeldVideo(CryptoProbeCtx *ctx, GstBuffer *buffer, GstPad *depayOut)
+{
+    if (ctx->encrypting || !ctx->video || !ctx->awaitingKeyframe)
+        return true;
+    if (!GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)) {
+        ctx->awaitingKeyframe = false;
+        return true;
+    }
     const qint64 now = monotonicMs();
-    if (ctx->lastKeyframeRequestMs >= 0 && now - ctx->lastKeyframeRequestMs < 500)
-        return;
-    ctx->lastKeyframeRequestMs = now;
-    if (depayOut)
-        gst_pad_send_event(depayOut, gst_video_event_new_upstream_force_key_unit(
-                                         GST_CLOCK_TIME_NONE, FALSE, 0));
+    if (ctx->lastKeyframeRequestMs < 0 || now - ctx->lastKeyframeRequestMs >= 500) {
+        ctx->lastKeyframeRequestMs = now;
+        if (depayOut)
+            gst_pad_send_event(depayOut, gst_video_event_new_upstream_force_key_unit(
+                                             GST_CLOCK_TIME_NONE, FALSE, 0));
+    }
+    return false;
 }
 
 void noteReceivedKeyframe(CryptoProbeCtx *ctx, GstBuffer *buffer)
@@ -754,16 +767,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             : CallFrameCryptor::FrameKind::VideoKey;
         if (ctx->h264)
             kind = CallFrameCryptor::FrameKind::VideoH264;
-        if (!ctx->encrypting) {
-            if (GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)) {
-                if (ctx->awaitingKeyframe) {
-                    loseVideoReference(ctx, pad);
-                    return GST_PAD_PROBE_DROP;
-                }
-            } else {
-                ctx->awaitingKeyframe = false;
-            }
-        }
     }
 
     bool sifArmed = false;
@@ -827,9 +830,11 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
                     << "stream=" << ctx->streamId
                     << "video=" << ctx->video << "count=" << ctx->dropped;
             }
-            loseVideoReference(ctx, pad);
+            loseVideoReference(ctx);
             return GST_PAD_PROBE_DROP;
         }
+        if (!releaseHeldVideo(ctx, buffer, pad))
+            return GST_PAD_PROBE_DROP;
         ++ctx->passed;
         if (ctx->streamInfo) ctx->streamInfo->decrypted.fetch_add(1);
         noteReceivedKeyframe(ctx, buffer);
@@ -957,9 +962,11 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
                         ? "n/a"
                         : CallFrameCryptor::decryptFailureName(why.reason));
         }
-        loseVideoReference(ctx, pad);
+        loseVideoReference(ctx);
         return GST_PAD_PROBE_DROP;
     }
+    if (!releaseHeldVideo(ctx, buffer, pad))
+        return GST_PAD_PROBE_DROP;
     ++ctx->passed;
     if (ctx->streamInfo) ctx->streamInfo->decrypted.fetch_add(1);
     noteReceivedKeyframe(ctx, buffer);
@@ -5933,6 +5940,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
 }
 
+void SfuMediaEngine::installKeyframeRequestGate(
+    GstPad *depaySink, std::shared_ptr<lightning::calls::StreamInfoStats> stats)
+{
+    instrumentKeyframeRequests(depaySink, stats, 300);
+}
+
 QString SfuMediaEngine::videoDepayLossRecovery()
 {
     // A frame decoded against a reference that never arrived is the speckled
@@ -7422,9 +7435,10 @@ void SfuMediaEngine::requestStats()
     const auto ask = [this](Peer &peer, bool publisher) {
         if (!peer.webrtc)
             return;
+        auto *ctx = promiseCtxNew(this, peer.webrtc, publisher);
+        ctx->generation = m_generation.load();
         GstPromise *promise = gst_promise_new_with_change_func(
-            onStatsReady, promiseCtxNew(this, peer.webrtc, publisher),
-            promiseCtxFree);
+            onStatsReady, ctx, promiseCtxFree);
         g_signal_emit_by_name(peer.webrtc, "get-stats", nullptr, promise);
     };
     ask(m_publisher, true);
@@ -7445,7 +7459,10 @@ void SfuMediaEngine::onStatsReady(GstPromise *promise, void *userData)
         return;
     const QList<RtpStat> stats = walk.out;
     const bool quiet = ctx->quiet;
-    marshal(engine, [engine, stats, quiet] {
+    const quint64 generation = ctx->generation;
+    marshal(engine, [engine, stats, quiet, generation] {
+        if (!engine->m_active || engine->m_generation.load() != generation)
+            return;
         engine->noteStreamInfoRtp(stats);
         if (!quiet)
             engine->logStats(stats);
@@ -7459,6 +7476,7 @@ void SfuMediaEngine::requestStreamInfoRtpStats()
             continue;
         auto *ctx = promiseCtxNew(this, peer->webrtc, peer == &m_publisher);
         ctx->quiet = true;
+        ctx->generation = m_generation.load();
         GstPromise *promise = gst_promise_new_with_change_func(
             onStatsReady, ctx, promiseCtxFree);
         g_signal_emit_by_name(peer->webrtc, "get-stats", nullptr, promise);
@@ -9858,12 +9876,13 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     }
     bool decryptProbeInstalled = false;
     if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
-        if (streamInfo) {
+        if (video) {
             GstPad *rtpIn = gst_element_get_static_pad(depay, "sink");
-            instrumentKeyframeRequests(rtpIn, streamInfo, 300);
+            installKeyframeRequestGate(rtpIn, streamInfo);
             if (rtpIn) gst_object_unref(rtpIn);
-            streamInfo->encoder = streamInfoFactory(bin, "videodec");
         }
+        if (streamInfo)
+            streamInfo->encoder = streamInfoFactory(bin, "videodec");
         if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
             installDecryptProbe(framePad, video, streamId, h264, streamInfo);
             decryptProbeInstalled = true;
@@ -10517,6 +10536,8 @@ QVariantList SfuMediaEngine::streamInfoStats()
             row.insert(QStringLiteral("jitterMs"), rtp->jitter * 1000.0);
             if (rtp->dir == QLatin1String("inbound"))
                 row.insert(QStringLiteral("packets"), rtp->packets);
+            else
+                row.insert(QStringLiteral("packetsSent"), rtp->packets);
         }
         if (const auto remote = m_streamInfoRtp.constFind((quint64(1) << 32) | ssrc);
             ssrc && remote != m_streamInfoRtp.constEnd())

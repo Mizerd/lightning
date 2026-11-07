@@ -79,8 +79,8 @@ Rectangle {
                             lines.push(qsTr("Encoder: %1 · Scaling: %2 · Capture: %3")
                                 .arg(s.encoder).arg(s.scaling).arg(s.source))
                             lines.push(qsTr("RTP packets sent: %1 · Lost on the way to the server: %2")
-                                .arg(s.packets).arg(root.count(s.lost)))
-                            lines.push(qsTr("Keyframes sent: %1 · Keyframe requests: %2 · Resend requests: %3")
+                                .arg(root.count(s.packetsSent)).arg(root.count(s.lost)))
+                            lines.push(qsTr("Keyframes encoded: %1 · Keyframe requests: %2 · Resend requests: %3")
                                 .arg(s.keyframes).arg(s.keyframeRequests).arg(root.count(s.nack)))
                         } else {
                             lines.push(qsTr("Decoder: %1 · RTP packets: %2 · Lost: %3 · Jitter: %4 ms")

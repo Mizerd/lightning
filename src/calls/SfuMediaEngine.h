@@ -718,6 +718,8 @@ private:
     static QString offerIdentity(const QString &sdp);
     static QString receivableVideoCaps(bool h264);
     static QString videoDepayLossRecovery();
+    static void installKeyframeRequestGate(
+        GstPad *depaySink, std::shared_ptr<lightning::calls::StreamInfoStats> stats);
     static void enableVideoRetransmission(GstWebRTCRTPTransceiver *transceiver);
     void enablePublishRetransmission(GstPad *webrtcSinkPad);
     QHash<QString, QString> m_shareBackups;

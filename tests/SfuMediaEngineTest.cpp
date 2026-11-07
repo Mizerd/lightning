@@ -1143,6 +1143,80 @@ static QStringList withoutTransport(const QStringList &section)
 }
 }
 
+
+// A depayloader's src pad and the decoder behind it, driven synchronously.
+class HeldVideoRig
+{
+public:
+    explicit HeldVideoRig(SfuMediaEngine &engine, const QString &streamId)
+    {
+        m_src = gst_pad_new("src", GST_PAD_SRC);
+        m_sink = gst_pad_new("sink", GST_PAD_SINK);
+        g_object_set_data(G_OBJECT(m_src), "rig", this);
+        g_object_set_data(G_OBJECT(m_sink), "rig", this);
+        gst_pad_set_event_function(m_src, [](GstPad *pad, GstObject *, GstEvent *event) -> gboolean {
+            auto *rig = static_cast<HeldVideoRig *>(g_object_get_data(G_OBJECT(pad), "rig"));
+            if (gst_video_event_is_force_key_unit(event))
+                ++rig->requests;
+            gst_event_unref(event);
+            return TRUE;
+        });
+        gst_pad_set_chain_function(m_sink, [](GstPad *pad, GstObject *, GstBuffer *buffer) {
+            ++static_cast<HeldVideoRig *>(g_object_get_data(G_OBJECT(pad), "rig"))->delivered;
+            gst_buffer_unref(buffer);
+            return GST_FLOW_OK;
+        });
+        gst_pad_set_event_function(m_sink, [](GstPad *, GstObject *, GstEvent *event) -> gboolean {
+            gst_event_unref(event);
+            return TRUE;
+        });
+        gst_pad_set_active(m_sink, TRUE);
+        gst_pad_set_active(m_src, TRUE);
+        gst_pad_link(m_src, m_sink);
+        engine.installDecryptProbeForTest(m_src, true, streamId);
+        gst_pad_push_event(m_src, gst_event_new_stream_start("held"));
+        GstCaps *caps = gst_caps_from_string("video/x-vp8");
+        gst_pad_push_event(m_src, gst_event_new_caps(caps));
+        gst_caps_unref(caps);
+        GstSegment segment;
+        gst_segment_init(&segment, GST_FORMAT_TIME);
+        gst_pad_push_event(m_src, gst_event_new_segment(&segment));
+    }
+    ~HeldVideoRig()
+    {
+        gst_pad_set_active(m_src, FALSE);
+        gst_pad_set_active(m_sink, FALSE);
+        gst_object_unref(m_src);
+        gst_object_unref(m_sink);
+    }
+    void push(CallFrameCryptor &sender, bool key)
+    {
+        QByteArray frame(80, '\x5a');
+        frame[0] = key ? '\x10' : '\x11';
+        const QByteArray wire = sender.encryptFrame(
+            frame, key ? CallFrameCryptor::FrameKind::VideoKey
+                       : CallFrameCryptor::FrameKind::VideoDelta, 7, ++m_ts);
+        GstBuffer *buffer = gst_buffer_new_allocate(nullptr, wire.size(), nullptr);
+        gst_buffer_fill(buffer, 0, wire.constData(), wire.size());
+        if (!key)
+            GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+        gst_pad_push(m_src, buffer);
+    }
+    int delivered = 0;
+    int requests = 0;
+
+private:
+    GstPad *m_src = nullptr;
+    GstPad *m_sink = nullptr;
+    quint32 m_ts = 0;
+};
+
+static void keyed(CallFrameCryptor &cryptor, int index, char fill)
+{
+    cryptor.setKey(index, QByteArray(32, fill));
+    cryptor.setCurrentKeyIndex(index);
+}
+
 class SfuMediaEngineTest : public QObject
 {
     Q_OBJECT
@@ -6625,6 +6699,99 @@ true);
                  qPrintable(section));
         QVERIFY2(section.contains(QLatin1String("a=ssrc-group:FID")), qPrintable(section));
         engine.stop();
+    }
+
+    void aFrameThatFailsToDecryptHoldsTheDeltasUntilAKeyframe()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        SfuMediaEngine engine;
+        engine.setEncryptionRequired(true);
+        engine.setInboundKey(QStringLiteral("held"), 0, QByteArray(32, 'k'));
+        HeldVideoRig rig(engine, QStringLiteral("held"));
+        CallFrameCryptor good, wrong;
+        keyed(good, 0, 'k');
+        keyed(wrong, 0, 'w');
+        rig.push(good, true);
+        rig.push(good, false);
+        QCOMPARE(rig.delivered, 2);
+        QCOMPARE(rig.requests, 0);
+        rig.push(wrong, false);
+        for (int i = 0; i < 3; ++i)
+            rig.push(good, false);
+        QCOMPARE(rig.delivered, 2);
+        QCOMPARE(rig.requests, 1);
+        rig.push(good, true);
+        rig.push(good, false);
+        QCOMPARE(rig.delivered, 4);
+        QCOMPARE(rig.requests, 1);
+    }
+
+    void aViewerThatCannotDecryptAsksForNoKeyframes()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        SfuMediaEngine engine;
+        engine.setEncryptionRequired(true);
+        engine.setInboundKey(QStringLiteral("held"), 0, QByteArray(32, 'k'));
+        HeldVideoRig unknownIndex(engine, QStringLiteral("held"));
+        HeldVideoRig noKey(engine, QStringLiteral("keyless"));
+        CallFrameCryptor other;
+        keyed(other, 1, 'o');
+        QElapsedTimer window;
+        window.start();
+        while (window.elapsed() < 1600) {
+            unknownIndex.push(other, window.elapsed() % 500 < 40);
+            noKey.push(other, false);
+            QTest::qWait(30);
+        }
+        QCOMPARE(unknownIndex.delivered, 0);
+        QCOMPARE(noKey.delivered, 0);
+        QCOMPARE(unknownIndex.requests, 0);
+        QCOMPARE(noKey.requests, 0);
+    }
+
+    void theDepayloadersKeyframeRequestsLeaveAsOnePliPer300Ms()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        struct Upstream { int requests = 0; int allHeaders = 0; } seen;
+        GstPad *queueOut = gst_pad_new("src", GST_PAD_SRC);
+        GstPad *depayIn = gst_pad_new("sink", GST_PAD_SINK);
+        g_object_set_data(G_OBJECT(queueOut), "seen", &seen);
+        gst_pad_set_event_function(queueOut, [](GstPad *pad, GstObject *, GstEvent *event) -> gboolean {
+            auto *s = static_cast<Upstream *>(g_object_get_data(G_OBJECT(pad), "seen"));
+            if (gst_video_event_is_force_key_unit(event)) {
+                ++s->requests;
+                gboolean all = FALSE;
+                gst_video_event_parse_upstream_force_key_unit(event, nullptr, &all, nullptr);
+                s->allHeaders += all ? 1 : 0;
+            }
+            gst_event_unref(event);
+            return TRUE;
+        });
+        gst_pad_set_active(depayIn, TRUE);
+        gst_pad_set_active(queueOut, TRUE);
+        QCOMPARE(gst_pad_link(queueOut, depayIn), GST_PAD_LINK_OK);
+        auto stats = std::make_shared<lightning::calls::StreamInfoStats>();
+        SfuMediaEngine::installKeyframeRequestGate(depayIn, stats);
+        const auto ask = [depayIn] {
+            gst_pad_push_event(depayIn, gst_video_event_new_upstream_force_key_unit(
+                                            GST_CLOCK_TIME_NONE, TRUE, 0));
+        };
+        for (int i = 0; i < 5; ++i)
+            ask();
+        QCOMPARE(seen.requests, 1);
+        QTest::qWait(350);
+        ask();
+        ask();
+        QCOMPARE(seen.requests, 2);
+        QCOMPARE(seen.allHeaders, 0);
+        QCOMPARE(stats->keyframeRequests.load(), 2ULL);
+        gst_pad_set_active(queueOut, FALSE);
+        gst_pad_set_active(depayIn, FALSE);
+        gst_object_unref(queueOut);
+        gst_object_unref(depayIn);
     }
 
     void aLostVideoPacketFreezesThePictureAndAsksForAKeyframe()
