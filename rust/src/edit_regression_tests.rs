@@ -597,14 +597,20 @@ async fn an_open_thread_refills_after_its_room_cache_is_cleared() {
     next_event(&events, |v| v["type"] == "thread_diff" && v["op"] == "clear").await;
     next_event(&events, |v| v["type"] == "thread_pagination" && v["state"] == "loading").await;
     next_event(&events, |v| v["type"] == "thread_diff" && has_reply(v)).await;
-    next_event(&events, |v| v["type"] == "thread_pagination" && v["state"] == "idle").await;
 
     // A pagination that began before a clear must not mark the new thread as started.
-    let (timeline, epoch) = {
+    let (timeline, epoch, busy) = {
         let guard = registry.active_thread.lock().unwrap();
         let thread = guard.as_ref().unwrap();
-        (thread.timeline.clone().unwrap(), Arc::clone(&thread.clear_epoch))
+        (thread.timeline.clone().unwrap(), Arc::clone(&thread.clear_epoch),
+         Arc::clone(&thread.pagination_busy))
     };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while busy.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "the refill pagination never finished");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    events.lock().unwrap().clear();
     let started = epoch.load(Ordering::SeqCst);
     epoch.fetch_add(1, Ordering::SeqCst);
     reached.store(false, Ordering::SeqCst);
