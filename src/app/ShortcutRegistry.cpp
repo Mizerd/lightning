@@ -246,6 +246,9 @@ bool ShortcutRegistry::eventFilter(QObject *watched, QEvent *event)
         m_pressedModifiers = int(key->modifiers());
         m_pressedDigit = physicalDigitKey(m_keyboardPlatform, key->nativeScanCode(),
                                           key->nativeVirtualKey());
+        if (event->type() == QEvent::KeyPress && watched->isWindowType()
+            && runKeypadGlobalShortcut(watched, key))
+            return true;
         break;
     }
     case QEvent::KeyRelease:
@@ -256,6 +259,51 @@ bool ShortcutRegistry::eventFilter(QObject *watched, QEvent *event)
         break;
     }
     return QAbstractListModel::eventFilter(watched, event);
+}
+
+// xkb strips the keypad modifier before Qt's shortcut map matches a press, so
+// a bare Num+ binding never fires there; run it from the unclaimed key press.
+bool ShortcutRegistry::runKeypadGlobalShortcut(QObject *window, const QKeyEvent *key)
+{
+    if (!key->modifiers().testFlag(Qt::KeypadModifier))
+        return false;
+    const QString seq = sequenceFromKeyEvent(key->key(), int(key->modifiers()));
+    if (!seq.startsWith(QLatin1String("Num+")))
+        return false;
+    bool bound = false;
+    for (int i = 0; i < m_actions.size() && !bound; ++i)
+        bound = m_actions.at(i).context == GlobalContext && m_resolved.at(i) == seq;
+    if (!bound)
+        return false;
+    // Whatever claims the key as an override (a text field, a capture chip) keeps it.
+    if (QObject *focus = QGuiApplication::focusObject()) {
+        QKeyEvent probe(QEvent::ShortcutOverride, key->key(), key->modifiers(),
+                        key->nativeScanCode(), key->nativeVirtualKey(),
+                        key->nativeModifiers(), key->text(), key->isAutoRepeat(),
+                        key->count());
+        probe.setAccepted(false);
+        QCoreApplication::sendEvent(focus, &probe);
+        if (probe.isAccepted())
+            return false;
+    }
+    const QKeySequence target = QKeySequence::fromString(seq, QKeySequence::PortableText);
+    bool fired = false;
+    const auto objects = window->findChildren<QObject *>();
+    for (QObject *object : objects) {
+        if (!object->inherits("QQuickShortcut") || !object->property("enabled").toBool())
+            continue;
+        QVariantList sequences = object->property("sequences").toList();
+        sequences << object->property("sequence");
+        for (const QVariant &value : sequences) {
+            if (QKeySequence::fromString(value.toString(), QKeySequence::PortableText)
+                == target) {
+                QMetaObject::invokeMethod(object, "activated");
+                fired = true;
+                break;
+            }
+        }
+    }
+    return fired;
 }
 
 void ShortcutRegistry::retranslate()

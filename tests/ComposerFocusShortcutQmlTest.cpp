@@ -253,6 +253,37 @@ ApplicationWindow {
         QTRY_COMPARE(fired.count(), 1);
     }
 
+    // xkb drops the keypad modifier before Qt's shortcut map sees the press, so
+    // there the key press reaches the window unmatched; offscreen never does.
+    void aNumpadMuteShortcutFiresFromAKeyPressTheShortcutMapMissed()
+    {
+        openJoinedRoom();
+        ShortcutRegistry *registry = m_controller->shortcuts();
+        QObject *mute = shortcutOn(registry->sequenceFor(QStringLiteral("call.toggleMute")));
+        QVERIFY(mute);
+        QSignalSpy fired(mute, SIGNAL(activated()));
+        QCOMPARE(registry->setBinding(QStringLiteral("call.toggleMute"),
+                                      QStringLiteral("Num+.")),
+                 QString());
+        QTRY_COMPARE(boundSequence(mute), QStringLiteral("Num+."));
+        QKeyEvent numpad(QEvent::KeyPress, Qt::Key_Period, Qt::KeypadModifier,
+                         QStringLiteral("."));
+        QKeyEvent mainKey(QEvent::KeyPress, Qt::Key_Period, Qt::NoModifier,
+                          QStringLiteral("."));
+
+        auto *composer = item("composerInput");
+        QVERIFY(composer->hasActiveFocus());
+        QVERIFY(!registry->eventFilter(m_window, &numpad));
+        QCOMPARE(fired.count(), 0);
+
+        item("timelinePane")->forceActiveFocus();
+        QVERIFY(!composer->hasActiveFocus());
+        QVERIFY(!registry->eventFilter(m_window, &mainKey));
+        QCOMPARE(fired.count(), 0);
+        QVERIFY(registry->eventFilter(m_window, &numpad));
+        QCOMPARE(fired.count(), 1);
+    }
+
     void focusShortcutRefusesHiddenComposer()
     {
         openJoinedRoom();

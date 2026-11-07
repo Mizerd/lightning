@@ -8,6 +8,7 @@
 #include <QVector>
 
 class QEvent;
+class QKeyEvent;
 class SettingsManager;
 
 /// Every rebindable keyboard shortcut in Lightning, in one place.
@@ -160,6 +161,7 @@ public:
 
 private:
     QString actionForKeyIn(ActionContext context, int key, int modifiers) const;
+    bool runKeypadGlobalShortcut(QObject *window, const QKeyEvent *key);
 
     struct Action {
         QString id;
