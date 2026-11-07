@@ -284,6 +284,48 @@ ApplicationWindow {
         QCOMPARE(fired.count(), 1);
     }
 
+    void anOpenModalPopupBlocksANumpadGlobalShortcut()
+    {
+        openJoinedRoom();
+        ShortcutRegistry *registry = m_controller->shortcuts();
+        QObject *mute = shortcutOn(registry->sequenceFor(QStringLiteral("call.toggleMute")));
+        QVERIFY(mute);
+        QSignalSpy fired(mute, SIGNAL(activated()));
+        QCOMPARE(registry->setBinding(QStringLiteral("call.toggleMute"),
+                                      QStringLiteral("Num+.")),
+                 QString());
+        QTRY_COMPARE(boundSequence(mute), QStringLiteral("Num+."));
+
+        QQmlComponent component(m_engine);
+        component.setData(R"QML(
+import QtQuick
+import QtQuick.Controls
+Popup {
+    modal: true
+    width: 200
+    height: 100
+    Button { text: "ok" }
+}
+)QML", QUrl(QStringLiteral("modal-popup.qml")));
+        QObject *popup = component.create();
+        QVERIFY2(popup, qPrintable(component.errorString()));
+        popup->setParent(m_window->contentItem());
+        popup->setProperty("parent", QVariant::fromValue(m_window->contentItem()));
+        QMetaObject::invokeMethod(popup, "open");
+        QTRY_VERIFY(popup->property("opened").toBool());
+
+        QKeyEvent numpad(QEvent::KeyPress, Qt::Key_Period, Qt::KeypadModifier,
+                         QStringLiteral("."));
+        QVERIFY(!registry->eventFilter(m_window, &numpad));
+        QCOMPARE(fired.count(), 0);
+
+        QMetaObject::invokeMethod(popup, "close");
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        item("timelinePane")->forceActiveFocus();
+        QVERIFY(registry->eventFilter(m_window, &numpad));
+        QCOMPARE(fired.count(), 1);
+    }
+
     void focusShortcutRefusesHiddenComposer()
     {
         openJoinedRoom();

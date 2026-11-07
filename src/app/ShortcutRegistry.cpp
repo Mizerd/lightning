@@ -7,7 +7,13 @@
 #include <QKeyCombination>
 #include <QKeyEvent>
 #include <QKeySequence>
-#include <QPointer>
+
+// Qt's own synthesized-key path into the shortcut map (exported, not in a header).
+extern Q_GUI_EXPORT bool qt_sendShortcutOverrideEvent(QObject *o, ulong timestamp, int k,
+                                                      Qt::KeyboardModifiers mods,
+                                                      const QString &text = QString(),
+                                                      bool autorep = false,
+                                                      ushort count = 1);
 
 namespace {
 
@@ -263,7 +269,8 @@ bool ShortcutRegistry::eventFilter(QObject *watched, QEvent *event)
 }
 
 // xkb strips the keypad modifier before Qt's shortcut map matches a press, so
-// a bare Num+ binding never fires there; run it from the unclaimed key press.
+// a bare Num+ binding never fires there. Without a native scan code the map
+// matches the key combination as given, keypad included.
 bool ShortcutRegistry::runKeypadGlobalShortcut(QObject *window, const QKeyEvent *key)
 {
     if (!key->modifiers().testFlag(Qt::KeypadModifier))
@@ -276,41 +283,8 @@ bool ShortcutRegistry::runKeypadGlobalShortcut(QObject *window, const QKeyEvent 
         bound = m_actions.at(i).context == GlobalContext && m_resolved.at(i) == seq;
     if (!bound)
         return false;
-    // Whatever claims the key as an override (a text field, a capture chip) keeps it.
-    if (QObject *focus = QGuiApplication::focusObject()) {
-        QKeyEvent probe(QEvent::ShortcutOverride, key->key(), key->modifiers(),
-                        key->nativeScanCode(), key->nativeVirtualKey(),
-                        key->nativeModifiers(), key->text(), key->isAutoRepeat(),
-                        key->count());
-        probe.setAccepted(false);
-        QCoreApplication::sendEvent(focus, &probe);
-        if (probe.isAccepted())
-            return false;
-    }
-    // Reading a QML property can run bindings and the garbage collector, which
-    // may delete objects, so collect guarded pointers before reading any.
-    QList<QPointer<QObject>> shortcuts;
-    const auto objects = window->findChildren<QObject *>();
-    for (QObject *object : objects) {
-        if (object->inherits("QQuickShortcut"))
-            shortcuts.append(object);
-    }
-    const QKeySequence target = QKeySequence::fromString(seq, QKeySequence::PortableText);
-    for (const QPointer<QObject> &shortcut : std::as_const(shortcuts)) {
-        if (!shortcut || !shortcut->property("enabled").toBool())
-            continue;
-        QVariantList sequences = shortcut->property("sequences").toList();
-        sequences << shortcut->property("sequence");
-        for (const QVariant &value : std::as_const(sequences)) {
-            if (shortcut
-                && QKeySequence::fromString(value.toString(), QKeySequence::PortableText)
-                       == target) {
-                QMetaObject::invokeMethod(shortcut.data(), "activated");
-                return true;
-            }
-        }
-    }
-    return false;
+    return qt_sendShortcutOverrideEvent(window, key->timestamp(), key->key(), key->modifiers(),
+                                        key->text(), key->isAutoRepeat(), key->count());
 }
 
 void ShortcutRegistry::retranslate()
