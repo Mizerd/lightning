@@ -2227,6 +2227,13 @@ void SfuCallController::onSfuState(const QString &state,
                       << "active=" << active();
     if (!active())
         return;
+    // The signalling task is reattaching the same LiveKit session; tearing the
+    // media down here would turn a resume into the full rejoin it avoids.
+    if (state == QLatin1String("resume_requested")
+        || state == QLatin1String("resuming")
+        || state == QLatin1String("resumed")) {
+        return;
+    }
     if (state == QLatin1String("failed")
         && category == QLatin1String("publish_denied")
         && !m_publishFallbackTried && m_rtc && m_client) {
@@ -2792,10 +2799,18 @@ bool SfuCallController::mergeParticipants(const QVariantList &updates)
             row.value(QStringLiteral("identity")).toString();
         if (identity.isEmpty())
             continue;
+        const QString sid = row.value(QStringLiteral("sid")).toString();
+        const QString knownSid = m_publisherParticipants.value(identity)
+            .value(QStringLiteral("sid")).toString();
         if (row.value(QStringLiteral("state")).toString()
             == QLatin1String("disconnected")) {
-            m_publisherParticipants.remove(identity);
+            if (m_publisherParticipants.remove(identity) > 0)
+                qCInfo(lcSfuCall) << "sfu participant left stream=" << sid;
             continue;
+        }
+        if (!knownSid.isEmpty() && !sid.isEmpty() && knownSid != sid) {
+            qCWarning(lcSfuCall) << "sfu participant session replaced stream="
+                                 << knownSid << "->" << sid;
         }
         if (m_publisherParticipants.size() < kMaxParticipants
             || m_publisherParticipants.contains(identity))

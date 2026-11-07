@@ -8803,6 +8803,35 @@ QString(),
         }
     }
 
+    void aResumedSignalKeepsTheSessionAndTheCall()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setReconnectTimingForTest(20, 5000, 20000);
+        connectRecoverableCall(client, call);
+        const int connects = client.sfuConnects.size();
+        const int disconnects = client.sfuDisconnects;
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        client.emitSfuState(QStringLiteral("resume_requested"),
+                            QStringLiteral("server_leave"));
+        client.emitSfuState(QStringLiteral("resuming"),
+                            QStringLiteral("server_leave"));
+        client.emitSfuState(QStringLiteral("resumed"),
+                            QStringLiteral("server_leave"));
+        QTest::qWait(150);
+        QCOMPARE(call.state(), SfuCallController::State::Connected);
+        QCOMPARE(client.sfuDisconnects, disconnects);
+        QCOMPARE(client.sfuConnects.size(), connects);
+        QCOMPARE(call.reconnectAttemptsForTest(), 0);
+        QCOMPARE(failed.count(), 0);
+        QVERIFY(client.retractions.isEmpty());
+
+        client.emitSfuState(QStringLiteral("reconnecting"),
+                            QStringLiteral("resume_refused"));
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
+    }
+
     void aReconnectThatNeverGetsBackEndsHonestly()
     {
         RecordingCallClient client;

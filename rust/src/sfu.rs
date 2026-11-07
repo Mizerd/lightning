@@ -653,6 +653,207 @@ where
     sink.send(WsMessage::Binary(buffer)).await.is_ok()
 }
 
+type SignalStream = tokio_tungstenite::WebSocketStream<
+    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+const RESUME_ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
+const RESUME_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_millis(0),
+    Duration::from_millis(500),
+    Duration::from_millis(1500),
+];
+const MAX_RESUMES_PER_WINDOW: usize = 3;
+const RESUME_WINDOW: Duration = Duration::from_secs(60);
+const MAX_RESUME_CANDIDATES: usize = 32;
+const MAX_REFRESHED_TOKEN: usize = 8 * 1024;
+
+/// `resume` is (participant sid, LiveKit `ReconnectReason`). With it the server
+/// reattaches this socket to the session it already holds; without it a socket
+/// carrying the same identity makes the server drop that session as a duplicate,
+/// which every other participant sees as a leave and a rejoin.
+pub(crate) fn signal_url(
+    base: &url::Url,
+    token: &str,
+    resume: Option<(&str, i32)>,
+) -> url::Url {
+    let mut url = base.clone();
+    {
+        let mut query = url.query_pairs_mut();
+        query
+            .append_pair("access_token", token)
+            .append_pair("protocol", &LK_PROTOCOL_VERSION.to_string())
+            .append_pair("auto_subscribe", "1")
+            .append_pair("sdk", "cpp")
+            .append_pair("version", env!("CARGO_PKG_VERSION"));
+        if let Some((sid, reason)) = resume {
+            query
+                .append_pair("reconnect", "1")
+                .append_pair("sid", sid)
+                .append_pair("reconnect_reason", &reason.to_string());
+        }
+    }
+    url
+}
+
+pub(crate) fn leave_asks_resume(action: i32) -> bool {
+    matches!(lkp::leave_request::Action::try_from(action),
+             Ok(lkp::leave_request::Action::Resume))
+}
+
+/// Bounded so a server that keeps asking for a resume it cannot complete ends
+/// in a full rejoin rather than a loop.
+pub(crate) fn may_resume(
+    sid: Option<&str>,
+    recent: &mut VecDeque<std::time::Instant>,
+    now: std::time::Instant,
+) -> bool {
+    if sid.is_none_or(str::is_empty) {
+        return false;
+    }
+    while recent
+        .front()
+        .is_some_and(|at| now.saturating_duration_since(*at) >= RESUME_WINDOW)
+    {
+        recent.pop_front();
+    }
+    if recent.len() >= MAX_RESUMES_PER_WINDOW {
+        return false;
+    }
+    recent.push_back(now);
+    true
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ResumeAnswer {
+    Resumed,
+    Refused,
+    Lost,
+}
+
+/// Anything before the `ReconnectResponse` is skipped, as livekit-client does.
+async fn await_resume_answer<S>(source: &mut S) -> ResumeAnswer
+where
+    S: futures_util::Stream<
+            Item = Result<WsMessage, tokio_tungstenite::tungstenite::Error>,
+        > + Unpin,
+{
+    while let Some(frame) = source.next().await {
+        let payload = match frame {
+            Ok(WsMessage::Binary(bytes)) => bytes,
+            Ok(WsMessage::Close(_)) | Err(_) => return ResumeAnswer::Lost,
+            Ok(_) => continue,
+        };
+        if payload.len() > MAX_SIGNAL_FRAME {
+            continue;
+        }
+        match lkp::SignalResponse::decode(&payload[..]).ok().and_then(|r| r.message) {
+            Some(lkp::signal_response::Message::Reconnect(_)) => {
+                return ResumeAnswer::Resumed;
+            }
+            Some(lkp::signal_response::Message::Leave(_))
+            | Some(lkp::signal_response::Message::Join(_)) => {
+                return ResumeAnswer::Refused;
+            }
+            _ => continue,
+        }
+    }
+    ResumeAnswer::Lost
+}
+
+/// The server ICE-restarts the subscriber on every resume, and pion's restart
+/// forgets every remote candidate. webrtcbin answers with its old ICE
+/// credentials and gathers nothing new, so the candidates it already sent are
+/// sent again after that answer, or the subscriber never reconnects.
+#[derive(Default)]
+pub(crate) struct SubscriberCandidates {
+    sent: VecDeque<String>,
+    pending: bool,
+}
+
+impl SubscriberCandidates {
+    pub(crate) fn record(&mut self, candidate_init: &str) {
+        if self.sent.len() >= MAX_RESUME_CANDIDATES {
+            self.sent.pop_front();
+        }
+        self.sent.push_back(candidate_init.to_owned());
+    }
+
+    pub(crate) fn arm(&mut self) {
+        self.pending = !self.sent.is_empty();
+    }
+
+    pub(crate) fn after_answer(&mut self) -> Vec<String> {
+        if !std::mem::take(&mut self.pending) {
+            return Vec::new();
+        }
+        self.sent.iter().cloned().collect()
+    }
+}
+
+async fn dial_signal(
+    target: &url::Url,
+    addresses: Vec<std::net::SocketAddr>,
+    budget: Duration,
+) -> ConnectWalk<SignalStream> {
+    walk_addresses(
+        addresses,
+        tokio::time::Instant::now() + budget,
+        move |address| async move {
+            let tcp = tokio::net::TcpStream::connect(address)
+                .await
+                .map_err(tokio_tungstenite::tungstenite::Error::Io)?;
+            let mut config =
+                tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+            config.max_message_size = Some(MAX_SIGNAL_FRAME);
+            config.max_frame_size = Some(MAX_SIGNAL_FRAME);
+            tokio_tungstenite::client_async_tls_with_config(
+                target.as_str(),
+                tcp,
+                Some(config),
+                None,
+            )
+            .await
+            .map(|(stream, _)| stream)
+        },
+    )
+    .await
+}
+
+async fn resume_signal(
+    base: &url::Url,
+    token: &str,
+    sid: &str,
+    reason: i32,
+    addresses: &[std::net::SocketAddr],
+) -> Result<SignalStream, &'static str> {
+    let target = signal_url(base, token, Some((sid, reason)));
+    for delay in RESUME_RETRY_DELAYS {
+        tokio::time::sleep(delay).await;
+        let mut stream = match dial_signal(
+            &target, addresses.to_vec(), RESUME_ANSWER_TIMEOUT).await
+        {
+            ConnectWalk::Connected(stream) => stream,
+            ConnectWalk::Failed(Some(tokio_tungstenite::tungstenite::Error::Http(_))) => {
+                return Err("resume_refused");
+            }
+            ConnectWalk::Failed(_) | ConnectWalk::TimedOut => continue,
+        };
+        let answer = tokio::time::timeout(
+            RESUME_ANSWER_TIMEOUT, await_resume_answer(&mut stream)).await;
+        match answer {
+            Ok(ResumeAnswer::Resumed) => return Ok(stream),
+            Ok(ResumeAnswer::Refused) => {
+                let _ = stream.close(None).await;
+                return Err("resume_refused");
+            }
+            Ok(ResumeAnswer::Lost) | Err(_) => {
+                let _ = stream.close(None).await;
+            }
+        }
+    }
+    Err("resume_failed")
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_session(
     events: Arc<Mutex<std::collections::VecDeque<String>>>,
@@ -680,7 +881,7 @@ async fn run_session(
         }
     };
 
-    let mut url = match url::Url::parse(&credentials.url) {
+    let mut base = match url::Url::parse(&credentials.url) {
         Ok(url) => url,
         Err(_) => {
             emit(json!({
@@ -691,15 +892,11 @@ async fn run_session(
         }
     };
     {
-        let existing = url.path().trim_end_matches('/').to_owned();
-        url.set_path(&format!("{existing}/rtc"));
+        let existing = base.path().trim_end_matches('/').to_owned();
+        base.set_path(&format!("{existing}/rtc"));
     }
-    url.query_pairs_mut()
-        .append_pair("access_token", &credentials.jwt)
-        .append_pair("protocol", &LK_PROTOCOL_VERSION.to_string())
-        .append_pair("auto_subscribe", "1")
-        .append_pair("sdk", "cpp")
-        .append_pair("version", env!("CARGO_PKG_VERSION"));
+    let mut token = credentials.jwt.clone();
+    let url = signal_url(&base, &token, None);
 
     let host = url.host_str().unwrap_or_default().to_owned();
     let port = url.port_or_known_default().unwrap_or(443);
@@ -733,30 +930,8 @@ async fn run_session(
             return;
         }
     };
-    let target = &url;
-    let stream = match walk_addresses(
-        addresses,
-        tokio::time::Instant::now() + SFU_TIMEOUT,
-        move |address| async move {
-            let tcp = tokio::net::TcpStream::connect(address)
-                .await
-                .map_err(tokio_tungstenite::tungstenite::Error::Io)?;
-            let mut config =
-                tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
-            config.max_message_size = Some(MAX_SIGNAL_FRAME);
-            config.max_frame_size = Some(MAX_SIGNAL_FRAME);
-            tokio_tungstenite::client_async_tls_with_config(
-                target.as_str(),
-                tcp,
-                Some(config),
-                None,
-            )
-            .await
-        },
-    )
-    .await
-    {
-        ConnectWalk::Connected((stream, _)) => stream,
+    let mut stream = match dial_signal(&url, addresses.clone(), SFU_TIMEOUT).await {
+        ConnectWalk::Connected(stream) => stream,
         ConnectWalk::TimedOut => {
             emit(json!({
                 "type": "sfu_state", "generation": generation,
@@ -778,8 +953,8 @@ async fn run_session(
             return;
         }
     };
+    drop(url);
 
-    let (mut sink, mut source) = stream.split();
     emit(json!({
         "type": "sfu_state", "generation": generation, "state": "signalling",
         "category": "",
@@ -797,371 +972,446 @@ async fn run_session(
     // counter, as livekit-client does. Index 0 = publisher, 1 = subscriber.
     let mut remote_offer_id = [0u32; 2];
     let mut local_offer_id = [0u32; 2];
-    // After the JoinResponse a lost socket is a call to recover, not one to
-    // end: the controller keeps the membership and the call UI and joins
-    // again ("reconnecting"). Before it, a failure is a failed join.
+    // After the JoinResponse a lost socket is a session to resume, and failing
+    // that a call to recover ("reconnecting"). Before it, a failure is a failed join.
     let mut joined = false;
+    let mut participant_sid: Option<String> = None;
+    let mut resumes: VecDeque<std::time::Instant> = VecDeque::new();
+    let mut subscriber_candidates = SubscriberCandidates::default();
     let mut silence_limit: Option<Duration> = None;
     let mut last_heard = tokio::time::Instant::now();
     let reconnecting = |category: &str| json!({
         "type": "sfu_state", "generation": generation,
         "state": "reconnecting", "category": category,
     });
+    let signal_lost = lkp::ReconnectReason::RrSignalDisconnected as i32;
 
-    loop {
-        tokio::select! {
-            biased;
-            _ = &mut leave => {
-                let _ = send_request(&mut sink,
-                    lkp::signal_request::Message::Leave(
-                        lkp::LeaveRequest::default())).await;
-                break;
-            }
-            _ = tokio::time::sleep_until(
-                    last_heard
-                        + silence_limit.unwrap_or(Duration::from_secs(3600))),
-                if silence_limit.is_some() =>
-            {
-                emit(reconnecting("signal_timeout"));
-                break;
-            }
-            _ = ping_ticker.tick(), if ping_armed => {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                if !send_request(
-                    &mut sink,
-                    lkp::signal_request::Message::Ping(now_ms)).await
-                {
-                    emit(reconnecting("signal_lost"));
-                    break;
+    'session: loop {
+        let (mut sink, mut source) = stream.split();
+        let loss: Option<(&'static str, i32)> = loop {
+            tokio::select! {
+                biased;
+                _ = &mut leave => {
+                    let _ = send_request(&mut sink,
+                        lkp::signal_request::Message::Leave(
+                            lkp::LeaveRequest::default())).await;
+                    break None;
                 }
-                if !send_request(
-                    &mut sink,
-                    lkp::signal_request::Message::PingReq(lkp::Ping {
-                        timestamp: now_ms,
-                        rtt: 0,
-                    })).await
-                {
-                    emit(reconnecting("signal_lost"));
-                    break;
+                _ = ping_ticker.tick(), if ping_armed => {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+                    if !send_request(
+                        &mut sink,
+                        lkp::signal_request::Message::Ping(now_ms)).await
+                    {
+                        break Some(("signal_lost", signal_lost));
+                    }
+                    if !send_request(
+                        &mut sink,
+                        lkp::signal_request::Message::PingReq(lkp::Ping {
+                            timestamp: now_ms,
+                            rtt: 0,
+                        })).await
+                    {
+                        break Some(("signal_lost", signal_lost));
+                    }
                 }
-            }
-            command = commands.recv() => {
-                let Some(command) = command else { break };
-                let message = match command {
-                    SfuCommand::Offer { sdp, target } => {
-                        let slot = (target as usize).min(1);
-                        local_offer_id[slot] =
-                            local_offer_id[slot].wrapping_add(1).max(1);
-                        lkp::signal_request::Message::Offer(
-                            lkp::SessionDescription {
-                                r#type: "offer".to_owned(), sdp,
-                                id: local_offer_id[slot],
-                                ..Default::default()
-                            })
+                command = commands.recv() => {
+                    let Some(command) = command else { break None };
+                    let mut replay = Vec::new();
+                    let message = match command {
+                        SfuCommand::Offer { sdp, target } => {
+                            let slot = (target as usize).min(1);
+                            local_offer_id[slot] =
+                                local_offer_id[slot].wrapping_add(1).max(1);
+                            lkp::signal_request::Message::Offer(
+                                lkp::SessionDescription {
+                                    r#type: "offer".to_owned(), sdp,
+                                    id: local_offer_id[slot],
+                                    ..Default::default()
+                                })
+                        }
+                        SfuCommand::Answer { sdp, target } => {
+                            let slot = (target as usize).min(1);
+                            if slot == 1 {
+                                replay = subscriber_candidates.after_answer();
+                            }
+                            lkp::signal_request::Message::Answer(
+                                lkp::SessionDescription {
+                                    r#type: "answer".to_owned(), sdp,
+                                    id: remote_offer_id[slot],
+                                    ..Default::default()
+                                })
+                        }
+                        SfuCommand::Candidate { candidate_init, target } => {
+                            if target == 1 {
+                                subscriber_candidates.record(&candidate_init);
+                            }
+                            lkp::signal_request::Message::Trickle(
+                                lkp::TrickleRequest {
+                                    candidate_init, target, r#final: false,
+                                })
+                        }
+                        SfuCommand::AddTrack {
+                            cid, name, kind, width, height, screen_share, encrypted, backup_cid,
+                        } => {
+                            let layers = if kind == lkp::TrackType::Video as i32 {
+                                vec![lkp::VideoLayer {
+                                    quality: lkp::VideoQuality::High as i32,
+                                    width,
+                                    height,
+                                    ..Default::default()
+                                }]
+                            } else {
+                                Vec::new()
+                            };
+                            lkp::signal_request::Message::AddTrack(
+                                lkp::AddTrackRequest {
+                                    backup_codec_policy: if backup_cid.is_some() {
+                                        lkp::BackupCodecPolicy::Simulcast as i32
+                                    } else { lkp::BackupCodecPolicy::PreferRegression as i32 },
+                                    simulcast_codecs: share_simulcast_codecs(&cid, backup_cid.as_deref(), width, height),
+                                    cid, name, r#type: kind,
+                                    width, height, layers,
+                                    source: track_source_for(kind, screen_share),
+                                    encryption: track_encryption_for(encrypted),
+                                    // RED and frame E2EE are mutually exclusive (livekit-client:
+                                    // `disableRed: this.isE2EEEnabled || …`): RED wraps the Opus payload, so
+                                    // the decryptor gets a RED packet instead of the clear Opus TOC byte, and
+                                    // every frame fails authentication.
+                                    disable_red: encrypted,
+                                    ..Default::default()
+                                })
+                        }
+                        SfuCommand::MuteTrack { sid, muted } => {
+                            lkp::signal_request::Message::Mute(
+                                lkp::MuteTrackRequest { sid, muted })
+                        }
+                        SfuCommand::Leave => {
+                            let _ = send_request(
+                                &mut sink,
+                                lkp::signal_request::Message::Leave(
+                                    lkp::LeaveRequest::default())).await;
+                            break None;
+                        }
+                    };
+                    let mut sent = send_request(&mut sink, message).await;
+                    for candidate_init in replay {
+                        if !sent {
+                            break;
+                        }
+                        sent = send_request(&mut sink,
+                            lkp::signal_request::Message::Trickle(
+                                lkp::TrickleRequest {
+                                    candidate_init, target: 1, r#final: false,
+                                })).await;
                     }
-                    SfuCommand::Answer { sdp, target } => {
-                        let slot = (target as usize).min(1);
-                        lkp::signal_request::Message::Answer(
-                            lkp::SessionDescription {
-                                r#type: "answer".to_owned(), sdp,
-                                id: remote_offer_id[slot],
-                                ..Default::default()
-                            })
-                    }
-                    SfuCommand::Candidate { candidate_init, target } => {
-                        lkp::signal_request::Message::Trickle(
-                            lkp::TrickleRequest {
-                                candidate_init, target, r#final: false,
-                            })
-                    }
-                    SfuCommand::AddTrack {
-                        cid, name, kind, width, height, screen_share, encrypted, backup_cid,
-                    } => {
-                        let layers = if kind == lkp::TrackType::Video as i32 {
-                            vec![lkp::VideoLayer {
-                                quality: lkp::VideoQuality::High as i32,
-                                width,
-                                height,
-                                ..Default::default()
-                            }]
-                        } else {
-                            Vec::new()
-                        };
-                        lkp::signal_request::Message::AddTrack(
-                            lkp::AddTrackRequest {
-                                backup_codec_policy: if backup_cid.is_some() {
-                                    lkp::BackupCodecPolicy::Simulcast as i32
-                                } else { lkp::BackupCodecPolicy::PreferRegression as i32 },
-                                simulcast_codecs: share_simulcast_codecs(&cid, backup_cid.as_deref(), width, height),
-                                cid, name, r#type: kind,
-                                width, height, layers,
-                                source: track_source_for(kind, screen_share),
-                                encryption: track_encryption_for(encrypted),
-                                // RED and frame E2EE are mutually exclusive (livekit-client:
-                                // `disableRed: this.isE2EEEnabled || …`): RED wraps the Opus payload, so
-                                // the decryptor gets a RED packet instead of the clear Opus TOC byte, and
-                                // every frame fails authentication.
-                                disable_red: encrypted,
-                                ..Default::default()
-                            })
-                    }
-                    SfuCommand::MuteTrack { sid, muted } => {
-                        lkp::signal_request::Message::Mute(
-                            lkp::MuteTrackRequest { sid, muted })
-                    }
-                    SfuCommand::Leave => {
-                        let _ = send_request(
-                            &mut sink,
-                            lkp::signal_request::Message::Leave(
-                                lkp::LeaveRequest::default())).await;
-                        break;
-                    }
-                };
-                if !send_request(&mut sink, message).await {
-                    if joined {
-                        emit(reconnecting("signal_lost"));
-                    } else {
+                    if !sent {
+                        if joined {
+                            break Some(("signal_lost", signal_lost));
+                        }
                         emit(json!({
                             "type": "sfu_state", "generation": generation,
                             "state": "failed", "category": "send_failed",
                         }));
+                        break None;
                     }
-                    break;
                 }
-            }
-            frame = source.next() => {
-                let Some(frame) = frame else {
-                    if joined {
-                        emit(reconnecting("signal_lost"));
-                    }
-                    break;
-                };
-                if frame.is_ok() {
-                    last_heard = tokio::time::Instant::now();
-                }
-                let payload = match frame {
-                    Ok(WsMessage::Binary(bytes)) => bytes,
-                    Ok(WsMessage::Close(_)) => {
+                frame = source.next() => {
+                    let Some(frame) = frame else {
                         if joined {
-                            emit(reconnecting("signal_lost"));
+                            break Some(("signal_lost", signal_lost));
                         }
-                        break;
+                        break None;
+                    };
+                    if frame.is_ok() {
+                        last_heard = tokio::time::Instant::now();
                     }
-                    Ok(WsMessage::Ping(_)) | Ok(WsMessage::Pong(_))
-                    | Ok(WsMessage::Text(_)) | Ok(WsMessage::Frame(_)) => continue,
-                    Err(_) => {
-                        if joined {
-                            emit(reconnecting("signal_lost"));
-                        } else {
+                    let payload = match frame {
+                        Ok(WsMessage::Binary(bytes)) => bytes,
+                        Ok(WsMessage::Close(_)) => {
+                            if joined {
+                                break Some(("signal_lost", signal_lost));
+                            }
+                            break None;
+                        }
+                        Ok(WsMessage::Ping(_)) | Ok(WsMessage::Pong(_))
+                        | Ok(WsMessage::Text(_)) | Ok(WsMessage::Frame(_)) => continue,
+                        Err(_) => {
+                            if joined {
+                                break Some(("signal_lost", signal_lost));
+                            }
                             emit(json!({
                                 "type": "sfu_state", "generation": generation,
                                 "state": "failed", "category": "connection_lost",
                             }));
+                            break None;
                         }
-                        break;
+                    };
+                    if payload.len() > MAX_SIGNAL_FRAME {
+                        continue;
                     }
-                };
-                if payload.len() > MAX_SIGNAL_FRAME {
-                    continue;
-                }
-                let Ok(response) = lkp::SignalResponse::decode(&payload[..])
-                else { continue };
-                let Some(message) = response.message else { continue };
+                    let Ok(response) = lkp::SignalResponse::decode(&payload[..])
+                    else { continue };
+                    let Some(message) = response.message else { continue };
 
-                match message {
-                    lkp::signal_response::Message::Join(join) => {
-                        let interval = join.ping_interval.clamp(1, 120) as u64;
-                        ping_ticker = tokio::time::interval(
-                            std::time::Duration::from_secs(interval));
-                        ping_ticker.set_missed_tick_behavior(
-                            tokio::time::MissedTickBehavior::Delay);
-                        ping_ticker.tick().await;
-                        ping_armed = true;
-                        joined = true;
-                        silence_limit = signal_silence_limit(
-                            join.ping_timeout, join.ping_interval);
-                        last_heard = tokio::time::Instant::now();
-                        let mut participants: Vec<serde_json::Value> =
-                            Vec::with_capacity(MAX_PARTICIPANTS);
-                        if let Some(own) = join.participant.as_ref()
-                            .and_then(participant_json)
-                        {
-                            participants.push(own);
-                        }
-                        participants.extend(join
-                            .other_participants.iter()
-                            .take(MAX_PARTICIPANTS.saturating_sub(1))
-                            .filter_map(participant_json));
-                        let ice: Vec<serde_json::Value> = join.ice_servers
-                            .iter().take(8).map(|server| json!({
-                                "urls": server.urls.iter().take(8)
-                                    .filter_map(|u| sane(u, 512))
-                                    .collect::<Vec<_>>(),
-                                "username": server.username,
-                                "credential": server.credential,
-                            })).collect();
-                        if connection_id == 0 && join.participant.as_ref()
-                            .and_then(|p| p.permission.as_ref())
-                            .is_some_and(|p| !p.can_publish)
-                        {
-                            emit(json!({
-                                "type": "sfu_permission", "generation": generation,
-                                "service_host_hash": service_host_hash,
-                                "can_publish": false,
-                                "source": "join",
-                            }));
-                            emit(json!({
-                                "type": "sfu_state", "generation": generation,
-                                "state": "failed", "category": "publish_denied",
-                            }));
-                            break;
-                        }
-                        emit(json!({
-                            "type": "sfu_joined",
-                            "generation": generation,
-                            "service_host_hash": service_host_hash,
-                            "can_publish": join.participant.as_ref()
+                    match message {
+                        lkp::signal_response::Message::Join(join) => {
+                            let interval = join.ping_interval.clamp(1, 120) as u64;
+                            ping_ticker = tokio::time::interval(
+                                std::time::Duration::from_secs(interval));
+                            ping_ticker.set_missed_tick_behavior(
+                                tokio::time::MissedTickBehavior::Delay);
+                            ping_ticker.tick().await;
+                            ping_armed = true;
+                            joined = true;
+                            participant_sid = join.participant.as_ref()
+                                .and_then(|p| sane(&p.sid, 256))
+                                .map(ToOwned::to_owned);
+                            silence_limit = signal_silence_limit(
+                                join.ping_timeout, join.ping_interval);
+                            last_heard = tokio::time::Instant::now();
+                            let mut participants: Vec<serde_json::Value> =
+                                Vec::with_capacity(MAX_PARTICIPANTS);
+                            if let Some(own) = join.participant.as_ref()
+                                .and_then(participant_json)
+                            {
+                                participants.push(own);
+                            }
+                            participants.extend(join
+                                .other_participants.iter()
+                                .take(MAX_PARTICIPANTS.saturating_sub(1))
+                                .filter_map(participant_json));
+                            let ice: Vec<serde_json::Value> = join.ice_servers
+                                .iter().take(8).map(|server| json!({
+                                    "urls": server.urls.iter().take(8)
+                                        .filter_map(|u| sane(u, 512))
+                                        .collect::<Vec<_>>(),
+                                    "username": server.username,
+                                    "credential": server.credential,
+                                })).collect();
+                            if connection_id == 0 && join.participant.as_ref()
                                 .and_then(|p| p.permission.as_ref())
-                                .map(|p| p.can_publish),
-                            "can_subscribe": join.participant.as_ref()
-                                .and_then(|p| p.permission.as_ref())
-                                .map(|p| p.can_subscribe),
-                            "identity": join.participant.as_ref()
-                                .map(|p| p.identity.clone())
-                                .unwrap_or_default(),
-                            "subscriber_primary": join.subscriber_primary,
-                            "participants": participants,
-                            "ice_servers": ice,
-                            "sif_trailer": sif_trailer_b64(&join.sif_trailer),
-                        }));
-                    }
-                    lkp::signal_response::Message::Offer(sdp) => {
-                        remote_offer_id[1] = sdp.id;
-                        if media_capable.load(Ordering::SeqCst) {
-                            emit(json!({
-                                "type": "sfu_remote_description",
-                                "generation": generation,
-                                "kind": "offer",
-                                "target": target_str(1),
-                                "sdp": sdp.sdp,
-                            }));
-                        }
-                    }
-                    lkp::signal_response::Message::Answer(sdp) => {
-                        if media_capable.load(Ordering::SeqCst) {
-                            emit(json!({
-                                "type": "sfu_remote_description",
-                                "generation": generation,
-                                "kind": "answer",
-                                "target": target_str(0),
-                                "sdp": sdp.sdp,
-                            }));
-                        }
-                    }
-                    lkp::signal_response::Message::Trickle(trickle) => {
-                        if media_capable.load(Ordering::SeqCst) {
-                            if let Some(init) =
-                                sane(&trickle.candidate_init, 4096)
+                                .is_some_and(|p| !p.can_publish)
                             {
                                 emit(json!({
-                                    "type": "sfu_remote_candidate",
+                                    "type": "sfu_permission", "generation": generation,
+                                    "service_host_hash": service_host_hash,
+                                    "can_publish": false,
+                                    "source": "join",
+                                }));
+                                emit(json!({
+                                    "type": "sfu_state", "generation": generation,
+                                    "state": "failed", "category": "publish_denied",
+                                }));
+                                break None;
+                            }
+                            emit(json!({
+                                "type": "sfu_joined",
+                                "generation": generation,
+                                "service_host_hash": service_host_hash,
+                                "can_publish": join.participant.as_ref()
+                                    .and_then(|p| p.permission.as_ref())
+                                    .map(|p| p.can_publish),
+                                "can_subscribe": join.participant.as_ref()
+                                    .and_then(|p| p.permission.as_ref())
+                                    .map(|p| p.can_subscribe),
+                                "identity": join.participant.as_ref()
+                                    .map(|p| p.identity.clone())
+                                    .unwrap_or_default(),
+                                "subscriber_primary": join.subscriber_primary,
+                                "participants": participants,
+                                "ice_servers": ice,
+                                "sif_trailer": sif_trailer_b64(&join.sif_trailer),
+                            }));
+                        }
+                        lkp::signal_response::Message::Offer(sdp) => {
+                            remote_offer_id[1] = sdp.id;
+                            if media_capable.load(Ordering::SeqCst) {
+                                emit(json!({
+                                    "type": "sfu_remote_description",
                                     "generation": generation,
-                                    "target": target_str(trickle.target),
-                                    "candidate_init": init,
+                                    "kind": "offer",
+                                    "target": target_str(1),
+                                    "sdp": sdp.sdp,
                                 }));
                             }
                         }
+                        lkp::signal_response::Message::Answer(sdp) => {
+                            if media_capable.load(Ordering::SeqCst) {
+                                emit(json!({
+                                    "type": "sfu_remote_description",
+                                    "generation": generation,
+                                    "kind": "answer",
+                                    "target": target_str(0),
+                                    "sdp": sdp.sdp,
+                                }));
+                            }
+                        }
+                        lkp::signal_response::Message::Trickle(trickle) => {
+                            if media_capable.load(Ordering::SeqCst) {
+                                if let Some(init) =
+                                    sane(&trickle.candidate_init, 4096)
+                                {
+                                    emit(json!({
+                                        "type": "sfu_remote_candidate",
+                                        "generation": generation,
+                                        "target": target_str(trickle.target),
+                                        "candidate_init": init,
+                                    }));
+                                }
+                            }
+                        }
+                        lkp::signal_response::Message::Update(update) => {
+                            let participants: Vec<serde_json::Value> = update
+                                .participants.iter().take(MAX_PARTICIPANTS)
+                                .filter_map(participant_json).collect();
+                            emit(json!({
+                                "type": "sfu_participants",
+                                "generation": generation,
+                                "participants": participants,
+                            }));
+                        }
+                        lkp::signal_response::Message::TrackPublished(published) => {
+                            emit(json!({
+                                "type": "sfu_track_published",
+                                "generation": generation,
+                                "service_host_hash": service_host_hash,
+                                "cid": sane(&published.cid, 256)
+                                    .unwrap_or_default(),
+                                "sid": published.track.as_ref()
+                                    .and_then(|t| sane(&t.sid, 256))
+                                    .unwrap_or_default(),
+                            }));
+                        }
+                        lkp::signal_response::Message::SpeakersChanged(speakers) => {
+                            let active: Vec<serde_json::Value> = speakers
+                                .speakers.iter().take(MAX_PARTICIPANTS)
+                                .filter_map(|speaker| {
+                                    let sid = sane(&speaker.sid, 256)?;
+                                    Some(json!({
+                                        "sid": sid,
+                                        "active": speaker.active,
+                                        "level": speaker.level,
+                                    }))
+                                }).collect();
+                            emit(json!({
+                                "type": "sfu_speakers",
+                                "generation": generation,
+                                "speakers": active,
+                            }));
+                        }
+                        lkp::signal_response::Message::ConnectionQuality(quality) => {
+                            let updates: Vec<serde_json::Value> = quality
+                                .updates.iter().take(MAX_PARTICIPANTS)
+                                .filter_map(|update| {
+                                    let identity =
+                                        sane(&update.participant_sid, 256)?;
+                                    Some(json!({
+                                        "sid": identity,
+                                        "quality": match update.quality {
+                                            0 => "poor",
+                                            1 => "good",
+                                            2 => "excellent",
+                                            _ => "unknown",
+                                        },
+                                    }))
+                                }).collect();
+                            emit(json!({
+                                "type": "sfu_quality",
+                                "generation": generation,
+                                "updates": updates,
+                            }));
+                        }
+                        lkp::signal_response::Message::Leave(leave) => {
+                            if joined && leave_asks_resume(leave.action) {
+                                emit(json!({
+                                    "type": "sfu_state", "generation": generation,
+                                    "state": "resume_requested",
+                                    "category": "server_leave",
+                                    "reason": leave.reason,
+                                    "action": leave.action,
+                                }));
+                                break Some((
+                                    "server_leave",
+                                    lkp::ReconnectReason::RrUnknown as i32,
+                                ));
+                            }
+                            emit(json!({
+                                "type": "sfu_state", "generation": generation,
+                                "state": leave_disposition(
+                                    leave.action, leave.can_reconnect),
+                                "category": "server_leave",
+                                "reason": leave.reason,
+                                "action": leave.action,
+                            }));
+                            break None;
+                        }
+                        lkp::signal_response::Message::Mute(mute) => {
+                            emit(json!({
+                                "type": "sfu_server_mute",
+                                "generation": generation,
+                                "sid": sane(&mute.sid, 256).unwrap_or_default(),
+                                "muted": mute.muted,
+                            }));
+                        }
+                        lkp::signal_response::Message::RefreshToken(fresh) => {
+                            if !fresh.is_empty() && fresh.len() <= MAX_REFRESHED_TOKEN {
+                                token = fresh;
+                            }
+                        }
+                        _ => {}
                     }
-                    lkp::signal_response::Message::Update(update) => {
-                        let participants: Vec<serde_json::Value> = update
-                            .participants.iter().take(MAX_PARTICIPANTS)
-                            .filter_map(participant_json).collect();
-                        emit(json!({
-                            "type": "sfu_participants",
-                            "generation": generation,
-                            "participants": participants,
-                        }));
-                    }
-                    lkp::signal_response::Message::TrackPublished(published) => {
-                        emit(json!({
-                            "type": "sfu_track_published",
-                            "generation": generation,
-                            "service_host_hash": service_host_hash,
-                            "cid": sane(&published.cid, 256)
-                                .unwrap_or_default(),
-                            "sid": published.track.as_ref()
-                                .and_then(|t| sane(&t.sid, 256))
-                                .unwrap_or_default(),
-                        }));
-                    }
-                    lkp::signal_response::Message::SpeakersChanged(speakers) => {
-                        let active: Vec<serde_json::Value> = speakers
-                            .speakers.iter().take(MAX_PARTICIPANTS)
-                            .filter_map(|speaker| {
-                                let sid = sane(&speaker.sid, 256)?;
-                                Some(json!({
-                                    "sid": sid,
-                                    "active": speaker.active,
-                                    "level": speaker.level,
-                                }))
-                            }).collect();
-                        emit(json!({
-                            "type": "sfu_speakers",
-                            "generation": generation,
-                            "speakers": active,
-                        }));
-                    }
-                    lkp::signal_response::Message::ConnectionQuality(quality) => {
-                        let updates: Vec<serde_json::Value> = quality
-                            .updates.iter().take(MAX_PARTICIPANTS)
-                            .filter_map(|update| {
-                                let identity =
-                                    sane(&update.participant_sid, 256)?;
-                                Some(json!({
-                                    "sid": identity,
-                                    "quality": match update.quality {
-                                        0 => "poor",
-                                        1 => "good",
-                                        2 => "excellent",
-                                        _ => "unknown",
-                                    },
-                                }))
-                            }).collect();
-                        emit(json!({
-                            "type": "sfu_quality",
-                            "generation": generation,
-                            "updates": updates,
-                        }));
-                    }
-                    lkp::signal_response::Message::Leave(leave) => {
-                        emit(json!({
-                            "type": "sfu_state", "generation": generation,
-                            "state": leave_disposition(
-                                leave.action, leave.can_reconnect),
-                            "category": "server_leave",
-                            "reason": leave.reason,
-                            "action": leave.action,
-                        }));
-                        break;
-                    }
-                    lkp::signal_response::Message::Mute(mute) => {
-                        emit(json!({
-                            "type": "sfu_server_mute",
-                            "generation": generation,
-                            "sid": sane(&mute.sid, 256).unwrap_or_default(),
-                            "muted": mute.muted,
-                        }));
-                    }
-                    _ => {}
                 }
+                // After the socket: a task that was not polled for a while must
+                // read the pongs already waiting before it calls the server silent.
+                _ = tokio::time::sleep_until(
+                        last_heard
+                            + silence_limit.unwrap_or(Duration::from_secs(3600))),
+                    if silence_limit.is_some() =>
+                {
+                    break Some(("signal_timeout", signal_lost));
+                }
+            }
+        };
+        let _ = sink.close().await;
+        drop(source);
+
+        let Some((category, reason)) = loss else { break 'session };
+        if !may_resume(participant_sid.as_deref(), &mut resumes,
+                       std::time::Instant::now()) {
+            emit(reconnecting(category));
+            break 'session;
+        }
+        emit(json!({
+            "type": "sfu_state", "generation": generation,
+            "state": "resuming", "category": category,
+        }));
+        let sid = participant_sid.clone().unwrap_or_default();
+        let resumed = tokio::select! {
+            biased;
+            _ = &mut leave => break 'session,
+            result = resume_signal(&base, &token, &sid, reason, &addresses) => result,
+        };
+        match resumed {
+            Ok(next) => {
+                stream = next;
+                last_heard = tokio::time::Instant::now();
+                subscriber_candidates.arm();
+                emit(json!({
+                    "type": "sfu_state", "generation": generation,
+                    "state": "resumed", "category": category,
+                }));
+            }
+            Err(refusal) => {
+                emit(reconnecting(refusal));
+                break 'session;
             }
         }
     }
 
-    let _ = sink.close().await;
     emit(json!({
         "type": "sfu_state", "generation": generation, "state": "closed",
         "category": "",
@@ -2195,5 +2445,157 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    fn resume_query(url: &url::Url) -> BTreeMap<String, String> {
+        url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect()
+    }
+
+    #[test]
+    fn a_resume_names_the_session_it_reattaches_to() {
+        let base = url::Url::parse("wss://sfu.example.net/livekit/rtc").unwrap();
+        let fresh = resume_query(&signal_url(&base, "tok", None));
+        assert_eq!(fresh.get("access_token").map(String::as_str), Some("tok"));
+        assert!(!fresh.contains_key("reconnect"));
+        assert!(!fresh.contains_key("sid"));
+
+        let resumed = resume_query(&signal_url(&base, "tok2", Some((
+            "PA_abc", lkp::ReconnectReason::RrSignalDisconnected as i32))));
+        assert_eq!(resumed.get("reconnect").map(String::as_str), Some("1"));
+        assert_eq!(resumed.get("sid").map(String::as_str), Some("PA_abc"));
+        assert_eq!(resumed.get("reconnect_reason").map(String::as_str), Some("1"));
+        assert_eq!(resumed.get("access_token").map(String::as_str), Some("tok2"));
+        assert_eq!(resumed.get("protocol").map(String::as_str),
+                   Some(LK_PROTOCOL_VERSION.to_string().as_str()));
+    }
+
+    #[test]
+    fn only_a_resume_leave_is_resumed() {
+        use lkp::leave_request::Action;
+        assert!(leave_asks_resume(Action::Resume as i32));
+        assert!(!leave_asks_resume(Action::Reconnect as i32));
+        assert!(!leave_asks_resume(Action::Disconnect as i32));
+        assert!(!leave_asks_resume(99));
+    }
+
+    #[test]
+    fn resumes_need_a_session_and_are_bounded() {
+        let start = std::time::Instant::now();
+        let mut recent = VecDeque::new();
+        assert!(!may_resume(None, &mut recent, start));
+        assert!(!may_resume(Some(""), &mut recent, start));
+        assert!(recent.is_empty());
+        for _ in 0..MAX_RESUMES_PER_WINDOW {
+            assert!(may_resume(Some("PA_x"), &mut recent, start));
+        }
+        assert!(!may_resume(Some("PA_x"), &mut recent, start + Duration::from_secs(1)));
+        assert!(may_resume(Some("PA_x"), &mut recent, start + RESUME_WINDOW));
+    }
+
+    fn frame(message: lkp::signal_response::Message)
+        -> Result<WsMessage, tokio_tungstenite::tungstenite::Error>
+    {
+        let mut bytes = Vec::new();
+        lkp::SignalResponse { message: Some(message) }.encode(&mut bytes).unwrap();
+        Ok(WsMessage::Binary(bytes))
+    }
+
+    #[tokio::test]
+    async fn the_resume_answer_is_the_reconnect_response_or_a_leave() {
+        let mut stray_then_reconnect = futures_util::stream::iter(vec![
+            Ok(WsMessage::Pong(Vec::new())),
+            frame(lkp::signal_response::Message::Update(Default::default())),
+            frame(lkp::signal_response::Message::Reconnect(Default::default())),
+        ]);
+        assert_eq!(await_resume_answer(&mut stray_then_reconnect).await,
+                   ResumeAnswer::Resumed);
+
+        let mut refused = futures_util::stream::iter(vec![
+            frame(lkp::signal_response::Message::Leave(lkp::LeaveRequest {
+                action: lkp::leave_request::Action::Reconnect as i32,
+                reason: lkp::DisconnectReason::StateMismatch as i32,
+                ..Default::default()
+            })),
+        ]);
+        assert_eq!(await_resume_answer(&mut refused).await, ResumeAnswer::Refused);
+
+        let mut closed = futures_util::stream::iter(vec![Ok(WsMessage::Close(None))]);
+        assert_eq!(await_resume_answer(&mut closed).await, ResumeAnswer::Lost);
+        let mut empty = futures_util::stream::iter(
+            Vec::<Result<WsMessage, tokio_tungstenite::tungstenite::Error>>::new());
+        assert_eq!(await_resume_answer(&mut empty).await, ResumeAnswer::Lost);
+    }
+
+    #[test]
+    fn subscriber_candidates_are_replayed_once_after_a_resume() {
+        let mut candidates = SubscriberCandidates::default();
+        candidates.record("a");
+        candidates.record("b");
+        assert!(candidates.after_answer().is_empty(), "no resume, no replay");
+        candidates.arm();
+        assert_eq!(candidates.after_answer(), vec!["a".to_owned(), "b".to_owned()]);
+        assert!(candidates.after_answer().is_empty(), "replayed once");
+        for i in 0..(MAX_RESUME_CANDIDATES + 5) {
+            candidates.record(&i.to_string());
+        }
+        candidates.arm();
+        let replay = candidates.after_answer();
+        assert_eq!(replay.len(), MAX_RESUME_CANDIDATES);
+        assert_eq!(replay.last().map(String::as_str),
+                   Some((MAX_RESUME_CANDIDATES + 4).to_string().as_str()));
+    }
+
+    async fn fake_sfu(answer: Option<lkp::signal_response::Message>)
+        -> (std::net::SocketAddr, tokio::task::JoinHandle<String>)
+    {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut seen = String::new();
+            let mut ws = tokio_tungstenite::accept_hdr_async(tcp,
+                |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                 response| {
+                    seen = request.uri().to_string();
+                    Ok(response)
+                }).await.unwrap();
+            if let Some(message) = answer {
+                let mut bytes = Vec::new();
+                lkp::SignalResponse { message: Some(message) }.encode(&mut bytes).unwrap();
+                ws.send(WsMessage::Binary(bytes)).await.unwrap();
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(2), ws.next()).await;
+            seen
+        });
+        (address, task)
+    }
+
+    #[tokio::test]
+    async fn a_resume_reattaches_with_the_session_id_and_takes_the_reconnect_response() {
+        let (address, server) = fake_sfu(Some(
+            lkp::signal_response::Message::Reconnect(Default::default()))).await;
+        let base = url::Url::parse(&format!("ws://{address}/rtc")).unwrap();
+        let result = resume_signal(&base, "tok", "PA_resume",
+            lkp::ReconnectReason::RrSignalDisconnected as i32, &[address]).await;
+        let mut stream = result.expect("resumed");
+        let _ = stream.close(None).await;
+        let uri = server.await.unwrap();
+        assert!(uri.contains("reconnect=1"), "{uri}");
+        assert!(uri.contains("sid=PA_resume"), "{uri}");
+        assert!(uri.contains("reconnect_reason=1"), "{uri}");
+    }
+
+    #[tokio::test]
+    async fn a_refused_resume_falls_back_to_a_full_rejoin() {
+        let (address, server) = fake_sfu(Some(lkp::signal_response::Message::Leave(
+            lkp::LeaveRequest {
+                action: lkp::leave_request::Action::Reconnect as i32,
+                reason: lkp::DisconnectReason::StateMismatch as i32,
+                ..Default::default()
+            }))).await;
+        let base = url::Url::parse(&format!("ws://{address}/rtc")).unwrap();
+        let result = resume_signal(&base, "tok", "PA_gone", 0, &[address]).await;
+        assert_eq!(result.err(), Some("resume_refused"));
+        server.await.unwrap();
     }
 }
