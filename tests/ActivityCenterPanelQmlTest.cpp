@@ -411,6 +411,34 @@ private Q_SLOTS:
         QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
     }
 
+    void thePlainOpenerLandsOnAllAfterTheThreadsOpener()
+    {
+        Fixture f;
+        QVERIFY(make(f, false));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+
+        QVERIFY(QMetaObject::invokeMethod(f.panel, "openThreads"));
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QCOMPARE(f.activity->property("filter").toString(), QStringLiteral("threads"));
+        QVERIFY(f.panel->property("showingThreads").toBool());
+        QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QCOMPARE(f.activity->property("filter").toString(), QStringLiteral("all"));
+        QVERIFY(!f.panel->property("showingThreads").toBool());
+
+        QVERIFY(f.activity->setProperty("filter", QStringLiteral("replies")));
+        QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QCOMPARE(f.activity->property("filter").toString(), QStringLiteral("all"));
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
     void anEmptyListCanBeDismissedWithoutOpeningAnEntry()
     {
         Fixture f;

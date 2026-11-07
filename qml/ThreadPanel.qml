@@ -76,6 +76,15 @@ Rectangle {
 
     property var rootData: ({})
     function refreshRoot() { rootData = app.thread.rootInfo() }
+    readonly property bool rootCollapsed: app.settings.threadRootCollapsed === true
+    function setRootCollapsed(collapsed) {
+        app.settings.threadRootCollapsed = collapsed
+    }
+    readonly property string rootBodyText: rootData.redacted === true
+        ? qsTr("Message deleted")
+        : rootData.undecryptable === true
+          ? qsTr("Unable to decrypt this message")
+          : (rootData.body || "")
 
     readonly property string panelRoomId:
         app.thread.active ? app.thread.roomId : app.currentRoomId
@@ -643,14 +652,15 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.maximumWidth: rootColumn.width
                     spacing: AppTheme.spacingS
-                    visible: panel.rootData.loaded === true
+                    visible: panel.rootData.loaded === true && !panel.rootCollapsed
 
                     readonly property real nameNatural:
                         Math.ceil(rootSenderName.implicitWidth) + 1
                     readonly property real coreWidth: 32 + nameNatural
                         + (panel.rootData.isEncrypted === true
                            ? rootLock.implicitWidth + spacing : 0)
-                        + 3 * spacing
+                        + rootCollapseButton.implicitWidth
+                        + 4 * spacing
                     readonly property bool showDate: rootColumn.width
                         >= coreWidth + openInRoomMeasure.implicitWidth
                            + rootDate.implicitWidth + spacing
@@ -721,18 +731,94 @@ Rectangle {
                         onClicked: app.pagination.jumpToEvent(
                             panel.rootData.eventId || "")
                     }
+                    IconButton {
+                        id: rootCollapseButton
+                        objectName: "threadRootCollapseButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        size: "sm"
+                        iconName: "expand_less"
+                        Accessible.name: qsTr("Collapse thread root")
+                        ToolTip.text: qsTr("Collapse thread root")
+                        ToolTip.visible: hovered || visualFocus
+                        ToolTip.delay: 500
+                        onClicked: panel.setRootCollapsed(true)
+                    }
+                }
+                RowLayout {
+                    id: rootCollapsedRow
+                    objectName: "threadRootCollapsedRow"
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: rootColumn.width
+                    spacing: AppTheme.spacingS
+                    visible: panel.rootData.loaded === true && panel.rootCollapsed
+                    Item {
+                        objectName: "threadRootCollapsedLine"
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        implicitHeight: collapsedLineRow.implicitHeight
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        TapHandler {
+                            gesturePolicy: TapHandler.WithinBounds
+                            onTapped: panel.setRootCollapsed(false)
+                        }
+                        RowLayout {
+                            id: collapsedLineRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: AppTheme.spacingS
+                            Avatar {
+                                size: 20
+                                name: panel.rootData.senderDisplayName || ""
+                                mxc: panel.rootData.senderAvatarMxc || ""
+                                colorKey: panel.rootData.sender || ""
+                            }
+                            Label {
+                                textFormat: Text.PlainText
+                                Layout.minimumWidth: 0
+                                Layout.maximumWidth: Math.ceil(implicitWidth) + 1
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                text: panel.rootData.senderDisplayName || ""
+                                color: AppTheme.userColor(panel.rootData.sender || "")
+                                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                                font.weight: AppTheme.weightBold
+                            }
+                            Label {
+                                objectName: "threadRootCollapsedBody"
+                                textFormat: Text.PlainText
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: panel.rootBodyText.split("\n")[0]
+                                font.italic: panel.rootData.redacted === true
+                                             || panel.rootData.undecryptable === true
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                                wrapMode: Text.NoWrap
+                                maximumLineCount: 1
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                    IconButton {
+                        objectName: "threadRootExpandButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        size: "sm"
+                        iconName: "expand_more"
+                        Accessible.name: qsTr("Expand thread root")
+                        ToolTip.text: qsTr("Expand thread root")
+                        ToolTip.visible: hovered || visualFocus
+                        ToolTip.delay: 500
+                        onClicked: panel.setRootCollapsed(false)
+                    }
                 }
                 Label {
                     objectName: "threadRootBody"
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     Layout.maximumWidth: rootColumn.width
-                    visible: panel.rootData.loaded === true
-                    text: panel.rootData.redacted === true
-                          ? qsTr("Message deleted")
-                          : panel.rootData.undecryptable === true
-                            ? qsTr("Unable to decrypt this message")
-                            : (panel.rootData.body || "")
+                    visible: panel.rootData.loaded === true && !panel.rootCollapsed
+                    text: panel.rootBodyText
                     font.italic: panel.rootData.redacted === true
                                  || panel.rootData.undecryptable === true
                     color: (panel.rootData.redacted === true

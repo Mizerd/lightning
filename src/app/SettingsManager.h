@@ -281,6 +281,8 @@ class SettingsManager : public QObject
                    NOTIFY callFormatChanged)
     Q_PROPERTY(bool hideThreadReplies READ hideThreadReplies
                    WRITE setHideThreadReplies NOTIFY hideThreadRepliesChanged)
+    Q_PROPERTY(bool threadRootCollapsed READ threadRootCollapsed
+                   WRITE setThreadRootCollapsed NOTIFY threadRootCollapsedChanged)
 
     Q_PROPERTY(int conversationReturnMode READ conversationReturnMode
                    WRITE setConversationReturnMode
@@ -751,6 +753,8 @@ public:
     void setCallFormat(const QString &format);
     bool hideThreadReplies() const;
     void setHideThreadReplies(bool hide);
+    bool threadRootCollapsed() const;
+    void setThreadRootCollapsed(bool collapsed);
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
     static constexpr int kReturnPrevious = 0;
@@ -1068,6 +1072,7 @@ Q_SIGNALS:
     void layoutPresetChanged();
     void callFormatChanged();
     void hideThreadRepliesChanged();
+    void threadRootCollapsedChanged();
     void smoothScrollingChanged();
     void conversationReturnModeChanged();
     void showSelectionOnReturnChanged();

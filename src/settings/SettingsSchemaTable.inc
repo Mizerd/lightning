@@ -73,6 +73,7 @@
     { QStringLiteral("noiseSuppressionMode"), Kind::String, 0, 0, 1, QStringLiteral("Calls"), 32, {  }, QVariant(QStringLiteral("off")) },
     { QStringLiteral("showRoomActivity"), Kind::Bool, 0, 0, 3, QStringLiteral("Timeline"), 0, {  }, QVariant(true) },
     { QStringLiteral("hideThreadReplies"), Kind::Bool, 0, 0, 3, QStringLiteral("Timeline"), 0, {  }, QVariant(false) },
+    { QStringLiteral("threadRootCollapsed"), Kind::Bool, 0, 0, 3, QStringLiteral("Timeline"), 0, {  }, QVariant(false) },
     { QStringLiteral("showMembershipEvents"), Kind::Bool, 0, 0, 3, QStringLiteral("Timeline"), 0, {  }, QVariant(true) },
     { QStringLiteral("showProfileChangeEvents"), Kind::Bool, 0, 0, 3, QStringLiteral("Timeline"), 0, {  }, QVariant(true) },
     { QStringLiteral("timelineAvatars"), Kind::Int, 0, 2, 3, QStringLiteral("Timeline"), 0, {  }, QVariant(int(0)) },

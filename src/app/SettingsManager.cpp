@@ -99,6 +99,7 @@ constexpr auto kVideoPrefetchMaxMb  = "media/videoPrefetchMaxMb";
 constexpr auto kGifProvider         = "gif/provider";
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 constexpr auto kHideThreadReplies   = "timeline/hideThreadReplies";
+constexpr auto kThreadRootCollapsed = "timeline/threadRootCollapsed";
 constexpr auto kCallFormat          = "calls/format";
 constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
@@ -4136,6 +4137,19 @@ void SettingsManager::setHideThreadReplies(bool hide)
         return;
     m_store->setValue(kHideThreadReplies, hide);
     Q_EMIT hideThreadRepliesChanged();
+}
+
+bool SettingsManager::threadRootCollapsed() const
+{
+    return m_store->value(kThreadRootCollapsed, false).toBool();
+}
+
+void SettingsManager::setThreadRootCollapsed(bool collapsed)
+{
+    if (threadRootCollapsed() == collapsed)
+        return;
+    m_store->setValue(kThreadRootCollapsed, collapsed);
+    Q_EMIT threadRootCollapsedChanged();
 }
 
 bool SettingsManager::showRoomActivity() const

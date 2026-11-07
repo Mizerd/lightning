@@ -39,6 +39,14 @@ Dialog {
     onClosed: if (activity) activity.searchQuery = ""
 
     function openPanel() {
+        openOnFilter("all")
+    }
+    function openThreads() {
+        openOnFilter("threads")
+    }
+    function openOnFilter(filter) {
+        if (activity)
+            activity.filter = filter
         open()
     }
 

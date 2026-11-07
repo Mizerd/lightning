@@ -13,6 +13,7 @@
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "app/SettingsManager.h"
 #include "models/TimelineScrollController.h"
 #include "auth/AuthManager.h"
 #include "matrix/MockMatrixClient.h"
@@ -497,6 +498,85 @@ private Q_SLOTS:
                          .arg(scale * 100).arg(header->width())
                          .arg(column->width())));
         }
+    }
+
+    void theThreadRootCollapsesToOneLineAndRemembersIt()
+    {
+        QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const auto restore = qScopeGuard([&] {
+            controller.settings()->setProperty("threadRootCollapsed", false);
+        });
+
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(340, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, kSignalTimeoutMs));
+
+        auto *card = root->findChild<QQuickItem *>(QStringLiteral("threadRootHeader"));
+        auto *body = root->findChild<QQuickItem *>(QStringLiteral("threadRootBody"));
+        auto *collapse = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootCollapseButton"));
+        auto *expand = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootExpandButton"));
+        auto *line = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootCollapsedLine"));
+        QVERIFY(card && body);
+        QVERIFY2(collapse && expand && line, "the root card has no collapse toggle");
+
+        QTRY_VERIFY(body->isVisible());
+        QVERIFY(collapse->isVisible());
+        QVERIFY(collapse->property("focusPolicy").toInt() & Qt::TabFocus);
+        const qreal expandedHeight = card->height();
+
+        collapse->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(&window, Qt::Key_Space);
+        QTRY_VERIFY(controller.settings()->property("threadRootCollapsed").toBool());
+        QTRY_VERIFY(!body->isVisible());
+        QVERIFY(line->isVisible());
+        QVERIFY(expand->isVisible());
+        QTRY_VERIFY2(card->height() < expandedHeight,
+                     qPrintable(QStringLiteral("collapsed %1 px, expanded %2 px")
+                                    .arg(card->height()).arg(expandedHeight)));
+        {
+            SettingsManager fresh;
+            QVERIFY(fresh.property("threadRootCollapsed").toBool());
+        }
+
+        expand->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(&window, Qt::Key_Return);
+        QTRY_VERIFY(!controller.settings()->property("threadRootCollapsed").toBool());
+        QTRY_VERIFY(body->isVisible());
+
+        controller.settings()->setProperty("threadRootCollapsed", true);
+        QTRY_VERIFY(line->isVisible());
+        const QPointF centre = line->mapToScene(
+            QPointF(line->width() / 4, line->height() / 2));
+        QTest::mouseClick(&window, Qt::LeftButton, {}, centre.toPoint());
+        QTRY_VERIFY(!controller.settings()->property("threadRootCollapsed").toBool());
+        QTRY_VERIFY(body->isVisible());
     }
 
 private:

@@ -267,10 +267,7 @@ Item {
         onDiscoverRequested: (startMode) => roomsPanel.openDiscover(startMode)
         onGlobalSearchRequested: (query) => messageSearchDialog.openDialog(query)
         onSavedMessagesRequested: savedMessagesPanel.openPanel()
-        onThreadsRequested: {
-            app.activity.filter = "threads"
-            roomsPanel.openActivityCenter()
-        }
+        onThreadsRequested: roomsPanel.openThreadsActivity()
         onReturnToRoomRequested: {
             app.thread.close()
             app.requestComposerFocus(app.currentRoomId)
@@ -299,10 +296,7 @@ Item {
             return [app.shortcuts.sequenceFor("nav.threadsActivity")]
         }
         enabled: app.loggedIn && !!app.activity && !quickSwitcher.visible
-        onActivated: {
-            app.activity.filter = "threads"
-            roomsPanel.openActivityCenter()
-        }
+        onActivated: roomsPanel.openThreadsActivity()
     }
     Shortcut {
         sequences: {

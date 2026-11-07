@@ -111,6 +111,12 @@ Item {
                          + "column full width nheko element"),
           section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
           anchor: "threadPlacementControl" },
+        { title: qsTr("Collapse the thread's first message"),
+          keywords: QT_TR_NOOP("thread threads root first message original header card "
+                         + "collapse collapsed compact one line expand"),
+          section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
+          control: "threadRootCollapsed",
+          anchor: "threadRootCollapsedCheck" },
         { title: qsTr("Message spacing"),
           keywords: QT_TR_NOOP("message spacing density compact cozy roomy gap padding"),
           section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
@@ -2244,6 +2250,14 @@ Item {
                                             !app.settings.showProfileChangeEvents
                                     }
                                     AppSwitch {
+                                        objectName: "settingsSearchInlineThreadRootCollapsed_" + resultRow.index
+                                        visible: resultRow.modelData.control === "threadRootCollapsed"
+                                        checked: app.settings.threadRootCollapsed
+                                        Accessible.name: qsTr("Collapse the thread's first message")
+                                        onToggled: app.settings.threadRootCollapsed =
+                                            !app.settings.threadRootCollapsed
+                                    }
+                                    AppSwitch {
                                         objectName: "settingsSearchInlineCollapseEmbeds_" + resultRow.index
                                         visible: resultRow.modelData.control === "collapseEmbeds"
                                         checked: app.settings.collapseEmbeds
@@ -4338,6 +4352,16 @@ Item {
                                                    + "room in time order with a thread tag, like "
                                                    + "Nheko; click a tag to open that thread.")
                                     }
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "threadRootCollapsedCheck"
+                                    text: qsTr("Collapse the thread's first message")
+                                    checked: app.settings.threadRootCollapsed
+                                    onToggled: app.settings.threadRootCollapsed = checked
+                                    Accessible.description: qsTr(
+                                        "Show the message a thread started from as one line "
+                                        + "at the top of the thread")
                                 }
                             }
                         }

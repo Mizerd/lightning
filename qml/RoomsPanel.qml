@@ -71,6 +71,10 @@ Rectangle {
         activityPanel.openPanel()
     }
 
+    function openThreadsActivity() {
+        activityPanel.openThreads()
+    }
+
     function openDiscover(startMode) {
         discoverJoinDialog.openDialog(startMode)
     }
