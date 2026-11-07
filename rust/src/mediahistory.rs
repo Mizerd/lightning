@@ -21,6 +21,7 @@ pub(crate) struct MediaEntry {
     pub url: String,
     pub host: String,
     pub gif: bool,
+    pub spoiler: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +29,7 @@ pub(crate) struct MediaEdit {
     pub sender: String,
     pub body: String,
     pub filename: Option<String>,
+    pub spoiler: bool,
 }
 
 /// Edits seen so far in a walk, by the id of the event they replace. A
@@ -57,6 +59,7 @@ impl MediaEntry {
             "url": self.url,
             "host": self.host,
             "gif": self.gif,
+            "spoiler": self.spoiler,
         })
     }
 }
@@ -267,6 +270,9 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
                                 .and_then(|c| c.get("filename"))
                                 .and_then(|v| v.as_str())
                                 .map(str::to_owned),
+                            spoiler: new_content
+                                .and_then(crate::spoiler::spoiler_of)
+                                .is_some(),
                         });
                     }
                 }
@@ -329,7 +335,10 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
             .unwrap_or_default()
             .to_owned();
         let gif = is_gif(kind, &mimetype, info);
+        let spoiler = crate::spoiler::spoiler_of(content).is_some()
+            || edit.as_ref().is_some_and(|e| e.spoiler);
         out.entries.push(MediaEntry {
+            spoiler,
             event_id,
             sender,
             ts_ms,
@@ -374,6 +383,7 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
             host,
             url,
             gif: false,
+            spoiler: false,
         });
     }
     out
@@ -404,6 +414,35 @@ mod tests {
             "origin_server_ts": 1_000u64,
             "content": content,
         })
+    }
+
+    #[test]
+    fn a_spoiler_attachment_carries_the_marker_and_an_edit_cannot_drop_it() {
+        let mut event = image_event(false);
+        assert!(!classify(&event).entries[0].spoiler);
+        event["content"][crate::spoiler::UNSTABLE_SPOILER] = json!(true);
+        let entry = &classify(&event).entries[0];
+        assert!(entry.spoiler);
+        assert_eq!(entry.to_json()["spoiler"], true);
+        let mut edits = PendingEdits::new();
+        let edit = json!({
+            "type": "m.room.message", "event_id": "$e", "sender": event["sender"].clone(),
+            "content": {
+                "body": "* new", "msgtype": "m.image",
+                "m.new_content": { "body": "new", "msgtype": "m.image" },
+                "m.relates_to": { "rel_type": "m.replace", "event_id": event["event_id"].clone() }
+            }
+        });
+        classify_with_edits(&edit, &mut edits);
+        assert!(classify_with_edits(&event, &mut edits).entries[0].spoiler);
+        let mut plain = image_event(false);
+        let mut edits = PendingEdits::new();
+        let mut marking = edit.clone();
+        marking["content"]["m.new_content"][crate::spoiler::STABLE_SPOILER] = json!({});
+        marking["sender"] = plain["sender"].clone();
+        classify_with_edits(&marking, &mut edits);
+        plain["event_id"] = event["event_id"].clone();
+        assert!(classify_with_edits(&plain, &mut edits).entries[0].spoiler);
     }
 
     #[test]

@@ -72,6 +72,25 @@ public:
     }
 };
 
+class SpoilerClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    int spoilerSends = 0;
+    QString spoilerRoot;
+    bool supportsSpoilerMedia() const override { return true; }
+    quint64 sendSpoilerMedia(const QString &, const QString &threadRootId,
+                             const QString &, const QByteArray &,
+                             const QString &, const QString &, const QString &,
+                             int, int, qint64, bool, const QByteArray &, int, int,
+                             const QString &) override
+    {
+        ++spoilerSends;
+        spoilerRoot = threadRootId;
+        return 991;
+    }
+};
+
 class JoinOpClient final : public MockMatrixClient
 {
     Q_OBJECT
@@ -1271,6 +1290,30 @@ private Q_SLOTS:
 
         const QVariantMap details = model->messageDetails(replyId);
         QCOMPARE(details.value(QStringLiteral("roomId")).toString(), kGeneral);
+    }
+
+    void aThreadSpoilerTakesTheSpoilerPathWithItsRoot()
+    {
+        SpoilerClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QTemporaryFile img(QDir::tempPath()
+                           + QStringLiteral("/lightning-XXXXXX.png"));
+        QVERIFY(img.open());
+        QImage(4, 4, QImage::Format_RGB32).save(img.fileName(), "PNG");
+        controller.addAttachment(QUrl::fromLocalFile(img.fileName()));
+        controller.attachments()->setSpoilerAt(0, true);
+        QVERIFY(controller.attachments()->data(controller.attachments()->index(0),
+                    AttachmentQueueModel::SpoilerRole).toBool());
+        controller.sendText(QString{});
+        QCOMPARE(client.spoilerSends, 1);
+        QCOMPARE(client.spoilerRoot, rootId);
+        QCOMPARE(client.threadAttachmentCallsForTest(), 0);
     }
 
     void threadAttachmentSendsIntoThread()

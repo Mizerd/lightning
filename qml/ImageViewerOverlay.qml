@@ -74,11 +74,27 @@ Popup {
     // Don't play (MotionPolicy), Reduce motion and Play on hover included.
     readonly property bool animateGifs: MotionPolicy.allowed
 
+    function coveredSpoiler(entry) {
+        return !!entry && entry.spoiler === true
+               && !SpoilerState.isRevealed(entry.eventId || "")
+    }
+
     function openAt(list, index) {
         if (!list || index < 0 || index >= list.length)
             return
-        entries = list
-        currentIndex = index
+        var shown = []
+        var at = -1
+        for (var i = 0; i < list.length; ++i) {
+            if (coveredSpoiler(list[i]))
+                continue
+            if (i === index)
+                at = shown.length
+            shown.push(list[i])
+        }
+        if (at < 0)
+            return
+        entries = shown
+        currentIndex = at
         resetView()
         open()
         loadCurrent()

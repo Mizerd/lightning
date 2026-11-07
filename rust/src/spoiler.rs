@@ -75,8 +75,12 @@ pub(crate) fn event_spoiler(
     }
 }
 
+fn mime_essence(mime: &str) -> String {
+    mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase()
+}
+
 pub(crate) fn spoiler_msgtype(mime: &str) -> Option<&'static str> {
-    let essence = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let essence = mime_essence(mime);
     if essence == "image/svg+xml" {
         return None;
     }
@@ -113,6 +117,7 @@ pub(crate) struct SpoilerMediaSpec {
     pub width: u64,
     pub height: u64,
     pub duration_ms: u64,
+    pub animated: bool,
 }
 
 pub(crate) fn spoiler_media_content(
@@ -129,6 +134,9 @@ pub(crate) fn spoiler_media_content(
         if spec.width > 0 && spec.height > 0 {
             info.insert("w".into(), spec.width.into());
             info.insert("h".into(), spec.height.into());
+        }
+        if msgtype == "m.image" {
+            info.insert("is_animated".into(), spec.animated.into());
         }
         if let Some(thumb) = thumbnail {
             let thumb_key = if thumb.source.key == "file" {
@@ -227,11 +235,19 @@ pub(crate) struct SpoilerSend {
     pub in_reply_to: Option<OwnedEventId>,
 }
 
-pub(crate) async fn send_spoiler(
+/// How long uploading may take before the send is reported failed: two
+/// minutes plus one second per 64 KiB, at most an hour.
+pub(crate) fn upload_timeout(bytes: u64) -> std::time::Duration {
+    std::time::Duration::from_secs((120 + bytes / (64 * 1024)).min(3600))
+}
+
+/// Reads, uploads and builds the event. Runs outside the room's ordered send
+/// lane so a long upload never holds back text sends.
+pub(crate) async fn prepare_spoiler(
     client: &Client,
     room: &Room,
     request: SpoilerSend,
-) -> Result<(), String> {
+) -> Result<Value, String> {
     let SpoilerSend { path, data, mut spec, poster, thread_root, in_reply_to } = request;
     let data = match path {
         Some(path) => tokio::fs::read(&path)
@@ -242,7 +258,9 @@ pub(crate) async fn send_spoiler(
     if data.is_empty() {
         return Err("attachment data is empty".to_owned());
     }
-    if spec.mimetype.starts_with("image/") && crate::rooms::sniff_image_mime(&data).is_none() {
+    if mime_essence(&spec.mimetype).starts_with("image/")
+        && crate::rooms::sniff_image_mime(&data).is_none()
+    {
         return Err("The image is not a supported raster format.".to_owned());
     }
     spec.size = data.len() as u64;
@@ -269,7 +287,7 @@ pub(crate) async fn send_spoiler(
         None => None,
     };
     let content = spoiler_media_content(&spec, source, thumbnail)?;
-    let content = match spoiler_reply(thread_root, in_reply_to) {
+    match spoiler_reply(thread_root, in_reply_to) {
         Some(reply) => {
             let typed: RoomMessageEventContentWithoutRelation =
                 serde_json::from_value(content)
@@ -278,13 +296,16 @@ pub(crate) async fn send_spoiler(
                 .make_reply_event(typed, reply)
                 .await
                 .map_err(|_| "The replied-to message could not be loaded.".to_owned())?;
-            with_marker(
+            Ok(with_marker(
                 serde_json::to_value(&replied)
                     .map_err(|_| "The spoiler event could not be built.".to_owned())?,
-            )
+            ))
         }
-        None => content,
-    };
+        None => Ok(content),
+    }
+}
+
+pub(crate) async fn queue_spoiler(room: &Room, content: Value) -> Result<(), String> {
     let raw = serde_json::value::to_raw_value(&content)
         .map_err(|_| "The spoiler event could not be built.".to_owned())?;
     let queue = room.send_queue();
@@ -309,6 +330,7 @@ mod tests {
             width: 640,
             height: 480,
             duration_ms: 5000,
+            animated: false,
         }
     }
 
@@ -374,6 +396,7 @@ mod tests {
         assert_eq!(content["body"], "cat.png");
         assert!(content.get("filename").is_none());
         assert_eq!(content["info"]["w"], 640);
+        assert_eq!(content["info"]["is_animated"], false);
         assert!(content.get(STABLE_SPOILER).is_none());
         assert_eq!(spoiler_of(&content), Some(String::new()));
     }
@@ -418,6 +441,38 @@ mod tests {
         let back = serde_json::to_value(&typed).unwrap();
         assert!(back.get(UNSTABLE_SPOILER).is_none());
         assert_eq!(with_marker(back)[UNSTABLE_SPOILER], true);
+    }
+
+    #[test]
+    fn an_animated_image_says_so_and_a_video_does_not_carry_the_hint() {
+        let mut animated = spec("image/GIF", None);
+        animated.animated = true;
+        let content = spoiler_media_content(
+            &animated,
+            UploadedSource { key: "url", value: "mxc://hs/a".into() },
+            None,
+        )
+        .unwrap();
+        assert_eq!(content["info"]["is_animated"], true);
+        let video = spoiler_media_content(
+            &spec("video/mp4", None),
+            UploadedSource { key: "url", value: "mxc://hs/v".into() },
+            None,
+        )
+        .unwrap();
+        assert!(video["info"].get("is_animated").is_none());
+    }
+
+    #[test]
+    fn upload_timeout_grows_with_size_and_is_capped() {
+        assert_eq!(upload_timeout(0).as_secs(), 120);
+        assert_eq!(upload_timeout(64 * 1024 * 60).as_secs(), 180);
+        assert_eq!(upload_timeout(u64::MAX).as_secs(), 3600);
+    }
+
+    #[test]
+    fn mime_parameters_and_case_do_not_hide_an_image() {
+        assert_eq!(mime_essence(" Image/PNG; charset=x"), "image/png");
     }
 
     #[test]

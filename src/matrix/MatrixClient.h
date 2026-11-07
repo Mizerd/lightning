@@ -1224,6 +1224,7 @@ public:
                                      const QString &mime,
                                      const QString &caption,
                                      int width, int height, qint64 durationMs,
+                                     bool animated,
                                      const QByteArray &thumbnail,
                                      int thumbnailWidth, int thumbnailHeight,
                                      const QString &replyToEventId)
@@ -1231,7 +1232,7 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(threadRootId); Q_UNUSED(localPath);
         Q_UNUSED(bytes); Q_UNUSED(filename); Q_UNUSED(mime); Q_UNUSED(caption);
         Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(durationMs);
-        Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth);
+        Q_UNUSED(animated); Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth);
         Q_UNUSED(thumbnailHeight); Q_UNUSED(replyToEventId);
         return 0;
     }

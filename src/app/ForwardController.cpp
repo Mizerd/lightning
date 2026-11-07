@@ -438,7 +438,19 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         return;
     }
 
-    const quint64 opId = m_client->supportsRoomScopedAttachmentSend()
+    const bool spoiler = m_snapshot.value(QStringLiteral("mediaSpoiler")).toBool();
+    if (spoiler && !m_client->supportsSpoilerMedia()) {
+        m_busy = false;
+        setError(tr("This spoiler can't be forwarded with its cover."));
+        return;
+    }
+    const quint64 opId = spoiler
+        ? m_client->sendSpoilerMedia(
+              targetRoomId, QString(), QString(), bytes,
+              filename.isEmpty() ? QStringLiteral("forwarded") : filename,
+              mime, QString(), width, height, 0,
+              mime == QLatin1String("image/gif"), QByteArray(), 0, 0, QString())
+        : m_client->supportsRoomScopedAttachmentSend()
         ? m_client->sendAttachmentBytesToRoom(
               targetRoomId, bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,

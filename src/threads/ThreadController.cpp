@@ -780,7 +780,14 @@ void ThreadController::dispatchAttachment(int row)
         m_attachments->updateEntry(row);
         return;
     }
-    if (entry.localPath.isEmpty()) {
+    if (entry.spoiler) {
+        opId = entry.isSvg ? 0 : m_client->sendSpoilerMedia(
+            m_roomId, m_rootEventId,
+            entry.localPath.isEmpty() ? QString() : sendPath, sendData,
+            entry.fileName, entry.mime, QString(), entry.width, entry.height,
+            entry.durationMs, entry.animated, entry.poster, entry.posterWidth,
+            entry.posterHeight, entry.replyToEventId);
+    } else if (entry.localPath.isEmpty()) {
         opId = m_client->sendThreadAttachmentBytes(
             m_roomId, m_rootEventId, sendData, entry.fileName, entry.mime,
             entry.width, entry.height, entry.replyToEventId);

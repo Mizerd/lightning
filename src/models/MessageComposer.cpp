@@ -417,7 +417,7 @@ void MessageComposer::dispatchAttachment(int row)
             m_roomId, entry.threadRootId,
             entry.localPath.isEmpty() ? QString() : sendPath, sendData,
             entry.fileName, entry.mime, caption, entry.width, entry.height,
-            entry.durationMs, entry.poster, entry.posterWidth,
+            entry.durationMs, entry.animated, entry.poster, entry.posterWidth,
             entry.posterHeight, entry.replyToEventId);
     } else if (!entry.threadRootId.isEmpty()) {
         // Inline thread style: the SDK thread send path, never the room one

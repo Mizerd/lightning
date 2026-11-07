@@ -1681,6 +1681,15 @@ impl TimelineRegistry {
         key: String,
         job: impl std::future::Future<Output = ()> + Send + 'static,
     ) {
+        self.spawn_ordered_on(runtime.handle(), key, job);
+    }
+
+    fn spawn_ordered_on(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Handle,
+        key: String,
+        job: impl std::future::Future<Output = ()> + Send + 'static,
+    ) {
         let job: SendJob = Box::pin(job);
         let lane_id = {
             let mut lanes = self
@@ -2019,13 +2028,15 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Uploads and queues MSC4193 spoiler media; see `crate::spoiler`.
+    /// Uploads MSC4193 spoiler media on its own task, then queues the event
+    /// on the room's ordered lane; see `crate::spoiler`.
     pub fn send_spoiler_media(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
         client: Client,
         room_id: String,
         request: crate::spoiler::SpoilerSend,
+        upload_bytes: u64,
         op_id: u64,
     ) -> Result<(), String> {
         let room = RoomId::parse(&room_id)
@@ -2040,33 +2051,60 @@ impl TimelineRegistry {
             .as_ref()
             .map(ToString::to_string)
             .unwrap_or_default();
-        let lane = send_lane_key(&room_id, &root);
-        self.spawn_ordered(runtime, lane, async move {
-            let watcher = if root.is_empty() {
-                None
-            } else {
-                bounded(watch_thread_send(&client, &room_id)).await.flatten()
-            };
-            let sent = crate::spoiler::send_spoiler(&client, &room, request).await.is_ok();
-            if sent && !root.is_empty() {
-                registry.subscribe_after_thread_send(
-                    client.clone(), &room_id, &root, watcher, lifecycle,
-                );
-            }
-            if registry.lifecycle_current(lifecycle) {
-                let mut result = json!({
-                    "type": "attachment_send_result",
-                    "op_id": op_id,
-                    "room_id": room_id,
-                    "lifecycle": lifecycle,
-                    "ok": sent,
-                    "category": if sent { "" } else { "rejected" },
-                });
-                if !root.is_empty() {
-                    result["thread_root_id"] = root.into();
+        let handle = runtime.handle().clone();
+        runtime.spawn(async move {
+            let report = {
+                let events = Arc::clone(&events);
+                let registry = Arc::clone(&registry);
+                let room_id = room_id.clone();
+                let root = root.clone();
+                move |sent: bool| {
+                    if !registry.lifecycle_current(lifecycle) {
+                        return;
+                    }
+                    let mut result = json!({
+                        "type": "attachment_send_result",
+                        "op_id": op_id,
+                        "room_id": room_id,
+                        "lifecycle": lifecycle,
+                        "ok": sent,
+                        "category": if sent { "" } else { "rejected" },
+                    });
+                    if !root.is_empty() {
+                        result["thread_root_id"] = root.into();
+                    }
+                    enqueue(&events, result);
                 }
-                enqueue(&events, result);
-            }
+            };
+            let prepared = tokio::time::timeout(
+                crate::spoiler::upload_timeout(upload_bytes),
+                crate::spoiler::prepare_spoiler(&client, &room, request),
+            )
+            .await;
+            let content = match prepared {
+                Ok(Ok(content)) if registry.lifecycle_current(lifecycle) => content,
+                _ => {
+                    report(false);
+                    return;
+                }
+            };
+            let lane = send_lane_key(&room_id, &root);
+            let lane_registry = Arc::clone(&registry);
+            registry.spawn_ordered_on(&handle, lane, async move {
+                let watcher = if root.is_empty() {
+                    None
+                } else {
+                    bounded(watch_thread_send(&client, &room_id)).await.flatten()
+                };
+                let sent = lane_registry.lifecycle_current(lifecycle)
+                    && crate::spoiler::queue_spoiler(&room, content).await.is_ok();
+                if sent && !root.is_empty() {
+                    lane_registry.subscribe_after_thread_send(
+                        client.clone(), &room_id, &root, watcher, lifecycle,
+                    );
+                }
+                report(sent);
+            });
         });
         Ok(())
     }

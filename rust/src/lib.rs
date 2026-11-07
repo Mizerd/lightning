@@ -9713,6 +9713,7 @@ pub unsafe extern "C" fn mx_rust_send_spoiler_media(
     width: u64,
     height: u64,
     duration_ms: u64,
+    animated: u8,
     thumb_data: *const u8,
     thumb_len: usize,
     thumb_width: u64,
@@ -9739,13 +9740,18 @@ pub unsafe extern "C" fn mx_rust_send_spoiler_media(
         let caption = unsafe { cstr_arg(caption) }?;
         spoiler::spoiler_msgtype(&mime)
             .ok_or_else(|| "Only images, videos and audio can be marked as spoilers.".to_owned())?;
-        let (path, bytes) = if local_path.is_empty() {
+        let (path, bytes, upload_bytes) = if local_path.is_empty() {
             if data.is_null() || len == 0 {
                 return Err("attachment data is empty".to_owned());
             }
-            (None, unsafe { std::slice::from_raw_parts(data, len) }.to_vec())
+            (None, unsafe { std::slice::from_raw_parts(data, len) }.to_vec(), len as u64)
         } else {
-            (Some(std::path::PathBuf::from(local_path)), Vec::new())
+            let size = std::fs::metadata(&local_path)
+                .ok()
+                .filter(|m| m.is_file() && m.len() > 0)
+                .ok_or_else(|| "attachment file is not readable".to_owned())?
+                .len();
+            (Some(std::path::PathBuf::from(local_path)), Vec::new(), size)
         };
         let poster = unsafe { poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
@@ -9762,6 +9768,7 @@ pub unsafe extern "C" fn mx_rust_send_spoiler_media(
                 width,
                 height,
                 duration_ms,
+                animated: animated != 0,
             },
             poster,
             thread_root,
@@ -9769,7 +9776,7 @@ pub unsafe extern "C" fn mx_rust_send_spoiler_media(
         };
         bridge
             .timelines
-            .send_spoiler_media(&bridge.runtime, client, room_id, request, op_id)
+            .send_spoiler_media(&bridge.runtime, client, room_id, request, upload_bytes, op_id)
             .map(|_| String::new())
     })
 }

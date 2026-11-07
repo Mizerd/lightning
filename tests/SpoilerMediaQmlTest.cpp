@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -251,6 +252,87 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(video, "activate"));
         QTRY_VERIFY(!find(d, "spoilerCover"));
         QCOMPARE(video->property("playerActive").toBool(), false);
+    }
+
+    void theViewerLeavesCoveredSpoilersOut()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 800; height: 600
+    ImageViewerOverlay { id: viewer }
+    readonly property var list: [
+        { row: 0, mediaKey: "$a", eventId: "$a", spoiler: true, isImage: true },
+        { row: 1, mediaKey: "$b", eventId: "$b", spoiler: false, isImage: true },
+        { row: 2, mediaKey: "$c", eventId: "$c", spoiler: true, isImage: true }
+    ]
+    function tryOpen(index) {
+        viewer.openAt(list, index)
+        var keys = []
+        for (var i = 0; i < viewer.entries.length; ++i)
+            keys.push(viewer.entries[i].mediaKey)
+        return keys.join(",") + "@" + viewer.currentIndex
+    }
+    function reveal(key) { SpoilerState.reveal(key) }
+}
+)QML", QUrl(QStringLiteral("inline:SpoilerViewer.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        const auto open = [&](int index) {
+            QVariant out;
+            QMetaObject::invokeMethod(root.get(), "tryOpen", Q_RETURN_ARG(QVariant, out),
+                                      Q_ARG(QVariant, index));
+            return out.toString();
+        };
+        QCOMPARE(open(1), QStringLiteral("$b@0"));
+        QCOMPARE(open(0), QStringLiteral("$b@0"));
+        QMetaObject::invokeMethod(root.get(), "reveal", Q_ARG(QVariant, QStringLiteral("$c")));
+        QCOMPARE(open(2), QStringLiteral("$b,$c@1"));
+    }
+
+    void aMediaBrowserTileIsCoveredUntilItsFirstActivation()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 200; height: 200
+    property int opened: 0
+    property alias tile: tile
+    MediaBrowserTile {
+        id: tile
+        width: 116; height: 116
+        index: 0; kind: "image"; body: "a.png"; filename: "a.png"
+        mimetype: "image/png"; size: 10; mediaWidth: 10; mediaHeight: 10
+        mxc: "mxc://example.org/a"; thumbnailMxc: ""; mediaKey: "$tile"
+        encrypted: false; sender: "@a:example.org"; eventId: "$tile"
+        spoiler: true
+        onActivated: opened++
+    }
+}
+)QML", QUrl(QStringLiteral("inline:SpoilerTile.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *tile = root->property("tile").value<QObject *>();
+        QVERIFY(tile);
+        QVERIFY(tile->property("covered").toBool());
+        auto *cover = tile->findChild<QQuickItem *>(QStringLiteral("spoilerCover"));
+        QVERIFY(cover && cover->isVisible());
+        QMetaObject::invokeMethod(tile, "activate");
+        QVERIFY(!tile->property("covered").toBool());
+        QCOMPARE(root->property("opened").toInt(), 0);
+        QVERIFY(!cover->isVisible());
+        QMetaObject::invokeMethod(tile, "activate");
+        QCOMPARE(root->property("opened").toInt(), 1);
     }
 
 private:

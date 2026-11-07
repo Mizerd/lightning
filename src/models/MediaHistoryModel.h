@@ -56,6 +56,7 @@ public:
         UrlRole,
         HostRole,
         DateGroupRole,
+        SpoilerRole,
     };
     Q_ENUM(Roles)
 
@@ -142,6 +143,7 @@ private:
         QString url;
         QString host;
         bool gif = false;
+        bool spoiler = false;
     };
 
     void onPage(quint64 opId, const QString &roomId,

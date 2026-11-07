@@ -795,10 +795,14 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
   reply/thread relation via `Room::make_reply_event`. Only the unstable key is
   SENT (what Cinny and Sable read); the stable name is read, never written,
   until the MSC merges. The sender's own local echo is not covered until the
-  remote echo arrives. Gallery items, audio, stickers, the media browser,
-  notifications and the image viewer's neighbour navigation do not honour the
-  marker yet. Blur strength: Settings, Privacy, Media. Live validation in
-  `docs/live-validation.md` when done, otherwise NOT TESTED.
+  remote echo arrives. The image viewer leaves covered spoilers out of its
+  list and strip, the Media browser covers its tiles (the first activation
+  reveals), forwarding keeps the marker (or refuses), and the thread panel has
+  the same toggle. The upload runs off the room's ordered send lane under a
+  size-scaled timeout; only the queueing of the event takes the lane. Gallery
+  items, audio and stickers do not honour the marker yet (`docs/open-items.md`).
+  Blur strength: Settings, Privacy, Media. Live validation NOT TESTED beyond the
+  swarm round recorded in the branch report.
 - Backward pagination and retry, stable navigation, loaded-timeline search,
   message links/permalinks, message details, context menus, sender profiles
 - Link previews with encrypted-room privacy controls and security validation

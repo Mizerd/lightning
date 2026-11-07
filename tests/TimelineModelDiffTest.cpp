@@ -1995,6 +1995,26 @@ void TimelineModelDiffTest::aQuoteOfASpoilerShowsNoThumbnail()
     Q_EMIT m_client->timelineReset(kRoom);
     QCOMPARE(role(reply.eventId, TimelineModel::ReplyToMediaKeyRole).toString(),
              target.eventId);
+
+    reply.replyToPreview = QStringLiteral("embedded");
+    reply.replyToSender = QStringLiteral("bob");
+    m_client->mirror = { reply };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(role(reply.eventId, TimelineModel::ReplyToMediaKeyRole).toString(),
+             target.eventId);
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    m_client->mirror = { target, reply };
+    Q_EMIT m_client->eventInsertedAt(kRoom, 0, target);
+    bool thumbReread = false;
+    for (const auto &args : changed) {
+        const QModelIndex first = args.at(0).value<QModelIndex>();
+        if (m_model->eventIdAt(first.row()) == reply.eventId
+            && args.at(2).value<QList<int>>().contains(
+                TimelineModel::ReplyToMediaKeyRole))
+            thumbReread = true;
+    }
+    QVERIFY2(thumbReread, "an embedded quote kept the thumbnail of a spoiler that arrived");
+    QVERIFY(role(reply.eventId, TimelineModel::ReplyToMediaKeyRole).toString().isEmpty());
 }
 
 void TimelineModelDiffTest::hiddenActivityKeepsSecurityChangesAndTheirDateVisible()

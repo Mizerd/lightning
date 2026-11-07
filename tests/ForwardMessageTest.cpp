@@ -87,6 +87,18 @@ public:
 
     bool supportsRoomScopedAttachmentSend() const override
     { return roomScopedSupported; }
+    bool spoilerSupported = true;
+    QList<QString> spoilerSends;
+    bool supportsSpoilerMedia() const override { return spoilerSupported; }
+    quint64 sendSpoilerMedia(const QString &roomId, const QString &,
+                             const QString &, const QByteArray &,
+                             const QString &, const QString &, const QString &,
+                             int, int, qint64, bool, const QByteArray &, int, int,
+                             const QString &) override
+    {
+        spoilerSends.append(roomId);
+        return nextSendOp++;
+    }
     quint64 sendAttachmentBytesToRoom(const QString &roomId,
                                       const QByteArray &bytes,
                                       const QString &filename,
@@ -467,6 +479,32 @@ private Q_SLOTS:
         QCOMPARE(forwarded.count(), 1);
         QCOMPARE(forwarded.first().at(0).toString(), kRoomB);
         QVERIFY(!fwd.active());
+    }
+
+    void aSpoilerIsForwardedWithItsMarkerOrNotAtAll()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        ForwardController fwd;
+        fwd.setClient(&client);
+        fwd.setMediaBridge(&bridge);
+
+        QVariantMap snapshot = mediaSnapshot(QStringLiteral("$mediaX"));
+        snapshot.insert(QStringLiteral("mediaSpoiler"), true);
+        fwd.begin(kRoomA, kEventA, snapshot);
+        fwd.forwardTo(kRoomB);
+        client.succeed(client.fetches.first().opId, realGifBytes());
+        QCOMPARE(client.spoilerSends, QList<QString>{ kRoomB });
+        QCOMPARE(client.attachmentSends.size(), 0);
+
+        client.spoilerSupported = false;
+        fwd.begin(kRoomA, kEventA, snapshot);
+        fwd.forwardTo(kRoomB);
+        client.succeed(client.fetches.last().opId, realGifBytes());
+        QCOMPARE(client.spoilerSends.size(), 1);
+        QCOMPARE(client.attachmentSends.size(), 0);
+        QVERIFY(!fwd.error().isEmpty());
     }
 
     void mediaFetchFailureLeavesDialogOpenWithError()

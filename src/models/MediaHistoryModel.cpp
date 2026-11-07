@@ -84,6 +84,7 @@ QHash<int, QByteArray> MediaHistoryModel::roleNames() const
         { UrlRole, "url" },
         { HostRole, "host" },
         { DateGroupRole, "dateGroup" },
+        { SpoilerRole, "spoiler" },
     };
 }
 
@@ -110,6 +111,7 @@ QVariant MediaHistoryModel::data(const QModelIndex &index, int role) const
     case EncryptedRole: return e.encrypted;
     case UrlRole: return e.url;
     case HostRole: return e.host;
+    case SpoilerRole: return e.spoiler;
     case DateGroupRole: {
         const QDateTime when =
             QDateTime::fromMSecsSinceEpoch(e.timestampMs).toLocalTime();
@@ -307,6 +309,7 @@ QVariantMap MediaHistoryModel::entryAt(int row) const
         { QStringLiteral("encrypted"), e.encrypted },
         { QStringLiteral("url"), e.url },
         { QStringLiteral("host"), e.host },
+        { QStringLiteral("spoiler"), e.spoiler },
     };
 }
 
@@ -322,6 +325,8 @@ QVariantList MediaHistoryModel::imageEntries() const
         entry.insert(QStringLiteral("mediaKey"), e.mediaKey);
         entry.insert(QStringLiteral("filename"),
                      e.filename.isEmpty() ? e.body : e.filename);
+        entry.insert(QStringLiteral("eventId"), e.eventId);
+        entry.insert(QStringLiteral("spoiler"), e.spoiler);
         entry.insert(QStringLiteral("sender"), e.sender);
         entry.insert(QStringLiteral("timestamp"),
                      QDateTime::fromMSecsSinceEpoch(e.timestampMs));
@@ -414,6 +419,7 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         e.encrypted = row.value(QStringLiteral("encrypted")).toBool();
         e.host = row.value(QStringLiteral("host")).toString();
         e.gif = row.value(QStringLiteral("gif")).toBool();
+        e.spoiler = row.value(QStringLiteral("spoiler")).toBool();
         added.append(e);
     }
 

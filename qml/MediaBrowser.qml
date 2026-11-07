@@ -478,6 +478,10 @@ Item {
         var entry = model.entryAt(row)
         if (!entry || !entry.eventId)
             return
+        if (entry.spoiler === true && !SpoilerState.isRevealed(entry.eventId)) {
+            SpoilerState.reveal(entry.eventId)
+            return
+        }
         if (entry.kind === "image") {
             // The index comes from the model, which owns the ordering. The
             // bridge is keyed by event id (an encrypted room's mxc is not

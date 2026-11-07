@@ -152,7 +152,7 @@ public:
     quint64 sendSpoilerMedia(const QString &, const QString &threadRootId,
                              const QString &localPath, const QByteArray &,
                              const QString &filename, const QString &mime,
-                             const QString &caption, int, int, qint64,
+                             const QString &caption, int, int, qint64, bool,
                              const QByteArray &, int, int,
                              const QString &replyTo) override
     {

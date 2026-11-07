@@ -20,6 +20,19 @@ Item {
     required property bool encrypted
     required property string sender
     required property string eventId
+    required property bool spoiler
+
+    readonly property bool covered: {
+        var revision = SpoilerState.revision
+        return tile.spoiler && !SpoilerState.isRevealed(tile.eventId)
+    }
+    function activate() {
+        if (tile.covered) {
+            SpoilerState.reveal(tile.eventId)
+            return
+        }
+        tile.activated()
+    }
 
     signal activated()
     signal jumpRequested(string eventId)
@@ -132,7 +145,7 @@ Item {
         Image {
             id: preview
             anchors.fill: parent
-            source: tile.resolvedSource
+            source: tile.covered ? "" : tile.resolvedSource
             fillMode: (tile.declaredAspect > 0.5 && tile.declaredAspect < 2.0)
                       ? Image.PreserveAspectCrop : Image.PreserveAspectFit
             asynchronous: true
@@ -145,7 +158,7 @@ Item {
             anchors.centerIn: parent
             width: parent.width - AppTheme.spacing8
             spacing: 2
-            visible: preview.status !== Image.Ready
+            visible: preview.status !== Image.Ready && !tile.covered
             Icon {
                 Layout.alignment: Qt.AlignHCenter
                 name: tile.kind === "video" ? "movie"
@@ -178,6 +191,14 @@ Item {
                    color: AppTheme.scrimInk }
         }
 
+        SpoilerCover {
+            anchors.fill: parent
+            covered: tile.covered
+            source: tile.resolvedSource
+            focusable: false
+            interactive: false
+        }
+
         Icon {
             visible: tile.encrypted
             anchors.right: parent.right
@@ -190,7 +211,7 @@ Item {
     }
 
     TapHandler {
-        onTapped: tile.activated()
+        onTapped: tile.activate()
     }
     TapHandler {
         acceptedButtons: Qt.RightButton
@@ -207,7 +228,7 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.name: tile.displayName + " — " + tile.sender
-    Accessible.onPressAction: tile.activated()
+    Accessible.onPressAction: tile.activate()
 
     AppMenu {
         id: tileMenu

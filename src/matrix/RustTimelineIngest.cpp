@@ -371,7 +371,7 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.mediaSpoiler = item.value(QStringLiteral("media_spoiler")).toBool(false);
     if (e.mediaSpoiler)
         e.mediaSpoilerReason =
-            item.value(QStringLiteral("media_spoiler_reason")).toString().left(200);
+            item.value(QStringLiteral("media_spoiler_reason")).toString();
     const QJsonArray galleryItems =
         item.value(QStringLiteral("gallery_items")).toArray();
     for (const auto &value : galleryItems) {

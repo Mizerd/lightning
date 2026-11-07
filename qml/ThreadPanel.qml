@@ -1865,6 +1865,27 @@ Rectangle {
                                     onClicked: threadImageEditor.openFor(app.thread.attachments, index)
                                 }
                                 IconButton {
+                                    objectName: "threadSpoilerToggle"
+                                    visible: model.spoilerAllowed === true
+                                             && model.state !== "dispatching"
+                                             && model.state !== "sent"
+                                    implicitWidth: 20; implicitHeight: 20
+                                    radius: AppTheme.radiusSm
+                                    iconName: "visibility_off"
+                                    iconSize: 14
+                                    active: model.spoiler === true
+                                    Accessible.role: Accessible.CheckBox
+                                    Accessible.checkable: true
+                                    Accessible.checked: model.spoiler === true
+                                    Accessible.name: qsTr("Mark %1 as spoiler").arg(model.fileName)
+                                    ToolTip.text: model.spoiler === true
+                                                  ? qsTr("Marked as spoiler") : qsTr("Mark as spoiler")
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    onClicked: app.thread.attachments.setSpoilerAt(
+                                                   index, model.spoiler !== true)
+                                }
+                                IconButton {
                                     visible: model.state === "failed"
                                              && model.retryable !== false
                                     implicitWidth: 20; implicitHeight: 20

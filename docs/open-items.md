@@ -2,6 +2,25 @@
 
 
 
+## 2026-11-07 — ACCEPTED FOLLOW-UPS from the spoiler-media review (GitHub #69)
+
+- The sender's own LOCAL ECHO of a spoiler is not covered: the send queue
+  deserializes the raw event into typed content, which drops the marker, so
+  the row is covered only once the remote echo arrives.
+- A reply quote hides the spoiler's thumbnail only when the replied-to event
+  is LOADED; a quote of an unloaded spoiler still shows its thumbnail
+  (`EmbeddedEvent` carries no raw JSON to read the marker from).
+- Not honoured yet: gallery items, audio, stickers. Caption edits cannot drop
+  the marker today because Lightning edits text messages only
+  (`TimelineModel::canEditEvent`); a future media-caption edit must carry it in
+  `m.new_content`.
+- A text sent right after a spoiler can arrive before it: the spoiler uploads
+  off the room's send lane so an unbounded upload never blocks text sends.
+- Several spoilers sent together from the thread panel upload concurrently and
+  land in completion order (`ThreadController` has no pump like the main
+  composer's `pumpAttachments`).
+
+
 ## 2026-11-07 — CLOSED: the 2026-11-05 follow-ups (branch `followups`)
 
 - **Stable polls render** (`rust/src/stablepoll.rs`); the receipt no longer

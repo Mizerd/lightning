@@ -739,7 +739,8 @@ public:
                              const QString &localPath, const QByteArray &bytes,
                              const QString &filename, const QString &mime,
                              const QString &caption, int width, int height,
-                             qint64 durationMs, const QByteArray &thumbnail,
+                             qint64 durationMs, bool animated,
+                             const QByteArray &thumbnail,
                              int thumbnailWidth, int thumbnailHeight,
                              const QString &replyToEventId) override;
     quint64 sendAttachmentBytesToRoom(const QString &roomId,

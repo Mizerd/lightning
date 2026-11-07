@@ -1850,6 +1850,7 @@ QVariantList TimelineModel::mediaEntries() const
         entry.insert(QStringLiteral("thumbAvailable"),
                      e.mediaThumbAvailable);
         entry.insert(QStringLiteral("spoiler"), e.mediaSpoiler);
+        entry.insert(QStringLiteral("eventId"), e.eventId);
         entry.insert(QStringLiteral("size"), static_cast<qint64>(e.mediaSize));
         out.append(entry);
     }
@@ -2594,8 +2595,11 @@ void TimelineModel::refreshQuotesOfRepliesTo(const QSet<QString> &inserted)
         const auto *target = eventForId(e.replyToEventId);
         if (target && !target->redacted
             && (!e.replyToPreview.isEmpty() || !e.replyToSender.isEmpty()
-                || !e.replyToSenderId.isEmpty() || !e.replyToKind.isEmpty()))
+                || !e.replyToSenderId.isEmpty() || !e.replyToKind.isEmpty())) {
+            if (target->mediaSpoiler && !e.replyToMediaKey.isEmpty())
+                Q_EMIT dataChanged(index(row), index(row), { ReplyToMediaKeyRole });
             continue;
+        }
         Q_EMIT dataChanged(index(row), index(row), roles);
     }
 }

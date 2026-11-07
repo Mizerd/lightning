@@ -3552,7 +3552,8 @@ Item {
                 mediaFilename: model.mediaFilename || "",
                 mediaMimetype: model.mediaMimetype || "",
                 mediaWidth: model.mediaWidth || 0,
-                mediaHeight: model.mediaHeight || 0
+                mediaHeight: model.mediaHeight || 0,
+                mediaSpoiler: model.mediaSpoiler === true
             })
     }
     function deleteThisMessage() {
