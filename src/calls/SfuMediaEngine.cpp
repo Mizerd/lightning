@@ -173,6 +173,8 @@ struct PromiseCtx {
     bool offer = false;
     bool quiet = false;
     bool iceRestart = false;
+    QByteArray remoteIceUfrag;
+    QByteArray remoteIcePwd;
     QString sdp;
 };
 
@@ -225,34 +227,28 @@ NiceRestartStream niceRestartStreamFor(GObject *agent)
 #endif
 }
 
-guint iceStreamIdOfTransport(GObject *dtls)
+GObject *iceStreamOfTransport(GObject *dtls)
 {
-    guint id = 0;
     if (!dtls)
-        return id;
+        return nullptr;
+    GObject *stream = nullptr;
     GObject *ice = nullptr;
     g_object_get(dtls, "transport", &ice, nullptr);
     if (ice) {
-        if (g_object_class_find_property(G_OBJECT_GET_CLASS(ice), "stream")) {
-            GObject *stream = nullptr;
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(ice), "stream"))
             g_object_get(ice, "stream", &stream, nullptr);
-            if (stream) {
-                g_object_get(stream, "stream-id", &id, nullptr);
-                g_object_unref(stream);
-            }
-        }
         g_object_unref(ice);
     }
-    return id;
+    return stream;
 }
 
-guint iceStreamIdOf(GstElement *webrtc)
+GObject *iceStreamOf(GstElement *webrtc)
 {
-    guint id = 0;
+    GObject *stream = nullptr;
     GArray *transceivers = nullptr;
     g_signal_emit_by_name(webrtc, "get-transceivers", &transceivers);
     if (transceivers) {
-        for (guint i = 0; i < transceivers->len && id == 0; ++i) {
+        for (guint i = 0; i < transceivers->len && !stream; ++i) {
             auto *transceiver = g_array_index(transceivers, GstWebRTCRTPTransceiver *, i);
             GstWebRTCRTPReceiver *receiver = nullptr;
             if (transceiver)
@@ -261,33 +257,38 @@ guint iceStreamIdOf(GstElement *webrtc)
                 continue;
             GObject *dtls = nullptr;
             g_object_get(receiver, "transport", &dtls, nullptr);
-            id = iceStreamIdOfTransport(dtls);
+            stream = iceStreamOfTransport(dtls);
             if (dtls)
                 g_object_unref(dtls);
             gst_object_unref(receiver);
         }
         g_array_unref(transceivers);
     }
-    if (id == 0) {
+    if (!stream) {
         GObject *sctp = nullptr;
         g_object_get(webrtc, "sctp-transport", &sctp, nullptr);
         if (sctp) {
             GObject *dtls = nullptr;
             g_object_get(sctp, "transport", &dtls, nullptr);
-            id = iceStreamIdOfTransport(dtls);
+            stream = iceStreamOfTransport(dtls);
             if (dtls)
                 g_object_unref(dtls);
             g_object_unref(sctp);
         }
     }
-    return id;
+    return stream;
 }
 
 // Restarts the ICE stream behind webrtcbin, which never restarts on its own: it
 // answers an ICE-restart offer with its old credentials and keeps the pair the
 // remote side has just forgotten.
-bool restartIceStream(GstElement *webrtc)
+// libnice's restart also forgets the remote credentials, so the offer's are
+// installed again.
+bool restartIceStream(GstElement *webrtc, const QByteArray &remoteUfrag,
+                      const QByteArray &remotePwd)
 {
+    if (remoteUfrag.isEmpty() || remotePwd.isEmpty())
+        return false;
     GObject *ice = nullptr;
     g_object_get(webrtc, "ice-agent", &ice, nullptr);
     if (!ice)
@@ -295,9 +296,17 @@ bool restartIceStream(GstElement *webrtc)
     GObject *agent = nullptr;
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(ice), "agent"))
         g_object_get(ice, "agent", &agent, nullptr);
-    const guint streamId = iceStreamIdOf(webrtc);
+    GObject *stream = iceStreamOf(webrtc);
+    guint streamId = 0;
+    if (stream)
+        g_object_get(stream, "stream-id", &streamId, nullptr);
     const NiceRestartStream restart = agent ? niceRestartStreamFor(agent) : nullptr;
-    const bool ok = restart && streamId != 0 && restart(agent, streamId);
+    const bool ok = restart && streamId != 0 && restart(agent, streamId)
+        && gst_webrtc_ice_set_remote_credentials(
+               GST_WEBRTC_ICE(ice), GST_WEBRTC_ICE_STREAM(stream),
+               remoteUfrag.constData(), remotePwd.constData());
+    if (stream)
+        g_object_unref(stream);
     if (agent)
         g_object_unref(agent);
     g_object_unref(ice);
@@ -6768,10 +6777,16 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
 
 QString SfuMediaEngine::sdpIceUfrag(const QString &sdp)
 {
+    return sdpAttribute(sdp, QStringLiteral("ice-ufrag"));
+}
+
+QString SfuMediaEngine::sdpAttribute(const QString &sdp, const QString &key)
+{
+    const QString prefix = QStringLiteral("a=") + key + QLatin1Char(':');
     for (QStringView line : QStringView(sdp).split(u'\n')) {
         line = line.trimmed();
-        if (line.startsWith(u"a=ice-ufrag:"))
-            return line.mid(12).trimmed().toString();
+        if (line.startsWith(prefix))
+            return line.mid(prefix.size()).trimmed().toString();
     }
     return {};
 }
@@ -6831,6 +6846,8 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
             qCInfo(lcSfuMedia) << "subscriber ICE restart offered";
         }
     }
+    const QByteArray remoteIcePwd = iceRestart
+        ? sdpAttribute(sdp, QStringLiteral("ice-pwd")).toUtf8() : QByteArray();
     GstWebRTCSessionDescription *description =
         gst_webrtc_session_description_new(type, message);
     peer.remoteDescriptionSet = false;
@@ -6839,6 +6856,10 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
     ctx->revision = ++peer.remoteDescriptionRevision;
     ctx->offer = type == GST_WEBRTC_SDP_TYPE_OFFER;
     ctx->iceRestart = iceRestart;
+    if (iceRestart) {
+        ctx->remoteIceUfrag = peer.remoteIceUfrag.toUtf8();
+        ctx->remoteIcePwd = remoteIcePwd;
+    }
     GstPromise *promise = gst_promise_new_with_change_func(
         onRemoteDescriptionSet, ctx, promiseCtxFree);
     g_signal_emit_by_name(peer.webrtc, "set-remote-description", description,
@@ -6860,6 +6881,8 @@ void SfuMediaEngine::onRemoteDescriptionSet(GstPromise *promise, void *userData)
     const quint64 revision = ctx->revision;
     const bool offer = ctx->offer;
     const bool iceRestart = ctx->iceRestart;
+    const QByteArray remoteIceUfrag = ctx->remoteIceUfrag;
+    const QByteArray remoteIcePwd = ctx->remoteIcePwd;
     bool ok = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
     int errorCode = -1;
     if (ok) {
@@ -6873,8 +6896,8 @@ void SfuMediaEngine::onRemoteDescriptionSet(GstPromise *promise, void *userData)
         }
     }
     gst_promise_unref(promise);
-    marshal(engine, [engine, token, generation, revision, offer, iceRestart, ok,
-                     errorCode] {
+    marshal(engine, [engine, token, generation, revision, offer, iceRestart,
+                     remoteIceUfrag, remoteIcePwd, ok, errorCode] {
         Target target = Target::Publisher;
         if (!engine->tokenIsLive(token, generation, &target))
             return;
@@ -6906,6 +6929,8 @@ void SfuMediaEngine::onRemoteDescriptionSet(GstPromise *promise, void *userData)
             auto *ctx = promiseCtxNew(engine, peer.webrtc, target == Target::Publisher);
             ctx->generation = generation;
             ctx->iceRestart = iceRestart;
+            ctx->remoteIceUfrag = remoteIceUfrag;
+            ctx->remoteIcePwd = remoteIcePwd;
             GstPromise *answer = gst_promise_new_with_change_func(
                 onAnswerCreated, ctx, promiseCtxFree);
             g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr, answer);
@@ -9077,6 +9102,8 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     const bool publisher = ctx->publisher;
     const quint64 generation = ctx->generation;
     const bool iceRestart = ctx->iceRestart && !publisher;
+    const QByteArray remoteIceUfrag = ctx->remoteIceUfrag;
+    const QByteArray remoteIcePwd = ctx->remoteIcePwd;
     GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const GstStructure *reply = gst_promise_get_reply(promise);
     GstWebRTCSessionDescription *description = nullptr;
@@ -9129,7 +9156,7 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     if (iceRestart) {
         // Restart first: it regenerates the agent's credentials, and the
         // set-local-description below installs the ones the answer carries.
-        const bool restarted = restartIceStream(webrtc);
+        const bool restarted = restartIceStream(webrtc, remoteIceUfrag, remoteIcePwd);
         if (restarted) {
             replaceIceCredentials(description->sdp, randomIceToken(16),
                                   randomIceToken(32));

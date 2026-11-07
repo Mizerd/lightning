@@ -167,6 +167,7 @@ public:
     /// The offer's ICE ufrag; a subscriber offer whose ufrag differs from the
     /// last one is LiveKit's ICE restart after a resumed session.
     static QString sdpIceUfrag(const QString &sdp);
+    static QString sdpAttribute(const QString &sdp, const QString &key);
     static bool isDirectCameraSource(GstObject *source);
     static QString cameraPublishErrorCategory(bool screenShare,
                                               bool busyError);
