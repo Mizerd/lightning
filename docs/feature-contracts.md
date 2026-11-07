@@ -441,6 +441,27 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
     counts or persists the query. Load older remains explicit; closing the
     dialog or changing accounts clears the query. Encrypted placeholders do
     not expose hidden previews through search.
+    Ctrl+F (the rebindable `room.find` key) or typing while the list has focus
+    moves into the field; Escape clears a non-empty query first and only then
+    closes the dialog; Down moves from the field to the list.
+  * **Activity Favourites** is a star toggle beside the search field, shown
+    only where the room list offers Favourites (`roomFavouritesSupported`). It
+    intersects the category tab, the thread scope and the search with rooms
+    carrying `m.favourite`, follows tag changes live, never changes the badge
+    or seen state, and resets on account change. The dialog carries no gear or
+    account controls; its header is Mark all seen, the options menu (read-row
+    cutoff) and Close, which are all specific to Activity.
+  * **Sort order, in plain words.** Activity rows are newest first by
+    timestamp in every tab; unread rows are never hidden by the read-row
+    cutoff, but they are not moved to the top. The room list's "All" (the
+    rail's "All rooms" in Channels) is grouped first — Classic: current call,
+    invitations, Favourites, other conversations, low priority; Channels keeps
+    its groups and ranks the current call, favourites, other rooms, then low
+    priority inside each — and the chosen sort orders each group: Activity
+    (newest message-like event; unread state does not move a room), A–Z,
+    Space order, or Unread first. The "All" chip's tooltip and the room-list
+    options menu both show the active grouping and sort sentence, and the
+    Activity "All" tab's tooltip says newest first.
   * **A hidden `AppMenuSeparator` now takes NO height.** QQuickMenu lays rows
     out in a ListView that honours each item's height, and a separator's height
     comes from its contentItem plus padding whether it is visible or not — so

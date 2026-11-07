@@ -590,6 +590,8 @@ Rectangle {
                 readonly property bool homeView:
                     app.spaceChannels
                     && app.spaceChannels.viewKind === "home"
+                readonly property string allTip: roomListSortMenu.groupingText
+                                                 + " " + roomListSortMenu.sortText
                 readonly property int channelsFilterMode: {
                     const stored = app.settings.roomFilterMode
                     if (stored === 3 || stored === 4)
@@ -600,14 +602,14 @@ Rectangle {
                 }
                 model: channelsLayout
                        ? ((spaceView || homeView)
-                          ? [ { label: qsTr("All"), value: 0 },
+                          ? [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
                               { label: qsTr("People"), value: 1 },
                               { label: qsTr("Favourites"), value: 4 },
                               { label: qsTr("Unreads"), value: 3 } ]
-                          : [ { label: qsTr("All"), value: 0 },
+                          : [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
                               { label: qsTr("Favourites"), value: 4 },
                               { label: qsTr("Unreads"), value: 3 } ])
-                       : [ { label: qsTr("All"), value: 0 },
+                       : [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
                            { label: qsTr("People"), value: 1 },
                            { label: qsTr("Rooms"), value: 2 },
                            { label: qsTr("Favourites"), value: 4 },

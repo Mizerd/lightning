@@ -27,6 +27,17 @@ AppMenu {
                                                            : root.sortActivity
     }
 
+    readonly property string groupingText: app.settings.roomNavigationLayout === 1
+        ? qsTr("Rooms stay in their groups. Within each group: current call, favourites, other rooms, then low priority.")
+        : qsTr("Current call first, then invitations, favourites, other conversations, and low priority.")
+    readonly property string sortText: root.currentSort === root.sortName
+        ? qsTr("Within each section: alphabetical order.")
+        : root.currentSort === root.sortUnread
+          ? qsTr("Within each section: unread rooms first, then newest activity.")
+          : root.currentSort === root.sortSpace && app.spaces.activeSpaceId.charAt(0) === "!"
+            ? qsTr("Within each section: your room arrangement, then the space's default order.")
+            : qsTr("Within each section: newest activity first. Unread status does not change the order.")
+
     MenuSectionLabel { text: qsTr("Sort rooms by") }
     Label {
         objectName: "roomOrderExplanation"
@@ -35,9 +46,7 @@ AppMenu {
         wrapMode: Text.WordWrap
         color: AppTheme.stormTextMuted
         font.pixelSize: AppTheme.textMeta
-        text: app.settings.roomNavigationLayout === 1
-            ? qsTr("Rooms stay in their groups. Within each group: current call, favourites, other rooms, then low priority.")
-            : qsTr("Current call first, then invitations, favourites, other conversations, and low priority.")
+        text: root.groupingText
     }
     Label {
         objectName: "roomSortExplanation"
@@ -46,13 +55,7 @@ AppMenu {
         wrapMode: Text.WordWrap
         color: AppTheme.stormTextMuted
         font.pixelSize: AppTheme.textMeta
-        text: root.currentSort === root.sortName
-            ? qsTr("Within each section: alphabetical order.")
-            : root.currentSort === root.sortUnread
-              ? qsTr("Within each section: unread rooms first, then newest activity.")
-              : root.currentSort === root.sortSpace && app.spaces.activeSpaceId.charAt(0) === "!"
-                ? qsTr("Within each section: your room arrangement, then the space's default order.")
-                : qsTr("Within each section: newest activity first. Unread status does not change the order.")
+        text: root.sortText
     }
 
     AppMenuItem {
