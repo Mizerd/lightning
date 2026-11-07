@@ -8,6 +8,9 @@ Item {
     // Not clipped: rows size to their content exactly, and a clip would cut off
     // the hover action bar on a row shorter than it.
     clip: false
+    // A lifted action bar reaches over the row above, so the hovered row paints
+    // (and takes hover) above its neighbours.
+    z: actionsVisible ? 2 : 1
     property var timelineView:
         TableView.view ? TableView.view : ListView.view
 
@@ -1093,8 +1096,14 @@ Item {
         ? Math.min(720, root.contentInnerCap)
         : root.contentInnerCap
 
+    // Media cards keep their own controls in their top-right corner, so their
+    // action bar sits above the row instead of over the card.
+    readonly property bool liftsActionBar:
+        root.mediaRowBody && !messageActionBarLoader.leftOfOwnBubble
     readonly property bool receiptBandMeetsBar:
-        (layout.height - bubbleRow.y - receiptStripLoader.rowHeight) < 33
+        (layout.height - bubbleRow.y - receiptStripLoader.rowHeight)
+        < (root.liftsActionBar ? AppTheme.spacingXS
+                                 + messageActionBarLoader.headerPush : 33)
     readonly property real actionBarReceiptReserve:
         (!root.ownBubbleReceiptFooter && receiptStripLoader.visible
          && receiptStripLoader.rowWidth > 0
@@ -1434,7 +1443,8 @@ Item {
                         if (root.transientOwnerBlocks)
                             return
                         root.timelineView.hoveredActionsKey = root.actionKey
-                    } else {
+                    } else if (!(messageActionBarLoader.item
+                                 && messageActionBarLoader.item.pointerOnBar)) {
                         root.releaseHoveredActions()
                     }
                 }
@@ -2596,7 +2606,9 @@ Item {
                 objectName: "messageActionBarLoader"
                 anchors.top: parent.top
                 anchors.right: parent.right
-                anchors.topMargin: -3 + headerPush
+                anchors.topMargin: restY + headerPush
+                readonly property real restY: root.liftsActionBar
+                    ? AppTheme.spacingXS - height : -3
                 property real headerPush: 0
                 function refreshHeaderPush() {
                     var view = root.timelineView
@@ -2609,10 +2621,11 @@ Item {
                                            view.mapToItem(overlay, 0, view.height).y)
                     var rowTop = bubbleRow.mapToItem(overlay, 0, 0).y
                     headerPush = Math.max(0, Math.min(
-                        viewTop - rowTop + 3 + AppTheme.spacing2,
+                        viewTop - rowTop - restY + AppTheme.spacing2,
                         bubbleRow.height - height))
                 }
                 onVisibleChanged: refreshHeaderPush()
+                onHeightChanged: refreshHeaderPush()
                 readonly property real barWidth:
                     item ? item.implicitWidth : 200
                 readonly property bool leftOfOwnBubble:
@@ -2654,8 +2667,22 @@ Item {
 
                 readonly property bool tooltipsBelow:
                     Overlay.overlay
-                    ? bubbleRow.mapToItem(Overlay.overlay, 0, 0).y < 44
+                    ? bubbleRow.mapToItem(Overlay.overlay, 0, 0).y
+                      + messageActionBarLoader.restY < 41
                     : false
+                readonly property bool pointerOnBar: barHover.hovered
+                HoverHandler {
+                    id: barHover
+                    // Over a lifted bar the pointer is outside its own row.
+                    blocking: true
+                    onHoveredChanged: {
+                        if (!hovered)
+                            Qt.callLater(function() {
+                                if (!rowHover.hovered && !barHover.hovered)
+                                    root.releaseHoveredActions()
+                            })
+                    }
+                }
 
                 Row {
                     id: threadActionRow

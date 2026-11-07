@@ -1925,6 +1925,67 @@ private Q_SLOTS:
         QVERIFY(barRect.left() >= 0);
     }
 
+    void theActionBarClearsAnAudioCardsOwnControls_data()
+    {
+        QTest::addColumn<int>("layout");
+        QTest::addColumn<bool>("own");
+        QTest::addColumn<bool>("voiceMessage");
+        for (bool voiceMessage : {true, false}) {
+            const char *kind = voiceMessage ? "voice" : "audio";
+            QTest::addRow("modern %s", kind) << 0 << false << voiceMessage;
+            QTest::addRow("bubbles own %s", kind) << 1 << true << voiceMessage;
+            QTest::addRow("bubbles other %s", kind) << 1 << false << voiceMessage;
+            QTest::addRow("compact %s", kind) << 2 << false << voiceMessage;
+            QTest::addRow("small avatars %s", kind) << 3 << false << voiceMessage;
+        }
+    }
+    void theActionBarClearsAnAudioCardsOwnControls()
+    {
+        QFETCH(int, layout);
+        QFETCH(bool, own);
+        QFETCH(bool, voiceMessage);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layout);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("showSenderIdentity"), false);
+        f.insert(QStringLiteral("isOwn"), own);
+        f.insert(QStringLiteral("isAudio"), true);
+        f.insert(QStringLiteral("mediaIsVoice"), voiceMessage);
+        f.insert(QStringLiteral("mediaDurationMs"), 4000);
+        f.insert(QStringLiteral("mediaSourceAvailable"), true);
+        f.insert(QStringLiteral("mediaKey"), QStringLiteral("mk-rail"));
+        f.insert(QStringLiteral("mediaMimetype"), QStringLiteral("audio/ogg"));
+        f.insert(QStringLiteral("mediaFilename"), QStringLiteral("clip.ogg"));
+        f.insert(QStringLiteral("body"), QStringLiteral("clip.ogg"));
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, layout == 1));
+        QQuickItem *bar = forceActionBar(d.root);
+        QVERIFY2(bar && bar->width() > 0 && bar->height() > 0,
+                 "the action bar measured empty");
+        const QRectF barRect = bar->mapRectToItem(d.root, bar->boundingRect());
+        int checked = 0;
+        for (const char *name : {"audioSpeedButton", "audioMuteButton",
+                                 "audioSaveButton"}) {
+            auto *control = findVisual(d.root, QString::fromLatin1(name));
+            QVERIFY2(control && control->isVisible() && control->width() > 0,
+                     qPrintable(QStringLiteral("no visible %1 on the card")
+                                    .arg(QLatin1String(name))));
+            const QRectF r = control->mapRectToItem(d.root,
+                                                    control->boundingRect());
+            QVERIFY2(!barRect.intersects(r),
+                     qPrintable(QStringLiteral(
+                         "the action bar %1,%2 %3x%4 covers the card's %5 at "
+                         "%6,%7 %8x%9")
+                         .arg(barRect.x()).arg(barRect.y())
+                         .arg(barRect.width()).arg(barRect.height())
+                         .arg(QLatin1String(name)).arg(r.x()).arg(r.y())
+                         .arg(r.width()).arg(r.height())));
+            ++checked;
+        }
+        QCOMPARE(checked, 3);
+    }
+
     static QRectF chipBand(QQuickItem *root)
     {
         QRectF acc;
