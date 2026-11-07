@@ -1231,6 +1231,16 @@ private slots:
         }
     }
 
+    void anIceRestartIsReadFromTheOffersUfrag()
+    {
+        const QString offer = QStringLiteral(
+            "v=0\r\no=- 1 2 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\n"
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\n"
+            "a=ice-ufrag:pionNEW\r\na=ice-pwd:secretsecretsecretsecret\r\n");
+        QCOMPARE(SfuMediaEngine::sdpIceUfrag(offer), QStringLiteral("pionNEW"));
+        QVERIFY(SfuMediaEngine::sdpIceUfrag(QStringLiteral("v=0\r\n")).isEmpty());
+    }
+
     void aDeviceBindingIsConvertedToThePropertysType()
     {
         QCOMPARE(SfuMediaEngine::applyDevicePropertyForTest(

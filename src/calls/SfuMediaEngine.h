@@ -164,6 +164,9 @@ public:
     static GstCaps *preferredCameraCaps(const GstCaps *advertised,
                                          bool jpegAvailable);
     static QString cameraIoMode(quint32 capabilities);
+    /// The offer's ICE ufrag; a subscriber offer whose ufrag differs from the
+    /// last one is LiveKit's ICE restart after a resumed session.
+    static QString sdpIceUfrag(const QString &sdp);
     static bool isDirectCameraSource(GstObject *source);
     static QString cameraPublishErrorCategory(bool screenShare,
                                               bool busyError);
@@ -735,6 +738,9 @@ private:
         quint64 remoteDescriptionRevision = 0;
         quint64 remoteCandidatesReceived = 0;
         QList<QString> pendingCandidates;
+        QString remoteIceUfrag;
+        bool iceRestarting = false;
+        QList<QString> restartCandidates;
     };
 
     Peer &peerFor(Target target)
