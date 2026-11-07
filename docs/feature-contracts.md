@@ -2187,6 +2187,29 @@ layer sees the press first, so `opened` already reads false in `onClicked`;
 what identifies the gesture is that a panel of that kind was dismissed a
 moment ago and the very next thing is a click on its own button.
 
+### Vim-style editing in the composer (opt-in)
+
+Settings › Chat › Message box, off by default. The keymap is C++
+(`src/models/VimKeymap.*`, exposed as `app.composer.vim`); the composer QML only
+routes keys and applies the result through the TextArea, so undo, drafts,
+mentions and the send path are the existing ones. Covers both the markdown and
+the rich editor; the thread panel composer is NOT wired.
+
+- **Esc order.** Insert: open completion popup, then reply/edit/thread cancel,
+  then Normal. Normal: a pending count/operator, then reply/edit/thread cancel,
+  then the key leaves the composer as it did before.
+- **Normal never types.** The editor is `readOnly` there, which also disables
+  the input method; unbound printable keys are swallowed, chords other than
+  Ctrl+R pass to the app, and formatting shortcuts do nothing. Completion
+  popups stay closed. Type-to-focus does not target a Normal-mode composer.
+- **Keys:** i a I A o O, h j k l (arrows too), w b e, 0 ^ $, gg G, x X, dd dw
+  D C cw cc yy p P with counts and d/c/y over any motion, u and Ctrl+R through
+  the TextArea's undo stack, Enter sends and returns to Insert. `/` is not
+  bound (slash commands). The register mirrors the system clipboard through
+  QClipboard; a clipboard changed elsewhere is what p pastes, linewise when it
+  ends in a newline.
+- A room switch or turning the setting off returns to Insert.
+
 ### GIF provider integration
 
 Implemented: strict GIPHY and KLIPY parsing behind a shared provider
