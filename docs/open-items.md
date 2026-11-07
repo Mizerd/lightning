@@ -142,6 +142,24 @@ invitee accepted, joined the call, `membership published ok= true`, two
 participants, tone heard both ways (a1 heard 700 Hz, f2 heard 440 Hz). A DM
 that predates the fix was NOT retested and is expected to stay refused.
 
+## 2026-11-07 — OPEN after the share-quality round (GitHub #68)
+
+- **#68 fixed on the branch, live PASS against an emulated lossy uplink only**
+  (`netem` 1% and 3% on the sender's egress, real SFU). The reporter's own
+  network is NOT TESTED; ask them for Stream Info's Lost / Resend requests line.
+- **No retransmission on the hardware H.264 path**: `offerForSfu()` renumbers
+  codecs there, so `do-nack` stays off for those transceivers. Its viewers still
+  freeze and ask for a keyframe instead of decoding garbage.
+- The decrypt-drop keyframe hold has no test that fails without it, and was not
+  exercised live.
+- DECISION for Rokas: NVENC `profile=high` measured +0-3 dB over
+  `constrained-baseline` at 3 Mbit/s, but Firefox's OpenH264 decodes only
+  constrained baseline and LiveKit's offer pins `42e01f`. Not changed.
+- Hybrid GPU: only the VA half is done (`varenderD1xx` encoders in the ladder).
+  NVENC always uses CUDA device 0 and falls back to system memory when the GL
+  context is on the other GPU; no user-facing GPU choice exists. lord_fomo's
+  actual report is not on record here.
+
 ## 2026-10-31 — OPEN after the integration round
 
 - **A hardware share is opt-in** (`LIGHTNING_SHARE_ENCODER=hardware`) and stays so

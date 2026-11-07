@@ -1305,6 +1305,19 @@ What changed:
   and an RTX payload type could collide; that path keeps no retransmission.
 * A video frame the decrypt probe drops (no key yet, failed tag) holds the
   following deltas until a keyframe and asks for one, rate-limited to 2/s.
+* A waiting depayloader asks again on every delta it discards (about thirty
+  FIRs per gap, live); the receive bin passes on one per 300 ms, and as a
+  **PLI**: rtpsession sends an all-headers request as a FIR, and live LiveKit
+  passed one of the viewer's 2376 FIRs on to the publisher, against 11 of 11
+  PLIs once they were PLIs.
+
+Live, same rig, after (`43f65c6c`): at 1% loss the picture is clean, the viewer
+lost 10 packets in 90 s (3-4 a second before), sent 11 keyframe requests and the
+publisher saw 12; the SFU-reported loss on our video is 0 (101 before). At 3%
+loss: clean, 29.9 FPS, about 27 frames a second decrypted over a minute. The
+decrypt-drop half is not covered by a test that fails without it (the decoder
+asks for a keyframe at start by itself) and was not exercised live
+(`Dropped: 0` throughout).
 
 Stream Info rows now carry RTP loss (received, or as the SFU reports it for
 what we send), jitter, resend requests (NACKs), keyframes and keyframe requests,
