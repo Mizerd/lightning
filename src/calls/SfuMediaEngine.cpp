@@ -309,18 +309,34 @@ void instrumentStreamInfo(GstPad *pad, const StreamInfoPtr &stats, bool rtp)
         [](gpointer data) { delete static_cast<Context *>(data); });
 }
 
-void instrumentKeyframeRequests(GstPad *pad, const StreamInfoPtr &stats)
+// A depayloader waiting for a keyframe asks again on every delta frame it
+// discards, about thirty a second; a receiver passes on one per interval.
+void instrumentKeyframeRequests(GstPad *pad, const StreamInfoPtr &stats,
+                                qint64 minIntervalMs = 0)
 {
     if (!pad || !stats)
         return;
+    struct Context {
+        StreamInfoPtr stats;
+        qint64 minIntervalMs;
+        std::atomic<qint64> lastMs{-1};
+    };
     gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
         [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+            auto *ctx = static_cast<Context *>(data);
             GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
-            if (event && gst_video_event_is_force_key_unit(event))
-                (*static_cast<StreamInfoPtr *>(data))->keyframeRequests.fetch_add(1);
+            if (!event || !gst_video_event_is_force_key_unit(event))
+                return GST_PAD_PROBE_OK;
+            const qint64 now = monotonicMs();
+            const qint64 last = ctx->lastMs.load();
+            if (ctx->minIntervalMs > 0 && last >= 0
+                && now - last < ctx->minIntervalMs)
+                return GST_PAD_PROBE_DROP;
+            ctx->lastMs.store(now);
+            ctx->stats->keyframeRequests.fetch_add(1);
             return GST_PAD_PROBE_OK;
-        }, new StreamInfoPtr(stats),
-        [](gpointer data) { delete static_cast<StreamInfoPtr *>(data); });
+        }, new Context{stats, minIntervalMs, {}},
+        [](gpointer data) { delete static_cast<Context *>(data); });
 }
 
 enum class CryptoDropCause { None, NoKey, Undecryptable };
@@ -9833,7 +9849,7 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
         if (streamInfo) {
             GstPad *rtpIn = gst_element_get_static_pad(depay, "sink");
-            instrumentKeyframeRequests(rtpIn, streamInfo);
+            instrumentKeyframeRequests(rtpIn, streamInfo, 300);
             if (rtpIn) gst_object_unref(rtpIn);
             streamInfo->encoder = streamInfoFactory(bin, "videodec");
         }
