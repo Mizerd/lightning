@@ -148,21 +148,42 @@ fn resolve_refusal_category(refusal: HostRefusal) -> &'static str {
     }
 }
 
+/// Whether a refused non-public focus was judged under the own-homeserver LAN
+/// allowance, and if not, why not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LanAllowance {
+    Applied,
+    NotApplied,
+    NotAdvertised,
+    Unknown,
+}
+
+impl LanAllowance {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::NotApplied => "not_applied",
+            Self::NotAdvertised => "not_advertised",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug)]
 struct FocusFailure {
     category: String,
     address_class: Option<&'static str>,
-    own_focus: bool,
+    lan_allowance: LanAllowance,
 }
 
 impl From<String> for FocusFailure {
     fn from(category: String) -> Self {
-        Self { category, address_class: None, own_focus: false }
+        Self { category, address_class: None, lan_allowance: LanAllowance::NotApplied }
     }
 }
 
 impl FocusFailure {
-    fn refused(refusal: HostRefusal, own_focus: bool) -> Self {
+    fn refused(refusal: HostRefusal, lan_allowance: LanAllowance) -> Self {
         let address_class = match refusal {
             HostRefusal::NonPublicAddress(class) => Some(class),
             _ => None,
@@ -170,7 +191,7 @@ impl FocusFailure {
         Self {
             category: resolve_refusal_category(refusal).to_owned(),
             address_class,
-            own_focus,
+            lan_allowance,
         }
     }
 
@@ -178,7 +199,7 @@ impl FocusFailure {
         event["category"] = json!(self.category);
         if let Some(class) = self.address_class {
             event["address_class"] = json!(class);
-            event["own_focus"] = json!(self.own_focus);
+            event["lan_allowance"] = json!(self.lan_allowance.as_str());
         }
     }
 }
@@ -193,22 +214,28 @@ async fn resolve_focus<F, Fut>(
 ) -> Result<(Vec<std::net::SocketAddr>, bool), FocusFailure>
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Vec<LivekitTransport>>,
+    Fut: std::future::Future<Output = Option<Vec<LivekitTransport>>>,
 {
     let resolve = |own: bool| async move {
+        let allowance = if own { LanAllowance::Applied } else { LanAllowance::NotApplied };
         match tokio::time::timeout(SFU_TIMEOUT, resolve_focus_hosts(host, port, own)).await {
-            Ok(result) => result.map_err(|refusal| FocusFailure::refused(refusal, own)),
+            Ok(result) => result.map_err(|refusal| FocusFailure::refused(refusal, allowance)),
             Err(_) => Err(FocusFailure::from("focus_resolve_timeout".to_owned())),
         }
     };
-    let failure = match resolve(false).await {
+    let mut failure = match resolve(false).await {
         Ok(addresses) => return Ok((addresses, false)),
         Err(failure) => failure,
     };
-    if failure.address_class.is_some()
-        && focus_is_advertised(service_url, &own_transports().await)
-    {
-        return resolve(true).await.map(|addresses| (addresses, true));
+    if failure.address_class.is_none() {
+        return Err(failure);
+    }
+    match own_transports().await {
+        Some(own) if focus_is_advertised(service_url, &own) => {
+            return resolve(true).await.map(|addresses| (addresses, true));
+        }
+        Some(_) => failure.lan_allowance = LanAllowance::NotAdvertised,
+        None => failure.lan_allowance = LanAllowance::Unknown,
     }
     Err(failure)
 }
@@ -385,7 +412,7 @@ async fn fetch_sfu_credentials<F, Fut>(
 ) -> Result<SfuCredentials, FocusFailure>
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Vec<LivekitTransport>>,
+    Fut: std::future::Future<Output = Option<Vec<LivekitTransport>>>,
 {
     let body = serde_json::to_vec(&json!({
         "room": room_id,
@@ -689,7 +716,12 @@ async fn run_session(
                 "type": "sfu_state", "generation": generation,
                 "state": "failed", "stage": "signal",
             });
-            FocusFailure::refused(refusal, own_infrastructure).fields(&mut event);
+            let allowance = if own_infrastructure {
+                LanAllowance::Applied
+            } else {
+                LanAllowance::NotApplied
+            };
+            FocusFailure::refused(refusal, allowance).fields(&mut event);
             emit(event);
             return;
         }
@@ -1189,6 +1221,7 @@ pub(crate) fn connect_many(
         let client = client.clone();
         let openid = Arc::clone(&openid);
         let device_id = device_id.clone();
+        let store_path = bridge.store_path.clone();
         let room_id = room_id.clone();
         let (tx, rx) = tokio::sync::mpsc::channel(COMMAND_QUEUE_CAPACITY);
         let (leave_tx, leave_rx) = tokio::sync::oneshot::channel();
@@ -1196,7 +1229,7 @@ pub(crate) fn connect_many(
             let result = match openid.get_or_try_init(|| fetch_openid_token(&client)).await {
                 Ok(token) => fetch_sfu_credentials(
                     &service_url, &room_id, &device_id, token,
-                    || own_homeserver_transports(&client)).await,
+                    || own_homeserver_transports(&client, &store_path)).await,
                 Err(category) => Err(FocusFailure::from(category.clone())),
             };
             match result {
@@ -1684,10 +1717,10 @@ mod tests {
                    "focus_unroutable");
     }
 
-    fn own(urls: &[&str]) -> Vec<LivekitTransport> {
-        urls.iter()
+    fn own(urls: &[&str]) -> Option<Vec<LivekitTransport>> {
+        Some(urls.iter()
             .map(|url| LivekitTransport { service_url: (*url).to_owned(), alias: None })
-            .collect()
+            .collect())
     }
 
     async fn credentials_for(service_url: &str, advertised: &[&str])
@@ -1706,8 +1739,14 @@ mod tests {
         let failure = result.expect_err("a private focus is refused");
         assert_eq!(failure.category, "focus_unroutable");
         assert_eq!(failure.address_class, Some("private"));
-        assert!(!failure.own_focus);
+        assert_eq!(failure.lan_allowance, LanAllowance::NotAdvertised);
         assert!(asked, "a non-public answer must consult the own homeserver");
+
+        let failure = fetch_sfu_credentials(
+            "https://10.0.0.5/", "!room:example.org", "DEVICE", &json!({}),
+            || std::future::ready(None)).await
+            .expect_err("an unreadable well-known grants nothing");
+        assert_eq!(failure.lan_allowance, LanAllowance::Unknown);
 
         let (result, _) = credentials_for(
             "https://10.0.0.5/", &["https://sfu.example.org/"]).await;
@@ -1715,12 +1754,13 @@ mod tests {
                    "focus_unroutable");
 
         let mut event = json!({});
-        FocusFailure::refused(HostRefusal::NonPublicAddress("cgnat"), true)
+        FocusFailure::refused(HostRefusal::NonPublicAddress("cgnat"), LanAllowance::Applied)
             .fields(&mut event);
         assert_eq!(event, json!({"category": "focus_unroutable",
-                                 "address_class": "cgnat", "own_focus": true}));
+                                 "address_class": "cgnat", "lan_allowance": "applied"}));
         let mut event = json!({});
-        FocusFailure::refused(HostRefusal::Unresolved, false).fields(&mut event);
+        FocusFailure::refused(HostRefusal::Unresolved, LanAllowance::NotApplied)
+            .fields(&mut event);
         assert_eq!(event, json!({"category": "focus_unresolved"}));
 
         for malformed in ["not a url", "https://"] {
@@ -1750,8 +1790,8 @@ mod tests {
             let refused = resolve_focus(&url, host, 443,
                 || std::future::ready(own(&["https://other.example.org/"]))).await;
             let failure = refused.expect_err(host);
-            assert_eq!((failure.address_class, failure.own_focus),
-                       (Some(class), false), "{host}");
+            assert_eq!((failure.address_class, failure.lan_allowance),
+                       (Some(class), LanAllowance::NotAdvertised), "{host}");
 
             let (addresses, own_infrastructure) = resolve_focus(&url, host, 443,
                 || std::future::ready(own(&[url.as_str()]))).await
@@ -1775,7 +1815,7 @@ mod tests {
                 .expect_err(host);
             assert_eq!(failure.category, "focus_unroutable", "{host}");
             assert_eq!(failure.address_class, Some(class), "{host}");
-            assert!(failure.own_focus, "{host}");
+            assert_eq!(failure.lan_allowance, LanAllowance::Applied, "{host}");
         }
     }
 

@@ -144,7 +144,13 @@ exception.
 The refusal is reported by its own category at both steps — `/sfu/get` used to
 collapse it into `invalid_transport` — and the address is logged only by CLASS
 (`sfu focus address refused stage= category= addressClass=
-advertisedByOwnHomeserver=`), never the address. A NAT64 `64:ff9b::/96`
+lanAllowance=`), never the address. `lanAllowance` is `applied` when the host
+was judged under the own-homeserver allowance, `not_advertised` when the
+well-known was read and does not name it, `unknown` when the well-known could
+not be read, and `not_applied` at the signal step for a focus that resolved
+publicly at `/sfu/get`. The well-known itself is fetched by a client that
+refuses any non-https redirect hop and honours the account's proxy route.
+A NAT64 `64:ff9b::/96`
 address is judged by the IPv4 address it embeds, so an IPv6-only network with
 DNS64 reaches a public focus; the local-use `64:ff9b:1::/48` is refused.
 

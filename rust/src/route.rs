@@ -110,21 +110,23 @@ pub(crate) fn proxy_url(route: &RouteConfig) -> String {
     format!("{scheme}://{}:{}", route.host, route.port)
 }
 
-pub(crate) fn http_client(route: &RouteConfig) -> Result<reqwest::Client, &'static str> {
+fn client_builder(route: &RouteConfig) -> Result<reqwest::ClientBuilder, &'static str> {
     let mut proxy = reqwest::Proxy::all(proxy_url(route)).map_err(|_| "invalid_route")?;
     if let (Some(user), Some(pass)) = (&route.username, &route.password) {
         proxy = proxy.basic_auth(user, pass);
     }
-    reqwest::Client::builder()
+    Ok(reqwest::Client::builder()
         .user_agent(crate::USER_AGENT)
         .min_tls_version(reqwest::tls::Version::TLS_1_2)
         .timeout(DEFAULT_REQUEST_TIMEOUT)
         // An explicit proxy also turns off the environment's
         // HTTP_PROXY/ALL_PROXY/NO_PROXY handling, so no host is exempted
         // behind the user's back.
-        .proxy(proxy)
-        .build()
-        .map_err(|_| "route_client_failed")
+        .proxy(proxy))
+}
+
+pub(crate) fn http_client(route: &RouteConfig) -> Result<reqwest::Client, &'static str> {
+    client_builder(route)?.build().map_err(|_| "route_client_failed")
 }
 
 struct Entry {
@@ -187,6 +189,19 @@ pub(crate) fn client_for(store_path: &Path) -> Result<Option<reqwest::Client>, &
         Some(RouteState::Unavailable) => Err(ROUTE_UNAVAILABLE),
         Some(RouteState::Configured(route)) => {
             http_client(&route).map(Some).map_err(|_| ROUTE_UNAVAILABLE)
+        }
+    }
+}
+
+/// Like [`client_for`], unbuilt, for a caller that needs its own policy on top.
+pub(crate) fn client_for_builder(
+    store_path: &Path,
+) -> Result<Option<reqwest::ClientBuilder>, &'static str> {
+    match lookup(store_path) {
+        None => Ok(None),
+        Some(RouteState::Unavailable) => Err(ROUTE_UNAVAILABLE),
+        Some(RouteState::Configured(route)) => {
+            client_builder(&route).map(Some).map_err(|_| ROUTE_UNAVAILABLE)
         }
     }
 }

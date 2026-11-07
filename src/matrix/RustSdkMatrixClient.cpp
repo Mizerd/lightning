@@ -10947,8 +10947,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                               << "category=" << event.value(QStringLiteral("category")).toString()
                               << "addressClass="
                               << event.value(QStringLiteral("address_class")).toString()
-                              << "advertisedByOwnHomeserver="
-                              << event.value(QStringLiteral("own_focus")).toBool();
+                              << "lanAllowance="
+                              << event.value(QStringLiteral("lan_allowance")).toString();
         }
         if (event.value(QStringLiteral("connection_id")).toInt() != 0)
             return true;

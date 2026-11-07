@@ -234,18 +234,20 @@ pub(crate) async fn resolve_focus_hosts(
 }
 
 /// The foci the user's own homeserver advertises in its `.well-known`, the only
-/// source trusted to name a non-public focus.
+/// source trusted to name a non-public focus. `None` when it could not be read.
 pub(crate) async fn own_homeserver_transports(
     client: &matrix_sdk::Client,
-) -> Vec<LivekitTransport> {
-    match transports_endpoint::get(client, DISCOVERY_TIMEOUT).await {
-        Ok(answer) if (200..300).contains(&answer.status) => answer
+    store_path: &std::path::Path,
+) -> Option<Vec<LivekitTransport>> {
+    match transports_endpoint::get(client, store_path, DISCOVERY_TIMEOUT).await {
+        Ok(answer) if (200..300).contains(&answer.status) => Some(answer
             .transports
             .iter()
             .filter_map(parse_transport)
             .take(MAX_TRANSPORTS)
-            .collect(),
-        _ => Vec::new(),
+            .collect()),
+        Ok(answer) if answer.status == 404 => Some(Vec::new()),
+        _ => None,
     }
 }
 
@@ -764,31 +766,53 @@ mod transports_endpoint {
         Ok(Some(fallback))
     }
 
+    /// The SDK client follows any redirect, so an on-path http hop could
+    /// inject foci; this one refuses every non-https hop. It honours the
+    /// account's proxy route exactly as the SDK client does.
+    pub(super) fn http_client(
+        store_path: &std::path::Path,
+    ) -> Result<reqwest::Client, String> {
+        let builder = match crate::route::client_for_builder(store_path)
+            .map_err(str::to_owned)?
+        {
+            Some(builder) => builder,
+            None => reqwest::Client::builder()
+                .user_agent(crate::USER_AGENT)
+                .min_tls_version(reqwest::tls::Version::TLS_1_2),
+        };
+        builder
+            .https_only(true)
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()
+            .map_err(|_| "invalid_request".to_owned())
+    }
+
     pub(super) async fn get(
         client: &Client,
+        store_path: &std::path::Path,
         timeout: std::time::Duration,
     ) -> Result<Answer, String> {
         let (url, fallback) = endpoints(client)?;
-        let first = get_once(client, url, timeout).await;
+        let http = http_client(store_path)?;
+        let first = get_once(&http, url, timeout).await;
         if let Some(fallback) = fallback {
             if !matches!(&first, Ok(answer)
                 if (200..300).contains(&answer.status) && !answer.transports.is_empty())
             {
-                return get_once(client, fallback, timeout).await;
+                return get_once(&http, fallback, timeout).await;
             }
         }
         first
     }
 
     async fn get_once(
-        client: &Client,
+        http: &reqwest::Client,
         url: String,
         timeout: std::time::Duration,
     ) -> Result<Answer, String> {
         // No Authorization header: the file is public, and a bearer token would
         // leak to whatever host the MXID's domain resolves to.
-        let response = client
-            .http_client()
+        let response = http
             .get(url)
             .timeout(timeout)
             .send()
@@ -1418,9 +1442,10 @@ pub(crate) fn request_transports(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     let room = joined_room(&client, &room_id).ok();
+    let store_path = bridge.store_path.clone();
 
     bridge.spawn_room_action(async move {
-        let advertised = match transports_endpoint::get(&client, DISCOVERY_TIMEOUT)
+        let advertised = match transports_endpoint::get(&client, &store_path, DISCOVERY_TIMEOUT)
             .await
         {
             Ok(answer) if (200..300).contains(&answer.status) => Ok(answer
@@ -5409,6 +5434,21 @@ mod tests {
             reaction_emoji(&selectors).map(|value| value.chars().count()),
             Some(8)
         );
+    }
+
+    #[tokio::test]
+    async fn the_well_known_client_never_speaks_plain_http() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let http = super::transports_endpoint::http_client(std::path::Path::new(""))
+            .expect("client");
+        let sent = http.get(format!("http://127.0.0.1:{port}/.well-known/matrix/client"))
+            .timeout(std::time::Duration::from_secs(2))
+            .send().await;
+        assert!(sent.is_err(), "an http hop must be refused");
+        let accepted = tokio::time::timeout(
+            std::time::Duration::from_millis(200), listener.accept()).await;
+        assert!(accepted.is_err(), "nothing may connect over plain http");
     }
 
     #[test]
