@@ -6172,6 +6172,15 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("room_refreshed")) {
+        const QJsonObject room = event.value(QStringLiteral("room")).toObject();
+        if (matrix::rust_rooms::applyRoomRefresh({m_rooms, m_roomOrder}, room)) {
+            observeHighlightCounts(QJsonArray{ room });
+            Q_EMIT roomsChanged();
+        }
+        return;
+    }
+
     if (type == QLatin1String("room_tag_confirmed")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         auto room = m_rooms.find(roomId);

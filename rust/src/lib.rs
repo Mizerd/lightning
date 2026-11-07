@@ -2796,7 +2796,10 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
                     enqueue(&events, json!({
                         "type": "read_marker_advanced", "room_id": room_id
                     }));
-                    enqueue_rooms(&events, &client).await;
+                    // One room, not the whole list: a bulk pass marks rooms one by one.
+                    enqueue(&events, json!({
+                        "type": "room_refreshed", "room": room_payload(&room).await
+                    }));
                 }
                 Some((error, attempts)) => {
                     let mut event = roomaction::failure_event("mark_read", &error, attempts);

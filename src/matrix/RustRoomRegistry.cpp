@@ -159,6 +159,16 @@ void applySnapshot(Registry registry, const QJsonArray &rooms)
     }
 }
 
+bool applyRoomRefresh(Registry registry, const QJsonObject &room)
+{
+    const QString id = roomIdOf(room);
+    auto it = registry.rooms.find(id);
+    if (id.isEmpty() || it == registry.rooms.end())
+        return false;
+    *it = roomInfoFromJson(room, *it);
+    return true;
+}
+
 bool applyRoomListDiff(Registry registry, const QJsonObject &event)
 {
     const QString type = event.value(QStringLiteral("type")).toString();

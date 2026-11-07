@@ -14,6 +14,7 @@ using matrix::rust_rooms::Registry;
 using matrix::rust_rooms::applyIndexReset;
 using matrix::rust_rooms::applyRoomActivity;
 using matrix::rust_rooms::applyRoomListDiff;
+using matrix::rust_rooms::applyRoomRefresh;
 using matrix::rust_rooms::applySnapshot;
 using matrix::rust_rooms::retireAbsentSpaces;
 
@@ -290,6 +291,26 @@ private Q_SLOTS:
         applySnapshot(registry, afterLeaving);
         QCOMPARE(map.size(), 2);
         QVERIFY(!map.contains(roomId(1)));
+    }
+
+    void aRefreshUpdatesOneKnownRoomAndNothingElse()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+        applySnapshot(registry, rooms(3));
+
+        QJsonObject read = roomJson(roomId(1), QStringLiteral("renamed"));
+        read.insert(QStringLiteral("unread_count"), 0);
+        QVERIFY(applyRoomRefresh(registry, read));
+        QCOMPARE(map.value(roomId(1)).name, QStringLiteral("renamed"));
+        QCOMPARE(map.size(), 3);
+        QCOMPARE(map.value(roomId(0)).name, roomId(0));
+        QVERIFY(order.isEmpty());
+
+        QVERIFY(!applyRoomRefresh(registry, roomJson(roomId(9))));
+        QVERIFY2(!map.contains(roomId(9)), "a refresh added a room");
+        QVERIFY(!applyRoomRefresh(registry, QJsonObject{}));
     }
 
     void spacesSurviveBothAResetAndASnapshot()

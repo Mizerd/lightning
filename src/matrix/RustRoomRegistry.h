@@ -28,6 +28,10 @@ void applySnapshot(Registry registry, const QJsonArray &rooms);
 
 bool applyRoomListDiff(Registry registry, const QJsonObject &event);
 
+// Apply a `room_refreshed`: updates one room the registry already holds and
+// never adds, drops or reorders anything. Returns whether it applied.
+bool applyRoomRefresh(Registry registry, const QJsonObject &room);
+
 QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms);
 
 int retireAbsentSpaces(Registry registry, const QSet<QString> &present);

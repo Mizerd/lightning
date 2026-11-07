@@ -650,6 +650,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("room_preview_backfill", UiOnly),
         ("room_profile_result", UiOnly),
         ("room_send_result", UiOnly),
+        ("room_refreshed", UiOnly),
         ("room_snapshot", UiOnly),
         ("room_target_resolved", UiOnly),
         ("room_tombstone_changed", UiOnly),

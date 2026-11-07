@@ -18,7 +18,20 @@ AutoMarkReadController::AutoMarkReadController(QObject *parent)
     connect(&m_interval, &QTimer::timeout, this, &AutoMarkReadController::startPass);
     m_stepTimeout.setSingleShot(true);
     m_stepTimeout.setInterval(kStepTimeoutMs);
-    connect(&m_stepTimeout, &QTimer::timeout, this, [this] { finishRoom(m_active); });
+    // A timed-out request is still in flight: wait for it once more rather
+    // than start another, then give the pass up.
+    connect(&m_stepTimeout, &QTimer::timeout, this, [this] {
+        if (m_active.isEmpty())
+            return;
+        if (!m_overdue) {
+            m_overdue = true;
+            qCInfo(lcAutoMarkRead) << "step overdue; holding the pass";
+            m_stepTimeout.start();
+            return;
+        }
+        qCInfo(lcAutoMarkRead) << "step abandoned; pass stopped left=" << m_queue.size();
+        stopPass();
+    });
 }
 
 void AutoMarkReadController::setSources(MatrixClient *client, RoomListModel *rooms)
@@ -93,7 +106,7 @@ void AutoMarkReadController::next()
             return;
         }
         const QString roomId = m_queue.takeFirst();
-        if (!m_rooms->roomsToMarkRead().contains(roomId))
+        if (!m_rooms->roomNeedsMarkRead(roomId))
             continue;
         if (m_excluded && m_excluded().contains(roomId))
             continue;
@@ -109,6 +122,7 @@ void AutoMarkReadController::finishRoom(const QString &roomId)
         return;
     m_stepTimeout.stop();
     m_active.clear();
+    m_overdue = false;
     const quint64 generation = m_generation;
     QMetaObject::invokeMethod(this, [this, generation] {
         if (generation == m_generation)
@@ -122,4 +136,5 @@ void AutoMarkReadController::stopPass()
     m_stepTimeout.stop();
     m_queue.clear();
     m_active.clear();
+    m_overdue = false;
 }

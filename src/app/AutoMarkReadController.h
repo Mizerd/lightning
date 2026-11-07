@@ -51,5 +51,6 @@ private:
     QTimer m_stepTimeout;
     QStringList m_queue;
     QString m_active;
+    bool m_overdue = false;
     QList<QMetaObject::Connection> m_clientConnections;
 };

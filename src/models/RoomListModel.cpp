@@ -846,23 +846,33 @@ int RoomListModel::markAllRoomsRead()
     return targets.size();
 }
 
+namespace {
+bool needsMarkRead(const RoomInfo &room)
+{
+    if (room.membership != RoomInfo::Joined || room.isSpace || room.markedUnread)
+        return false;
+    return room.unreadCount > 0 || room.highlightCount > 0 || room.hasUnreadMessages;
+}
+}
+
 QStringList RoomListModel::roomsToMarkRead() const
 {
     QStringList targets;
     if (!m_client)
         return targets;
     for (const RoomInfo &room : m_client->rooms()) {
-        if (room.membership != RoomInfo::Joined || room.isSpace
-            || room.markedUnread) {
-            continue;
-        }
-        if (room.unreadCount <= 0 && room.highlightCount <= 0
-            && !room.hasUnreadMessages) {
-            continue;
-        }
-        targets.append(room.id);
+        if (needsMarkRead(room))
+            targets.append(room.id);
     }
     return targets;
+}
+
+bool RoomListModel::roomNeedsMarkRead(const QString &roomId) const
+{
+    if (!m_client || roomId.isEmpty())
+        return false;
+    const RoomInfo room = m_client->roomInfo(roomId);
+    return room.id == roomId && needsMarkRead(room);
 }
 
 void RoomListModel::markRoomRead(const QString &roomId)
