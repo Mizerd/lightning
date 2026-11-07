@@ -74,6 +74,62 @@ Item {
             modifiers, app.settings.enterInsertsNewline,
             Qt.ControlModifier, Qt.ShiftModifier)
     }
+    // Vim-style editing (Settings > Chat > Message box). The keymap lives in
+    // app.composer.vim; this file only routes keys and applies its results.
+    // Esc order in Insert: completion popup, then reply/edit/thread cancel,
+    // then Normal. In Normal: a pending count/operator, then reply/edit/thread
+    // cancel, then the key leaves the composer as before.
+    readonly property bool vimEnabled: !!app.settings
+                                       && app.settings.vimComposer === true
+    readonly property bool vimNormal: root.vimEnabled && app.composer.vim.normal
+    onVimEnabledChanged: if (!root.vimEnabled) app.composer.vim.enterInsert()
+    function _vimEnterNormal(editor) {
+        var pos = app.composer.vim.enterNormal(editor.getText(0, editor.length),
+                                               editor.cursorPosition)
+        editor.cursorPosition = Math.min(pos, editor.length)
+    }
+    function _vimOverride(event) {
+        if (!root.vimNormal)
+            return false
+        var chord = event.modifiers & (Qt.ControlModifier | Qt.AltModifier
+                                       | Qt.MetaModifier)
+        if (chord === Qt.ControlModifier && event.key === Qt.Key_R)
+            return true
+        return chord === 0 && event.text.length > 0
+    }
+    function _vimKey(event, editor) {
+        if (!root.vimNormal)
+            return false
+        var vim = app.composer.vim
+        var r = vim.handleKey(event.key, event.modifiers, event.text,
+                              editor.getText(0, editor.length),
+                              editor.cursorPosition)
+        if (!r.accepted)
+            return false
+        event.accepted = true
+        if (r.hasEdit) {
+            if (r.editEnd > r.editStart)
+                editor.remove(r.editStart, r.editEnd)
+            if (r.editText.length > 0)
+                editor.insert(r.editStart, editor === richInput
+                              ? vim.richInsertHtml(r.editText) : r.editText)
+        }
+        for (var u = 0; u < r.undo; ++u)
+            editor.undo()
+        for (var d = 0; d < r.redo; ++d)
+            editor.redo()
+        var pos = r.cursor
+        if (r.clampAfter)
+            pos = vim.clampNormal(editor.getText(0, editor.length),
+                                  editor.cursorPosition)
+        if (pos >= 0)
+            editor.cursorPosition = Math.min(pos, editor.length)
+        if (r.send) {
+            root.submitComposer()
+            editor.forceActiveFocus()
+        }
+        return true
+    }
     function openEditMenuAtCaret(editor) {
         var r = editor.cursorRectangle
         root.focusEditor()
@@ -81,6 +137,8 @@ Item {
         composerEditMenu.popup(editor, r.x, r.y + r.height)
     }
     function _plainReturn(event) {
+        if (root._vimKey(event, input))
+            return
         if (commandPopup.visible && !commandPopup.returnSends) {
             commandPopup.accept()
             event.accepted = true
@@ -105,6 +163,8 @@ Item {
         root.focusEditor()
     }
     function _richReturn(event) {
+        if (root._vimKey(event, richInput))
+            return
         if (commandPopup.visible && !commandPopup.returnSends) {
             commandPopup.accept()
             event.accepted = true
@@ -2174,6 +2234,36 @@ Item {
                         onClicked: root.toolbarExpanded = !root.toolbarExpanded
                     }
 
+                    Rectangle {
+                        id: vimModeBadge
+                        objectName: "composerVimMode"
+                        visible: root.vimEnabled
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
+                        implicitWidth: vimModeLabel.implicitWidth + AppTheme.spacing8
+                        implicitHeight: vimModeLabel.implicitHeight + AppTheme.spacing4
+                        radius: AppTheme.radiusControl
+                        color: root.vimNormal ? AppTheme.accent : "transparent"
+                        border.width: root.vimNormal ? 0 : 1
+                        border.color: AppTheme.border
+                        readonly property string modeText: root.vimNormal
+                            ? qsTr("NORMAL", "Vim editing mode") : qsTr("INSERT", "Vim editing mode")
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: qsTr("Editing mode: %1").arg(modeText)
+                        Label {
+                            id: vimModeLabel
+                            objectName: "composerVimModeLabel"
+                            anchors.centerIn: parent
+                            text: app.composer.vim.pending.length > 0
+                                  ? vimModeBadge.modeText + " " + app.composer.vim.pending
+                                  : vimModeBadge.modeText
+                            textFormat: Text.PlainText
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.scaled(10)
+                            font.weight: AppTheme.weightStrong
+                            color: root.vimNormal ? AppTheme.accentText : AppTheme.textMuted
+                        }
+                    }
+
                     Flickable {
                         id: richFlick
                         objectName: "composerRichInputFlick"
@@ -2205,8 +2295,9 @@ Item {
                         TextArea.flickable: TextArea {
                             id: richInput
                             objectName: "composerRichInput"
+                            readOnly: root.vimNormal
                             cursorDelegate: richIdleCaret.delegate
-                            IdleCaret { id: richIdleCaret; field: richInput }
+                            IdleCaret { id: richIdleCaret; block: root.vimNormal; field: richInput }
                             onWidthChanged: richSpellTimer.restart()
                             Timer {
                                 id: richSpellTimer
@@ -2286,11 +2377,17 @@ Item {
                             Keys.onReturnPressed: (event) => root._richReturn(event)
                             Keys.onEnterPressed: (event) => root._richReturn(event)
                             Keys.onShortcutOverride: (event) => {
+                                if (root._vimOverride(event)) {
+                                    event.accepted = true
+                                    return
+                                }
                                 if (root._composerFormatFor(event.key,
                                                             event.modifiers) !== "")
                                     event.accepted = true
                             }
                             Keys.onUpPressed: (event) => {
+                                if (root._vimKey(event, richInput))
+                                    return
                                 if (commandPopup.visible) {
                                     commandPopup.moveUp()
                                     event.accepted = true
@@ -2307,6 +2404,8 @@ Item {
                                 }
                             }
                             Keys.onDownPressed: (event) => {
+                                if (root._vimKey(event, richInput))
+                                    return
                                 if (commandPopup.visible) {
                                     commandPopup.moveDown()
                                     event.accepted = true
@@ -2321,6 +2420,8 @@ Item {
                                 }
                             }
                             Keys.onTabPressed: (event) => {
+                                if (root._vimKey(event, richInput))
+                                    return
                                 if (commandPopup.visible) {
                                     commandPopup.accept()
                                     event.accepted = true
@@ -2342,6 +2443,8 @@ Item {
                                 root.openEditMenuAtCaret(richInput)
                             }
                             Keys.onEscapePressed: (event) => {
+                                if (root._vimKey(event, richInput))
+                                    return
                                 if (commandPopup.visible) {
                                     root.commandPopupDismissed = true
                                     commandPopup.close()
@@ -2359,11 +2462,16 @@ Item {
                                            || app.composer.inThread) {
                                     app.composer.cancelReplyOrEdit()
                                     event.accepted = true
+                                } else if (root.vimEnabled && !root.vimNormal) {
+                                    root._vimEnterNormal(richInput)
+                                    event.accepted = true
                                 } else {
                                     event.accepted = false
                                 }
                             }
                             Keys.onPressed: (event) => {
+                                if (root._vimKey(event, richInput))
+                                    return
                                 if (event.key === Qt.Key_F10
                                         && (event.modifiers & Qt.ShiftModifier)) {
                                     event.accepted = true
@@ -2388,7 +2496,7 @@ Item {
                                 var formatAction =
                                     root._composerFormatFor(event.key,
                                                             event.modifiers)
-                                if (formatAction !== "") {
+                                if (formatAction !== "" && !root.vimNormal) {
                                     event.accepted = true
                                     if (formatAction === "composer.toggleHeight")
                                         root.toggleComposerHeight()
@@ -2438,8 +2546,9 @@ Item {
                         TextArea.flickable: TextArea {
                         id: input
                         objectName: "composerInput"
+                        readOnly: root.vimNormal
                         cursorDelegate: idleCaret.delegate
-                        IdleCaret { id: idleCaret; field: input }
+                        IdleCaret { id: idleCaret; block: root.vimNormal; field: input }
                         placeholderText: {
                             if (app.currentRoomId === "")
                                 return qsTr("Select a room to start typing")
@@ -2495,11 +2604,17 @@ Item {
                         Keys.onReturnPressed: (event) => root._plainReturn(event)
                         Keys.onEnterPressed: (event) => root._plainReturn(event)
                         Keys.onShortcutOverride: (event) => {
+                            if (root._vimOverride(event)) {
+                                event.accepted = true
+                                return
+                            }
                             if (root._composerFormatFor(event.key,
                                                         event.modifiers) !== "")
                                 event.accepted = true
                         }
                         Keys.onUpPressed: (event) => {
+                            if (root._vimKey(event, input))
+                                return
                             if (commandPopup.visible) {
                                 commandPopup.moveUp()
                                 event.accepted = true
@@ -2516,6 +2631,8 @@ Item {
                             }
                         }
                         Keys.onDownPressed: (event) => {
+                            if (root._vimKey(event, input))
+                                return
                             if (commandPopup.visible) {
                                 commandPopup.moveDown()
                                 event.accepted = true
@@ -2530,6 +2647,8 @@ Item {
                             }
                         }
                         Keys.onTabPressed: (event) => {
+                            if (root._vimKey(event, input))
+                                return
                             if (commandPopup.visible) {
                                 commandPopup.accept()
                                 event.accepted = true
@@ -2551,6 +2670,8 @@ Item {
                             root.openEditMenuAtCaret(input)
                         }
                         Keys.onEscapePressed: (event) => {
+                            if (root._vimKey(event, input))
+                                return
                             if (commandPopup.visible) {
                                 root.commandPopupDismissed = true
                                 commandPopup.close()
@@ -2567,6 +2688,9 @@ Item {
                                        || app.composer.isEditing
                                        || app.composer.inThread) {
                                 app.composer.cancelReplyOrEdit()
+                                event.accepted = true
+                            } else if (root.vimEnabled && !root.vimNormal) {
+                                root._vimEnterNormal(input)
                                 event.accepted = true
                             } else {
                                 event.accepted = false
@@ -2670,6 +2794,8 @@ Item {
                             }
                         }
                         Keys.onPressed: (event) => {
+                            if (root._vimKey(event, input))
+                                return
                             if (event.key === Qt.Key_F10
                                     && (event.modifiers & Qt.ShiftModifier)) {
                                 event.accepted = true
@@ -2710,7 +2836,7 @@ Item {
                             var formatAction =
                                 root._composerFormatFor(event.key,
                                                         event.modifiers)
-                            if (formatAction !== "") {
+                            if (formatAction !== "" && !root.vimNormal) {
                                 event.accepted = true
                                 if (formatAction === "composer.toggleHeight")
                                     root.toggleComposerHeight()

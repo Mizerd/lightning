@@ -756,6 +756,8 @@ set(APP_SOURCES
     src/models/TimelineScrollController.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/models/VimKeymap.h
+    src/models/VimKeymap.cpp
     src/media/ImageSendPrep.h
     src/media/ImageSendPrep.cpp
     src/media/ImageMetadata.h
@@ -3562,6 +3564,8 @@ if(BUILD_TESTING)
         src/app/JoinErrorText.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/VimKeymap.h
+        src/models/VimKeymap.cpp
         src/models/RichComposition.h
         src/models/RichComposition.cpp
         src/media/ImageSendPrep.h
@@ -3604,6 +3608,8 @@ if(BUILD_TESTING)
         src/app/JoinErrorText.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/VimKeymap.h
+        src/models/VimKeymap.cpp
         src/models/RichComposition.h
         src/models/RichComposition.cpp
         src/media/ImageSendPrep.h
@@ -4236,6 +4242,8 @@ if(BUILD_TESTING)
         src/app/DraftStore.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/VimKeymap.h
+        src/models/VimKeymap.cpp
         src/models/RichComposition.h
         src/models/RichComposition.cpp
         src/media/ImageSendPrep.h
@@ -5355,6 +5363,17 @@ if(BUILD_TESTING)
     target_include_directories(composer-focus-shortcut-qml-test PRIVATE src)
     add_test(NAME composer-focus-shortcut-qml COMMAND composer-focus-shortcut-qml-test)
     set_tests_properties(composer-focus-shortcut-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Vim-style composer editing: Esc order, Normal mode never types, edits
+    # and undo through the real TextArea, Enter sends.
+    qt_add_executable(composer-vim-qml-test
+        tests/ComposerVimQmlTest.cpp
+    )
+    lightning_configure_qml_test(composer-vim-qml-test)
+    target_include_directories(composer-vim-qml-test PRIVATE src)
+    add_test(NAME composer-vim-qml COMMAND composer-vim-qml-test)
+    set_tests_properties(composer-vim-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Selection, history resume and half-page progress in the real mock shell.
@@ -6874,6 +6893,18 @@ if(BUILD_TESTING)
         PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME rich-composition COMMAND rich-composition-test)
     set_tests_properties(rich-composition PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Composer Vim keymap: every motion, operator, count and the register.
+    qt_add_executable(vim-keymap-test
+        tests/VimKeymapTest.cpp
+        src/models/VimKeymap.h
+        src/models/VimKeymap.cpp
+    )
+    target_include_directories(vim-keymap-test PRIVATE src)
+    target_link_libraries(vim-keymap-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME vim-keymap COMMAND vim-keymap-test)
+    set_tests_properties(vim-keymap PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # @-mention tokenizer: trigger boundaries, code rejection, query capture

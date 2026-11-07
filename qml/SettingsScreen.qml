@@ -325,6 +325,12 @@ Item {
           section: "chat", breadcrumb: qsTr("Chat · Message box"),
           control: "enterInsertsNewline",
           anchor: "enterInsertsNewlineCheck" },
+        { title: qsTr("Vim-style editing in the composer"),
+          keywords: QT_TR_NOOP("vim modal normal insert mode keys editor composer "
+                         + "message box hjkl"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
+          control: "vimComposer",
+          anchor: "vimComposerCheck" },
         { title: qsTr("Send text with an attachment as its caption"),
           keywords: QT_TR_NOOP("caption attachment upload text description"),
           section: "chat", breadcrumb: qsTr("Chat · Message box"),
@@ -2320,6 +2326,14 @@ Item {
                                         Accessible.name: qsTr("Enter starts a new line")
                                         onToggled: app.settings.enterInsertsNewline =
                                             !app.settings.enterInsertsNewline
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineVimComposer_" + resultRow.index
+                                        visible: resultRow.modelData.control === "vimComposer"
+                                        checked: app.settings.vimComposer
+                                        Accessible.name: qsTr("Vim-style editing in the composer")
+                                        onToggled: app.settings.vimComposer =
+                                            !app.settings.vimComposer
                                     }
                                     AppSwitch {
                                         objectName: "settingsSearchInlineTextAsCaption_" + resultRow.index
@@ -5048,6 +5062,26 @@ Item {
                                     text: app.settings.enterInsertsNewline
                                         ? qsTr("Enter starts a new line; Ctrl+Enter sends.")
                                         : qsTr("Enter sends; Shift+Enter starts a new line.")
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "vimComposerCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Vim-style editing in the composer")
+                                    checked: app.settings.vimComposer
+                                    onToggled: app.settings.vimComposer = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Esc switches to Normal mode for hjkl, w b e, "
+                                               + "d c y with counts, p, u and Ctrl+R; "
+                                               + "i or a returns to typing, and Enter in Normal mode sends.")
                                 }
                                 SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText

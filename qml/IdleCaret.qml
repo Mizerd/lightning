@@ -6,6 +6,19 @@ Item {
 
     required property Item field
     property int idleMs: 4000
+    // A non-blinking block over the character at the caret (Vim Normal mode).
+    property bool block: false
+    readonly property real blockWidth: {
+        if (!root.block)
+            return 0
+        var _len = root.field.length
+        var p = root.field.cursorPosition
+        var a = root.field.positionToRectangle(p)
+        var b = root.field.positionToRectangle(p + 1)
+        var w = (p < _len && b.y === a.y && b.x > a.x)
+            ? b.x - a.x : root.field.font.pixelSize * 0.55
+        return Math.max(2, w)
+    }
     readonly property bool solid: _solid
     property bool _solid: false
     signal woke()
@@ -18,11 +31,14 @@ Item {
         Rectangle {
             id: caret
             objectName: "idleCaretCursor"
-            width: Math.max(1, Math.round(AppTheme.scaled(1.5)))
+            width: root.block ? root.blockWidth
+                              : Math.max(1, Math.round(AppTheme.scaled(1.5)))
             color: root.field.color
+            opacity: root.block ? 0.45 : 1
             property bool blinkOn: true
             visible: root.field.activeFocus
-                     && (root._solid || (root.field.cursorVisible && blinkOn))
+                     && (root.block || root._solid
+                         || (root.field.cursorVisible && blinkOn))
             Timer {
                 id: blink
                 // cursorFlashTime is a whole on+off cycle; 0 means never blink.

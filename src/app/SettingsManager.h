@@ -309,6 +309,8 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool enterInsertsNewline READ enterInsertsNewline
                    WRITE setEnterInsertsNewline
                    NOTIFY enterInsertsNewlineChanged)
+    Q_PROPERTY(bool vimComposer READ vimComposer WRITE setVimComposer
+                   NOTIFY vimComposerChanged)
     Q_PROPERTY(QString composerMode READ composerMode WRITE setComposerMode
                    NOTIFY composerModeChanged)
     Q_PROPERTY(bool spellCheckEnabled READ spellCheckEnabled
@@ -805,6 +807,8 @@ public:
 
     bool enterInsertsNewline() const;
     void setEnterInsertsNewline(bool v);
+    bool vimComposer() const;
+    void setVimComposer(bool enabled);
     QString composerMode() const;
     bool spellCheckEnabled() const;
     void setSpellCheckEnabled(bool enabled);
@@ -1085,6 +1089,7 @@ Q_SIGNALS:
     void callShareVolumeChanged(const QString &userId, int percent);
     void clockFormatChanged();
     void enterInsertsNewlineChanged();
+    void vimComposerChanged();
     void composerModeChanged();
     void spellCheckEnabledChanged();
     void spellCheckLanguageChanged();

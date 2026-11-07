@@ -6,6 +6,7 @@
 #include "models/AttachmentQueueModel.h"
 #include "models/MentionTokenizer.h"
 #include "models/SlashCommands.h"
+#include "models/VimKeymap.h"
 
 #include <QList>
 #include <QObject>
@@ -48,6 +49,7 @@ class MessageComposer : public QObject
     Q_PROPERTY(QString sendThreadRootId READ sendThreadRootId
                    NOTIFY threadStateChanged)
     Q_PROPERTY(AttachmentQueueModel* attachments READ attachments CONSTANT)
+    Q_PROPERTY(VimKeymap* vim READ vim CONSTANT)
     Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
     Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported NOTIFY roomIdChanged)
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
@@ -217,6 +219,7 @@ public:
                                       const QVariantList &waveform);
 
     AttachmentQueueModel *attachments() const { return m_attachments; }
+    VimKeymap *vim() const { return m_vim; }
     bool hasAttachments() const { return m_attachments && !m_attachments->isEmpty(); }
     bool attachmentsSupported() const;
     Q_INVOKABLE void addAttachment(const QUrl &fileUrl);
@@ -301,6 +304,7 @@ private:
     std::function<QString(const QString &)> m_unicodeShortcodeResolver;
     bool m_emojiAutoConvert = true;
     AttachmentQueueModel *m_attachments = nullptr;
+    VimKeymap *m_vim = nullptr;
     bool m_sendTextAsCaption = false;
     QString m_imageMetadataMode = QStringLiteral("location");
     ImageSendPrep m_imagePrep;

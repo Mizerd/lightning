@@ -129,6 +129,7 @@ constexpr auto kCompactRoomList     = "ui/compactRoomList";
 constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
+constexpr auto kVimComposer         = "composer/vimEditing";
 constexpr auto kComposerMode        = "composer/mode";
 constexpr auto kComposerMarkdownMarker = "composer/markdownDefaultMigrated";
 constexpr auto kSpellCheckEnabled   = "composer/spellCheck";
@@ -4606,6 +4607,19 @@ void SettingsManager::setEnterInsertsNewline(bool v)
         return;
     m_store->setValue(kEnterNewline, v);
     Q_EMIT enterInsertsNewlineChanged();
+}
+
+bool SettingsManager::vimComposer() const
+{
+    return m_store->value(kVimComposer, false).toBool();
+}
+
+void SettingsManager::setVimComposer(bool enabled)
+{
+    if (vimComposer() == enabled)
+        return;
+    m_store->setValue(kVimComposer, enabled);
+    Q_EMIT vimComposerChanged();
 }
 
 QString SettingsManager::composerMode() const
