@@ -61,7 +61,12 @@ private slots:
         QCOMPARE(row.value("packets").toULongLong(), 123ULL);
         QCOMPARE(row.value("decrypted").toULongLong(), 28ULL);
         QCOMPARE(row.value("dropped").toULongLong(), 2ULL);
-        QCOMPARE(row.size(), 13);
+        stats.keyframes = 4;
+        stats.keyframeRequests = 3;
+        row = stats.sample(1101);
+        QCOMPARE(row.value("keyframes").toULongLong(), 4ULL);
+        QCOMPARE(row.value("keyframeRequests").toULongLong(), 3ULL);
+        QCOMPARE(row.size(), 15);
         stats.lastMs = -1;
         QCOMPARE(stats.sample(5000).value("fps").toDouble(), -1.0);
     }

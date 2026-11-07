@@ -1277,6 +1277,48 @@ same way: a live `nvh264enc gpu-zero-copy` share under Xvfb reached Element Call
 and a VP8-only Lightning with the right picture. A portal capture is still NOT
 TESTED on this path.
 
+## Packet loss on a received share (GitHub #68, 2026-11-07)
+
+**"Screenshare pixelated" when both ends are Lightning was packet loss that
+nothing recovered from**, not bitrate. The issue's screenshots are speckled
+wrong-colour macroblocks: a decoder predicting from a reference that never
+arrived. Reproduced live on the real SFU with the sender in a user network
+namespace (`slirp4netns`, `tc netem loss 1%` on its egress): the viewer drew the
+same picture while Stream Info said `Dropped: 0`. The stats trace named it:
+
+* the SFU sent the publisher **363 NACKs** it could not answer (no RTX);
+* the viewer's inbound video lost 3-4 packets a second with **`pli=0 nack=0`**;
+* LiveKit's subscriber offer carries RTX (`rtx/90000 apt=96`) and our answer
+  dropped it.
+
+A periodic keyframe every two seconds does not rescue this: a 1080p keyframe is
+a hundred-odd packets, and at 1% loss it is itself usually damaged.
+
+What changed:
+
+* `rtpvp8depay`/`rtph264depay` run with `request-keyframe=true
+  wait-for-keyframe=true` (`videoDepayLossRecovery()`): after a gap the picture
+  freezes instead of smearing, and the upstream force-key-unit becomes a PLI.
+* Every video transceiver has `do-nack`: the subscriber's answer keeps RTX, so
+  the SFU resends from its cache, and a VP8 publisher answers the SFU's NACKs
+  over RTX. **Not on the hardware path**: `offerForSfu()` renumbers codecs there
+  and an RTX payload type could collide; that path keeps no retransmission.
+* A video frame the decrypt probe drops (no key yet, failed tag) holds the
+  following deltas until a keyframe and asks for one, rate-limited to 2/s.
+
+Stream Info rows now carry RTP loss (received, or as the SFU reports it for
+what we send), jitter, resend requests (NACKs), keyframes and keyframe requests,
+and the decoder; it can be toggled from the spotlight's and full screen's
+controls as well as Ctrl+F9.
+
+Hardware encoding, measured on the RTX 3080 (6 s scrolling 1080p desktop at
+3 Mbit/s, PSNR against the source): `preset=low-latency-hq` and
+`p4 tune=ultra-low-latency` are bit-identical, `p7 tune=high-quality` gains
+0.1-0.3 dB for 30% more encode time. No preset change is justified by that.
+On a hybrid laptop the `va` plugin names only the first render node's elements
+`vah264enc`; the other GPU's encoder is `varenderD129h264enc`, now appended to
+the ladder (`extraVaH264Encoders()`).
+
 ## Stream Info
 
 During a MatrixRTC call, **Ctrl+F9** toggles Stream Info over the call stage,
