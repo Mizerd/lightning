@@ -82,6 +82,7 @@
     { QStringLiteral("largeEmoji"), Kind::Bool, 0, 0, 3, QStringLiteral("Timeline"), 0, {  }, QVariant(true) },
     { QStringLiteral("hiddenComposerButtons"), Kind::StringList, 0, 0, 3, QStringLiteral("Composer"), 32, {  }, QVariant(QStringList()) },
     { QStringLiteral("enterInsertsNewline"), Kind::Bool, 0, 0, 3, QStringLiteral("Composer"), 0, {  }, QVariant(false) },
+    { QStringLiteral("vimComposer"), Kind::Bool, 0, 0, 3, QStringLiteral("Composer"), 0, {  }, QVariant(false) },
     { QStringLiteral("composerMode"), Kind::String, 0, 0, 3, QStringLiteral("Composer"), 16, { QStringLiteral("rich"), QStringLiteral("markdown") }, QVariant(QStringLiteral("markdown")) },
     { QStringLiteral("spellCheckEnabled"), Kind::Bool, 0, 0, 3, QStringLiteral("Composer"), 0, {  }, QVariant(true) },
     { QStringLiteral("spellCheckLanguage"), Kind::String, 0, 0, 3, QStringLiteral("Composer"), 35, {  }, QVariant(QStringLiteral("")) },
