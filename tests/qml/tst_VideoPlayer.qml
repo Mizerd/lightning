@@ -13,6 +13,8 @@ TestCase {
     when: windowShown
 
     readonly property url fixture: Qt.resolvedUrl("../../data/sounds/ring.wav")
+    // Two audio tracks (440/880 Hz) and two subtitle tracks.
+    readonly property url tracksFixture: Qt.resolvedUrl("tracks.mka")
 
     QtObject {
         id: playback
@@ -33,6 +35,9 @@ TestCase {
         function markVideoFinished(k) { finished.push(k) }
         function videoResumePosition(k) { return resume[k] || 0 }
         function videoFinished(k) { return finished.indexOf(k) >= 0 }
+        property var tracks: ({})
+        function rememberVideoTracks(k, a, s) { tracks[k] = [a, s] }
+        function videoTracks(k) { return tracks[k] || [-1, -2] }
     }
     QtObject {
         id: settings
@@ -48,6 +53,7 @@ TestCase {
         property bool brokenSource: false
         function playableSource(key) {
             if (holdFetch) return ""
+            if (key === "$tracks") return test.tracksFixture.toString()
             return brokenSource ? Qt.resolvedUrl("tst_VideoPlayer.qml").toString()
                                 : test.fixture.toString()
         }
@@ -124,6 +130,7 @@ TestCase {
         playback.remembered = []
         playback.finished = []
         playback.resume = ({})
+        playback.tracks = ({})
         settings.mediaVolume = 0.8
         bridge.holdFetch = false
         bridge.brokenSource = false
@@ -623,6 +630,89 @@ TestCase {
         verify(!findChild(bar, "videoTracksButton").visible,
                "a track menu with nothing to choose")
         compare(bar.trackLabel(null, 1), "Track 2")
+    }
+
+    function trackMenuOf(bar) {
+        for (var i = 0; i < bar.data.length; ++i) {
+            var o = bar.data[i]
+            if (o && o.objectName === "videoTracksMenu")
+                return o
+        }
+        return null
+    }
+    function pickTrack(bar, name) {
+        var menu = trackMenuOf(bar)
+        menu.open()
+        tryCompare(menu, "opened", true)
+        var row = null
+        for (var i = 0; i < menu.count; ++i)
+            if (menu.itemAt(i) && menu.itemAt(i).objectName === name)
+                row = menu.itemAt(i)
+        verify(row, "no " + name + " row in the track menu")
+        row.triggered()
+        menu.close()
+    }
+    function tickedRows(bar) {
+        var menu = trackMenuOf(bar)
+        var out = []
+        for (var i = 0; i < menu.count; ++i)
+            if (menu.itemAt(i) && menu.itemAt(i).iconName === "check")
+                out.push(menu.itemAt(i).objectName)
+        return out.join(",")
+    }
+    function tracksCard(props) {
+        var card = createTemporaryObject(cardComponent, test, props)
+        verify(card)
+        card.mediaKey = "$tracks"
+        card.start()
+        var bar = barOf(card)
+        tryVerify(function() {
+            return bar.audioTracks.length === 2 && bar.subtitleTracks.length === 2
+        }, 10000, "the two-track fixture never loaded")
+        return card
+    }
+
+    function test_aPickedTrackIsTickedAndSurvivesAReplay() {
+        var card = tracksCard({ width: 480, height: 270, y: 300 })
+        var bar = barOf(card)
+        var player = playerOf(card)
+        compare(tickedRows(bar), "videoAudioTrack0,videoSubtitleOff")
+
+        pickTrack(bar, "videoAudioTrack1")
+        pickTrack(bar, "videoSubtitleTrack1")
+        tryCompare(player, "activeAudioTrack", 1)
+        tryCompare(player, "activeSubtitleTrack", 1)
+        compare(tickedRows(bar), "videoAudioTrack1,videoSubtitleTrack1")
+
+        card.resetPlayback()
+        card.start()
+        tryVerify(function() { return bar.audioTracks.length === 2 }, 10000)
+        tryCompare(player, "activeAudioTrack", 1, 5000,
+                   "a replay went back to the first audio track")
+        tryCompare(player, "activeSubtitleTrack", 1, 5000,
+                   "a replay turned the subtitles off")
+        compare(tickedRows(bar), "videoAudioTrack1,videoSubtitleTrack1")
+
+        var again = tracksCard({ width: 480, height: 270, y: 300 })
+        tryCompare(playerOf(again), "activeAudioTrack", 1, 5000,
+                   "a new card for the same video lost the pick")
+        compare(tickedRows(barOf(again)), "videoAudioTrack1,videoSubtitleTrack1")
+    }
+
+    function test_aShownSubtitleIsLiftedAboveTheBar() {
+        var card = tracksCard({ width: 480, height: 270, y: 300 })
+        var bar = barOf(card)
+        var output = findChild(card, "videoCardOutput")
+        verify(output)
+        bar.player.pause()
+        tryCompare(bar, "opacity", 1.0)
+        compare(output.height, card.height)
+        pickTrack(bar, "videoSubtitleTrack0")
+        var o = output.mapToItem(null, 0, 0)
+        var b = bar.mapToItem(null, 0, 0)
+        verify(o.y + output.height <= b.y + 0.5,
+               "the picture (and its subtitles) ends at " + (o.y + output.height)
+               + " under the bar at " + b.y)
     }
 
     function failureText(card) {

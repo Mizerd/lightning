@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 
 class MediaPlaybackController : public QObject
 {
@@ -51,6 +52,11 @@ public:
     Q_INVOKABLE void forgetVideoPosition(const QString &mediaKey);
     Q_INVOKABLE void forgetResumePositions();
 
+    // A video's picked audio and subtitle track; -1 / -2 mean "not picked".
+    Q_INVOKABLE void rememberVideoTracks(const QString &mediaKey, int audio,
+                                         int subtitle);
+    Q_INVOKABLE QVariantList videoTracks(const QString &mediaKey) const;
+
 Q_SIGNALS:
     void audibleOwnerChanged();
     void resumePositionsChanged();
@@ -67,4 +73,6 @@ private:
     qreal m_videoPlaybackRate = 1.0;
     QHash<QString, qint64> m_resume;
     QStringList m_resumeOrder;
+    QHash<QString, QPair<int, int>> m_tracks;
+    QStringList m_tracksOrder;
 };

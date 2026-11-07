@@ -66,19 +66,32 @@ FocusScope {
         player && player.subtitleTracks ? player.subtitleTracks : []
     readonly property bool hasTrackChoice:
         audioTracks.length > 1 || subtitleTracks.length > 0
+    // The FFmpeg backend emits no activeTracksChanged, neither for a pick nor
+    // on load, so the menu reads the pick and re-reads on tracksChanged.
+    readonly property int shownAudioTrack: trackIntent.audio >= 0
+        ? trackIntent.audio
+        : (player && audioTracks.length > 0 ? player.activeAudioTrack : -1)
+    readonly property int shownSubtitleTrack: trackIntent.subtitle >= -1
+        ? trackIntent.subtitle
+        : (player && subtitleTracks.length >= 0 ? player.activeSubtitleTrack : -1)
     property int reapplyBudget: 0
     function reapplyTracks() {
-        if (!player)
+        if (!player || player.mediaStatus === MediaPlayer.NoMedia
+                || player.mediaStatus === MediaPlayer.LoadingMedia
+                || player.mediaStatus === MediaPlayer.InvalidMedia)
             return
         var want = trackIntent
-        if (want.audio >= 0 && player.activeAudioTrack !== want.audio
+        // Before the tracks are known a pick cannot land and only spends the budget.
+        if (want.audio >= 0 && want.audio < audioTracks.length
+                && player.activeAudioTrack !== want.audio
                 && reapplyBudget < 8) {
             ++reapplyBudget
             console.log("video track pick reverted audio want=" + want.audio
                         + " got=" + player.activeAudioTrack)
             player.activeAudioTrack = want.audio
         }
-        if (want.subtitle >= -1 && player.activeSubtitleTrack !== want.subtitle
+        if (want.subtitle >= -1 && want.subtitle < subtitleTracks.length
+                && player.activeSubtitleTrack !== want.subtitle
                 && reapplyBudget < 8) {
             ++reapplyBudget
             console.log("video track pick reverted subtitle want="
@@ -93,6 +106,7 @@ FocusScope {
         function onTracksChanged() { bar.reapplyTracks() }
         function onPlaybackStateChanged() { bar.reapplyTracks() }
         function onMediaStatusChanged() { bar.reapplyTracks() }
+        function onSourceChanged() { bar.reapplyBudget = 0 }
     }
     function trackLabel(meta, index) {
         var parts = []
@@ -566,12 +580,12 @@ FocusScope {
                 iconName: {
                     if (!bar.player) return ""
                     if (modelData.kind === "audio")
-                        return bar.player.activeAudioTrack === modelData.index
+                        return bar.shownAudioTrack === modelData.index
                                ? "check" : ""
                     if (modelData.kind === "subtitleOff")
-                        return bar.player.activeSubtitleTrack < 0 ? "check" : ""
+                        return bar.shownSubtitleTrack < 0 ? "check" : ""
                     if (modelData.kind === "subtitle")
-                        return bar.player.activeSubtitleTrack === modelData.index
+                        return bar.shownSubtitleTrack === modelData.index
                                ? "check" : ""
                     return ""
                 }

@@ -147,6 +147,22 @@ private Q_SLOTS:
         QCOMPARE(c.videoResumePosition(QStringLiteral("k2")), qint64(10002));
     }
 
+    void aPickedTrackIsKeptPerVideoUntilTheAccountGoes()
+    {
+        MediaPlaybackController c;
+        const QString key = QStringLiteral("$video:example.org");
+        QCOMPARE(c.videoTracks(key), (QVariantList{-1, -2}));
+        c.rememberVideoTracks(key, 1, 0);
+        QCOMPARE(c.videoTracks(key), (QVariantList{1, 0}));
+        QCOMPARE(c.videoTracks(QStringLiteral("$other")), (QVariantList{-1, -2}));
+        c.rememberVideoTracks(key, 1, -1);
+        QCOMPARE(c.videoTracks(key), (QVariantList{1, -1}));
+        c.stopAll();
+        QCOMPARE(c.videoTracks(key), (QVariantList{1, -1}));
+        c.forgetResumePositions();
+        QCOMPARE(c.videoTracks(key), (QVariantList{-1, -2}));
+    }
+
     void theVideoSpeedIsOneSessionValue()
     {
         MediaPlaybackController c;

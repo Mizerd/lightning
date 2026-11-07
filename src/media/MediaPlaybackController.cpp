@@ -122,8 +122,29 @@ void MediaPlaybackController::forgetVideoPosition(const QString &mediaKey)
     Q_EMIT resumePositionsChanged();
 }
 
+void MediaPlaybackController::rememberVideoTracks(const QString &mediaKey,
+                                                  int audio, int subtitle)
+{
+    if (mediaKey.isEmpty())
+        return;
+    if (!m_tracks.contains(mediaKey)) {
+        m_tracksOrder.append(mediaKey);
+        while (m_tracksOrder.size() > kMaxResumeEntries)
+            m_tracks.remove(m_tracksOrder.takeFirst());
+    }
+    m_tracks.insert(mediaKey, {audio, subtitle});
+}
+
+QVariantList MediaPlaybackController::videoTracks(const QString &mediaKey) const
+{
+    const auto picked = m_tracks.value(mediaKey, {-1, -2});
+    return {picked.first, picked.second};
+}
+
 void MediaPlaybackController::forgetResumePositions()
 {
+    m_tracks.clear();
+    m_tracksOrder.clear();
     if (m_resume.isEmpty())
         return;
     qCDebug(lcPlayback) << "forgetting resume positions:" << m_resume.size();

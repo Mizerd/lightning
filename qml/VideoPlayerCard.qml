@@ -104,6 +104,12 @@ FocusScope {
             failureReason = ""
             fetchingKey = ""
             sourceKey = root.mediaKey
+            var picked = app.playback.videoTracks
+                    ? app.playback.videoTracks(root.mediaKey) : null
+            if (picked) {
+                trackIntent.audio = picked[0]
+                trackIntent.subtitle = picked[1]
+            }
             pendingResumeMs = app.playback.videoResumePosition
                     ? app.playback.videoResumePosition(root.mediaKey) : 0
             player.source = url
@@ -168,10 +174,18 @@ FocusScope {
         app.playback.rememberVideoPosition(sourceKey, player.position,
                                            player.duration)
     }
-    readonly property var trackIntent: ({ audio: -1, subtitle: -2 })
+    readonly property QtObject trackIntent: QtObject {
+        property int audio: -1
+        property int subtitle: -2
+        onAudioChanged: root.rememberTracks()
+        onSubtitleChanged: root.rememberTracks()
+    }
+    function rememberTracks() {
+        if (sourceKey.length > 0 && app.playback.rememberVideoTracks)
+            app.playback.rememberVideoTracks(sourceKey, trackIntent.audio,
+                                             trackIntent.subtitle)
+    }
     function resetPlayback() {
-        trackIntent.audio = -1
-        trackIntent.subtitle = -2
         rememberPosition()
         ended = false
         if (videoOverlay.opened)
@@ -180,6 +194,8 @@ FocusScope {
         player.stop()
         player.source = ""
         sourceKey = ""
+        trackIntent.audio = -1
+        trackIntent.subtitle = -2
         pendingResumeMs = 0
         unpinFile()
         cancelFetch()
@@ -343,7 +359,11 @@ FocusScope {
 
         VideoOutput {
             id: output
+            objectName: "videoCardOutput"
             anchors.fill: parent
+            // Subtitles are drawn at the picture's bottom edge, under the bar.
+            anchors.bottomMargin: controls.shown && controls.shownSubtitleTrack >= 0
+                                  ? controls.height : 0
             readonly property real videoRatio:
                 sourceRect.height > 0 && sourceRect.width > 0
                 ? sourceRect.width / sourceRect.height : 0
