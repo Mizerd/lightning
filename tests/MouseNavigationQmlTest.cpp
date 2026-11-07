@@ -357,6 +357,68 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kDevs);
     }
 
+    void aBackPressThatClosesAMenuWindowOnlyClosesIt()
+    {
+        openThreeRooms();
+        QObject *menu =
+            m_root->findChild<QObject *>(QStringLiteral("roomListAddMenu"));
+        QVERIFY2(menu, "no room-list menu to open");
+        constexpr int kPopupWindow = 1;
+        constexpr int kPopupItem = 0;
+        QVERIFY(menu->setProperty("popupType", kPopupWindow));
+        QVERIFY(QMetaObject::invokeMethod(menu, "open"));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        bool windowShown = false;
+        for (const QWindow *w : QGuiApplication::topLevelWindows())
+            windowShown |= w->isVisible() && w->inherits("QQuickPopupWindow");
+        QVERIFY2(windowShown, "the menu did not open as its own window");
+
+        click(Qt::BackButton, timelinePoint());
+        QTRY_VERIFY(!menu->property("visible").toBool());
+        QTest::qWait(30);
+        QCOMPARE(m_controller->currentRoomId(), kDm);
+
+        click(Qt::BackButton, timelinePoint());
+        QCOMPARE(m_controller->currentRoomId(), kDevs);
+        QVERIFY(menu->setProperty("popupType", kPopupItem));
+    }
+
+    void altLeftDoesNotNavigateUnderTheTopmostOfTwoPopups()
+    {
+        openThreeRooms();
+        QObject *menu =
+            m_root->findChild<QObject *>(QStringLiteral("roomListAddMenu"));
+        QObject *mention = nullptr;
+        const auto all = m_root->findChildren<QObject *>();
+        for (QObject *o : all) {
+            if (QByteArray(o->metaObject()->className())
+                    .startsWith("MentionPopup")) {
+                mention = o;
+                break;
+            }
+        }
+        QVERIFY(menu && mention);
+        QVERIFY(QMetaObject::invokeMethod(mention, "open"));
+        QTRY_VERIFY(mention->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(menu, "open"));
+        QTRY_VERIFY(menu->property("opened").toBool());
+
+        QTest::keyClick(m_window, Qt::Key_Left, Qt::AltModifier);
+        QTest::qWait(30);
+        QCOMPARE(m_controller->currentRoomId(), kDm);
+
+        click(Qt::BackButton, timelinePoint());
+        QTRY_VERIFY(!menu->property("visible").toBool());
+        QTest::qWait(30);
+        QCOMPARE(m_controller->currentRoomId(), kDm);
+
+        QVERIFY(QMetaObject::invokeMethod(mention, "close"));
+        QTRY_VERIFY(!mention->property("visible").toBool());
+        QTest::keyClick(m_window, Qt::Key_Left, Qt::AltModifier);
+        QTest::qWait(30);
+        QCOMPARE(m_controller->currentRoomId(), kDevs);
+    }
+
     void aLatchedAutoscrollDoesNotSurviveTheRoomChange()
     {
         openThreeRooms();
