@@ -2,7 +2,10 @@
 
 #include "app/SettingsManager.h"
 
+#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QKeyCombination>
+#include <QKeyEvent>
 #include <QKeySequence>
 
 namespace {
@@ -174,6 +177,85 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
     buildTables();
     m_resolved.resize(m_actions.size());
     reload();
+
+#if defined(Q_OS_WIN)
+    m_keyboardPlatform = KeyboardPlatform::Windows;
+#elif defined(Q_OS_MACOS)
+    m_keyboardPlatform = KeyboardPlatform::MacOS;
+#else
+    // qGuiApp is a bare cast, so check the type before asking for the plugin.
+    QCoreApplication *app = QCoreApplication::instance();
+    if (app && app->inherits("QGuiApplication")) {
+        const QString platform = QGuiApplication::platformName();
+        if (platform.startsWith(QLatin1String("xcb"))
+            || platform.startsWith(QLatin1String("wayland")))
+            m_keyboardPlatform = KeyboardPlatform::Xkb;
+    }
+#endif
+    if (m_keyboardPlatform != KeyboardPlatform::Unknown) {
+        if (QCoreApplication *app = QCoreApplication::instance())
+            app->installEventFilter(this);
+    }
+}
+
+int ShortcutRegistry::physicalDigitKey(KeyboardPlatform platform,
+                                       quint32 nativeScanCode,
+                                       quint32 nativeVirtualKey)
+{
+    switch (platform) {
+    case KeyboardPlatform::Xkb:
+        // evdev KEY_1..KEY_0 are 2..11; xkb keycodes add 8.
+        if (nativeScanCode >= 10 && nativeScanCode <= 19)
+            return nativeScanCode == 19 ? Qt::Key_0
+                                        : Qt::Key_1 + int(nativeScanCode - 10);
+        return 0;
+    case KeyboardPlatform::Windows:
+        // Set-1 make codes 0x02..0x0B; the extended bit marks other keys.
+        if (nativeScanCode >= 0x02 && nativeScanCode <= 0x0B)
+            return nativeScanCode == 0x0B ? Qt::Key_0
+                                          : Qt::Key_1 + int(nativeScanCode - 0x02);
+        return 0;
+    case KeyboardPlatform::MacOS:
+        // kVK_ANSI_* codes, which are not in digit order.
+        switch (nativeVirtualKey) {
+        case 0x12: return Qt::Key_1;
+        case 0x13: return Qt::Key_2;
+        case 0x14: return Qt::Key_3;
+        case 0x15: return Qt::Key_4;
+        case 0x17: return Qt::Key_5;
+        case 0x16: return Qt::Key_6;
+        case 0x1A: return Qt::Key_7;
+        case 0x1C: return Qt::Key_8;
+        case 0x19: return Qt::Key_9;
+        case 0x1D: return Qt::Key_0;
+        default: return 0;
+        }
+    case KeyboardPlatform::Unknown:
+        break;
+    }
+    return 0;
+}
+
+bool ShortcutRegistry::eventFilter(QObject *watched, QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::ShortcutOverride:
+    case QEvent::KeyPress: {
+        const auto *key = static_cast<const QKeyEvent *>(event);
+        m_pressedKey = key->key();
+        m_pressedModifiers = int(key->modifiers());
+        m_pressedDigit = physicalDigitKey(m_keyboardPlatform, key->nativeScanCode(),
+                                          key->nativeVirtualKey());
+        break;
+    }
+    case QEvent::KeyRelease:
+        m_pressedKey = 0;
+        m_pressedDigit = 0;
+        break;
+    default:
+        break;
+    }
+    return QAbstractListModel::eventFilter(watched, event);
 }
 
 void ShortcutRegistry::retranslate()
@@ -596,7 +678,16 @@ QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
     const QString seq = sequenceFromKeyEvent(key, modifiers);
     if (seq.isEmpty())
         return {};
-    for (const QString &candidate : { seq, withoutKeypad(seq) }) {
+    // A modified press on a main-row digit also answers that digit's binding,
+    // whatever symbol the layout delivered, but only after the literal one.
+    QString physical;
+    const auto commandMods = Qt::ShiftModifier | Qt::ControlModifier
+                             | Qt::AltModifier | Qt::MetaModifier;
+    if (m_pressedDigit != 0 && m_pressedKey == key && m_pressedModifiers == modifiers
+        && key != m_pressedDigit
+        && (Qt::KeyboardModifiers(modifiers) & commandMods))
+        physical = sequenceFromKeyEvent(m_pressedDigit, modifiers);
+    for (const QString &candidate : { seq, withoutKeypad(seq), physical }) {
         if (candidate.isEmpty())
             continue;
         for (int i = 0; i < m_actions.size(); ++i) {

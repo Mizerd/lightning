@@ -2,6 +2,7 @@
 #include "app/SettingsManager.h"
 #include "app/ShortcutRegistry.h"
 
+#include <QKeyEvent>
 #include <QKeySequence>
 #include <QList>
 #include <QPair>
@@ -1198,6 +1199,108 @@ private Q_SLOTS:
                     .isEmpty());
         QCOMPARE(registry.editorActionForKey(Qt::Key_8, ctrlShift),
                  QStringLiteral("composer.list"));
+    }
+
+    void physicalDigitKeyMapsTheMainRowOnEveryPlatform()
+    {
+        using P = ShortcutRegistry::KeyboardPlatform;
+        const quint32 macRow[10] = {0x1D, 0x12, 0x13, 0x14, 0x15,
+                                    0x17, 0x16, 0x1A, 0x1C, 0x19};
+        for (int d = 0; d <= 9; ++d) {
+            const int want = Qt::Key_0 + d;
+            const quint32 xkb = d == 0 ? 19 : 9 + d;
+            const quint32 win = d == 0 ? 0x0B : 0x01 + d;
+            QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Xkb, xkb, 0), want);
+            QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Windows, win, 0), want);
+            QCOMPARE(ShortcutRegistry::physicalDigitKey(P::MacOS, 0, macRow[d]), want);
+            QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Unknown, xkb, macRow[d]), 0);
+        }
+        // Keypad 8, Minus and the extended (0x100) variant of a row code.
+        QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Xkb, 80, 0), 0);
+        QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Xkb, 20, 0), 0);
+        QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Windows, 0x48, 0), 0);
+        QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Windows, 0x109, 0), 0);
+        QCOMPARE(ShortcutRegistry::physicalDigitKey(P::MacOS, 0x5B, 0), 0);
+        QCOMPARE(ShortcutRegistry::physicalDigitKey(P::MacOS, 0x1C, 0x1C), Qt::Key_8);
+        QCOMPARE(ShortcutRegistry::physicalDigitKey(P::Windows, 0, 0x38), 0);
+    }
+
+    void aShiftedDigitMatchesItsBindingByPhysicalKey()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QObject target;
+        const auto ctrlShift = Qt::ControlModifier | Qt::ShiftModifier;
+        using P = ShortcutRegistry::KeyboardPlatform;
+        struct Press {
+            P platform;
+            int key;
+            quint32 scan;
+            quint32 vk;
+            const char *action;
+        };
+        // US "*" and German "(" on the 8 key, US "(" on the 9 key, French
+        // delivering the digit itself, on each platform's own key numbering.
+        const Press presses[] = {
+            {P::Xkb, Qt::Key_Asterisk, 17, 0x2a, "composer.list"},
+            {P::Xkb, Qt::Key_ParenLeft, 17, 0x28, "composer.list"},
+            {P::Xkb, Qt::Key_ParenLeft, 18, 0x28, "composer.quote"},
+            {P::Xkb, Qt::Key_8, 17, 0x38, "composer.list"},
+            {P::Windows, Qt::Key_ParenLeft, 0x09, 0x38, "composer.list"},
+            {P::Windows, Qt::Key_ParenLeft, 0x0A, 0x39, "composer.quote"},
+            {P::MacOS, Qt::Key_ParenLeft, 0, 0x1C, "composer.list"},
+            {P::MacOS, Qt::Key_ParenRight, 0, 0x19, "composer.quote"},
+        };
+        for (const Press &p : presses) {
+            registry.setKeyboardPlatformForTesting(p.platform);
+            QKeyEvent override(QEvent::ShortcutOverride, p.key, ctrlShift,
+                               p.scan, p.vk, 0);
+            registry.eventFilter(&target, &override);
+            QCOMPARE(registry.editorOverrideFor(p.key, ctrlShift, false),
+                     QString::fromLatin1(p.action));
+            QKeyEvent press(QEvent::KeyPress, p.key, ctrlShift, p.scan, p.vk, 0);
+            registry.eventFilter(&target, &press);
+            QCOMPARE(registry.editorActionForKey(p.key, ctrlShift),
+                     QString::fromLatin1(p.action));
+            // Another key or other modifiers than the recorded press do not
+            // borrow its physical digit.
+            QVERIFY(registry.editorActionForKey(Qt::Key_BraceLeft, ctrlShift).isEmpty());
+            if (p.key != Qt::Key_8)
+                QVERIFY(registry.editorActionForKey(p.key, Qt::ControlModifier)
+                            .isEmpty());
+            QKeyEvent release(QEvent::KeyRelease, p.key, ctrlShift, p.scan, p.vk, 0);
+            registry.eventFilter(&target, &release);
+            if (p.key != Qt::Key_8)
+                QVERIFY(registry.editorActionForKey(p.key, ctrlShift).isEmpty());
+        }
+    }
+
+    void aLiteralSymbolBindingWinsOverThePhysicalDigit()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QObject target;
+        const auto ctrlShift = Qt::ControlModifier | Qt::ShiftModifier;
+        QCOMPARE(registry.setBinding(QStringLiteral("composer.code"),
+                                     QStringLiteral("Ctrl+Shift+(")),
+                 QString());
+        registry.setKeyboardPlatformForTesting(ShortcutRegistry::KeyboardPlatform::Xkb);
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_ParenLeft, ctrlShift, 17, 0x28, 0);
+        registry.eventFilter(&target, &press);
+        QCOMPARE(registry.editorActionForKey(Qt::Key_ParenLeft, ctrlShift),
+                 QStringLiteral("composer.code"));
+    }
+
+    void anUnknownPlatformNeverTranslatesAPress()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QObject target;
+        const auto ctrlShift = Qt::ControlModifier | Qt::ShiftModifier;
+        registry.setKeyboardPlatformForTesting(ShortcutRegistry::KeyboardPlatform::Unknown);
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_Asterisk, ctrlShift, 17, 0x1C, 0);
+        registry.eventFilter(&target, &press);
+        QVERIFY(registry.editorActionForKey(Qt::Key_Asterisk, ctrlShift).isEmpty());
     }
 
     void editorActionForKeyAnswersEveryEditorBindingAndNothingElse()

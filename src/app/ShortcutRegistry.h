@@ -7,6 +7,7 @@
 #include <QPair>
 #include <QVector>
 
+class QEvent;
 class SettingsManager;
 
 /// Every rebindable keyboard shortcut in Lightning, in one place.
@@ -128,6 +129,24 @@ public:
 
     Q_INVOKABLE QStringList categories() const;
 
+    /// How the windowing system numbers physical keys: xkb keycodes (X11 and
+    /// Wayland), Windows set-1 scan codes, or macOS virtual key codes.
+    enum class KeyboardPlatform { Unknown, Xkb, Windows, MacOS };
+
+    /// Qt::Key_0..Key_9 for a main-row digit key, else 0. Layout-independent:
+    /// Shift+8 is "*" on US, "(" on German and "8" on French, one key in all three.
+    static int physicalDigitKey(KeyboardPlatform platform, quint32 nativeScanCode,
+                                quint32 nativeVirtualKey);
+    void setKeyboardPlatformForTesting(KeyboardPlatform platform)
+    {
+        m_keyboardPlatform = platform;
+    }
+
+    /// Records the physical key of each press so a modified digit binding
+    /// matches whatever symbol the layout put on that key. QML key events do
+    /// not carry the native virtual key, which macOS needs.
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
     void retranslate();
 
 Q_SIGNALS:
@@ -178,4 +197,8 @@ private:
     int m_conflicts = 0;
     bool m_anyCustomised = false;
     int m_revision = 0;
+    KeyboardPlatform m_keyboardPlatform = KeyboardPlatform::Unknown;
+    int m_pressedKey = 0;
+    int m_pressedModifiers = 0;
+    int m_pressedDigit = 0;
 };
