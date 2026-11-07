@@ -124,6 +124,9 @@ QByteArray takeRustBytes(char *raw)
 }
 
 constexpr int kPollFailureReportEvery = 600;
+constexpr int kPaginationPollMs = 8;
+constexpr int kPaginationPollTicks = 250;
+constexpr int kPaginationPollQuietTicks = 6;
 
 bool rustPollFailed(const QByteArray &raw)
 {
@@ -4562,6 +4565,28 @@ void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
         state.failureTransient = false;
         Q_EMIT paginationStateChanged(roomId);
     }
+    if (result.isEmpty())
+        armPaginationPoll(++m_paginationPollChain, kPaginationPollTicks, 0);
+}
+
+// A cached page is ready in milliseconds; at the 100 ms poll a multi-page walk
+// (saved-position return, viewport fill) would wait one poll per page.
+void RustSdkMatrixClient::armPaginationPoll(quint64 chain, int ticksLeft,
+                                            int quietTicks)
+{
+    QTimer::singleShot(kPaginationPollMs, this, [this, chain, ticksLeft, quietTicks] {
+        if (chain != m_paginationPollChain || !m_rustHandle)
+            return;
+        pollRustEvents();
+        if (chain != m_paginationPollChain || ticksLeft <= 1)
+            return;
+        bool loading = false;
+        for (const PaginationState &state : std::as_const(m_pagination))
+            loading = loading || state.loading;
+        const int quiet = loading ? 0 : quietTicks + 1;
+        if (quiet < kPaginationPollQuietTicks)
+            armPaginationPoll(chain, ticksLeft - 1, quiet);
+    });
 }
 
 bool RustSdkMatrixClient::canPaginate(const QString &roomId) const

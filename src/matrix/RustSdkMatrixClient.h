@@ -995,6 +995,7 @@ private:
     bool m_ssoInFlight = false;
     QString rustStorePathForUser(const QString &userIdForStore) const;
     void pollRustEvents();
+    void armPaginationPoll(quint64 chain, int ticksLeft, int quietTicks);
     void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);
 
     void handleRustEventForTest(const QJsonObject &event)
@@ -1183,6 +1184,7 @@ private:
     matrix::rust_timeline::TimelineGenerationTracker m_contextTracker;
     matrix::RecoveryReopenBudget m_recoveryReopens;
     QHash<QString, PaginationState> m_pagination;
+    quint64 m_paginationPollChain = 0;
     QString m_threadListRoom;
     quint64 m_threadListGeneration = 0;
     QHash<QString, qint64> m_lastDecryptionRetryMs;
