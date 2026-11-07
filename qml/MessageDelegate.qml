@@ -6187,13 +6187,14 @@ Item {
                 anchors.fill: parent
                 active: videoBox.playerActive || root.spoilerHidden
                 onLoaded: {
-                    if (!videoBox.openedByKey || !videoBox.playerActive)
+                    if (!videoBox.openedByKey || sourceComponent !== videoPlayerCard)
                         return
                     videoBox.openedByKey = false
                     item.focusControls()
                 }
                 visible: active
-                sourceComponent: videoBox.playerActive ? videoPlayerCard : videoSpoilerCover
+                sourceComponent: root.spoilerHidden && !videoBox.playerActive
+                                 ? videoSpoilerCover : videoPlayerCard
                 Component {
                     id: videoSpoilerCover
                     SpoilerCover {
