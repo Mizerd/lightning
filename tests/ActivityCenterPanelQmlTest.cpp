@@ -246,9 +246,9 @@ private Q_SLOTS:
         QVERIFY(field->hasActiveFocus());
         QCOMPARE(f.window->property("findCalls").toInt(), 0);
         QCOMPARE(f.shortcuts->setBinding(QStringLiteral("room.find"),
-                                         QStringLiteral("Ctrl+Shift+F")), QString());
+                                         QStringLiteral("Ctrl+Alt+F")), QString());
         f.list->forceActiveFocus();
-        QTest::keyClick(w, Qt::Key_F, Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::keyClick(w, Qt::Key_F, Qt::ControlModifier | Qt::AltModifier);
         QVERIFY(field->hasActiveFocus());
         QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
     }
