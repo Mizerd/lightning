@@ -6168,19 +6168,6 @@ Item {
                     onClicked: videoBox.refreshBridgeSource()
                 }
             }
-            Loader {
-                anchors.fill: parent
-                active: root.spoilerHidden && !videoBox.playerActive
-                sourceComponent: SpoilerCover {
-                    covered: true
-                    focusable: false
-                    source: root.mediaPixmapRetained && videoBox.usesBridge
-                            ? videoBox.bridgeSource : ""
-                    reason: model.mediaSpoilerReason || ""
-                    interactive: root.rowActionsEnabled
-                    onRevealRequested: root.revealSpoiler()
-                }
-            }
             TapHandler {
                 enabled: !videoBox.playerActive && root.rowActionsEnabled
                          && !root.spoilerHidden
@@ -6198,32 +6185,48 @@ Item {
             Loader {
                 id: videoPlayerLoader
                 anchors.fill: parent
-                active: videoBox.playerActive
+                active: videoBox.playerActive || root.spoilerHidden
                 onLoaded: {
-                    if (!videoBox.openedByKey)
+                    if (!videoBox.openedByKey || !videoBox.playerActive)
                         return
                     videoBox.openedByKey = false
                     item.focusControls()
                 }
                 visible: active
-                sourceComponent: VideoPlayerCard {
-                    mediaKey: model.mediaKey || ""
-                    ownerKey: root.actionKey + "\u001f"
-                              + (model.mediaKey || "")
-                    filename: model.mediaFilename || ""
-                    declaredDurationMs: model.mediaDurationMs || 0
-                    rowOnScreen: root.rowOnScreen
-                    senderName: model.senderDisplayName || model.sender || ""
-                    timestamp: model.timestamp || null
-                    posterSource: videoBox.usesBridge && !videoBox.bridgeFailed
-                                  ? videoBox.bridgeSource : ""
-                    canSave: videoBox.playbackAvailable
-                    onSaveRequested: videoBox.saveVideo()
-                    onCloseRequested: {
-                        const hadFocus = activeFocus
-                        videoBox.playerActive = false
-                        if (hadFocus)
-                            videoBox.forceActiveFocus(Qt.TabFocusReason)
+                sourceComponent: videoBox.playerActive ? videoPlayerCard : videoSpoilerCover
+                Component {
+                    id: videoSpoilerCover
+                    SpoilerCover {
+                        covered: true
+                        focusable: false
+                        source: root.mediaPixmapRetained && videoBox.usesBridge
+                                ? videoBox.bridgeSource : ""
+                        reason: model.mediaSpoilerReason || ""
+                        interactive: root.rowActionsEnabled
+                        onRevealRequested: root.revealSpoiler()
+                    }
+                }
+                Component {
+                    id: videoPlayerCard
+                    VideoPlayerCard {
+                        mediaKey: model.mediaKey || ""
+                        ownerKey: root.actionKey + "\u001f"
+                                  + (model.mediaKey || "")
+                        filename: model.mediaFilename || ""
+                        declaredDurationMs: model.mediaDurationMs || 0
+                        rowOnScreen: root.rowOnScreen
+                        senderName: model.senderDisplayName || model.sender || ""
+                        timestamp: model.timestamp || null
+                        posterSource: videoBox.usesBridge && !videoBox.bridgeFailed
+                                      ? videoBox.bridgeSource : ""
+                        canSave: videoBox.playbackAvailable
+                        onSaveRequested: videoBox.saveVideo()
+                        onCloseRequested: {
+                            const hadFocus = activeFocus
+                            videoBox.playerActive = false
+                            if (hadFocus)
+                                videoBox.forceActiveFocus(Qt.TabFocusReason)
+                        }
                     }
                 }
             }
