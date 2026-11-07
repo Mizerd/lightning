@@ -7,6 +7,7 @@
 #include <QKeyCombination>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QPointer>
 
 namespace {
 
@@ -286,24 +287,30 @@ bool ShortcutRegistry::runKeypadGlobalShortcut(QObject *window, const QKeyEvent 
         if (probe.isAccepted())
             return false;
     }
-    const QKeySequence target = QKeySequence::fromString(seq, QKeySequence::PortableText);
-    bool fired = false;
+    // Reading a QML property can run bindings and the garbage collector, which
+    // may delete objects, so collect guarded pointers before reading any.
+    QList<QPointer<QObject>> shortcuts;
     const auto objects = window->findChildren<QObject *>();
     for (QObject *object : objects) {
-        if (!object->inherits("QQuickShortcut") || !object->property("enabled").toBool())
+        if (object->inherits("QQuickShortcut"))
+            shortcuts.append(object);
+    }
+    const QKeySequence target = QKeySequence::fromString(seq, QKeySequence::PortableText);
+    for (const QPointer<QObject> &shortcut : std::as_const(shortcuts)) {
+        if (!shortcut || !shortcut->property("enabled").toBool())
             continue;
-        QVariantList sequences = object->property("sequences").toList();
-        sequences << object->property("sequence");
-        for (const QVariant &value : sequences) {
-            if (QKeySequence::fromString(value.toString(), QKeySequence::PortableText)
-                == target) {
-                QMetaObject::invokeMethod(object, "activated");
-                fired = true;
-                break;
+        QVariantList sequences = shortcut->property("sequences").toList();
+        sequences << shortcut->property("sequence");
+        for (const QVariant &value : std::as_const(sequences)) {
+            if (shortcut
+                && QKeySequence::fromString(value.toString(), QKeySequence::PortableText)
+                       == target) {
+                QMetaObject::invokeMethod(shortcut.data(), "activated");
+                return true;
             }
         }
     }
-    return fired;
+    return false;
 }
 
 void ShortcutRegistry::retranslate()
