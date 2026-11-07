@@ -31,6 +31,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <utility>
 
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -1695,6 +1696,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     stopReconnect();
     m_shareSourceReusable = false;
     m_transportEverConnected = false;
+    m_transportStates.clear();
     m_reconnectEpisodeStarts.clear();
     m_roomId = roomId;
     m_withVideo = withVideo;
@@ -2230,8 +2232,11 @@ void SfuCallController::onSfuState(const QString &state,
     // The signalling task is reattaching the same LiveKit session; tearing the
     // media down here would turn a resume into the full rejoin it avoids.
     if (state == QLatin1String("resume_requested")
-        || state == QLatin1String("resuming")
-        || state == QLatin1String("resumed")) {
+        || state == QLatin1String("resuming")) {
+        return;
+    }
+    if (state == QLatin1String("resumed")) {
+        onSignalResumed();
         return;
     }
     if (state == QLatin1String("failed")
@@ -2402,6 +2407,8 @@ void SfuCallController::suspendSfuSession()
 #endif
     m_sfuGeneration = 0;
     m_connectionFocusUrls.clear();
+    m_transportStates.clear();
+    m_resumeSnapshotPending = false;
     if (m_client)
         m_client->sfuDisconnect();
     if (m_cameraAwaitingPortal) {
@@ -2563,6 +2570,25 @@ void SfuCallController::onReconnectSfuState(const QString &state,
     }
 }
 
+void SfuCallController::onSignalResumed()
+{
+    // Whatever the old socket was carrying is lost: an offer whose answer never
+    // came would block every later renegotiation, and a mute may not have landed.
+    m_resumeSnapshotPending = true;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine.isNull())
+        m_engine->renegotiateAfterResume();
+#endif
+    syncMicMuteToSfu();
+    // The server ICE-restarts only the subscriber; a publisher that is not
+    // connected now gets the grace period and then the full rejoin.
+    if (m_state == State::Connected
+        && m_transportStates.value(0) != QLatin1String("connected")
+        && !m_iceDisconnectedTimer.isActive()) {
+        m_iceDisconnectedTimer.start();
+    }
+}
+
 void SfuCallController::onEngineTransportState(int target,
                                                const QString &state)
 {
@@ -2570,8 +2596,13 @@ void SfuCallController::onEngineTransportState(int target,
                       << "callState=" << static_cast<int>(m_state);
     if (!active())
         return;
+    m_transportStates.insert(target, state);
     if (state == QLatin1String("connected")) {
-        m_iceDisconnectedTimer.stop();
+        const bool allConnected = std::all_of(
+            m_transportStates.cbegin(), m_transportStates.cend(),
+            [](const QString &s) { return s == QLatin1String("connected"); });
+        if (allConnected)
+            m_iceDisconnectedTimer.stop();
         m_transportEverConnected = true;
         if (m_state == State::Reconnecting
             && m_reconnectPhase == ReconnectPhase::Joined) {
@@ -2718,6 +2749,19 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
     if (!sfuSessionLive())
         return;
     noteRemoteTrackMutes(updates);
+    if (std::exchange(m_resumeSnapshotPending, false)) {
+        // The first update after a resume lists everyone still in the room;
+        // a leave sent while our socket was down never reached us.
+        QSet<QString> present;
+        for (const QVariant &row : updates)
+            present.insert(row.toMap().value(QStringLiteral("identity")).toString());
+        for (auto it = m_publisherParticipants.begin(); it != m_publisherParticipants.end();) {
+            if (present.contains(it.key()))
+                ++it;
+            else
+                it = m_publisherParticipants.erase(it);
+        }
+    }
     const bool setChanged = mergeParticipants(updates);
     if (setChanged && !m_blockedStreams.isEmpty()) {
         const bool had = true;
@@ -4192,6 +4236,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     stopReconnect();
     m_shareSourceReusable = false;
     m_transportEverConnected = false;
+    m_transportStates.clear();
     m_reconnectEpisodeStarts.clear();
     m_refreshTimer.stop();
     // Remember a publish still in flight: the server may apply it after our

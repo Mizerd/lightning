@@ -1360,3 +1360,28 @@ background audio-health logging is independent of this overlay.
 
 This is a diagnostic view of local counters, not an interoperability or
 screen-share quality verdict. WebRTC-disabled builds return an empty list.
+
+## Signalling resume and the subscriber ICE restart (GitHub #70, 2026-11-07)
+
+A lost LiveKit signalling socket is resumed (`/rtc?...&reconnect=1&sid=...`), not
+rejoined: a second JoinRequest with the same identity makes the server drop the
+first session as a duplicate, which every peer sees as a leave and a rejoin. The
+server ICE-restarts the subscriber on every resume and never the publisher.
+
+webrtcbin has no ICE restart, so `SfuMediaEngine` restarts the libnice stream
+itself (`nice_agent_restart_stream`, resolved at runtime), reinstalls the offer's
+remote credentials (the restart clears them) and re-adds the offer's candidates.
+**The answer deliberately keeps the old local ufrag/pwd.** RFC 8839 says an ICE
+restart changes both sides' credentials; we do not, because libnice's
+peer-reflexive local candidates carry their own username and survive the
+restart, so fresh credentials made the UDP pair check with the old ufrag while
+the stream used the new one (measured: pion nominated that pair, rejected our
+checks, the subscriber failed 28 s later). pion accepts an answer whose
+credentials did not change, and its own fresh ufrag is enough to start new
+checks. Live-validated against matrix.smetonis.net over ICE-TCP; NOT TESTED over
+UDP or against a non-pion SFU.
+
+After a resume the publisher is renegotiated (an offer or answer lost with the
+old socket would otherwise block every later renegotiation), the microphone mute
+is re-sent, the first participant list is taken as complete, and a publisher
+that is not connected gets the 10 s ICE grace and then the full rejoin.

@@ -772,10 +772,9 @@ pub(crate) struct SubscriberCandidates {
 
 impl SubscriberCandidates {
     pub(crate) fn record(&mut self, candidate_init: &str) {
-        if self.sent.len() >= MAX_RESUME_CANDIDATES {
-            self.sent.pop_front();
+        if self.sent.len() < MAX_RESUME_CANDIDATES {
+            self.sent.push_back(candidate_init.to_owned());
         }
-        self.sent.push_back(candidate_init.to_owned());
     }
 
     pub(crate) fn arm(&mut self) {
@@ -2541,8 +2540,8 @@ mod tests {
         candidates.arm();
         let replay = candidates.after_answer();
         assert_eq!(replay.len(), MAX_RESUME_CANDIDATES);
-        assert_eq!(replay.last().map(String::as_str),
-                   Some((MAX_RESUME_CANDIDATES + 4).to_string().as_str()));
+        assert_eq!(replay.first().map(String::as_str), Some("a"),
+                   "the first candidates gathered are the ones kept");
     }
 
     async fn fake_sfu(answer: Option<lkp::signal_response::Message>)

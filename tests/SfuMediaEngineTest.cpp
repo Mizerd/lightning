@@ -2005,6 +2005,25 @@ private slots:
         engine.stop();
     }
 
+    void aResumeRenegotiatesAPublisherWaitingOnALostAnswer()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy offers(&engine, &SfuMediaEngine::localDescription);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        const auto publisherOffers = [&offers] {
+            int n = 0;
+            for (const QList<QVariant> &args : std::as_const(offers))
+                n += args.at(0).toInt() == 0 && args.at(1).toString() == QLatin1String("offer");
+            return n;
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(publisherOffers(), 1, 5000);
+        engine.renegotiateAfterResume();
+        QTRY_COMPARE_WITH_TIMEOUT(publisherOffers(), 2, 5000);
+        engine.stop();
+    }
+
     void publishingTwiceUnderOneIdIsIgnored()
     {
         SfuMediaEngine engine;

@@ -8832,6 +8832,66 @@ QString(),
         QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
     }
 
+    void aReconnectedSubscriberDoesNotCancelAFailingPublishersGrace()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setReconnectTimingForTest(10000, 5000, 20000, 60);
+        connectRecoverableCall(client, call);
+        QVERIFY(emitTransport(call, 0, QStringLiteral("connected")));
+        QVERIFY(emitTransport(call, 0, QStringLiteral("disconnected")));
+        QVERIFY(emitTransport(call, 1, QStringLiteral("connected")));
+        QTRY_COMPARE(call.state(), SfuCallController::State::Reconnecting);
+    }
+
+    void aResumeGivesAPublisherThatIsNotConnectedTheGrace()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setReconnectTimingForTest(10000, 5000, 20000, 60);
+        connectRecoverableCall(client, call);
+        QVERIFY(emitTransport(call, 0, QStringLiteral("checking")));
+        client.emitSfuState(QStringLiteral("resumed"), QStringLiteral("server_leave"));
+        QTRY_COMPARE(call.state(), SfuCallController::State::Reconnecting);
+    }
+
+    void aResumeResendsAMuteTheOldSocketLost()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        connectRecoverableCall(client, call);
+        call.setOwnIdentityForTest(QStringLiteral("me"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_mic"), false) }),
+        });
+        call.setMicrophoneMuted(true);
+        QCOMPARE(client.muteRequests.size(), 1);
+        client.emitSfuState(QStringLiteral("resumed"), QStringLiteral("signal_lost"));
+        QCOMPARE(client.muteRequests.size(), 2);
+        QCOMPARE(client.muteRequests.at(1), qMakePair(QStringLiteral("TR_mic"), true));
+    }
+
+    void theFirstParticipantListAfterAResumeDropsWhoeverLeftMeanwhile()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        connectRecoverableCall(client, call);
+        const QVariantList both{
+            sfuParticipant(QStringLiteral("@a:x:A"), QStringLiteral("PA_A"), {}),
+            sfuParticipant(QStringLiteral("@b:x:B"), QStringLiteral("PA_B"), {}),
+        };
+        Q_EMIT client.sfuParticipantsChanged(both);
+        QCOMPARE(call.participantCount(), 2);
+        const QVariantList onlyA{both.first()};
+        Q_EMIT client.sfuParticipantsChanged(onlyA);
+        QCOMPARE(call.participantCount(), 2);
+        client.emitSfuState(QStringLiteral("resumed"), QStringLiteral("signal_lost"));
+        Q_EMIT client.sfuParticipantsChanged(onlyA);
+        QCOMPARE(call.participantCount(), 1);
+    }
+
     void aReconnectThatNeverGetsBackEndsHonestly()
     {
         RecordingCallClient client;

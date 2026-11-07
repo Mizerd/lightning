@@ -6618,6 +6618,14 @@ void SfuMediaEngine::noteTeardownComplete(const QString &cid,
     renegotiatePublisher();
 }
 
+void SfuMediaEngine::renegotiateAfterResume()
+{
+    // An offer whose answer died with the old socket leaves offerPending set,
+    // and nothing else ever clears it.
+    m_publisher.offerPending = false;
+    renegotiatePublisher();
+}
+
 void SfuMediaEngine::renegotiatePublisher()
 {
     if (!m_publisher.webrtc)

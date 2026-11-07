@@ -587,6 +587,7 @@ private Q_SLOTS:
     void onEngineFailed(const QString &category);
     void onShareAudioRebuildWanted(const QString &cid);
     void onEngineTransportState(int target, const QString &state);
+    void onSignalResumed();
     void onEnginePublishFailed(const QString &cid, const QString &category);
     void onRemotePlaybackFailed(bool failed);
     void onMediaKeyReceived(const QString &roomId, const QString &sender,
@@ -639,6 +640,8 @@ private:
     quint64 m_shareWindowHandle = 0;
     QRect m_shareCaptureRect;
     bool m_transportEverConnected = false;
+    QHash<int, QString> m_transportStates;
+    bool m_resumeSnapshotPending = false;
     QList<qint64> m_reconnectEpisodeStarts;
     QElapsedTimer m_episodeClock;
     int m_maxReconnectEpisodes = 0;

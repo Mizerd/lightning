@@ -235,6 +235,8 @@ public:
     void start();
     void stop();
     void suspend();
+    /// A resumed signalling session lost whatever the old socket carried.
+    void renegotiateAfterResume();
     bool active() const { return m_active; }
     QVariantList streamInfoStats();
     void resetStreamInfoBaselines();
