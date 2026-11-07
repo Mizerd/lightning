@@ -2,27 +2,23 @@
 
 
 
-## 2026-11-05 — ACCEPTED FOLLOW-UPS from the unread-dot round
+## 2026-11-07 — CLOSED: the 2026-11-05 follow-ups (branch `followups`)
 
-- **Render stable polls.** The automatic read receipt now moves past an
-  unrendered stable `m.poll.start` (and past poll ends aimed at a known,
-  unthreaded poll, like reactions), because matrix-sdk counts them as unread
-  and no row shows them. The cost: another client that renders stable polls
-  shows that poll as read here. Rendering `m.poll.start` (matrix-sdk-ui's
-  default filter drops it) is the real fix; the receipt skip then goes.
-- **Auto mark-read cost.** One pass is O(rooms²): every `mark_room_read`
-  ends in `enqueue_rooms`, and `AutoMarkReadController::next()` re-scans
-  `roomsToMarkRead()` per room. And the 15 s step timeout does not cancel the
-  request, so a slow server can have about 2-3 mark-reads in flight. Bounded,
-  not a storm; worth fixing before a very large account turns it on.
-
-## 2026-11-05 — ACCEPTED FOLLOW-UP: the start-at-own-join check clears an open thread panel
-
-`RoomEventCache::clear()` (the reopen in `pagewalk::walk_backwards`, see
-`docs/timeline-scrolling.md`) also clears the room's thread caches, so a thread
-panel open in the same room goes blank and its `reached_start` flag in
-`TimelineRegistry` is not reset. Reached only when the server check found older
-history. NOT FIXED; review of `history-join`, 2026-11-05.
+- **Stable polls render** (`rust/src/stablepoll.rs`); the receipt no longer
+  skips a stable `m.poll.start`. See `docs/feature-contracts.md`, Stable polls.
+  Votes and ends are still SENT in the unstable namespace. A thread panel
+  shows the tally the main timeline last computed and does not refresh it
+  live.
+- **Auto mark-read pass**: a mark-read refreshes only its own room
+  (`room_refreshed`), the controller checks the next room by id, and a timed
+  out step holds the slot one more step and then ends the pass.
+- **An open thread panel refills** after the own-join reopen clears the room's
+  event cache: a Clear (or a batch leaving no remote rows) forgets the known
+  start and paginates the thread once.
+- **Channels row menu** offers Mark as read on the raw unread state.
+- **#64 LOW-2/LOW-3**: the focus refusal logs `lanAllowance=` (applied,
+  not_advertised, unknown, not_applied); the focus well-known is fetched by an
+  https-only client on the account's proxy route.
 
 ## 2026-11-02 — OPEN after the echo-cancellation fix
 

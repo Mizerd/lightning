@@ -1543,7 +1543,9 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   30 / 60 minutes / custom 5..1440, a device setting. `AutoMarkReadController`
   runs one pass per interval for the active account only, through
   `RoomListModel::roomsToMarkRead` + `markRoomRead` (the bulk action's path,
-  so the receipt-privacy mode applies), one room in flight at a time, never
+  so the receipt-privacy mode applies; each mark-read refreshes only its own
+  room), one room in flight at a time (a step past its timeout holds the slot
+  one more timeout, then the pass ends), never
   the open room or the open thread's room, never a marked-unread room. A pass
   still running when the next interval fires is not doubled; an account
   switch, sign-out or Off abandons it. Live: NOT TESTED.
