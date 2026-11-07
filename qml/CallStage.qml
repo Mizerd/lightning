@@ -652,6 +652,18 @@ Rectangle {
                             }
 
                             CallControlButton {
+                                objectName: "callStreamInfoButton"
+                                iconName: "speed"
+                                diameter: 30
+                                glyphSize: 16
+                                role: app.groupCall.streamInfoVisible ? "active" : "neutral"
+                                tooltip: app.groupCall.streamInfoVisible
+                                         ? qsTr("Hide Stream Info") : qsTr("Show Stream Info")
+                                onClicked: app.groupCall.streamInfoVisible
+                                           = !app.groupCall.streamInfoVisible
+                            }
+
+                            CallControlButton {
                                 objectName: "callFullScreenButton"
                                 iconName: "fit_screen"
                                 diameter: 30
@@ -947,6 +959,18 @@ Rectangle {
                 Behavior on opacity {
                     enabled: !AppTheme.reducedMotion
                     NumberAnimation { duration: 180 }
+                }
+
+                CallControlButton {
+                    objectName: "callFullScreenStreamInfoButton"
+                    iconName: "speed"
+                    diameter: 36
+                    glyphSize: 18
+                    role: app.groupCall.streamInfoVisible ? "active" : "neutral"
+                    tooltip: app.groupCall.streamInfoVisible
+                             ? qsTr("Hide Stream Info") : qsTr("Show Stream Info")
+                    onClicked: app.groupCall.streamInfoVisible
+                               = !app.groupCall.streamInfoVisible
                 }
 
                 CallControlButton {

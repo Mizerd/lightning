@@ -254,6 +254,55 @@ Item {
         item->setParentItem(nullptr);
     }
 
+    void streamInfoNamesLossAndRecoveryPerTrack()
+    {
+        QQmlApplicationEngine engine;
+        QQmlComponent component(&engine);
+        component.loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("StreamInfoOverlay"));
+        QTRY_VERIFY(component.status() != QQmlComponent::Loading);
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        const QVariantMap received{
+            {"participant", "Bob"}, {"outgoing", false}, {"screen", true},
+            {"codec", "VP8"}, {"encoder", "vp8dec"}, {"width", 1920}, {"height", 1080},
+            {"fps", 30.0}, {"kbps", 2900.0}, {"packets", 9000}, {"lost", 7},
+            {"nack", 12}, {"jitterMs", 0.75}, {"keyframes", 4},
+            {"keyframeRequests", 3}, {"encrypted", true}, {"decrypted", 900},
+            {"dropped", 0}};
+        const QVariantMap sent{
+            {"participant", "You"}, {"outgoing", true}, {"screen", true},
+            {"codec", "VP8"}, {"encoder", "vp8enc"}, {"source", "ximagesrc"},
+            {"scaling", "CPU"}, {"width", 1920}, {"height", 1080}, {"fps", 30.0},
+            {"kbps", 3000.0}, {"packets", 500}, {"keyframes", 9},
+            {"keyframeRequests", 2}, {"encrypted", true}};
+        std::unique_ptr<QObject> root(component.createWithInitialProperties(
+            {{"stats", QVariantList{received, sent}}, {"width", 460}, {"height", 400}}));
+        QVERIFY(root);
+        QQuickWindow window;
+        window.resize(480, 420);
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        item->setParentItem(window.contentItem());
+        window.show();
+        QTest::qWait(30);
+        QStringList rows;
+        auto collect = [&rows](auto &&self, QQuickItem *node) -> void {
+            if (node->objectName() == QStringLiteral("streamInfoRow"))
+                rows << node->property("text").toString();
+            for (auto *child : node->childItems()) self(self, child);
+        };
+        collect(collect, item);
+        QCOMPARE(rows.size(), 2);
+        QVERIFY2(rows[0].contains(QStringLiteral("Decoder: vp8dec · RTP packets: 9000 · Lost: 7 · Jitter: 0.8 ms")),
+                 qPrintable(rows[0]));
+        QVERIFY2(rows[0].contains(QStringLiteral("Keyframes: 4 · Keyframes asked for: 3 · Resend requests: 12")),
+                 qPrintable(rows[0]));
+        QVERIFY2(rows[1].contains(QStringLiteral("Lost on the way to the server: —")),
+                 qPrintable(rows[1]));
+        QVERIFY2(rows[1].contains(QStringLiteral("Keyframes sent: 9 · Keyframe requests: 2 · Resend requests: —")),
+                 qPrintable(rows[1]));
+        item->setParentItem(nullptr);
+    }
+
     void everyListedComponentLoads_data()
     {
         QTest::addColumn<QString>("component");

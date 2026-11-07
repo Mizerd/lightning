@@ -1817,7 +1817,16 @@ private slots:
         receiver.setInboundKey(QStringLiteral("stats-camera"), 0, key);
         QTRY_VERIFY_WITH_TIMEOUT(receiver.streamInfoStats().first().toMap()
             .value("width").toInt() > 0, 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(sender.streamInfoStats().first().toMap()
+            .value("keyframeRequests").toULongLong() > 0, 15000);
         const auto incoming = receiver.streamInfoStats().first().toMap();
+        QVERIFY2(incoming.value("keyframeRequests").toULongLong() > 0,
+                 "frames dropped for want of a key did not make the receiver "
+                 "ask for a keyframe");
+        QVERIFY(incoming.value("keyframes").toULongLong() > 0);
+        QCOMPARE(incoming.value("encoder").toString(), QStringLiteral("vp8dec"));
+        QVERIFY(sender.streamInfoStats().first().toMap()
+                    .value("keyframes").toULongLong() > 0);
         QVERIFY(!incoming.value("outgoing").toBool());
         QVERIFY(incoming.value("encrypted").toBool());
         QVERIFY(incoming.value("decrypted").toULongLong() > 0);
@@ -6557,6 +6566,138 @@ true);
                 {QByteArrayLiteral("rtph264pay")}).isEmpty()) {
             QVERIFY(!through("rtph264pay").endsWith(QByteArray::fromHex("0c00")));
         }
+    }
+
+    void aSubscriberAnswerKeepsRetransmissionForVideo()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        const auto restore = qScopeGuard(
+            [] { qunsetenv("LIGHTNING_RECEIVE_VIDEO_CODEC"); });
+        qputenv("LIGHTNING_RECEIVE_VIDEO_CODEC", "vp8");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        QString offer = subscriberOffer({QList<int>{96}}, 1);
+        offer.replace(QStringLiteral("m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"),
+                      QStringLiteral("m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\n"));
+        offer.replace(QStringLiteral("a=rtpmap:96 VP8/90000\r\n"),
+                      QStringLiteral("a=rtpmap:96 VP8/90000\r\n"
+                                     "a=rtcp-fb:96 nack\r\n"
+                                     "a=rtcp-fb:96 nack pli\r\n"
+                                     "a=rtpmap:97 rtx/90000\r\n"
+                                     "a=fmtp:97 apt=96\r\n"
+                                     "a=ssrc-group:FID 2000 3000\r\n"
+                                     "a=ssrc:3000 cname:b\r\n"));
+        QVERIFY(offer.contains(QLatin1String("rtx/90000")));
+        const QString answer = answerTo(engine, offer);
+        QVERIFY(!answer.isEmpty());
+        const QStringList video = sdpSection(answer, 2);
+        QVERIFY2(video.value(0).startsWith(QLatin1String("video ")), qPrintable(answer));
+        QVERIFY2(sdpEncodings(video).contains(QStringLiteral("rtx")),
+                 qPrintable(video.join(QLatin1Char('\n'))));
+        QVERIFY2(video.contains(QStringLiteral("a=rtcp-fb:96 nack")),
+                 qPrintable(video.join(QLatin1Char('\n'))));
+        engine.stop();
+    }
+
+    void aPublishedCameraOffersRetransmission()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy offers(&engine, &SfuMediaEngine::localDescription);
+        engine.start();
+        engine.publishVideo(QStringLiteral("rtx-camera"), false, -1);
+        QString sent;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                for (const auto &emitted : std::as_const(offers)) {
+                    if (emitted.at(1).toString() == QLatin1String("offer")
+                        && emitted.at(2).toString().contains(QLatin1String("m=video")))
+                        sent = emitted.at(2).toString();
+                }
+                return !sent.isEmpty();
+            }(), 10000);
+        const int video = sent.indexOf(QLatin1String("m=video"));
+        const QString section = sent.mid(video);
+        QVERIFY2(section.contains(QLatin1String("rtx/90000"))
+                     && section.contains(QLatin1String("apt=96")),
+                 qPrintable(section));
+        QVERIFY2(section.contains(QLatin1String("a=ssrc-group:FID")), qPrintable(section));
+        engine.stop();
+    }
+
+    void aLostVideoPacketFreezesThePictureAndAsksForAKeyframe()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            "videotestsrc is-live=true pattern=ball "
+            "! video/x-raw,width=320,height=240,framerate=30/1 "
+            "! vp8enc deadline=1 keyframe-max-dist=100000 "
+            "! rtpvp8pay mtu=300 "
+            "! application/x-rtp,media=video,encoding-name=VP8,clock-rate=90000,payload=96 "
+            "! identity name=network",
+            &error);
+        QVERIFY2(pipeline && !error, error ? error->message : "no pipeline");
+        QString why;
+        GstElement *bin = SfuMediaEngine::buildReceiveBin(true, QString(), true, &why);
+        QVERIFY2(bin, qPrintable(why));
+        QVERIFY(gst_bin_add(GST_BIN(pipeline), bin));
+        GstElement *network = gst_bin_get_by_name(GST_BIN(pipeline), "network");
+        QVERIFY(gst_element_link(network, bin));
+
+        struct Network {
+            std::atomic<int> packets{0};
+            std::atomic<bool> lose{false};
+            std::atomic<int> keyframeRequests{0};
+        } net;
+        GstPad *out = gst_element_get_static_pad(network, "src");
+        gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                auto *n = static_cast<Network *>(data);
+                n->packets.fetch_add(1);
+                return n->lose.exchange(false) ? GST_PAD_PROBE_DROP
+                                               : GST_PAD_PROBE_OK;
+            }, &net, nullptr);
+        // Swallowed so the sender cannot answer: the picture must stay frozen.
+        gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
+            [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+                if (!gst_video_event_is_force_key_unit(GST_PAD_PROBE_INFO_EVENT(info)))
+                    return GST_PAD_PROBE_OK;
+                static_cast<Network *>(data)->keyframeRequests.fetch_add(1);
+                return GST_PAD_PROBE_DROP;
+            }, &net, nullptr);
+        gst_object_unref(out);
+        gst_object_unref(network);
+
+        std::atomic<int> decoded{0};
+        GstElement *sink = gst_bin_get_by_name(GST_BIN(bin), "vidsink");
+        GstPad *sinkPad = gst_element_get_static_pad(sink, "sink");
+        gst_pad_add_probe(sinkPad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            }, &decoded, nullptr);
+        gst_object_unref(sinkPad);
+        gst_object_unref(sink);
+
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        QTRY_VERIFY_WITH_TIMEOUT(decoded.load() > 15, 10000);
+        net.lose = true;
+        QTRY_VERIFY_WITH_TIMEOUT(!net.lose.load(), 2000);
+        QTest::qWait(300);
+        const int afterLoss = decoded.load();
+        QTest::qWait(1000);
+        const int frozen = decoded.load() - afterLoss;
+        const int requests = net.keyframeRequests.load();
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+        QVERIFY2(requests > 0, "a lost packet asked the sender for nothing");
+        QVERIFY2(frozen == 0,
+                 qPrintable(QStringLiteral("%1 frames were decoded against a "
+                                           "missing reference").arg(frozen)));
     }
 
     void anAnswerAdmitsOnlyWhatThisBuildDecodes_data()

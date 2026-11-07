@@ -10,6 +10,8 @@ namespace lightning::calls {
 // frames are counted after send encryption, or at the decoded receive sink.
 struct StreamInfoStats {
     std::atomic<quint64> bytes{0}, packets{0}, frames{0}, decrypted{0}, dropped{0};
+    std::atomic<quint64> keyframes{0}, keyframeRequests{0};
+    std::atomic<quint32> ssrc{0};
     std::atomic<int> width{0}, height{0};
     QString source, encoder, scaling;
     QString codec = QStringLiteral("VP8");
@@ -47,6 +49,9 @@ struct StreamInfoStats {
             {QStringLiteral("fps"), fps},
             {QStringLiteral("kbps"), kbps},
             {QStringLiteral("packets"), QVariant::fromValue(packets.load())},
+            {QStringLiteral("keyframes"), QVariant::fromValue(keyframes.load())},
+            {QStringLiteral("keyframeRequests"),
+             QVariant::fromValue(keyframeRequests.load())},
             {QStringLiteral("decrypted"), QVariant::fromValue(decrypted.load())},
             {QStringLiteral("dropped"), QVariant::fromValue(dropped.load())}
         };

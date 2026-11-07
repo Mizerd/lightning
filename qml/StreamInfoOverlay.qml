@@ -33,6 +33,10 @@ Rectangle {
         return value >= 0 ? Number(value).toFixed(digits) : "—"
     }
 
+    function count(value) {
+        return value === undefined || value === null ? "—" : String(value)
+    }
+
     ScrollView {
         anchors.fill: parent
         anchors.margins: AppTheme.spacing12
@@ -74,8 +78,16 @@ Rectangle {
                         if (s.outgoing) {
                             lines.push(qsTr("Encoder: %1 · Scaling: %2 · Capture: %3")
                                 .arg(s.encoder).arg(s.scaling).arg(s.source))
-                            lines.push(qsTr("RTP packets handed to webrtcbin: %1").arg(s.packets))
+                            lines.push(qsTr("RTP packets sent: %1 · Lost on the way to the server: %2")
+                                .arg(s.packets).arg(root.count(s.lost)))
+                            lines.push(qsTr("Keyframes sent: %1 · Keyframe requests: %2 · Resend requests: %3")
+                                .arg(s.keyframes).arg(s.keyframeRequests).arg(root.count(s.nack)))
                         } else {
+                            lines.push(qsTr("Decoder: %1 · RTP packets: %2 · Lost: %3 · Jitter: %4 ms")
+                                .arg(s.encoder || "—").arg(root.count(s.packets))
+                                .arg(root.count(s.lost)).arg(root.measured(s.jitterMs, 1)))
+                            lines.push(qsTr("Keyframes: %1 · Keyframes asked for: %2 · Resend requests: %3")
+                                .arg(s.keyframes).arg(s.keyframeRequests).arg(root.count(s.nack)))
                             lines.push(qsTr("Frames decrypted: %1 · Dropped: %2")
                                 .arg(s.decrypted).arg(s.dropped))
                         }

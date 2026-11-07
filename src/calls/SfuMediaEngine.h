@@ -33,6 +33,7 @@ typedef struct _GstPromise GstPromise;
 typedef struct _GstPad GstPad;
 typedef struct _GstBuffer GstBuffer;
 typedef struct _GstCaps GstCaps;
+typedef struct _GstWebRTCRTPTransceiver GstWebRTCRTPTransceiver;
 
 class CallFrameCryptor;
 class SfuVideoRouter;
@@ -231,6 +232,7 @@ public:
     bool active() const { return m_active; }
     QVariantList streamInfoStats();
     void resetStreamInfoBaselines();
+    void requestStreamInfoRtpStats();
 
     void setVideoRouter(SfuVideoRouter *router);
     void setReceiveNamespace(const QString &prefix)
@@ -713,6 +715,9 @@ private:
     static QString offerForSfu(const QString &sdp, bool multiCodec);
     static QString offerIdentity(const QString &sdp);
     static QString receivableVideoCaps(bool h264);
+    static QString videoDepayLossRecovery();
+    static void enableVideoRetransmission(GstWebRTCRTPTransceiver *transceiver);
+    void enablePublishRetransmission(GstPad *webrtcSinkPad);
     QHash<QString, QString> m_shareBackups;
     struct Peer {
         GstElement *pipeline = nullptr;
@@ -1128,6 +1133,8 @@ private:
     void requestStats();
     static void onStatsReady(GstPromise *promise, void *userData);
     void logStats(const QList<RtpStat> &stats);
+    void noteStreamInfoRtp(const QList<RtpStat> &stats);
+    QHash<quint64, RtpStat> m_streamInfoRtp;
     QTimer m_statsTimer;
     int m_statsIntervalMs = -1;
     QHash<quint32, QPair<qint64, quint64>> m_lastRtpBytes;

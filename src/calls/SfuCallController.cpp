@@ -5953,9 +5953,15 @@ void SfuCallController::refreshStreamInfo()
     if (!m_streamInfoVisible) return;
     QVariantList rows;
 #ifdef HAVE_LIGHTNING_WEBRTC
-    if (m_engine) rows = m_engine->streamInfoStats();
-    for (auto engine : m_subscriberEngines)
-        if (engine) rows.append(engine->streamInfoStats());
+    if (m_engine) {
+        m_engine->requestStreamInfoRtpStats();
+        rows = m_engine->streamInfoStats();
+    }
+    for (auto engine : m_subscriberEngines) {
+        if (!engine) continue;
+        engine->requestStreamInfoRtpStats();
+        rows.append(engine->streamInfoStats());
+    }
     for (QVariant &value : rows) {
         QVariantMap row = value.toMap();
         const QString stream = row.take(QStringLiteral("streamId")).toString();
