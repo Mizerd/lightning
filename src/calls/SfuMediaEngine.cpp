@@ -4470,6 +4470,43 @@ int shareBitrateFor(int maxHeight, int fps, int bitrateCapKbps)
 }
 }
 
+const QList<QByteArray> &SfuMediaEngine::extraVaH264Encoders()
+{
+    static const QList<QByteArray> names = [] {
+        QList<QByteArray> found;
+        if (!lightning::gst::ensureInitialised())
+            return found;
+        static const QRegularExpression perDevice(
+            QStringLiteral("^varenderD\\d+h264(lp)?enc$"));
+        GList *features = gst_registry_get_feature_list(
+            gst_registry_get(), GST_TYPE_ELEMENT_FACTORY);
+        for (GList *l = features; l; l = l->next) {
+            const QString name = QString::fromUtf8(
+                gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(l->data)));
+            if (perDevice.match(name).hasMatch())
+                found << name.toUtf8();
+        }
+        gst_plugin_feature_list_free(features);
+        return sortedVaEncoders(found);
+    }();
+    return names;
+}
+
+QList<QByteArray> SfuMediaEngine::sortedVaEncoders(QList<QByteArray> names)
+{
+    // Low-power entry points first, as for the first device; then by node.
+    std::sort(names.begin(), names.end(), [](const QByteArray &a, const QByteArray &b) {
+        const bool lpA = a.endsWith("lpenc"), lpB = b.endsWith("lpenc");
+        const QByteArray nodeA = a.left(a.indexOf("h264"));
+        const QByteArray nodeB = b.left(b.indexOf("h264"));
+        if (nodeA != nodeB)
+            return nodeA.size() != nodeB.size() ? nodeA.size() < nodeB.size()
+                                                : nodeA < nodeB;
+        return lpA && !lpB;
+    });
+    return names;
+}
+
 QList<SfuMediaEngine::ShareEncoderCandidate>
 SfuMediaEngine::shareEncoderCandidates()
 {
@@ -4512,6 +4549,15 @@ SfuMediaEngine::shareEncoderCandidates()
                                   "rate-control=cbr bitrate=%1 key-int-max=%2 "
                                   "b-frames=0 target-usage=7",
                                   "constrained-baseline", false};
+    // The va plugin names only the FIRST render node's elements vah264enc; on a
+    // hybrid laptop that node is often a GPU that cannot encode (NVIDIA through
+    // nvidia-vaapi-driver), and the integrated GPU's encoder is varenderD129….
+    for (const QByteArray &factory : extraVaH264Encoders()) {
+        list << ShareEncoderCandidate{factory.constData(),
+                                      "rate-control=cbr bitrate=%1 key-int-max=%2 "
+                                      "b-frames=0 target-usage=7",
+                                      "constrained-baseline", false};
+    }
 #endif
 #endif
     return list;

@@ -7141,6 +7141,26 @@ true);
         gst_object_unref(bin);
     }
 
+    void aSecondGpusVaEncodersFollowTheFirstOnes()
+    {
+        const QList<QByteArray> sorted = SfuMediaEngine::sortedVaEncoders(
+            {"varenderD130h264enc", "varenderD129h264enc", "varenderD1000h264enc",
+             "varenderD129h264lpenc"});
+        QCOMPARE(sorted, (QList<QByteArray>{"varenderD129h264lpenc",
+                                             "varenderD129h264enc",
+                                             "varenderD130h264enc",
+                                             "varenderD1000h264enc"}));
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+        QStringList ladder;
+        for (const auto &candidate : SfuMediaEngine::shareEncoderCandidates())
+            ladder << QString::fromLatin1(candidate.factory);
+        for (const QByteArray &extra : SfuMediaEngine::extraVaH264Encoders())
+            QVERIFY2(ladder.indexOf(QString::fromLatin1(extra))
+                         > ladder.indexOf(QStringLiteral("vah264enc")),
+                     qPrintable(ladder.join(QLatin1Char(' '))));
+#endif
+    }
+
     void aZeroCopyShareRunsTheDescriptionProductionBuilds()
     {
         if (!gst_init_check(nullptr, nullptr, nullptr))

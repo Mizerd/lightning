@@ -99,6 +99,8 @@ public:
         bool zeroCopy = false;
     };
     static QList<ShareEncoderCandidate> shareEncoderCandidates();
+    static const QList<QByteArray> &extraVaH264Encoders();
+    static QList<QByteArray> sortedVaEncoders(QList<QByteArray> names);
     /// Whether a share should try hardware. Off unless
     /// `LIGHTNING_SHARE_ENCODER=hardware`: a viewer without an H.264 receive
     /// chain, which is every release so far, would see nothing.
