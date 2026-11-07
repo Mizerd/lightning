@@ -260,27 +260,27 @@ private Q_SLOTS:
         QQmlEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
         QQmlComponent component(&engine);
-        component.setData(R"QML(
-import QtQuick
-import MatrixClient
-Item {
-    width: 800; height: 600
-    ImageViewerOverlay { id: viewer }
-    readonly property var list: [
-        { row: 0, mediaKey: "$a", eventId: "$a", spoiler: true, isImage: true },
-        { row: 1, mediaKey: "$b", eventId: "$b", spoiler: false, isImage: true },
-        { row: 2, mediaKey: "$c", eventId: "$c", spoiler: true, isImage: true }
-    ]
-    function tryOpen(index) {
-        viewer.openAt(list, index)
-        var keys = []
-        for (var i = 0; i < viewer.entries.length; ++i)
-            keys.push(viewer.entries[i].mediaKey)
-        return keys.join(",") + "@" + viewer.currentIndex
-    }
-    function reveal(key) { SpoilerState.reveal(key) }
-}
-)QML", QUrl(QStringLiteral("inline:SpoilerViewer.qml")));
+        component.setData(QByteArray(
+            "import QtQuick\n"
+            "import MatrixClient\n"
+            "Item {\n"
+            "    width: 800; height: 600\n"
+            "    ImageViewerOverlay { id: viewer }\n"
+            "    readonly property var list: [\n"
+            "        { row: 0, mediaKey: \"$a\", eventId: \"$a\", spoiler: true, isImage: true },\n"
+            "        { row: 1, mediaKey: \"$b\", eventId: \"$b\", spoiler: false, isImage: true },\n"
+            "        { row: 2, mediaKey: \"$c\", eventId: \"$c\", spoiler: true, isImage: true }\n"
+            "    ]\n"
+            "    function tryOpen(index) {\n"
+            "        viewer.openAt(list, index)\n"
+            "        var keys = []\n"
+            "        for (var i = 0; i < viewer.entries.length; ++i)\n"
+            "            keys.push(viewer.entries[i].mediaKey)\n"
+            "        return keys.join(\",\") + \"@\" + viewer.currentIndex\n"
+            "    }\n"
+            "    function reveal(key) { SpoilerState.reveal(key) }\n"
+            "}\n"
+            "\n"), QUrl(QStringLiteral("inline:SpoilerViewer.qml")));
         std::unique_ptr<QObject> root(component.create());
         QVERIFY2(root, qPrintable(component.errorString()));
         const auto open = [&](int index) {
@@ -301,25 +301,25 @@ Item {
         QQmlEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
         QQmlComponent component(&engine);
-        component.setData(R"QML(
-import QtQuick
-import MatrixClient
-Item {
-    width: 200; height: 200
-    property int opened: 0
-    property alias tile: tile
-    MediaBrowserTile {
-        id: tile
-        width: 116; height: 116
-        index: 0; kind: "image"; body: "a.png"; filename: "a.png"
-        mimetype: "image/png"; size: 10; mediaWidth: 10; mediaHeight: 10
-        mxc: "mxc://example.org/a"; thumbnailMxc: ""; mediaKey: "$tile"
-        encrypted: false; sender: "@a:example.org"; eventId: "$tile"
-        spoiler: true
-        onActivated: opened++
-    }
-}
-)QML", QUrl(QStringLiteral("inline:SpoilerTile.qml")));
+        component.setData(QByteArray(
+            "import QtQuick\n"
+            "import MatrixClient\n"
+            "Item {\n"
+            "    width: 200; height: 200\n"
+            "    property int opened: 0\n"
+            "    property alias tile: tile\n"
+            "    MediaBrowserTile {\n"
+            "        id: tile\n"
+            "        width: 116; height: 116\n"
+            "        index: 0; kind: \"image\"; body: \"a.png\"; filename: \"a.png\"\n"
+            "        mimetype: \"image/png\"; size: 10; mediaWidth: 10; mediaHeight: 10\n"
+            "        mxc: \"mxc://example.org/a\"; thumbnailMxc: \"\"; mediaKey: \"$tile\"\n"
+            "        encrypted: false; sender: \"@a:example.org\"; eventId: \"$tile\"\n"
+            "        spoiler: true\n"
+            "        onActivated: opened++\n"
+            "    }\n"
+            "}\n"
+            "\n"), QUrl(QStringLiteral("inline:SpoilerTile.qml")));
         std::unique_ptr<QObject> root(component.create());
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *tile = root->property("tile").value<QObject *>();
