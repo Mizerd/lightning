@@ -1213,6 +1213,28 @@ public:
         return 0;
     }
     virtual bool supportsRoomScopedAttachmentSend() const { return false; }
+    // MSC4193 spoiler media. localPath empty sends `bytes`; threadRootId empty
+    // sends to the room. 0 is a refusal: never fall back to an unmarked send.
+    virtual bool supportsSpoilerMedia() const { return false; }
+    virtual quint64 sendSpoilerMedia(const QString &roomId,
+                                     const QString &threadRootId,
+                                     const QString &localPath,
+                                     const QByteArray &bytes,
+                                     const QString &filename,
+                                     const QString &mime,
+                                     const QString &caption,
+                                     int width, int height, qint64 durationMs,
+                                     const QByteArray &thumbnail,
+                                     int thumbnailWidth, int thumbnailHeight,
+                                     const QString &replyToEventId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(threadRootId); Q_UNUSED(localPath);
+        Q_UNUSED(bytes); Q_UNUSED(filename); Q_UNUSED(mime); Q_UNUSED(caption);
+        Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(durationMs);
+        Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth);
+        Q_UNUSED(thumbnailHeight); Q_UNUSED(replyToEventId);
+        return 0;
+    }
     virtual quint64 sendAttachmentBytesToRoom(const QString &roomId,
                                               const QByteArray &bytes,
                                               const QString &filename,

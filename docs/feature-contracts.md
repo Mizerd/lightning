@@ -777,6 +777,28 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
   animating. Hide is on the action bar and in the menu; once hidden the
   placeholder's Show image is the only control, because a second control
   offering to hide what is already hidden is noise. Live validation NOT TESTED
+- **Spoiler media (MSC4193, GitHub #69).** Read: an image or video whose
+  content (original, or its latest edit's `m.new_content`; either marks it)
+  carries `page.codeberg.everypizza.msc4193.spoiler: true` or a stable
+  `m.spoiler` object renders under `SpoilerCover`, with the
+  `...spoiler.reason` / `m.spoiler.reason` text (bounded, controls and bidi
+  overrides stripped). The cover never draws the picture: the full `Image`
+  source is cleared and the cover decodes the SAME bridge source at 8-32 px
+  (`sourceSize`, which `MediaImageProvider` honours) under a blur, so no blur
+  setting can show more than a smear and nothing is fetched that the row would
+  not fetch anyway. Click, Enter or Space reveals; revealed ids live in the
+  `SpoilerState` singleton for the session. A reply quote of a LOADED spoiler
+  shows no thumbnail. Send: the composer chip's toggle marks an image or video;
+  the SDK attachment path builds typed content that cannot carry the field, so
+  `rust/src/spoiler.rs` uploads through the SDK (`upload_encrypted_file` in an
+  encrypted room) and queues the raw event with `send_raw`, adding the
+  reply/thread relation via `Room::make_reply_event`. Only the unstable key is
+  SENT (what Cinny and Sable read); the stable name is read, never written,
+  until the MSC merges. The sender's own local echo is not covered until the
+  remote echo arrives. Gallery items, audio, stickers, the media browser,
+  notifications and the image viewer's neighbour navigation do not honour the
+  marker yet. Blur strength: Settings, Privacy, Media. Live validation in
+  `docs/live-validation.md` when done, otherwise NOT TESTED.
 - Backward pagination and retry, stable navigation, loaded-timeline search,
   message links/permalinks, message details, context menus, sender profiles
 - Link previews with encrypted-room privacy controls and security validation

@@ -40,6 +40,8 @@ public:
         ErrorRole,
         PreviewSourceRole,
         RetryableRole,
+        SpoilerRole,
+        SpoilerAllowedRole,
     };
 
     struct Entry {
@@ -76,6 +78,7 @@ public:
         QString caption;
         QString replyToEventId;
         QString threadRootId;
+        bool spoiler = false;
     };
 
     explicit AttachmentQueueModel(QObject *parent = nullptr);
@@ -116,6 +119,8 @@ public:
     Q_INVOKABLE void removeAt(int row);
     Q_INVOKABLE void clearAll();
     Q_INVOKABLE void retryAt(int row);
+    Q_INVOKABLE void setSpoilerAt(int row, bool spoiler);
+    bool spoilerAllowed(const Entry &entry) const;
     Q_INVOKABLE QVariantMap renderImageEdit(int row, qreal left, qreal top,
         qreal right, qreal bottom, int quarterTurns, bool mirror,
         const QVariantList &strokes);

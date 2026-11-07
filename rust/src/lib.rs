@@ -128,6 +128,7 @@ mod rtc;
 mod aboutinfo;
 mod serveradmin;
 mod sfu;
+mod spoiler;
 mod storeclose;
 mod syncnotify;
 mod timeline;
@@ -9694,6 +9695,82 @@ pub unsafe extern "C" fn mx_rust_timeline_send_video(
             duration_ms, poster, in_reply_to, op_id,
         )
         .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_send_spoiler_media(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    local_path: *const c_char,
+    data: *const u8,
+    len: usize,
+    filename: *const c_char,
+    mime: *const c_char,
+    caption: *const c_char,
+    width: u64,
+    height: u64,
+    duration_ms: u64,
+    thumb_data: *const u8,
+    thumb_len: usize,
+    thumb_width: u64,
+    thumb_height: u64,
+    in_reply_to: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        let thread_root = if root.is_empty() {
+            None
+        } else {
+            Some(
+                matrix_sdk::ruma::OwnedEventId::try_from(root)
+                    .map_err(|_| "Invalid thread root event id.".to_owned())?,
+            )
+        };
+        let local_path = unsafe { cstr_arg(local_path) }?;
+        let filename = unsafe { cstr_arg(filename) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        let caption = unsafe { cstr_arg(caption) }?;
+        spoiler::spoiler_msgtype(&mime)
+            .ok_or_else(|| "Only images, videos and audio can be marked as spoilers.".to_owned())?;
+        let (path, bytes) = if local_path.is_empty() {
+            if data.is_null() || len == 0 {
+                return Err("attachment data is empty".to_owned());
+            }
+            (None, unsafe { std::slice::from_raw_parts(data, len) }.to_vec())
+        } else {
+            (Some(std::path::PathBuf::from(local_path)), Vec::new())
+        };
+        let poster = unsafe { poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        let request = spoiler::SpoilerSend {
+            path,
+            data: bytes,
+            spec: spoiler::SpoilerMediaSpec {
+                filename,
+                caption: Some(caption),
+                mimetype: mime,
+                size: 0,
+                width,
+                height,
+                duration_ms,
+            },
+            poster,
+            thread_root,
+            in_reply_to,
+        };
+        bridge
+            .timelines
+            .send_spoiler_media(&bridge.runtime, client, room_id, request, op_id)
+            .map(|_| String::new())
     })
 }
 

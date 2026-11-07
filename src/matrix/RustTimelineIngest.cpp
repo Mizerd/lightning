@@ -368,6 +368,10 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         item.value(QStringLiteral("media_source_available")).toBool(false);
     e.mediaThumbAvailable =
         item.value(QStringLiteral("media_thumb_available")).toBool(false);
+    e.mediaSpoiler = item.value(QStringLiteral("media_spoiler")).toBool(false);
+    if (e.mediaSpoiler)
+        e.mediaSpoilerReason =
+            item.value(QStringLiteral("media_spoiler_reason")).toString().left(200);
     const QJsonArray galleryItems =
         item.value(QStringLiteral("gallery_items")).toArray();
     for (const auto &value : galleryItems) {

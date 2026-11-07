@@ -412,7 +412,14 @@ void MessageComposer::dispatchAttachment(int row)
         m_attachments->updateEntry(row);
         return;
     }
-    if (!entry.threadRootId.isEmpty()) {
+    if (entry.spoiler) {
+        opId = entry.isSvg ? 0 : m_client->sendSpoilerMedia(
+            m_roomId, entry.threadRootId,
+            entry.localPath.isEmpty() ? QString() : sendPath, sendData,
+            entry.fileName, entry.mime, caption, entry.width, entry.height,
+            entry.durationMs, entry.poster, entry.posterWidth,
+            entry.posterHeight, entry.replyToEventId);
+    } else if (!entry.threadRootId.isEmpty()) {
         // Inline thread style: the SDK thread send path, never the room one
         // (CLAUDE.md §8). An SVG never reaches here converted or not (below).
         const QString &root = entry.threadRootId;

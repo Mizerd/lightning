@@ -1667,6 +1667,18 @@ Item {
                                 size: 18
                                 color: AppTheme.scrimInk
                             }
+                            Rectangle {
+                                objectName: "composerSpoilerVeil"
+                                anchors.fill: parent
+                                visible: model.spoiler === true
+                                color: AppTheme.overlayScrim
+                                Icon {
+                                    anchors.centerIn: parent
+                                    name: "visibility_off"
+                                    size: 18
+                                    color: AppTheme.scrimInk
+                                }
+                            }
                         }
                         Icon {
                             visible: !chipLayout.hasPreview
@@ -1718,6 +1730,26 @@ Item {
                             iconSize: 14
                             Accessible.name: qsTr("Edit image %1").arg(model.fileName)
                             onClicked: attachmentImageEditor.openFor(app.composer.attachments, index)
+                        }
+                        IconButton {
+                            objectName: "composerSpoilerToggle"
+                            visible: model.spoilerAllowed === true
+                                     && model.state !== "dispatching"
+                            implicitWidth: 20; implicitHeight: 20
+                            radius: AppTheme.radiusSm
+                            iconName: "visibility_off"
+                            iconSize: 14
+                            active: model.spoiler === true
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.checkable: true
+                            Accessible.checked: model.spoiler === true
+                            Accessible.name: qsTr("Mark %1 as spoiler").arg(model.fileName)
+                            ToolTip.text: model.spoiler === true
+                                          ? qsTr("Marked as spoiler") : qsTr("Mark as spoiler")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: app.composer.attachments.setSpoilerAt(
+                                           index, model.spoiler !== true)
                         }
                         IconButton {
                             visible: model.state === "failed"

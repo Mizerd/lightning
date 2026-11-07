@@ -1430,7 +1430,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     }
     case ReplyToMediaKeyRole:
         if (const auto *target = eventForId(e.replyToEventId);
-            target && target->redacted)
+            target && (target->redacted || target->mediaSpoiler))
             return QString{};
         return e.replyToMediaKey;
     case ReplyToRedactedRole: {
@@ -1569,6 +1569,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case MediaKeyRole:           return e.mediaKey;
     case MediaSourceAvailableRole: return e.mediaSourceAvailable;
     case MediaThumbAvailableRole:  return e.mediaThumbAvailable;
+    case MediaSpoilerRole:         return e.mediaSpoiler;
+    case MediaSpoilerReasonRole:   return e.mediaSpoilerReason;
     case SenderNameAmbiguousRole:  return e.senderNameAmbiguous;
     case SameSenderAsPreviousRole:
     case ContinuesSenderGroupRole: return continuesSenderGroup(raw);
@@ -1723,6 +1725,8 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { MediaKeyRole,            "mediaKey" },
         { MediaSourceAvailableRole, "mediaSourceAvailable" },
         { MediaThumbAvailableRole, "mediaThumbAvailable" },
+        { MediaSpoilerRole,        "mediaSpoiler" },
+        { MediaSpoilerReasonRole,  "mediaSpoilerReason" },
         { SenderNameAmbiguousRole, "senderNameAmbiguous" },
         { SameSenderAsPreviousRole, "sameSenderAsPrevious" },
         { IsStateActivityRole,      "isStateActivity" },
@@ -1845,6 +1849,7 @@ QVariantList TimelineModel::mediaEntries() const
                          || e.type == TimelineEvent::Sticker);
         entry.insert(QStringLiteral("thumbAvailable"),
                      e.mediaThumbAvailable);
+        entry.insert(QStringLiteral("spoiler"), e.mediaSpoiler);
         entry.insert(QStringLiteral("size"), static_cast<qint64>(e.mediaSize));
         out.append(entry);
     }

@@ -1201,6 +1201,8 @@ set(APP_QML_FILES
     qml/MessageDelegate.qml
     # Element-style local image hiding: keeps the media box's exact geometry.
     qml/MediaHiddenPlaceholder.qml
+    qml/SpoilerCover.qml
+    qml/SpoilerState.qml
     # One-line summary for a collapsed media or link embed.
     qml/CollapsedEmbedRow.qml
     # A link that is itself a video, or an image too large to inline.
@@ -1401,6 +1403,8 @@ set_source_files_properties(qml/DownloadNotices.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 # MotionPolicy is the one rule every animated image follows.
 set_source_files_properties(qml/MotionPolicy.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/SpoilerState.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Development-only demo media fixtures (scripts/generate-demo-media.sh),
@@ -3002,6 +3006,17 @@ if(BUILD_TESTING)
     target_link_libraries(media-placeholder-qml-test PRIVATE Qt6::Test)
     add_test(NAME media-placeholder-qml COMMAND media-placeholder-qml-test)
     set_tests_properties(media-placeholder-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # MSC4193 spoiler media: covered, tiny decode only, click/Enter reveals.
+    qt_add_executable(spoiler-media-qml-test
+        tests/SpoilerMediaQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(spoiler-media-qml-test)
+    target_link_libraries(spoiler-media-qml-test PRIVATE Qt6::Test)
+    add_test(NAME spoiler-media-qml COMMAND spoiler-media-qml-test)
+    set_tests_properties(spoiler-media-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Which picture the image viewer opens: the Media tab walks history the

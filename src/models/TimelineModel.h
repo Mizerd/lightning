@@ -113,6 +113,8 @@ public:
         MediaKeyRole,
         MediaSourceAvailableRole,
         MediaThumbAvailableRole,
+        MediaSpoilerRole,
+        MediaSpoilerReasonRole,
         SenderNameAmbiguousRole,
         SameSenderAsPreviousRole,
         IsStateActivityRole,

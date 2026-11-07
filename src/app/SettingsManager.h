@@ -233,6 +233,8 @@ class SettingsManager : public QObject
     Q_PROPERTY(int videoPrefetchMaxMb READ videoPrefetchMaxMb
                    WRITE setVideoPrefetchMaxMb NOTIFY videoPrefetchMaxMbChanged)
     Q_PROPERTY(int videoPrefetchMinMb READ videoPrefetchMinMb CONSTANT)
+    Q_PROPERTY(int spoilerBlurStrength READ spoilerBlurStrength
+                   WRITE setSpoilerBlurStrength NOTIFY spoilerBlurStrengthChanged)
     Q_PROPERTY(int videoPrefetchLimitMb READ videoPrefetchLimitMb CONSTANT)
     Q_PROPERTY(int gifSafeSearch READ gifSafeSearch WRITE setGifSafeSearch
                    NOTIFY gifSafeSearchChanged)
@@ -700,6 +702,9 @@ public:
     void setVideoPrefetchEnabled(bool v);
     int videoPrefetchMaxMb() const;
     void setVideoPrefetchMaxMb(int mb);
+    // 0-100; how far a spoiler cover blurs its media.
+    int spoilerBlurStrength() const;
+    void setSpoilerBlurStrength(int strength);
     static constexpr int videoPrefetchMinMb() { return 1; }
     static constexpr int videoPrefetchLimitMb() { return 100; }
     static constexpr int videoPrefetchDefaultMb() { return 8; }
@@ -1056,6 +1061,7 @@ Q_SIGNALS:
     void storeRecentGifsChanged();
     void videoPrefetchEnabledChanged();
     void videoPrefetchMaxMbChanged();
+    void spoilerBlurStrengthChanged();
     void gifPreferredProviderChanged();
     void showRoomActivityChanged();
     void showMembershipEventsChanged();

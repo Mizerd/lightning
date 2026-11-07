@@ -1,5 +1,6 @@
 
 #include "matrix/MatrixClient.h"
+#include "models/AttachmentQueueModel.h"
 #include "models/MessageComposer.h"
 
 #include <QTemporaryDir>
@@ -143,6 +144,30 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    bool spoilerSupport = true;
+    int spoilerSends = 0;
+    QString lastSpoilerThread;
+    QString lastSpoilerPath;
+    bool supportsSpoilerMedia() const override { return spoilerSupport; }
+    quint64 sendSpoilerMedia(const QString &, const QString &threadRootId,
+                             const QString &localPath, const QByteArray &,
+                             const QString &filename, const QString &mime,
+                             const QString &caption, int, int, qint64,
+                             const QByteArray &, int, int,
+                             const QString &replyTo) override
+    {
+        if (rejectSends)
+            return 0;
+        ++spoilerSends;
+        lastSpoilerThread = threadRootId;
+        lastSpoilerPath = localPath;
+        lastFilename = filename;
+        lastMime = mime;
+        lastCaption = caption;
+        lastReplyTo = replyTo;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
     int voiceSends = 0;
     QString lastVoiceRoom;
     quint64 sendVoiceMessage(const QString &roomId, const QString &,
@@ -214,6 +239,65 @@ private Q_SLOTS:
                                               QStringLiteral("rejected"));
         QCOMPARE(client.fileSends, 3);
         QVERIFY(client.lastFilePath.endsWith(QStringLiteral("c.bin")));
+    }
+
+    void aSpoilerRowTakesTheSpoilerPathAndAPlainRowDoesNot()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        composer.setRoomId(room);
+
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("secret.png"), tinyPng())));
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("plain.png"), tinyPng())));
+        auto *model = composer.attachments();
+        QCOMPARE(model->rowCount(), 2);
+        QVERIFY(model->data(model->index(0), AttachmentQueueModel::SpoilerAllowedRole).toBool());
+        model->setSpoilerAt(0, true);
+        QVERIFY(model->data(model->index(0), AttachmentQueueModel::SpoilerRole).toBool());
+
+        composer.send();
+        QCOMPARE(client.spoilerSends, 1);
+        QCOMPARE(client.fileSends, 0);
+        QCOMPARE(client.lastFilename, QStringLiteral("secret.png"));
+        QCOMPARE(client.lastMime, QStringLiteral("image/png"));
+        QVERIFY(client.lastSpoilerThread.isEmpty());
+        QVERIFY(!client.lastSpoilerPath.isEmpty());
+
+        Q_EMIT client.attachmentQueueFinished(client.lastOpId, room, true, {});
+        QCOMPARE(client.spoilerSends, 1);
+        QCOMPARE(client.fileSends, 1);
+    }
+
+    void onlyMediaOnASupportingClientCanBeMarked()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("notes.bin"), QByteArray(16, 'a'))));
+        auto *model = composer.attachments();
+        QVERIFY(!model->data(model->index(0), AttachmentQueueModel::SpoilerAllowedRole).toBool());
+        model->setSpoilerAt(0, true);
+        QVERIFY(!model->data(model->index(0), AttachmentQueueModel::SpoilerRole).toBool());
+
+        client.spoilerSupport = false;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("pic.png"), tinyPng())));
+        QVERIFY(!model->data(model->index(1), AttachmentQueueModel::SpoilerAllowedRole).toBool());
+        model->setSpoilerAt(1, true);
+        QVERIFY(!model->data(model->index(1), AttachmentQueueModel::SpoilerRole).toBool());
+
+        composer.send();
+        QCOMPARE(client.spoilerSends, 0);
+        QCOMPARE(client.fileSends, 1);
     }
 
     void leavingTheRoomStillSendsWhatWasAlreadySent()

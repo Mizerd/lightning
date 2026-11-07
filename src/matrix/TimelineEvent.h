@@ -149,6 +149,9 @@ struct TimelineEvent {
     QString mediaKey;
     bool    mediaSourceAvailable = false;
     bool    mediaThumbAvailable = false;
+    // MSC4193: shown covered until the reader reveals it.
+    bool    mediaSpoiler = false;
+    QString mediaSpoilerReason;
     QList<GalleryItem> galleryItems;
 
     bool    senderNameAmbiguous = false;

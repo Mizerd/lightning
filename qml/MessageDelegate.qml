@@ -289,6 +289,12 @@ Item {
         app.mediaVisibility.setHidden(root.mediaVisibilityKey, hidden)
     }
     onMediaVisibilityKeyChanged: root.refreshMediaHidden()
+    readonly property string spoilerKey: model.eventId || root.actionKey
+    readonly property bool spoilerHidden: {
+        var revision = SpoilerState.revision
+        return model.mediaSpoiler === true && !SpoilerState.isRevealed(root.spoilerKey)
+    }
+    function revealSpoiler() { SpoilerState.reveal(root.spoilerKey) }
     Connections {
         target: (typeof app !== "undefined" && app) ? app.mediaVisibility : null
         function onHiddenChanged(key, hidden) {
@@ -5167,7 +5173,7 @@ Item {
                 isGif && MotionPolicy.allowed
                 && MotionPolicy.plays(gifHovered)
                 && !pendingMedia && animatedSource.length > 0
-                && !root.mediaHidden
+                && !root.mediaHidden && !root.spoilerHidden
 
             readonly property bool usesBridge:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
@@ -5216,6 +5222,7 @@ Item {
                     && a.isChatGifStarred(model.mediaKey || "")
             }
             readonly property bool skeletonWanted: root.mediaPixmapRetained
+                && !root.spoilerHidden
                 && img.status !== Image.Ready
                 && animatedImg.status !== AnimatedImage.Ready
             readonly property bool skeletonHeld: root.scrollHoldsParts
@@ -5356,9 +5363,10 @@ Item {
                 objectName: "messageStillImage"
                 anchors.fill: parent
                 visible: !imageBox.animateGif && !root.mediaHidden
+                         && !root.spoilerHidden
                 fillMode: Image.PreserveAspectFit
                 source: (imageBox.animateGif || root.mediaHidden
-                         || !root.mediaPixmapRetained)
+                         || root.spoilerHidden || !root.mediaPixmapRetained)
                         ? "" : imageBox.roundedSource
                 sourceSize.width: 640
                 asynchronous: true
@@ -5387,6 +5395,18 @@ Item {
                 sourceComponent: MediaHiddenPlaceholder {
                     hidden: root.mediaHidden
                     onRevealRequested: root.setMediaHidden(false)
+                }
+            }
+
+            Loader {
+                anchors.fill: parent
+                active: root.spoilerHidden && !root.mediaHidden
+                sourceComponent: SpoilerCover {
+                    covered: true
+                    source: root.mediaPixmapRetained ? imageBox.resolvedSource : ""
+                    reason: model.mediaSpoilerReason || ""
+                    interactive: root.rowActionsEnabled
+                    onRevealRequested: root.revealSpoiler()
                 }
             }
 
@@ -5422,6 +5442,10 @@ Item {
             }
 
             function activate() {
+                if (root.spoilerHidden) {
+                    root.revealSpoiler()
+                    return
+                }
                 if (imageBox.bridgeFailed) {
                     imageBox.refreshBridgeSource()
                     return
@@ -5446,6 +5470,7 @@ Item {
                 id: gifStarLoader
                 anchors.fill: parent
                 active: imageBox.starEligible && !root.mediaHidden
+                        && !root.spoilerHidden
                 sourceComponent: Component {
                     Item {
                         id: starLayer
@@ -5918,6 +5943,10 @@ Item {
                        : false
             }
             function activate() {
+                if (root.spoilerHidden) {
+                    root.revealSpoiler()
+                    return
+                }
                 if (videoBox.playbackAvailable)
                     videoBox.playerActive = true
                 else if (model.mediaUrl
@@ -6026,6 +6055,7 @@ Item {
                 anchors.fill: parent
                 fillMode: Image.PreserveAspectCrop
                 source: root.mediaPixmapRetained && videoBox.usesBridge
+                        && !root.spoilerHidden
                         ? (videoBox.bridgeSource.indexOf("image://lightning-media/") === 0
                            ? videoBox.bridgeSource + "|shape:round:35"
                            : videoBox.bridgeSource)
@@ -6136,8 +6166,22 @@ Item {
                     onClicked: videoBox.refreshBridgeSource()
                 }
             }
+            Loader {
+                anchors.fill: parent
+                active: root.spoilerHidden && !videoBox.playerActive
+                sourceComponent: SpoilerCover {
+                    covered: true
+                    focusable: false
+                    source: root.mediaPixmapRetained && videoBox.usesBridge
+                            ? videoBox.bridgeSource : ""
+                    reason: model.mediaSpoilerReason || ""
+                    interactive: root.rowActionsEnabled
+                    onRevealRequested: root.revealSpoiler()
+                }
+            }
             TapHandler {
                 enabled: !videoBox.playerActive && root.rowActionsEnabled
+                         && !root.spoilerHidden
                 onTapped: videoBox.activate()
             }
             Rectangle {

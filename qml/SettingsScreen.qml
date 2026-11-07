@@ -628,6 +628,10 @@ Item {
           keywords: QT_TR_NOOP("video audio voice preload prefetch download size megabytes data disk instant play"),
           section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
           anchor: "videoPrefetchCheck" },
+        { title: qsTr("Spoiler blur"),
+          keywords: QT_TR_NOOP("spoiler blur hidden image video msc4193"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
+          anchor: "spoilerBlurSlider" },
         { title: qsTr("Photo details when sending"),
           keywords: QT_TR_NOOP("photo image exif gps location metadata strip remove "
                          + "privacy upload picture camera"),
@@ -6516,6 +6520,22 @@ Item {
                                             font.pixelSize: AppTheme.settingsOptionSize
                                         }
                                     }
+                                }
+
+                                Label {
+                                    objectName: "spoilerBlurLabel"
+                                    text: qsTr("Spoiler blur")
+                                    color: AppTheme.stormTextSecondary
+                                }
+                                SettingsSlider {
+                                    objectName: "spoilerBlurSlider"
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 100
+                                    stepSize: 5
+                                    value: app.settings.spoilerBlurStrength
+                                    onMoved: app.settings.spoilerBlurStrength = Math.round(value)
+                                    Accessible.name: qsTr("Spoiler blur strength")
                                 }
 
                                 Label { text: qsTr("Photo details when sending"); color: AppTheme.stormTextSecondary }

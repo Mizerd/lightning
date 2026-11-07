@@ -96,6 +96,8 @@ constexpr auto kGifStoreRecent      = "gif/storeRecent";
 constexpr auto kVideoPrefetchEnabled = "media/videoPrefetchEnabled";
 constexpr auto kPrefetchDecoupledMarker = "media/prefetchDecoupledFromAnimation";
 constexpr auto kVideoPrefetchMaxMb  = "media/videoPrefetchMaxMb";
+constexpr auto kSpoilerBlurStrength = "media/spoilerBlurStrength";
+constexpr int kSpoilerBlurDefault = 70;
 constexpr auto kGifProvider         = "gif/provider";
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 constexpr auto kHideThreadReplies   = "timeline/hideThreadReplies";
@@ -4090,6 +4092,24 @@ void SettingsManager::setVideoPrefetchMaxMb(int mb)
         return;
     m_store->setValue(kVideoPrefetchMaxMb, clamped);
     Q_EMIT videoPrefetchMaxMbChanged();
+}
+
+int SettingsManager::spoilerBlurStrength() const
+{
+    bool ok = false;
+    const int v = m_store->value(kSpoilerBlurStrength, kSpoilerBlurDefault).toInt(&ok);
+    if (!ok || v < 0 || v > 100)
+        return kSpoilerBlurDefault;
+    return v;
+}
+
+void SettingsManager::setSpoilerBlurStrength(int strength)
+{
+    const int clamped = std::clamp(strength, 0, 100);
+    if (spoilerBlurStrength() == clamped)
+        return;
+    m_store->setValue(kSpoilerBlurStrength, clamped);
+    Q_EMIT spoilerBlurStrengthChanged();
 }
 
 QString SettingsManager::gifPreferredProvider() const

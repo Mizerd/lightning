@@ -2226,6 +2226,30 @@ char *mx_rust_timeline_send_video(void *client,
                                    * id fails the send rather than sending a non-reply. */
                                   const char *in_reply_to,
                                   unsigned long long op_id);
+/* Send an image, video or audio file marked as an MSC4193 spoiler. The SDK
+ * attachment path cannot carry the marker, so Rust uploads the bytes itself
+ * (encrypted in an encrypted room) and queues the raw event. root_event_id ""
+ * sends to the room, otherwise as an m.thread reply. local_path "" sends
+ * data/len instead. The thumbnail is optional and re-validated. Completion is
+ * an attachment_send_result event carrying op_id. */
+char *mx_rust_send_spoiler_media(void *client,
+                                 const char *room_id,
+                                 const char *root_event_id,
+                                 const char *local_path,
+                                 const unsigned char *data,
+                                 size_t len,
+                                 const char *filename,
+                                 const char *mime,
+                                 const char *caption,
+                                 unsigned long long width,
+                                 unsigned long long height,
+                                 unsigned long long duration_ms,
+                                 const unsigned char *thumb_data,
+                                 size_t thumb_len,
+                                 unsigned long long thumb_width,
+                                 unsigned long long thumb_height,
+                                 const char *in_reply_to,
+                                 unsigned long long op_id);
 /* Send a still image WITH a raster thumbnail rendered from the user's own
  * file (an SVG's preview). thumb_data/thumb_len may be NULL/0. The thumbnail
  * is re-validated by magic sniffing on the Rust side and dropped, never

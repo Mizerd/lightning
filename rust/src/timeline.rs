@@ -2019,6 +2019,58 @@ impl TimelineRegistry {
         Ok(())
     }
 
+    /// Uploads and queues MSC4193 spoiler media; see `crate::spoiler`.
+    pub fn send_spoiler_media(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        request: crate::spoiler::SpoilerSend,
+        op_id: u64,
+    ) -> Result<(), String> {
+        let room = RoomId::parse(&room_id)
+            .ok()
+            .and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "That room is not available.".to_owned())?;
+        let events = Arc::clone(&self.events);
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        let registry = Arc::clone(self);
+        let root = request
+            .thread_root
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let lane = send_lane_key(&room_id, &root);
+        self.spawn_ordered(runtime, lane, async move {
+            let watcher = if root.is_empty() {
+                None
+            } else {
+                bounded(watch_thread_send(&client, &room_id)).await.flatten()
+            };
+            let sent = crate::spoiler::send_spoiler(&client, &room, request).await.is_ok();
+            if sent && !root.is_empty() {
+                registry.subscribe_after_thread_send(
+                    client.clone(), &room_id, &root, watcher, lifecycle,
+                );
+            }
+            if registry.lifecycle_current(lifecycle) {
+                let mut result = json!({
+                    "type": "attachment_send_result",
+                    "op_id": op_id,
+                    "room_id": room_id,
+                    "lifecycle": lifecycle,
+                    "ok": sent,
+                    "category": if sent { "" } else { "rejected" },
+                });
+                if !root.is_empty() {
+                    result["thread_root_id"] = root.into();
+                }
+                enqueue(&events, result);
+            }
+        });
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn send_thread_attachment(
         self: &Arc<Self>,
@@ -4547,6 +4599,12 @@ fn event_item_to_json(
                         registry.remember_media(media_key, media);
                     }
                     restore_raw_formatted_body(&mut out, event, message.is_edited());
+                    if matches!(
+                        message.msgtype(),
+                        MessageType::Image(_) | MessageType::Video(_) | MessageType::Audio(_)
+                    ) {
+                        fill_spoiler(&mut out, event);
+                    }
                     if message.is_edited()
                         && std::env::var_os("LIGHTNING_EDIT_TRACE").is_some()
                     {
@@ -4808,6 +4866,22 @@ fn restore_raw_formatted_body(
         latest_edit.as_ref(),
     ) {
         out["formatted_body"] = body.into();
+    }
+}
+
+fn fill_spoiler(out: &mut serde_json::Value, event: &EventTimelineItem) {
+    let parse = |raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>| {
+        raw.deserialize_as::<serde_json::Value>().ok()
+    };
+    let original = event.original_json().and_then(parse);
+    let latest_edit = event.latest_edit_json().and_then(parse);
+    if let Some(reason) =
+        crate::spoiler::event_spoiler(original.as_ref(), latest_edit.as_ref())
+    {
+        out["media_spoiler"] = true.into();
+        if !reason.is_empty() {
+            out["media_spoiler_reason"] = reason.into();
+        }
     }
 }
 

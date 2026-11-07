@@ -918,6 +918,27 @@ void AttachmentQueueModel::discardEntries(const QList<Entry> &entries)
         releaseStaged(entry);
 }
 
+bool AttachmentQueueModel::spoilerAllowed(const Entry &entry) const
+{
+    if (!m_client || !m_client->supportsSpoilerMedia() || entry.isSvg)
+        return false;
+    return (entry.isImage && entry.mime.startsWith(QLatin1String("image/")))
+        || entry.isVideo;
+}
+
+void AttachmentQueueModel::setSpoilerAt(int row, bool spoiler)
+{
+    if (row < 0 || row >= m_entries.size())
+        return;
+    Entry &entry = m_entries[row];
+    if (entry.state == QLatin1String("dispatching") || entry.spoiler == spoiler)
+        return;
+    if (spoiler && !spoilerAllowed(entry))
+        return;
+    entry.spoiler = spoiler;
+    updateEntry(row);
+}
+
 void AttachmentQueueModel::retryAt(int row)
 {
     if (row < 0 || row >= m_entries.size())
@@ -984,6 +1005,8 @@ QVariant AttachmentQueueModel::data(const QModelIndex &index, int role) const
     case StateRole:     return e.state;
     case ErrorRole:     return e.error;
     case RetryableRole: return e.retryable;
+    case SpoilerRole:   return e.spoiler;
+    case SpoilerAllowedRole: return spoilerAllowed(e);
     default:            return {};
     }
 }
@@ -1001,5 +1024,7 @@ QHash<int, QByteArray> AttachmentQueueModel::roleNames() const
         { StateRole,     "state" },
         { ErrorRole,     "error" },
         { RetryableRole, "retryable" },
+        { SpoilerRole,   "spoiler" },
+        { SpoilerAllowedRole, "spoilerAllowed" },
     };
 }

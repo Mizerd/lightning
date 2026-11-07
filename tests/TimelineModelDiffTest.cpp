@@ -143,6 +143,7 @@ private Q_SLOTS:
     void voiceReplyPreviewsKeepCopyTextAsTheFileName();
     void aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget();
     void aQuoteFollowsItsTargetWhenTheTargetChanges();
+    void aQuoteOfASpoilerShowsNoThumbnail();
     void hiddenActivityKeepsSecurityChangesAndTheirDateVisible();
     void realCountExcludesVirtualRows();
     void aGalleryRowListsEveryItemForTheDelegateAndTheViewer();
@@ -1961,6 +1962,39 @@ void TimelineModelDiffTest::aQuoteFollowsItsTargetWhenTheTargetChanges()
                 .toString().isEmpty());
     QVERIFY(m_model->data(ownIndex, TimelineModel::ReplyToKindRole)
                 .toString().isEmpty());
+}
+
+void TimelineModelDiffTest::aQuoteOfASpoilerShowsNoThumbnail()
+{
+    auto target = makeEvent(QStringLiteral("$pic"), QStringLiteral("pic.png"));
+    target.type = TimelineEvent::Image;
+    target.mediaKey = target.eventId;
+    target.mediaSpoiler = true;
+    target.mediaSpoilerReason = QStringLiteral("ending");
+    auto reply = makeEvent(QStringLiteral("$re"), QStringLiteral("wow"));
+    reply.replyToEventId = target.eventId;
+    reply.replyToMediaKey = target.eventId;
+    reply.replyToKind = QStringLiteral("image");
+    m_client->mirror = { target, reply };
+    Q_EMIT m_client->timelineReset(kRoom);
+    const auto role = [&](const QString &id, int r) {
+        for (int i = 0; i < m_model->rowCount(); ++i) {
+            if (m_model->eventIdAt(i) == id)
+                return m_model->data(m_model->index(i), r);
+        }
+        return QVariant();
+    };
+    QVERIFY(role(target.eventId, TimelineModel::MediaSpoilerRole).toBool());
+    QCOMPARE(role(target.eventId, TimelineModel::MediaSpoilerReasonRole).toString(),
+             QStringLiteral("ending"));
+    QVERIFY(role(reply.eventId, TimelineModel::ReplyToMediaKeyRole).toString().isEmpty());
+
+    auto plain = target;
+    plain.mediaSpoiler = false;
+    m_client->mirror = { plain, reply };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(role(reply.eventId, TimelineModel::ReplyToMediaKeyRole).toString(),
+             target.eventId);
 }
 
 void TimelineModelDiffTest::hiddenActivityKeepsSecurityChangesAndTheirDateVisible()
