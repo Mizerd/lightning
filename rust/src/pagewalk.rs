@@ -184,7 +184,7 @@ pub(crate) async fn walk_backwards(
     if !first.hit_start || !still_wanted() {
         return Ok(not_asked);
     }
-    let Some(known) = start_at_our_own_membership(timeline).await else {
+    let Some(known) = start_short_of_creation(timeline).await else {
         return Ok(not_asked);
     };
     if !claim.take() {
@@ -207,41 +207,45 @@ pub(crate) async fn walk_backwards(
     Ok(BackwardWalk { outcome, start_check: StartCheck::Reopened })
 }
 
-struct OwnStart {
-    join: OwnedEventId,
+struct CachedStart {
+    first: OwnedEventId,
     cached: HashSet<OwnedEventId>,
 }
 
 // matrix-sdk keeps "start reached" for good once its linked chunk has no gap,
 // e.g. after a `/messages` answered without `end` while the homeserver could
-// not yet backfill a federated join; history the joiner may see is then lost.
-async fn start_at_our_own_membership(timeline: &Timeline) -> Option<OwnStart> {
+// not yet backfill a federated room; history the room still has is then lost.
+// Only `m.room.create` is a start by itself; anything else is asked about.
+async fn start_short_of_creation(timeline: &Timeline) -> Option<CachedStart> {
     let room = timeline.room();
-    if matches!(
-        room.history_visibility_or_default(),
-        HistoryVisibility::Joined | HistoryVisibility::Invited
-    ) {
-        return None;
-    }
     let (cache, _drop_handles) = room.event_cache().await.ok()?;
     let events = cache.events().await.ok()?;
     let first = events.first()?;
     let raw = first.raw();
     let field = |name: &str| raw.get_field::<String>(name).ok().flatten();
-    if field("type").as_deref() != Some("m.room.member")
-        || field("state_key").as_deref() != Some(room.own_user_id().as_str())
+    let kind = field("type");
+    if kind.as_deref() == Some("m.room.create") {
+        return None;
+    }
+    let own_membership = kind.as_deref() == Some("m.room.member")
+        && field("state_key").as_deref() == Some(room.own_user_id().as_str());
+    if own_membership
+        && matches!(
+            room.history_visibility_or_default(),
+            HistoryVisibility::Joined | HistoryVisibility::Invited
+        )
     {
         return None;
     }
-    Some(OwnStart {
-        join: first.event_id()?,
+    Some(CachedStart {
+        first: first.event_id()?,
         cached: events.iter().filter_map(|event| event.event_id()).collect(),
     })
 }
 
-// Asks before anything is cleared, from just before our join, so an offline
-// client or a server that really has nothing older keeps the room as it is.
-async fn server_has_older_history(timeline: &Timeline, start: &OwnStart) -> Result<bool, ()> {
+// Asks before anything is cleared, from just before the earliest cached event,
+// so an offline client or a server that really has nothing older keeps the room.
+async fn server_has_older_history(timeline: &Timeline, start: &CachedStart) -> Result<bool, ()> {
     let room = timeline.room();
     let client = room.client();
     let config = RequestConfig::new().retry_limit(1).timeout(START_PROBE_TIMEOUT);
@@ -252,16 +256,16 @@ async fn server_has_older_history(timeline: &Timeline, start: &OwnStart) -> Resu
             .flatten()
             .is_some_and(|id| !start.cached.contains(&id))
     };
-    let mut context = get_context::v3::Request::new(room.room_id().to_owned(), start.join.clone());
+    let mut context = get_context::v3::Request::new(room.room_id().to_owned(), start.first.clone());
     context.limit = UInt::from(START_CONTEXT_LIMIT);
     let context = client.send(context).with_request_config(config).await.map_err(|_| ())?;
     if context.events_before.iter().any(uncached) {
         return Ok(true);
     }
-    let Some(before_join) = context.start else { return Ok(false) };
+    let Some(before_first) = context.start else { return Ok(false) };
     let mut page =
         get_message_events::v3::Request::new(room.room_id().to_owned(), Direction::Backward);
-    page.from = Some(before_join);
+    page.from = Some(before_first);
     page.limit = UInt::from(START_PROBE_LIMIT);
     let page = client.send(page).with_request_config(config).await.map_err(|_| ())?;
     Ok(page.chunk.iter().any(uncached))
@@ -737,19 +741,27 @@ mod sdk_tests {
     }
 
     fn joined_sync(visibility: &str) -> String {
+        joined_sync_from(visibility, vec![our_join(), joined_text("$after", 6_000_000)])
+    }
+
+    fn create_event() -> Value {
+        joined_room_event("m.room.create", "$create", 1_000, "@host:remote.org",
+                          json!({ "state_key": "",
+                                  "content": { "creator": "@host:remote.org",
+                                               "room_version": "10" } }))
+    }
+
+    fn joined_sync_from(visibility: &str, timeline: Vec<Value>) -> String {
         let room = json!({
             "state": { "events": [
-                joined_room_event("m.room.create", "$create", 1_000, "@host:remote.org",
-                                  json!({ "state_key": "",
-                                          "content": { "creator": "@host:remote.org",
-                                                       "room_version": "10" } })),
+                create_event(),
                 joined_room_event("m.room.history_visibility", "$vis", 1_001,
                                   "@host:remote.org",
                                   json!({ "state_key": "",
                                           "content": { "history_visibility": visibility } })),
             ]},
             "timeline": {
-                "events": [our_join(), joined_text("$after", 6_000_000)],
+                "events": timeline,
                 "limited": false,
                 "prev_batch": "t1",
             },
@@ -765,6 +777,16 @@ mod sdk_tests {
 
     fn joined_only_sync() -> String {
         joined_sync("joined")
+    }
+
+    fn sync_from_an_older_message() -> String {
+        joined_sync_from("shared", vec![joined_text("$yesterday", 4_500_000), our_join(),
+                                        joined_text("$after", 6_000_000)])
+    }
+
+    fn sync_from_the_creation() -> String {
+        joined_sync_from("shared", vec![create_event(), our_join(),
+                                        joined_text("$after", 6_000_000)])
     }
 
     fn context_reply(start: Option<&str>, before: Vec<Value>) -> (&'static str, String) {
@@ -1053,5 +1075,24 @@ mod sdk_tests {
         assert_eq!(walk.check, StartCheck::NotAsked);
         assert_eq!(walk.asked, strings(&["t1"]));
         kept_what_it_had(&walk);
+    }
+
+    #[test]
+    fn a_start_at_someone_elses_message_is_asked_of_the_server_once_more() {
+        let server = Server { sync: sync_from_an_older_message, ..OLDER_ON_SERVER };
+        let walk = walk_joined_room("older-message", server, false, 1);
+        assert!(!walk.hit_start, "the start was declared at a message: {:?}", walk.asked);
+        assert_eq!(walk.check, StartCheck::Reopened);
+        assert_eq!(walk.asked, strings(&["t1", "context", "tj", ""]));
+        assert!(walk.cached.iter().any(|id| id == "$older"), "{:?}", walk.cached);
+    }
+
+    #[test]
+    fn a_start_at_the_room_creation_is_not_asked_about() {
+        let server = Server { sync: sync_from_the_creation, ..OLDER_ON_SERVER };
+        let walk = walk_joined_room("created", server, false, 1);
+        assert_eq!(walk.check, StartCheck::NotAsked);
+        assert!(!walk.asked.iter().any(|asked| asked == "context"), "{:?}", walk.asked);
+        assert!(walk.claim_free_after);
     }
 }

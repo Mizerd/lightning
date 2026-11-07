@@ -677,9 +677,10 @@ restarts, while FluffyChat on the same account showed the history.
 
 `pagewalk::walk_backwards` now checks such a start with the server once per room
 per lifecycle (`TimelineRegistry::claim_start_check`) when all of these hold:
-the walk reported the start, the earliest cached event is our own
-`m.room.member`, and history visibility is neither `joined` nor `invited`. The
-check is `/context` on our join with limit 2 (Synapse and Continuwuity both
+the walk reported the start and the earliest cached event is not
+`m.room.create`; when that event is our own `m.room.member`, history visibility
+must also be neither `joined` nor `invited`. The check is `/context` on that
+earliest event with limit 2 (Synapse and Continuwuity both
 give `limit / 2` to `events_before`; measured on the local Continuwuity, limit 0
 and 1 return `start` and no `events_before`). An uncached event there is proof
 enough; otherwise one `/messages` page of 5 backwards from `start`, 20 s
@@ -692,6 +693,13 @@ open: `reached` and `pagination_busy` still stop repeats within one) asks
 again; a confirmed start or a reopen spends it. The pagination event's `start_check` (`not_asked`, `failed`,
 `nothing_older`, `abandoned`, `reopened`) is in the `timeline pagination
 complete` log line.
+
+Widened 2026-11-07 from "our own join" to "anything but the creation event":
+joining #thisweekinmatrix:matrix.org from a Synapse homeserver, the first page
+timed out, Retry loaded history back to the previous day, and the timeline then
+said "Beginning of conversation" (`reached_start=true startCheck="not_asked"`)
+over a room with years of history, because the earliest cached event was
+someone else's message and not our join.
 
 No record is persisted across launches, deliberately. The check is two small
 requests made only when the reader reaches the top of such a room, and an empty
