@@ -1961,7 +1961,8 @@ private Q_SLOTS:
         f.insert(QStringLiteral("mediaFilename"), QStringLiteral("clip.ogg"));
         f.insert(QStringLiteral("body"), QStringLiteral("clip.ogg"));
         Delegate d;
-        QVERIFY(build(app, f, d, kRowWidth, layout == 1));
+        // Narrow enough that the card reaches the bar's corner.
+        QVERIFY(build(app, f, d, 380, layout == 1));
         auto *card = findVisual(d.root, QStringLiteral("audioMedia"));
         QVERIFY(card);
         QQmlProperty::write(card, QStringLiteral("canSave"), true);
@@ -1971,6 +1972,7 @@ private Q_SLOTS:
                  "the action bar measured empty");
         const QRectF barRect = bar->mapRectToItem(d.root, bar->boundingRect());
         int checked = 0;
+        int underBar = 0;
         for (const char *name : {"audioSpeedButton", "audioMuteButton",
                                  "audioSaveButton"}) {
             auto *control = findVisual(d.root, QString::fromLatin1(name));
@@ -1979,6 +1981,8 @@ private Q_SLOTS:
                                     .arg(QLatin1String(name))));
             const QRectF r = control->mapRectToItem(d.root,
                                                     control->boundingRect());
+            if (r.left() < barRect.right() && r.right() > barRect.left())
+                ++underBar;
             QVERIFY2(!barRect.intersects(r),
                      qPrintable(QStringLiteral(
                          "the action bar %1,%2 %3x%4 covers the card's %5 at "
@@ -1990,6 +1994,7 @@ private Q_SLOTS:
             ++checked;
         }
         QCOMPARE(checked, 3);
+        QVERIFY2(underBar > 0, "fixture: no card control is in the bar's columns");
     }
 
     void theLiftedBarKeepsItsRowWhileThePointerCrossesOntoIt()
