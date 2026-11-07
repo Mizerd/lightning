@@ -5391,22 +5391,24 @@ Item {
 
             Loader {
                 anchors.fill: parent
-                active: root.mediaHidden
-                sourceComponent: MediaHiddenPlaceholder {
-                    hidden: root.mediaHidden
-                    onRevealRequested: root.setMediaHidden(false)
+                active: root.mediaHidden || root.spoilerHidden
+                sourceComponent: root.mediaHidden ? imageHiddenCover : imageSpoilerCover
+                Component {
+                    id: imageHiddenCover
+                    MediaHiddenPlaceholder {
+                        hidden: root.mediaHidden
+                        onRevealRequested: root.setMediaHidden(false)
+                    }
                 }
-            }
-
-            Loader {
-                anchors.fill: parent
-                active: root.spoilerHidden && !root.mediaHidden
-                sourceComponent: SpoilerCover {
-                    covered: true
-                    source: root.mediaPixmapRetained ? imageBox.resolvedSource : ""
-                    reason: model.mediaSpoilerReason || ""
-                    interactive: root.rowActionsEnabled
-                    onRevealRequested: root.revealSpoiler()
+                Component {
+                    id: imageSpoilerCover
+                    SpoilerCover {
+                        covered: true
+                        source: root.mediaPixmapRetained ? imageBox.resolvedSource : ""
+                        reason: model.mediaSpoilerReason || ""
+                        interactive: root.rowActionsEnabled
+                        onRevealRequested: root.revealSpoiler()
+                    }
                 }
             }
 
