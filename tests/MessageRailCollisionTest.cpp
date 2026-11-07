@@ -428,7 +428,9 @@ private Q_SLOTS:
             ? cardBefore.left() - notice->property("margin").toReal()
                 - notice->property("gap").toReal()
                 >= notice->property("minWidth").toReal()
-            : width == 1000 || (layout == 2 && caption == QLatin1String("tall"));
+            : width == 1000
+              || (layout == 2 && (caption == QLatin1String("tall")
+                                  || caption == QLatin1String("wide")));
         QTRY_COMPARE(notice->isVisible(), fits);
         QTRY_COMPARE(paneCount(), fits ? 0 : 1);
         QCOMPARE(int(notice->isVisible()) + paneCount(), 1);
@@ -1960,6 +1962,10 @@ private Q_SLOTS:
         f.insert(QStringLiteral("body"), QStringLiteral("clip.ogg"));
         Delegate d;
         QVERIFY(build(app, f, d, kRowWidth, layout == 1));
+        auto *card = findVisual(d.root, QStringLiteral("audioMedia"));
+        QVERIFY(card);
+        QQmlProperty::write(card, QStringLiteral("canSave"), true);
+        QCoreApplication::processEvents();
         QQuickItem *bar = forceActionBar(d.root);
         QVERIFY2(bar && bar->width() > 0 && bar->height() > 0,
                  "the action bar measured empty");
@@ -1984,6 +1990,52 @@ private Q_SLOTS:
             ++checked;
         }
         QCOMPARE(checked, 3);
+    }
+
+    void theLiftedBarKeepsItsRowWhileThePointerCrossesOntoIt()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isAudio"), true);
+        f.insert(QStringLiteral("mediaIsVoice"), true);
+        f.insert(QStringLiteral("mediaDurationMs"), 4000);
+        f.insert(QStringLiteral("mediaKey"), QStringLiteral("mk-rail"));
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        d.root->setY(120);
+        QQmlComponent comp(d.engine.get());
+        comp.setData("import QtQuick\nQtObject { property string pinnedActionsKey: \"\";"
+                     " property string hoveredActionsKey: \"\" }",
+                     QUrl());
+        std::unique_ptr<QObject> view(comp.create());
+        QVERIFY2(view, qPrintable(comp.errorString()));
+        QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                            QVariant::fromValue(view.get()));
+        QCoreApplication::processEvents();
+        auto *row = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messagePresentationRow"));
+        auto *bar = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageActionBarLoader"));
+        QVERIFY(row && bar);
+        const QString key = d.root->property("actionKey").toString();
+        QVERIFY(!key.isEmpty());
+
+        QTest::mouseMove(d.window.get(), QPoint(5, 470));
+        QTest::mouseMove(d.window.get(),
+                         row->mapToScene(QPointF(row->width() - 60,
+                                                 row->height() / 2)).toPoint());
+        QTRY_COMPARE(view->property("hoveredActionsKey").toString(), key);
+        QTRY_VERIFY(bar->isVisible() && bar->height() > 0);
+        const QPointF onBar = bar->mapToScene(QPointF(4, 4));
+        QVERIFY2(!row->contains(row->mapFromScene(onBar)),
+                 "fixture: the bar is not lifted out of its row");
+        QTest::mouseMove(d.window.get(), onBar.toPoint());
+        QTest::qWait(50);
+        QCOMPARE(view->property("hoveredActionsKey").toString(), key);
+        QVERIFY(bar->isVisible());
+
+        QTest::mouseMove(d.window.get(), QPoint(5, 470));
+        QTRY_COMPARE(view->property("hoveredActionsKey").toString(), QString());
     }
 
     static QRectF chipBand(QQuickItem *root)

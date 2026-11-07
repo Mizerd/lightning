@@ -1443,8 +1443,7 @@ Item {
                         if (root.transientOwnerBlocks)
                             return
                         root.timelineView.hoveredActionsKey = root.actionKey
-                    } else if (!(messageActionBarLoader.item
-                                 && messageActionBarLoader.item.pointerOnBar)) {
+                    } else if (!barHover.hovered) {
                         root.releaseHoveredActions()
                     }
                 }
@@ -2626,6 +2625,20 @@ Item {
                 }
                 onVisibleChanged: refreshHeaderPush()
                 onHeightChanged: refreshHeaderPush()
+                // Over a lifted bar the pointer is outside its row. On the Loader
+                // so it exists before the bar does: Qt caches whether an item's
+                // hover targets all lie inside it.
+                HoverHandler {
+                    id: barHover
+                    blocking: true
+                    onHoveredChanged: {
+                        if (!hovered)
+                            Qt.callLater(function() {
+                                if (!rowHover.hovered && !barHover.hovered)
+                                    root.releaseHoveredActions()
+                            })
+                    }
+                }
                 readonly property real barWidth:
                     item ? item.implicitWidth : 200
                 readonly property bool leftOfOwnBubble:
@@ -2670,19 +2683,6 @@ Item {
                     ? bubbleRow.mapToItem(Overlay.overlay, 0, 0).y
                       + messageActionBarLoader.restY < 41
                     : false
-                readonly property bool pointerOnBar: barHover.hovered
-                HoverHandler {
-                    id: barHover
-                    // Over a lifted bar the pointer is outside its own row.
-                    blocking: true
-                    onHoveredChanged: {
-                        if (!hovered)
-                            Qt.callLater(function() {
-                                if (!rowHover.hovered && !barHover.hovered)
-                                    root.releaseHoveredActions()
-                            })
-                    }
-                }
 
                 Row {
                     id: threadActionRow
