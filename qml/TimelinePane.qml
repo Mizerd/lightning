@@ -74,6 +74,31 @@ Rectangle {
             return threadPanel.focusMessageSelection(false)
         return root.resumeTimeline()
     }
+    function jumpToLatestAndCompose() {
+        if (root.threadPanelHoldsKeys)
+            return threadPanel.focusComposer()
+        if (!root.composerFocusable)
+            return false
+        if (app.timeline && app.timeline.count > 0)
+            timeline.goToLatest()
+        return root.focusComposerForTyping()
+    }
+    readonly property bool focusInOverlay: {
+        for (var it = root.Window.activeFocusItem; it; it = it.parent) {
+            if (it === root.Overlay.overlay)
+                return true
+        }
+        return false
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            var seq = app.shortcuts.sequenceFor("timeline.jumpToLatestAndCompose")
+            return seq === "" ? [] : [seq]
+        }
+        enabled: root.composerShortcutAvailable && !root.focusInOverlay
+        onActivated: root.jumpToLatestAndCompose()
+    }
 
     function focusComposerForTyping() {
         if (!root.composerFocusable)

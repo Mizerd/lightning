@@ -3825,6 +3825,75 @@ false);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    void jumpToLatestAndComposeLandsAtTheLatestWithTheComposerFocused()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *shortcuts = controller.property("shortcuts").value<QObject *>();
+        QVERIFY(shortcuts != nullptr);
+        QString bindError;
+        QVERIFY(QMetaObject::invokeMethod(
+            shortcuts, "setBinding", Q_RETURN_ARG(QString, bindError),
+            Q_ARG(QString, QStringLiteral("timeline.jumpToLatestAndCompose")),
+            Q_ARG(QString, QStringLiteral("Ctrl+Alt+L"))));
+        QCOMPARE(bindError, QString());
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        auto *composer = root->findChild<QQuickItem *>(
+            QStringLiteral("composerInput"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(composer != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        timeline->forceActiveFocus();
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
+        QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        QVariant minY;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "wheelMinY",
+                                          Q_RETURN_ARG(QVariant, minY)));
+        QVERIFY2(timeline->property("contentY").toDouble() > minY.toDouble() + 1,
+                 "the fixture must start away from the latest message");
+        QVERIFY(!composer->hasActiveFocus());
+
+        QTest::keyClick(&window, Qt::Key_L, Qt::ControlModifier | Qt::AltModifier);
+        QTRY_VERIFY_WITH_TIMEOUT(composer->hasActiveFocus(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                QVariant lo;
+                QMetaObject::invokeMethod(timeline, "wheelMinY",
+                                          Q_RETURN_ARG(QVariant, lo));
+                return qAbs(timeline->property("contentY").toDouble()
+                            - lo.toDouble()) < 1.0;
+            }(),
+            kSignalTimeoutMs);
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
     void ctrlGStepsTheFindResultsAndCtrlShiftGGoesBack()
     {
         AppController controller(AppController::MockBackend);

@@ -47,6 +47,7 @@ bool paletteOnly(const QString &id)
         QStringLiteral("thread.togglePlacement"),
         QStringLiteral("thread.openRootInRoom"),
         QStringLiteral("composer.toggleHeight"),
+        QStringLiteral("timeline.jumpToLatestAndCompose"),
     };
     return ids.contains(id);
 }
@@ -1199,6 +1200,21 @@ private Q_SLOTS:
                     .isEmpty());
         QCOMPARE(registry.editorActionForKey(Qt::Key_8, ctrlShift),
                  QStringLiteral("composer.list"));
+    }
+
+    void jumpToLatestAndComposeIsAnUnboundRebindableGlobalAction()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString id = QStringLiteral("timeline.jumpToLatestAndCompose");
+        QCOMPARE(registry.defaultSequenceFor(id), QString());
+        QCOMPARE(roleFor(registry, id, ShortcutRegistry::ContextRole),
+                 QString::number(int(ShortcutRegistry::GlobalContext)));
+        QVERIFY(!registry.validationError(id, QStringLiteral("Ctrl+K")).isEmpty());
+        QCOMPARE(registry.setBinding(id, QStringLiteral("Ctrl+Alt+L")), QString());
+        QCOMPARE(registry.sequenceFor(id), QStringLiteral("Ctrl+Alt+L"));
+        registry.resetToDefault(id);
+        QCOMPARE(registry.sequenceFor(id), QString());
     }
 
     void physicalDigitKeyMapsTheMainRowOnEveryPlatform()
