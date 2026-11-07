@@ -113,6 +113,55 @@ class ActivityModelTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void favouritesOnlyKeepsFavouriteRoomsAndFollowsTagChanges()
+    {
+        Harness h;
+        const QString fav = QStringLiteral("!fav:mock.local");
+        RoomInfo favRoom;
+        favRoom.id = fav;
+        favRoom.name = QStringLiteral("Fav");
+        favRoom.isFavourite = true;
+        RoomInfo plain;
+        plain.id = kRoom;
+        plain.name = QStringLiteral("Plain");
+        h.client.roomSet = {favRoom, plain};
+        h.model.seed({
+            QVariantMap{{"eventId", "$fav"}, {"roomId", fav},
+                        {"threadRootId", "$froot"}, {"senderId", "@bob:mock.local"},
+                        {"kind", "mention"}, {"preview", "in a favourite"},
+                        {"timestampMs", 300}},
+            QVariantMap{{"eventId", "$plain"}, {"roomId", kRoom},
+                        {"threadRootId", "$proot"}, {"senderId", "@bob:mock.local"},
+                        {"kind", "mention"}, {"preview", "elsewhere"},
+                        {"timestampMs", 200}}});
+        QCOMPARE(h.model.rowCount(), 2);
+        const int badge = h.model.unseenCount();
+        QSignalSpy toggled(&h.model, &ActivityModel::favouritesOnlyChanged);
+        h.model.setProperty("favouritesOnly", true);
+        QCOMPARE(toggled.size(), 1);
+        QCOMPARE(h.model.rowCount(), 1);
+        QCOMPARE(h.row(0).value("roomId").toString(), fav);
+        QCOMPARE(h.model.threadActivity("all").size(), 1);
+        QCOMPARE(h.model.unseenCount(), badge);
+        h.model.setProperty("searchQuery", "elsewhere");
+        QCOMPARE(h.model.rowCount(), 0);
+        h.model.setProperty("searchQuery", "");
+
+        h.client.roomSet[1].isFavourite = true;
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.rowCount(), 2);
+        h.client.roomSet[0].isFavourite = false;
+        Q_EMIT h.client.roomUpdated(fav);
+        QCOMPARE(h.model.rowCount(), 1);
+        QCOMPARE(h.row(0).value("roomId").toString(), kRoom);
+
+        h.model.setProperty("favouritesOnly", false);
+        QCOMPARE(h.model.rowCount(), 2);
+        h.model.setProperty("favouritesOnly", true);
+        h.model.clear();
+        QCOMPARE(h.model.favouritesOnly(), false);
+    }
+
     void searchFiltersLoadedRowsWithoutChangingBadge()
     {
         Harness h;

@@ -25,6 +25,8 @@ class ActivityModel : public QAbstractListModel
     Q_PROPERTY(bool reactionsVisible READ reactionsVisible
                    NOTIFY reactionsVisibleChanged)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
+    Q_PROPERTY(bool favouritesOnly READ favouritesOnly WRITE setFavouritesOnly
+                   NOTIFY favouritesOnlyChanged)
     Q_PROPERTY(QStringList keywords READ keywords WRITE setKeywords
                    NOTIFY keywordsChanged)
     Q_PROPERTY(bool historyUnavailable READ historyUnavailable
@@ -93,6 +95,8 @@ public:
     int unseenCount() const;
     QString searchQuery() const { return m_searchQuery; }
     void setSearchQuery(const QString &query);
+    bool favouritesOnly() const { return m_favouritesOnly; }
+    void setFavouritesOnly(bool on);
     QString filter() const { return m_filter; }
     void setFilter(const QString &filter);
     QStringList keywords() const { return m_keywords; }
@@ -150,6 +154,7 @@ Q_SIGNALS:
     void filterChanged();
     void reactionsVisibleChanged();
     void searchQueryChanged();
+    void favouritesOnlyChanged();
     void keywordsChanged();
     void historyUnavailableChanged();
     void readHorizonDaysChanged();
@@ -208,6 +213,9 @@ private:
     static QString realRoomId(const QString &roomId);
     static QString previewOf(const TimelineEvent &event);
     static QString glyphForMsgtype(const QString &msgtype);
+    QSet<QString> favouriteRoomIds() const;
+    void refreshFavourites();
+    bool passesFavourites(const Entry &e) const;
 
     MatrixClient *m_client = nullptr;
     Store m_store;
@@ -222,6 +230,8 @@ private:
     std::function<qint64()> m_now;
     mutable QHash<QString, bool> m_muteCache;
     QString m_searchQuery;
+    bool m_favouritesOnly = false;
+    QSet<QString> m_favouriteRoomIds;
     QString m_filter = QStringLiteral("all");
     bool m_reactionsVisible = true;
     QStringList m_keywords;

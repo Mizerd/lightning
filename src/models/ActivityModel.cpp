@@ -195,6 +195,10 @@ void ActivityModel::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::membersChanged, this,
             [this](const QString &roomId) { resolvePendingSeedNames(roomId); });
+    connect(m_client, &MatrixClient::roomsChanged, this,
+            &ActivityModel::refreshFavourites);
+    connect(m_client, &MatrixClient::roomUpdated, this,
+            [this](const QString &) { refreshFavourites(); });
 }
 
 void ActivityModel::scheduleStoreLoad()
@@ -334,6 +338,11 @@ void ActivityModel::clear()
     beginResetModel();
     m_searchQuery.clear();
     Q_EMIT searchQueryChanged();
+    if (m_favouritesOnly) {
+        m_favouritesOnly = false;
+        Q_EMIT favouritesOnlyChanged();
+    }
+    m_favouriteRoomIds.clear();
     m_entries.clear();
     m_visible.clear();
     m_ids.clear();
@@ -750,7 +759,8 @@ QVariantList ActivityModel::threadActivity(const QString &scope) const
     QHash<QString, QHash<QString, QString>> loadedRoots;
     for (const Entry &e : m_entries) {
         if (e.threadRootId.isEmpty() || e.eventId.isEmpty()
-            || isMutedRoom(e) || e.kind == QLatin1String("reaction"))
+            || isMutedRoom(e) || e.kind == QLatin1String("reaction")
+            || !passesFavourites(e))
             continue;
         const QString key = e.roomId + QChar(0x1f) + e.threadRootId;
         int pos = positions.value(key, -1);
@@ -888,8 +898,47 @@ void ActivityModel::setFilter(const QString &filter)
     Q_EMIT filterChanged();
 }
 
+QSet<QString> ActivityModel::favouriteRoomIds() const
+{
+    QSet<QString> ids;
+    if (!m_client)
+        return ids;
+    for (const RoomInfo &room : m_client->rooms())
+        if (room.isFavourite)
+            ids.insert(room.id);
+    return ids;
+}
+
+void ActivityModel::refreshFavourites()
+{
+    if (!m_favouritesOnly)
+        return;
+    QSet<QString> ids = favouriteRoomIds();
+    if (ids == m_favouriteRoomIds)
+        return;
+    m_favouriteRoomIds = std::move(ids);
+    rebuildVisible();
+}
+
+bool ActivityModel::passesFavourites(const Entry &e) const
+{
+    return !m_favouritesOnly || m_favouriteRoomIds.contains(realRoomId(e.roomId));
+}
+
+void ActivityModel::setFavouritesOnly(bool on)
+{
+    if (m_favouritesOnly == on)
+        return;
+    m_favouritesOnly = on;
+    m_favouriteRoomIds = on ? favouriteRoomIds() : QSet<QString>();
+    rebuildVisible();
+    Q_EMIT favouritesOnlyChanged();
+}
+
 bool ActivityModel::passesFilter(const Entry &e) const
 {
+    if (!passesFavourites(e))
+        return false;
     const QString query = m_searchQuery.trimmed();
     if (!query.isEmpty()
         && !e.roomName.contains(query, Qt::CaseInsensitive)

@@ -50,6 +50,7 @@ private:
 import QtQuick
 QtObject {
     property var shortcuts: testShortcuts
+    property var roomList: QtObject { property bool roomFavouritesSupported: true }
     property string settingsSection: ""
     property var settings: QtObject { property string clockTimeFormat: "hh:mm" }
     property var stickers: QtObject {
@@ -62,6 +63,7 @@ QtObject {
         property string filter: "all"
         property bool reactionsVisible: true
         property string searchQuery: ""
+        property bool favouritesOnly: false
         property bool historyUnavailable: false
         property bool activityHasMore: true
         property bool threadPageLoading: false
@@ -112,9 +114,14 @@ import MatrixClient
 ApplicationWindow {
     visible: true
     property int mainActionCalls: 0
+    property int findCalls: 0
     Shortcut {
         sequence: "Ctrl+J"
         onActivated: mainActionCalls += 1
+    }
+    Shortcut {
+        sequence: "Ctrl+F"
+        onActivated: findCalls += 1
     }
     width: 900
     height: 800
@@ -205,6 +212,98 @@ private Q_SLOTS:
         QCOMPARE(f.activity->property("searchQuery").toString(), QString());
     }
 
+    void typingFromTheListLandsInTheSearchField()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *field = f.panel->findChild<QQuickItem *>(QStringLiteral("activitySearch"));
+        QVERIFY(w);
+        QVERIFY(field);
+        QVERIFY(f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_B);
+        QTest::keyClick(w, Qt::Key_O);
+        QVERIFY(field->hasActiveFocus());
+        QCOMPARE(f.activity->property("searchQuery").toString(), QStringLiteral("bo"));
+        QCOMPARE(field->property("text").toString(), QStringLiteral("bo"));
+        QTest::keyClick(w, Qt::Key_Down);
+        QVERIFY(f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_Space);
+        QCOMPARE(f.activity->property("openCalls").toInt(), 1);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void findKeyFocusesTheSearchFieldInsideTheModal()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *field = f.panel->findChild<QQuickItem *>(QStringLiteral("activitySearch"));
+        QVERIFY(w);
+        QVERIFY(field);
+        QVERIFY(f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_F, Qt::ControlModifier);
+        QVERIFY(field->hasActiveFocus());
+        QCOMPARE(f.window->property("findCalls").toInt(), 0);
+        QCOMPARE(f.shortcuts->setBinding(QStringLiteral("room.find"),
+                                         QStringLiteral("Ctrl+Shift+F")), QString());
+        f.list->forceActiveFocus();
+        QTest::keyClick(w, Qt::Key_F, Qt::ControlModifier | Qt::ShiftModifier);
+        QVERIFY(field->hasActiveFocus());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void escapeClearsTheSearchBeforeItClosesTheDialog()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *field = f.panel->findChild<QQuickItem *>(QStringLiteral("activitySearch"));
+        QVERIFY(w);
+        QVERIFY(field);
+        QTest::keyClick(w, Qt::Key_X);
+        QVERIFY(field->hasActiveFocus());
+        QCOMPARE(f.activity->property("searchQuery").toString(), QStringLiteral("x"));
+        QTest::keyClick(w, Qt::Key_Escape);
+        settle();
+        QVERIFY(f.panel->property("opened").toBool());
+        QCOMPARE(f.activity->property("searchQuery").toString(), QString());
+        QCOMPARE(field->property("text").toString(), QString());
+        QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+
+        QVERIFY(QMetaObject::invokeMethod(f.panel, "openPanel"));
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        f.activity->setProperty("searchQuery", QStringLiteral("ops"));
+        f.list->forceActiveFocus();
+        QTest::keyClick(w, Qt::Key_Escape);
+        settle();
+        QVERIFY(f.panel->property("opened").toBool());
+        QCOMPARE(f.activity->property("searchQuery").toString(), QString());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void theFavouritesStarTogglesTheScopeWhereFavouritesExist()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        QQuickItem *star = findVisualItem(w->contentItem(),
+                                          QStringLiteral("activityFavouritesOnly"));
+        QVERIFY(star);
+        QVERIFY(star->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(star, "clicked"));
+        QCOMPARE(f.activity->property("favouritesOnly").toBool(), true);
+        QVERIFY(star->property("active").toBool());
+        QVERIFY(QMetaObject::invokeMethod(star, "clicked"));
+        QCOMPARE(f.activity->property("favouritesOnly").toBool(), false);
+        f.app->property("roomList").value<QObject *>()
+            ->setProperty("roomFavouritesSupported", false);
+        QTRY_VERIFY(!star->isVisible());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
     void searchFieldStaysPutWhenNothingMatches()
     {
         Fixture f;
@@ -215,12 +314,15 @@ private Q_SLOTS:
         f.activity->setProperty("searchQuery", QStringLiteral("zzzzqqq-no-match"));
         settle();
         QCOMPARE(field->mapToScene(QPointF(0, 0)).y(), before);
+        auto *searchRow = f.panel->findChild<QQuickItem *>(QStringLiteral("activitySearchRow"));
+        QVERIFY(searchRow);
+        QCOMPARE(field->parentItem(), searchRow);
         for (const char *name : {"activityEmptyState", "activityHistoryUnavailable"}) {
             auto *line = f.panel->findChild<QQuickItem *>(QString::fromLatin1(name));
             QVERIFY(line);
-            QVERIFY(line->parentItem() == field->parentItem());
-            const auto siblings = field->parentItem()->childItems();
-            QVERIFY2(siblings.indexOf(field) < siblings.indexOf(line), name);
+            QVERIFY(line->parentItem() == searchRow->parentItem());
+            const auto siblings = searchRow->parentItem()->childItems();
+            QVERIFY2(siblings.indexOf(searchRow) < siblings.indexOf(line), name);
         }
         f.activity->setProperty("searchQuery", QString());
         settle();

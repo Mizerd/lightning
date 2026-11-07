@@ -54,9 +54,58 @@ Dialog {
         return root.opened && app.shortcuts
             ? app.shortcuts.dialogActionForKey(event.key, event.modifiers, false) : ""
     }
+    function isFindKey(event) {
+        if (!app.shortcuts)
+            return event.key === Qt.Key_F && event.modifiers === Qt.ControlModifier
+        const seq = app.shortcuts.sequenceFromKeyEvent(event.key, event.modifiers)
+        return seq.length > 0 && seq === app.shortcuts.sequenceFor("room.find")
+    }
+    function searchHasText() {
+        return activitySearch.text.length > 0
+            || (!!root.activity && root.activity.searchQuery.length > 0)
+    }
+    function clearSearch() {
+        activitySearch.clear()
+        if (root.activity)
+            root.activity.searchQuery = ""
+    }
+    function focusSearch() {
+        activitySearch.forceActiveFocus(Qt.ShortcutFocusReason)
+        activitySearch.selectAll()
+    }
+    function typedText(event) {
+        if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+            return ""
+        const t = event.text || ""
+        return t.length > 0 && t.trim().length > 0 && t.charCodeAt(0) >= 32
+               && t.charCodeAt(0) !== 127 ? t : ""
+    }
+    function overridesShortcut(event) {
+        return root.dialogAction(event) !== "" || root.isFindKey(event)
+            || (event.key === Qt.Key_Escape && root.searchHasText())
+    }
     function handleDialogKey(event) {
+        if (event.key === Qt.Key_Escape && root.searchHasText()) {
+            root.clearSearch()
+            event.accepted = true
+            return true
+        }
+        if (root.isFindKey(event)) {
+            root.focusSearch()
+            event.accepted = true
+            return true
+        }
         if (activitySearch.activeFocus && event.key !== Qt.Key_Escape)
             return false
+        const typed = root.typedText(event)
+        if (typed.length > 0) {
+            activitySearch.forceActiveFocus(Qt.ShortcutFocusReason)
+            activitySearch.insert(activitySearch.cursorPosition, typed)
+            if (root.activity)
+                root.activity.searchQuery = activitySearch.text
+            event.accepted = true
+            return true
+        }
         const action = root.dialogAction(event)
         if (action === "dialog.close") {
             root.close()
@@ -190,7 +239,7 @@ Dialog {
     contentItem: ColumnLayout {
         id: panelColumn
         Keys.onShortcutOverride: (event) => {
-            if (root.dialogAction(event) !== "")
+            if (root.overridesShortcut(event))
                 event.accepted = true
         }
         Keys.onPressed: (event) => root.handleDialogKey(event)
@@ -295,7 +344,8 @@ Dialog {
             Layout.fillWidth: true
             model: {
                 var tabs = [
-                    { value: "all", label: qsTr("All") },
+                    { value: "all", label: qsTr("All"),
+                      tip: qsTr("Everything addressed to you, newest first") },
                     { value: "mentions", label: qsTr("Mentions") },
                     { value: "replies", label: qsTr("Replies") },
                     { value: "threads", label: qsTr("Threads") }
@@ -376,14 +426,44 @@ Dialog {
             && root.activity.filter !== "keywords"
             && !root.showingThreads
 
-        TextField {
-            id: activitySearch
-            objectName: "activitySearch"
+        RowLayout {
+            objectName: "activitySearchRow"
             Layout.fillWidth: true
-            placeholderText: qsTr("Search loaded activity")
-            Accessible.name: placeholderText
-            text: root.activity ? root.activity.searchQuery : ""
-            onTextEdited: if (root.activity) root.activity.searchQuery = text
+            spacing: AppTheme.spacing8
+            TextField {
+                id: activitySearch
+                objectName: "activitySearch"
+                Layout.fillWidth: true
+                placeholderText: qsTr("Search loaded activity")
+                Accessible.name: placeholderText
+                text: root.activity ? root.activity.searchQuery : ""
+                onTextEdited: if (root.activity) root.activity.searchQuery = text
+                Keys.onDownPressed: (event) => {
+                    var activeList = root.showingThreads ? threadList : listView
+                    if (activeList.count > 0)
+                        activeList.forceActiveFocus(Qt.TabFocusReason)
+                    event.accepted = true
+                }
+            }
+            IconButton {
+                objectName: "activityFavouritesOnly"
+                Keys.forwardTo: [dialogKeySink]
+                visible: !!app.roomList && app.roomList.roomFavouritesSupported === true
+                storm: true
+                size: "sm"
+                iconName: "star"
+                active: !!root.activity && root.activity.favouritesOnly === true
+                Accessible.role: Accessible.CheckBox
+                Accessible.checkable: true
+                Accessible.checked: active
+                Accessible.name: qsTr("Favourites only")
+                ToolTip.text: active ? qsTr("Showing activity from favourite rooms only")
+                                     : qsTr("Show activity from favourite rooms only")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: if (root.activity)
+                    root.activity.favouritesOnly = !root.activity.favouritesOnly
+            }
         }
 
         Label {
@@ -411,6 +491,8 @@ Dialog {
                     return ""
                 if (root.activity && root.activity.searchQuery.trim().length > 0)
                     return qsTr("No loaded activity matches your search.")
+                if (root.activity.favouritesOnly)
+                    return qsTr("No activity from favourite rooms.")
                 if (root.showingThreads)
                     return root.threadScope === "following"
                            ? qsTr("No followed threads found in recent activity.")
