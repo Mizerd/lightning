@@ -398,7 +398,7 @@ impl SearchIndex {
     }
 
     pub(crate) fn remove_event(&self, event_id: &str) -> Result<(), String> {
-        self.note_redacted(event_id)?;
+        let _ = self.note_redacted(event_id);
         self.conn
             .execute("DELETE FROM messages WHERE event_id = ?1", params![event_id])
             .map_err(|e| format!("cannot remove a message from the index: {e}"))?;
@@ -437,11 +437,13 @@ impl SearchIndex {
             let placeholders = vec!["?"; slice.len()].join(",");
             let sql = format!("SELECT event_id FROM redacted WHERE event_id IN ({placeholders})");
             let Ok(mut stmt) = self.conn.prepare(&sql) else { continue };
-            if let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(slice.iter()), |r| {
-                r.get::<_, String>(0)
-            }) {
-                out.extend(rows.flatten());
-            }
+            let found: Vec<String> = match stmt
+                .query_map(rusqlite::params_from_iter(slice.iter()), |r| r.get::<_, String>(0))
+            {
+                Ok(rows) => rows.flatten().collect(),
+                Err(_) => Vec::new(),
+            };
+            out.extend(found);
         }
         out
     }
@@ -1101,14 +1103,6 @@ pub(crate) struct RoomBatch {
 #[cfg(test)]
 #[path = "sweep_gap_tests.rs"]
 mod sweep_gap_tests;
-
-pub(crate) async fn collect_room(room: &Room) -> Result<RoomBatch, String> {
-    let (room_cache, _drop_handles) = room
-        .event_cache()
-        .await
-        .map_err(|e| format!("no event cache for the room: {e}"))?;
-    collect_from(room, &room_cache).await
-}
 
 pub(crate) async fn collect_from(
     room: &Room,
@@ -1959,7 +1953,11 @@ mod tests {
     fn a_migration_that_cannot_complete_leaves_the_old_schema_and_no_open_transaction() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(LEGACY_SCHEMA).unwrap();
-        let ix = SearchIndex { conn, generation: std::sync::atomic::AtomicU64::new(1) };
+        let ix = SearchIndex {
+            conn,
+            generation: std::sync::atomic::AtomicU64::new(1),
+            unpruned: std::sync::atomic::AtomicUsize::new(0),
+        };
         ix.conn.execute_batch("PRAGMA query_only = ON;").unwrap();
         assert!(ix.migrate().is_err());
         ix.conn.execute_batch("PRAGMA query_only = OFF;").unwrap();
@@ -2425,7 +2423,11 @@ mod tests {
         conn.execute_batch(LEGACY_SCHEMA).unwrap();
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, 0);
-        let ix_before = SearchIndex { conn, generation: std::sync::atomic::AtomicU64::new(1) };
+        let ix_before = SearchIndex {
+            conn,
+            generation: std::sync::atomic::AtomicU64::new(1),
+            unpruned: std::sync::atomic::AtomicUsize::new(0),
+        };
         let fingerprint_before = body_fts_fingerprint(&ix_before);
         let changes_before = ix_before.conn.total_changes();
         let SearchIndex { conn, .. } = ix_before;
