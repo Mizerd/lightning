@@ -37,6 +37,12 @@ Item {
     readonly property int avatarsMode: app.settings.timelineAvatars
     readonly property int reactionsMode: app.settings.timelineReactions
     readonly property int receiptsMode: app.settings.timelineReadReceipts
+    readonly property bool messageActionsHidden:
+        app.settings.timelineMessageActions === 2
+    onMessageActionsHiddenChanged: {
+        if (messageActionsHidden)
+            messageActionBarLoader.latched = false
+    }
     readonly property bool anyHoverReveal:
         avatarsMode === 1 || reactionsMode === 1 || receiptsMode === 1
     // Opacity only: building on hover would cost frames under a moving pointer.
@@ -617,6 +623,7 @@ Item {
     }
     readonly property bool actionsVisible:
         !root.readOnlyView
+        && !root.messageActionsHidden
         && !root.transientOwnerBlocks
         && root.hasServerEventId
         && (root.moreMenuOpen
@@ -1048,7 +1055,7 @@ Item {
                     items.push(chips[i])
                 return items
             }
-            toolbar: messageActionBarLoader
+            toolbar: root.messageActionsHidden ? null : messageActionBarLoader
             receipts: receiptStripLoader.row
         }
     }

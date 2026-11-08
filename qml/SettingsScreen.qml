@@ -228,6 +228,11 @@ Item {
           keywords: QT_TR_NOOP("read receipts seen faces avatars hide hover declutter"),
           section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           anchor: "timelineReadReceiptsCombo" },
+        { title: qsTr("Message actions on hover"),
+          keywords: QT_TR_NOOP("message actions hover bar toolbar react reply thread "
+                         + "popup hide declutter irc"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
+          anchor: "timelineMessageActionsCombo" },
         { title: qsTr("Show emoji-only messages large"),
           keywords: QT_TR_NOOP("big large emoji jumbo size"),
           section: "chat", breadcrumb: qsTr("Chat · Timeline"),
@@ -4895,6 +4900,34 @@ Item {
                                     }
                                     onActivated: app.settings.timelineReadReceipts = currentValue
                                     Accessible.description: qsTr("Show who has read up to a message, only on the message under the pointer, or not at all")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Message actions on hover")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: timelineMessageActionsCombo
+                                    objectName: "timelineMessageActionsCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: [root.timelineVisibilityChoices[0],
+                                            root.timelineVisibilityChoices[2]]
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.timelineMessageActions)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onTimelineMessageActionsChanged() {
+                                            timelineMessageActionsCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.timelineMessageActions = currentValue
+                                    Accessible.description: qsTr("Show the react, reply and thread buttons on the message under the pointer, or not at all. The right-click menu offers every action either way")
                                 }
                                 Label {
                                     objectName: "timelineVisibilityHint"

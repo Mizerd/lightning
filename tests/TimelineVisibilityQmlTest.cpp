@@ -688,6 +688,70 @@ private Q_SLOTS:
                  "the reveal handler tracks the pointer with nothing to reveal");
     }
 
+    void messageActionsChoicePersistsAndOnlyHideSticks()
+    {
+        {
+            SettingsManager settings;
+            QCOMPARE(settings.property("timelineMessageActions").toInt(), kShow);
+            settings.setProperty("timelineMessageActions", kHide);
+        }
+        {
+            SettingsManager reopened;
+            QCOMPARE(reopened.property("timelineMessageActions").toInt(), kHide);
+            reopened.setProperty("timelineMessageActions", kOnHover);
+            QCOMPARE(reopened.property("timelineMessageActions").toInt(), kShow);
+        }
+        QSettings raw;
+        raw.setValue(QStringLiteral("timeline/messageActions"), 7);
+        raw.sync();
+        SettingsManager settings;
+        QCOMPARE(settings.property("timelineMessageActions").toInt(), kShow);
+    }
+
+    void hiddenMessageActionsBuildNoBarButTheMenuKeepsEveryAction()
+    {
+        AppController app(AppController::MockBackend);
+        app.settings()->setMessageLayout(0);
+        const QVariantMap f = baseFixture();
+
+        Delegate shown;
+        QVERIFY(build(app, f, shown));
+        hoverRow(shown);
+        auto *shownBar = find(shown, "messageActionBarLoader");
+        QVERIFY(shownBar);
+        QTRY_VERIFY2(shownBar->property("item").value<QObject *>(),
+                     qPrintable(diag(shown)));
+
+        set(app, "timelineMessageActions", kHide);
+        Delegate hidden;
+        QVERIFY(build(app, f, hidden));
+        hoverRow(hidden);
+        settle();
+        QCOMPARE(hidden.view->property("hoveredActionsKey").toString().isEmpty(), false);
+        auto *bar = find(hidden, "messageActionBarLoader");
+        QVERIFY(bar);
+        QVERIFY(!bar->property("active").toBool());
+        QVERIFY(!bar->property("item").value<QObject *>());
+        QVERIFY(!hidden.root->property("actionsVisible").toBool());
+
+        QVERIFY(QMetaObject::invokeMethod(hidden.root, "openContextMenu",
+                                          Q_ARG(QVariant, 10), Q_ARG(QVariant, 10),
+                                          Q_ARG(QVariant, false)));
+        auto *menu = hidden.root->findChild<QObject *>(QStringLiteral("messageContextMenu"));
+        QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QVERIFY(!bar->property("item").value<QObject *>());
+        auto *strip = menu->findChild<QObject *>(QStringLiteral("quickReactionStrip"));
+        QVERIFY2(strip && strip->property("visible").toBool(), "no reactions in the menu");
+        QStringList texts;
+        for (QObject *o : menu->findChildren<QObject *>())
+            if (o->property("visible").toBool())
+                texts << o->property("text").toString();
+        QVERIFY2(texts.contains(QStringLiteral("Reply"))
+                     && texts.contains(QStringLiteral("Reply in thread")),
+                 qPrintable(texts.join(QStringLiteral(" | "))));
+    }
+
     void largeEmojiCanBeTurnedOff()
     {
         AppController app(AppController::MockBackend);

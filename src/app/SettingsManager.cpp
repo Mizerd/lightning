@@ -109,6 +109,7 @@ constexpr auto kCollapseEmbeds      = "timeline/collapseEmbeds";
 constexpr auto kTimelineAvatars     = "timeline/avatars";
 constexpr auto kTimelineReactions   = "timeline/reactions";
 constexpr auto kTimelineReadReceipts = "timeline/readReceipts";
+constexpr auto kTimelineMessageActions = "timeline/messageActions";
 constexpr auto kLargeEmoji          = "timeline/largeEmoji";
 constexpr auto kJumpToNewestOnSend  = "timeline/jumpToNewestOnSend";
 constexpr auto kReducedMotion       = "ui/reducedMotion";
@@ -732,6 +733,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT timelineAvatarsChanged();
     Q_EMIT timelineReactionsChanged();
     Q_EMIT timelineReadReceiptsChanged();
+    Q_EMIT timelineMessageActionsChanged();
     Q_EMIT largeEmojiChanged();
     Q_EMIT jumpToNewestOnSendChanged();
     Q_EMIT hiddenComposerButtonsChanged();
@@ -4279,6 +4281,22 @@ void SettingsManager::setTimelineReadReceipts(int mode)
         return;
     setAppearanceValue(kTimelineReadReceipts, mode);
     Q_EMIT timelineReadReceiptsChanged();
+}
+
+int SettingsManager::timelineMessageActions() const
+{
+    return appearanceValue(kTimelineMessageActions, kTimelineShow).toInt()
+            == kTimelineHide
+        ? kTimelineHide : kTimelineShow;
+}
+
+void SettingsManager::setTimelineMessageActions(int mode)
+{
+    mode = mode == kTimelineHide ? kTimelineHide : kTimelineShow;
+    if (timelineMessageActions() == mode)
+        return;
+    setAppearanceValue(kTimelineMessageActions, mode);
+    Q_EMIT timelineMessageActionsChanged();
 }
 
 bool SettingsManager::largeEmoji() const

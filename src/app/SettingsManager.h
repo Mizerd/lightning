@@ -259,6 +259,9 @@ class SettingsManager : public QObject
     Q_PROPERTY(int timelineReadReceipts READ timelineReadReceipts
                    WRITE setTimelineReadReceipts
                    NOTIFY timelineReadReceiptsChanged)
+    Q_PROPERTY(int timelineMessageActions READ timelineMessageActions
+                   WRITE setTimelineMessageActions
+                   NOTIFY timelineMessageActionsChanged)
     Q_PROPERTY(bool largeEmoji READ largeEmoji WRITE setLargeEmoji
                    NOTIFY largeEmojiChanged)
     Q_PROPERTY(bool jumpToNewestOnSend READ jumpToNewestOnSend
@@ -728,6 +731,9 @@ public:
     void setTimelineReactions(int mode);
     int timelineReadReceipts() const;
     void setTimelineReadReceipts(int mode);
+    // kTimelineShow or kTimelineHide; the bar is hover-only already.
+    int timelineMessageActions() const;
+    void setTimelineMessageActions(int mode);
     bool largeEmoji() const;
     void setLargeEmoji(bool v);
     bool jumpToNewestOnSend() const;
@@ -1070,6 +1076,7 @@ Q_SIGNALS:
     void timelineAvatarsChanged();
     void timelineReactionsChanged();
     void timelineReadReceiptsChanged();
+    void timelineMessageActionsChanged();
     void largeEmojiChanged();
     void jumpToNewestOnSendChanged();
     void reducedMotionChanged();
