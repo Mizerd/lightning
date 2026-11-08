@@ -404,6 +404,19 @@ impl SearchIndex {
         Ok(())
     }
 
+    pub(crate) fn has_room(&self, room_id: &str) -> Result<bool, String> {
+        let found: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM messages WHERE room_id = ?1 LIMIT 1",
+                params![room_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(found.is_some())
+    }
+
     pub(crate) fn generation(&self) -> u64 {
         self.generation.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -877,6 +890,37 @@ pub(crate) fn sweep_window<T: Clone>(all: Vec<T>, start: usize, batch: usize) ->
     all.iter().cycle().skip(from).take(batch).cloned().collect()
 }
 
+/// Pages a sweep may fetch to close the gaps of rooms with new messages.
+pub(crate) const SWEEP_CATCH_UP_PAGES: u16 = 20;
+const SWEEP_CATCH_UP_PAGES_PER_ROOM: u16 = 3;
+const SWEEP_CATCH_UP_PAGE_SIZE: u16 = 50;
+
+static SWEEP_LAST_MS: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> =
+    std::sync::Mutex::new(None);
+
+/// Rooms active since the previous sweep first, newest first, then the
+/// round-robin window over the rest; `batch` rooms in all. The second value is
+/// how far the round-robin cursor moved.
+pub(crate) fn sweep_order<T: Clone>(
+    all: Vec<(T, u64)>,
+    since_ms: u64,
+    start: usize,
+    batch: usize,
+) -> (Vec<T>, usize) {
+    let (mut recent, rest): (Vec<_>, Vec<_>) =
+        all.into_iter().partition(|(_, stamp)| since_ms > 0 && *stamp >= since_ms);
+    recent.sort_by(|a, b| b.1.cmp(&a.1));
+    recent.truncate(batch);
+    let left = batch - recent.len();
+    let window: Vec<T> = if left == 0 {
+        Vec::new()
+    } else {
+        sweep_window(rest.into_iter().map(|(room, _)| room).collect(), start, left)
+    };
+    let moved = window.len();
+    (recent.into_iter().map(|(room, _)| room).chain(window).collect(), moved)
+}
+
 pub(crate) async fn sweep(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -889,22 +933,100 @@ pub(crate) async fn sweep(
     joined.sort_by(|a, b| a.room_id().cmp(b.room_id()));
     let account = client.user_id().map(|u| u.to_string()).unwrap_or_default();
     let start = sweep_cursor(&account);
-    for room in sweep_window(joined, start, SWEEP_ROOM_BATCH) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    let since = SWEEP_LAST_MS
+        .lock()
+        .ok()
+        .and_then(|mut g| g.get_or_insert_with(Default::default).insert(account.clone(), now))
+        .unwrap_or(0);
+    let stamped = joined
+        .into_iter()
+        .map(|room| {
+            let stamp = room.latest_event_timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0);
+            (room, stamp)
+        })
+        .collect();
+    let (order, moved) = sweep_order(stamped, since, start, SWEEP_ROOM_BATCH);
+    let mut budget = SWEEP_CATCH_UP_PAGES;
+    for room in order {
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
         rooms_done += 1;
-        let events = match collect_room(&room).await {
-            Ok(events) => events,
-            Err(_) => continue,
-        };
-        match write_locked(index, generation, room.room_id().as_str(), &events) {
+        match sweep_room(&room, index, generation, stop, &mut budget).await {
             Some(n) => written += n,
             None => break,
         }
     }
-    set_sweep_cursor(&account, start.wrapping_add(rooms_done));
+    set_sweep_cursor(&account, start.wrapping_add(moved));
     (rooms_done, written)
+}
+
+/// Index what the event cache holds for one room. When an already-indexed
+/// room shows new messages, page backwards too: the room list syncs one event
+/// per room (`timeline_limit` 1), so anything else that arrived in the same
+/// sync, or while the client was away, sits behind a gap that only pagination
+/// fills. `None` when the index was cleared under the sweep.
+async fn sweep_room(
+    room: &Room,
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+    generation: u64,
+    stop: &std::sync::atomic::AtomicBool,
+    budget: &mut u16,
+) -> Option<usize> {
+    let room_id = room.room_id().as_str();
+    let Ok((room_cache, _drop_handles)) = room.event_cache().await else {
+        return Some(0);
+    };
+    let Ok(batch) = collect_from(room, &room_cache).await else {
+        return Some(0);
+    };
+    let mut seen: HashSet<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
+    let (indexed_before, fresh) = {
+        let guard = index.lock().ok()?;
+        let ix = guard.as_ref()?;
+        let ids: Vec<String> = seen.iter().cloned().collect();
+        let known = ix.known(&ids).unwrap_or_default();
+        (ix.has_room(room_id).unwrap_or(false), ids.len() > known.len())
+    };
+    let mut written = write_locked(index, generation, room_id, &batch)?;
+    if !indexed_before || !fresh {
+        return Some(written);
+    }
+    let pagination = room_cache.pagination();
+    for _ in 0..SWEEP_CATCH_UP_PAGES_PER_ROOM {
+        if *budget == 0 || stop.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        *budget -= 1;
+        let Ok(page) = pagination.run_backwards_once(SWEEP_CATCH_UP_PAGE_SIZE).await else {
+            break;
+        };
+        let Ok(batch) = collect_from(room, &room_cache).await else {
+            break;
+        };
+        let new_ids: Vec<String> = batch
+            .ordinary
+            .iter()
+            .map(|c| c.event_id.clone())
+            .filter(|id| !seen.contains(id))
+            .collect();
+        let all_known = {
+            let guard = index.lock().ok()?;
+            let ix = guard.as_ref()?;
+            !new_ids.is_empty() && ix.known(&new_ids).unwrap_or_default().len() == new_ids.len()
+        };
+        seen.extend(new_ids);
+        written += write_locked(index, generation, room_id, &batch)?;
+        // A page made only of messages indexed earlier means the gap is closed.
+        if all_known || page.reached_start {
+            break;
+        }
+    }
+    Some(written)
 }
 
 pub(crate) struct RoomBatch {
@@ -913,6 +1035,10 @@ pub(crate) struct RoomBatch {
     names: std::collections::HashMap<String, String>,
     undecryptable: Vec<String>,
 }
+
+#[cfg(test)]
+#[path = "sweep_gap_tests.rs"]
+mod sweep_gap_tests;
 
 pub(crate) async fn collect_room(room: &Room) -> Result<RoomBatch, String> {
     let (room_cache, _drop_handles) = room
