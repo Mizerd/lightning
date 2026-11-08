@@ -669,7 +669,7 @@ private Q_SLOTS:
         QProcess launch;
         launch.setProcessEnvironment(profileEnv(profile));
         launch.setWorkingDirectory(profile);
-        launch.start(binary(), { QStringLiteral("--backend=rust"), link });
+        launch.start(binary(), { link });
         QVERIFY(launch.waitForStarted(10000));
         QTRY_VERIFY_WITH_TIMEOUT(launch.state() == QProcess::NotRunning, 60000);
         QVERIFY2(launch.exitCode() == 0, launch.readAllStandardError().constData());
