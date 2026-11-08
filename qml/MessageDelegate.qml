@@ -3004,35 +3004,19 @@ Item {
                                     AppTheme.scaled(AppTheme.reactionEmojiSize)
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            Image {
+                            CustomEmojiImage {
                                 id: customEmojiImage
+                                objectName: "reactionCustomEmoji"
                                 visible: reactionChip.customEmojiReaction
                                 Layout.alignment: Qt.AlignVCenter
                                 Layout.preferredHeight:
                                     AppTheme.scaled(AppTheme.reactionEmojiBox)
                                 Layout.preferredWidth:
                                     AppTheme.scaled(AppTheme.reactionEmojiBox)
-                                fillMode: Image.PreserveAspectFit
-                                asynchronous: true
-                                cache: root.mediaPixmapCacheAllowed
-                                property int resolveTick: 0
-                                source: {
-                                    var _tick = resolveTick
-                                    return (root.mediaPixmapRetained
-                                            && reactionChip.customEmojiReaction
-                                            && app.mediaBridge.supported)
-                                        ? app.mediaBridge.mxcImageSource(
-                                              modelData.key, 64)
-                                        : ""
-                                }
-                                Connections {
-                                    target: app.mediaBridge
-                                    enabled: reactionChip.customEmojiReaction
-                                    function onMediaCached(cacheKey) {
-                                        if (cacheKey.endsWith(":" + modelData.key))
-                                            customEmojiImage.resolveTick++
-                                    }
-                                }
+                                mxc: reactionChip.customEmojiReaction ? modelData.key : ""
+                                retained: root.mediaPixmapRetained
+                                onScreen: root.rowOnScreen
+                                stillCache: root.mediaPixmapCacheAllowed
                             }
                             Label {
                                 Layout.alignment: Qt.AlignVCenter

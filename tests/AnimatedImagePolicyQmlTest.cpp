@@ -1055,6 +1055,88 @@ QtObject {
 #endif
     }
 
+    void anAnimatedPackEmojiPlaysUnlessMotionIsReduced()
+    {
+        int checked = 0;
+        for (const bool reduced : { false, true }) {
+            Harness h;
+            prepare(h, 0);
+            QObject *t = theme(h);
+            QVERIFY(t);
+            t->setProperty("reducedMotion", reduced);
+            const auto restore = qScopeGuard([t] {
+                t->setProperty("reducedMotion", false);
+            });
+            const QString mxc = QStringLiteral("mxc://x/meow_wobble");
+            QSignalSpy created(h.engine.get(),
+                               &QQmlApplicationEngine::objectCreated);
+            h.engine->setInitialProperties({
+                { QStringLiteral("mxc"), mxc },
+                { QStringLiteral("width"), 28 },
+                { QStringLiteral("height"), 28 },
+            });
+            h.engine->loadFromModule(QStringLiteral("MatrixClient"),
+                                     QStringLiteral("CustomEmojiImage"));
+            QVERIFY(!created.isEmpty() || created.wait(3000));
+            auto *emoji = qobject_cast<QQuickItem *>(
+                created.at(0).at(0).value<QObject *>());
+            QVERIFY(emoji);
+            h.window->resize(60, 60);
+            emoji->setParentItem(h.window->contentItem());
+            h.window->show();
+            QVERIFY(QTest::qWaitForWindowExposed(h.window.get()));
+
+            int thumb = -1;
+            QTRY_VERIFY_WITH_TIMEOUT((thumb = fetchIndex(h, mxc, 64)) >= 0,
+                                     kTimeoutMs);
+            h.client->succeed(h.client->fetches.at(thumb).opId,
+                              solidPng(64, QColor(200, 200, 200)));
+            auto *still = emoji->findChild<QQuickItem *>(
+                QStringLiteral("customEmojiStill"));
+            QVERIFY(still);
+            QTRY_COMPARE_WITH_TIMEOUT(still->property("status").toInt(), 1,
+                                      kTimeoutMs);
+
+            if (reduced) {
+                QTest::qWait(300);
+                QCOMPARE(fetchIndex(h, mxc, 0), -1);
+                QVERIFY(!emoji->property("animating").toBool());
+                QVERIFY(!emoji->findChild<QQuickItem *>(
+                    QStringLiteral("customEmojiAnimatedImage")));
+                QVERIFY(still->isVisible());
+            } else {
+                int original = -1;
+                QTRY_VERIFY_WITH_TIMEOUT(
+                    (original = fetchIndex(h, mxc, 0)) >= 0, kTimeoutMs);
+                h.client->succeed(h.client->fetches.at(original).opId,
+                                  solidFramesGif(64, kFrames));
+                QTRY_VERIFY_WITH_TIMEOUT(emoji->property("animating").toBool(),
+                                         kTimeoutMs);
+                auto *movie = emoji->findChild<QQuickItem *>(
+                    QStringLiteral("customEmojiAnimatedImage"));
+                QVERIFY(movie);
+                QVERIFY(framesOver(movie, 600).size() >= 2);
+                QVERIFY(!still->isVisible());
+                QCOMPARE(h.bridge->motionSlotsInUseForTest(), 1);
+
+                t->setProperty("reducedMotion", true);
+                QTRY_VERIFY_WITH_TIMEOUT(!emoji->property("animating").toBool(),
+                                         kTimeoutMs);
+                QVERIFY(still->isVisible());
+                QCOMPARE(h.bridge->motionSlotsInUseForTest(), 0);
+            }
+            QCOMPARE(h.warnings, QStringList{});
+            ++checked;
+        }
+        QCOMPARE(checked, 2);
+        for (const char *file : { "MessageDelegate.qml", "EmojiPicker.qml",
+                                  "EmojiCompletionPopup.qml" }) {
+            QVERIFY2(readQml(QString::fromLatin1(file))
+                         .contains(QStringLiteral("CustomEmojiImage {")),
+                     file);
+        }
+    }
+
     void everyAnimatedImageFollowsTheOneRule()
     {
         QDir qmlDir(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml"));
@@ -1095,6 +1177,7 @@ QtObject {
             { QStringLiteral("Avatar.qml"), 1 },
             { QStringLiteral("BannerMotion.qml"), 1 },
             { QStringLiteral("ChatBackdrop.qml"), 1 },
+            { QStringLiteral("CustomEmojiImage.qml"), 1 },
             { QStringLiteral("GifPicker.qml"), 1 },
             { QStringLiteral("ImageCropDialog.qml"), 1 },
             { QStringLiteral("ImageViewerOverlay.qml"), 1 },
@@ -1103,7 +1186,7 @@ QtObject {
             { QStringLiteral("StickerPicker.qml"), 1 },
         };
         QCOMPARE(perFile, expected);
-        QCOMPARE(blocks, 12);
+        QCOMPARE(blocks, 13);
         QVERIFY2(unpaused.isEmpty(),
                  qPrintable(QStringLiteral("AnimatedImage that does not stop "
                                            "while unfocused in: %1")

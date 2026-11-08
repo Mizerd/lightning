@@ -1306,6 +1306,7 @@ set(APP_QML_FILES
     qml/ThemeReadabilityPanel.qml
     qml/GradientBar.qml
     qml/AnimationFileHold.qml
+    qml/CustomEmojiImage.qml
     qml/MotionPolicy.qml
     qml/Skeleton.qml
     qml/AppMenu.qml

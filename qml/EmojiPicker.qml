@@ -608,37 +608,11 @@ AnchoredPopup {
                             border.width: customCell.visualFocus ? 2 : 0
                             border.color: AppTheme.focusRing
                         }
-                        contentItem: Image {
+                        contentItem: CustomEmojiImage {
                             id: customCellImage
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                            cache: false
-                            sourceSize.width: 28
-                            sourceSize.height: 28
-                            property int resolveTick: 0
-                            property var bridge: (typeof app !== "undefined" && app)
-                                                 ? app.mediaBridge : null
-                            function resolveBridge() {
-                                if (!bridge && typeof app !== "undefined"
-                                    && app && app.mediaBridge)
-                                    bridge = app.mediaBridge
-                            }
-                            Component.onCompleted: resolveBridge()
-                            source: {
-                                var _tick = resolveTick
-                                if (!bridge || !bridge.supported)
-                                    return ""
-                                return bridge.mxcImageSource(
-                                    customCell.modelData.url, 64)
-                            }
-                            Connections {
-                                target: customCellImage.bridge
-                                function onMediaCached(cacheKey) {
-                                    if (cacheKey.endsWith(
-                                            ":" + customCell.modelData.url))
-                                        customCellImage.resolveTick++
-                                }
-                            }
+                            objectName: "pickerCustomEmoji"
+                            mxc: customCell.modelData.url || ""
+                            prominent: true
                         }
                         onClicked: picker.chooseCustom(customCell.modelData.url,
                                                        customCell.modelData)

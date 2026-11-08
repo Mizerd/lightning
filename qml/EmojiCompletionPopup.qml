@@ -134,29 +134,15 @@ Popup {
             }
             contentItem: RowLayout {
                 spacing: AppTheme.spacing8
-                Image {
+                CustomEmojiImage {
                     id: completionImage
                     objectName: "emojiCompletionImage"
                     visible: !isUnicode
                     Layout.preferredWidth: visible ? 20 : 0
                     Layout.preferredHeight: 20
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    sourceSize.width: 40
-                    property int resolveTick: 0
-                    source: {
-                        var _tick = resolveTick
-                        return !isUnicode && app.mediaBridge.supported && modelData.url
-                            ? app.mediaBridge.mxcImageSource(modelData.url, 40)
-                            : ""
-                    }
-                    Connections {
-                        target: app.mediaBridge
-                        function onMediaCached(cacheKey) {
-                            if (!isUnicode && cacheKey.endsWith(":" + modelData.url))
-                                completionImage.resolveTick++
-                        }
-                    }
+                    edge: 40
+                    prominent: true
+                    mxc: !isUnicode && modelData.url ? modelData.url : ""
                 }
                 Label {
                     objectName: "emojiCompletionGlyph"

@@ -113,7 +113,9 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral("app.stickers.findEmoticons(")));
         QVERIFY(picker.contains(QStringLiteral("app.stickers.revision")));
         QVERIFY(picker.contains(QStringLiteral("app.stickers.refreshIfStale()")));
-        QVERIFY(picker.contains(QStringLiteral("bridge.mxcImageSource(")));
+        QVERIFY(picker.contains(QStringLiteral("contentItem: CustomEmojiImage {")));
+        QVERIFY(read(QStringLiteral(QML_DIR "/CustomEmojiImage.qml"))
+                    .contains(QStringLiteral("bridge.mxcImageSource(")));
         QVERIFY(picker.contains(QStringLiteral("picker.chooseCustom(customCell.modelData.url,")));
         QVERIFY(picker.contains(QStringLiteral("readonly property bool customEmojiOffered: allowCustomEmoji && app.stickers.available")));
         QVERIFY(picker.contains(QStringLiteral("property bool allowCustomEmoji: true")));
