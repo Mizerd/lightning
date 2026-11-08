@@ -4190,7 +4190,9 @@ Item {
                 objectName: "selectMessagesToDeleteMenuItem"
                 iconName: "delete"
                 text: qsTr("Select messages to delete")
+                // The bulk-delete bar belongs to the live timeline.
                 visible: !root.readOnlyView
+                         && (root.timelineModel.roomId || "").indexOf("\u001fctx\u001f") < 0
                          && root.timelineModel.canRedactEvent(
                              root.menuEventId, root.canRedactOthers)
                 enabled: visible && !app.bulkRedaction.running

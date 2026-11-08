@@ -219,9 +219,7 @@ void BulkRedactionController::sendNext()
     // to a refusal) must not hold the run and its "running" state for ever.
     // Armed before the call, which may answer synchronously and stop it.
     m_requestTimer.start(m_requestTimeoutMs);
-    m_client->redactEvent(MatrixClient::isContextTimelineId(m_timelineId)
-                              ? m_roomId : m_timelineId,
-                          m_inFlight, m_reason);
+    m_client->redactEvent(m_timelineId, m_inFlight, m_reason);
 }
 
 void BulkRedactionController::onRequestTimeout()

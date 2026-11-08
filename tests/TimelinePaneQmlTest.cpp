@@ -11556,8 +11556,13 @@ false);
         QCOMPARE(reactions.at(0).at(0).toString(), roomId);
         QCOMPARE(reactions.at(0).at(1).toString(), target);
 
-        QSignalSpy redactions(mock, &MatrixClient::redactionFinished);
         openMenu();
+        auto *bulk = row->findChild<QObject *>(
+            QStringLiteral("selectMessagesToDeleteMenuItem"));
+        QVERIFY(bulk != nullptr);
+        QVERIFY(!bulk->property("visible").toBool());
+
+        QSignalSpy redactions(mock, &MatrixClient::redactionFinished);
         trigger("deleteMessageMenuItem");
         QObject *accept = nullptr;
         QTRY_VERIFY((accept = row->findChild<QObject *>(
@@ -11602,6 +11607,46 @@ false);
 
         controller.composer()->setText(QStringLiteral("a plain message"));
         controller.composer()->send();
+        QTRY_COMPARE(context->state(), ContextController::Closed);
+    }
+
+    void composerPagingKeysDriveTheContextView()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        const auto events = textFixture(roomId, 120, QStringLiteral("key"),
+                                        QStringLiteral("body"));
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        mock->setEventContextRadius(40);
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, events.at(60).eventId));
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        auto *composer = root->findChild<QQuickItem *>(QStringLiteral("messageComposer"));
+        QVERIFY(overlay != nullptr);
+        QVERIFY(composer != nullptr);
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+        QTRY_VERIFY(overlay->property("targetPositioned").toBool());
+        QTest::qWait(200);
+        const double liveY = timeline->property("contentY").toDouble();
+        const double before = list->property("contentY").toDouble();
+
+        QVERIFY(QMetaObject::invokeMethod(composer, "timelineKeyRequested",
+                                          Q_ARG(QString, QStringLiteral("timeline.pageUp"))));
+        QTRY_VERIFY(list->property("contentY").toDouble() < before - 50.0);
+        QCOMPARE(timeline->property("contentY").toDouble(), liveY);
+
+        QVERIFY(QMetaObject::invokeMethod(composer, "timelineKeyRequested",
+                                          Q_ARG(QString, QStringLiteral("timeline.jumpToEnd"))));
         QTRY_COMPARE(context->state(), ContextController::Closed);
     }
 

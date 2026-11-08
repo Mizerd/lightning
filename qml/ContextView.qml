@@ -141,6 +141,23 @@ Rectangle {
             }
         }
     }
+    function scrollListTo(y) {
+        var top = list.originY - list.topMargin
+        var bottom = list.originY + list.contentHeight + list.bottomMargin - list.height
+        var next = Math.max(top, Math.min(bottom, y))
+        view.loadTowards(next - list.contentY)
+        list.contentY = next
+    }
+    function runKeyAction(actionId) {
+        var page = Math.max(48, list.height - 48)
+        switch (actionId) {
+        case "timeline.pageUp": view.scrollListTo(list.contentY - page); return true
+        case "timeline.pageDown": view.scrollListTo(list.contentY + page); return true
+        case "timeline.jumpToStart": view.scrollListTo(list.originY - list.topMargin); return true
+        case "timeline.jumpToEnd": app.eventContext.jumpToLatest(); return true
+        }
+        return false
+    }
     function takeFocus() {
         if (view.visible && app.eventContext.state === ContextController.Ready)
             list.forceActiveFocus(Qt.TabFocusReason)
@@ -283,9 +300,7 @@ Rectangle {
                     var bottom = list.originY + list.contentHeight
                                  + list.bottomMargin - list.height
                     function go(y) {
-                        var next = Math.max(top, Math.min(bottom, y))
-                        view.loadTowards(next - list.contentY)
-                        list.contentY = next
+                        view.scrollListTo(y)
                         event.accepted = true
                     }
                     if (event.key === Qt.Key_Down) go(list.contentY + step)

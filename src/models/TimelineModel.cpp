@@ -2874,7 +2874,8 @@ void TimelineModel::retryDecryption()
 {
     if (!m_client || m_roomId.isEmpty())
         return;
-    m_client->retryDecryption(m_roomId);
+    m_client->retryDecryption(MatrixClient::isContextTimelineId(m_roomId)
+                                  ? m_realRoomId : m_roomId);
 }
 
 void TimelineModel::forgetRenderedHtml(const QString &eventId)

@@ -5579,7 +5579,9 @@ Rectangle {
             objectName: "messageComposer"
             Layout.fillWidth: true
             visible: app.currentRoomId !== "" && !root.invitePreview
-            onTimelineKeyRequested: (actionId) => timeline.runKeyAction(actionId)
+            onTimelineKeyRequested: (actionId) => app.eventContext.active
+                                    ? contextView.runKeyAction(actionId)
+                                    : timeline.runKeyAction(actionId)
         }
         Connections {
             target: app.eventContext
