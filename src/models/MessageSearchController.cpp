@@ -88,12 +88,10 @@ void MessageSearchController::onSyncing()
 {
     if (!m_client || !m_client->supportsLocalSearch())
         return;
-    if (!m_backgroundIndexSpent && backgroundIndexWanted()) {
-        if (!m_backgroundIndex.isActive())
-            m_backgroundIndex.start();
-        return;
-    }
     m_client->indexAllRooms(true);
+    if (!m_backgroundIndexSpent && backgroundIndexWanted()
+        && !m_backgroundIndex.isActive())
+        m_backgroundIndex.start();
 }
 
 void MessageSearchController::startBackgroundIndex()

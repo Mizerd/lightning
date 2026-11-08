@@ -777,7 +777,7 @@ private Q_SLOTS:
         client.startSync();
         QTest::qWait(30);
         QCOMPARE(client.indexAllBackgroundStarts, 1);
-        QCOMPARE(client.indexAllStarts, QList<bool>{ true });
+        QCOMPARE(client.indexAllStarts, (QList<bool>{ true, true }));
 
         recordAccount(settings, alice());
         model.offerIndexAllAfterSignIn(alice(), true);
@@ -848,7 +848,7 @@ private Q_SLOTS:
         QTRY_VERIFY(model.indexAllActive());
         QTest::qWait(150);
         QCOMPARE(client.indexAllBackgroundStarts, 0);
-        QCOMPARE(client.indexAllStarts, QList<bool>{ false });
+        QCOMPARE(client.indexAllStarts, (QList<bool>{ true, false }));
         model.setSettings(nullptr);
     }
 

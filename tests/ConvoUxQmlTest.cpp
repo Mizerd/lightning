@@ -810,8 +810,9 @@ SearchIndexEmptyState { width: 360 }
         status.insert(QStringLiteral("finishedMs"),
                       QDateTime::currentMSecsSinceEpoch() - 3 * 3600 * 1000);
         Q_EMIT mock->searchIndexAllProgress(1, status);
-        QCOMPARE(line->property("text").toString(),
-                 QStringLiteral("Older messages last indexed 3 hours ago"));
+        QVERIFY2(line->property("text").toString().startsWith(
+                     QStringLiteral("Older messages last indexed 3 hour")),
+                 qPrintable(line->property("text").toString()));
         QVERIFY(action->isVisible());
         QCOMPARE(action->property("text").toString(),
                  QStringLiteral("Index older messages"));

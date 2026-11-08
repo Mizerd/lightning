@@ -2014,10 +2014,15 @@ above. The event cache this index duplicates is unchanged.)
   default), so a burst, or whatever arrived while the client was closed, sits
   behind a gap in the event cache that the cache alone never fills; the sweep
   used to index only what was cached, and an indexed DM lost its newer
-  messages until "Index this room" (2026-11-08 report). Now, when an
-  already-indexed room shows new messages, the sweep pages backwards (at most
-  3 pages of 50 per room, 20 per sweep) until a page holds only messages
-  indexed before. While a sweep runs an empty local search says
+  messages until "Index this room" (2026-11-08 report; measured on the
+  local homeserver: of a 5-message burst into an unopened room only the last
+  was ever indexed). Now a limited sync of an already-indexed room queues a gap
+  fill (`spawn_gap_filler`): `/messages` backwards from the sync's
+  `prev_batch`, OUTSIDE the event cache so an open timeline never moves, at
+  most 3 pages of 50, one room at a time 0.5 s apart, at most 200 rooms queued,
+  until a page holds only messages indexed before. The sweep does the same
+  through the event cache for an indexed room whose cache shows unindexed
+  messages (3 pages per room, 20 per sweep). While a sweep runs an empty local search says
   "Indexing new messages… Results may be incomplete."; "Index this
   room" remains available for any room, encrypted or unencrypted, and pages
   history in, bounded at 50 pages, indexing after EVERY page

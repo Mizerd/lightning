@@ -115,3 +115,44 @@ async fn an_own_message_is_indexed_as_sync_delivers_it_without_a_sweep() {
     let hits = index.lock().unwrap().as_ref().unwrap().search("issue is still", "", 10, 0).unwrap();
     assert_eq!(hits.len(), 1);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_limited_sync_gap_is_filled_without_waiting_for_a_sweep() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
+    let _live = register_live_index_handler(&client, &index);
+    let filler = spawn_gap_filler(&client, &index, &Arc::new(AtomicBool::new(false)));
+
+    sync(&client, vec![message("$m1", "an older line", 1000)], "1", None).await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !indexed(&index, "$m1") {
+        assert!(std::time::Instant::now() < deadline, "$m1 never indexed");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let gap: Vec<Raw<matrix_sdk::ruma::events::AnyTimelineEvent>> = [
+        message("$m3", "the zephyrine plan", 3000),
+        message("$m2", "a second gap line", 2000),
+        message("$m1", "an older line", 1000),
+    ]
+    .into_iter()
+    .map(|v| serde_json::from_value(v).unwrap())
+    .collect();
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default().events(gap))
+        .mount()
+        .await;
+    sync(&client, vec![message("$m4", "the newest line", 4000)], "2", Some("gap-token")).await;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !(indexed(&index, "$m3") && indexed(&index, "$m2") && indexed(&index, "$m4")) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "messages a limited sync never delivered were not indexed"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    filler.abort();
+}
