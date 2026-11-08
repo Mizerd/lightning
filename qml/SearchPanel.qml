@@ -11,6 +11,7 @@ Rectangle {
     signal findLoadedRequested()
 
     property bool historyAvailable: true
+    property bool roomEncrypted: false
     property bool serverAvailable: true
     property string preferredSource: ""
     readonly property string activeSource: app.messageSearch.source
@@ -533,6 +534,7 @@ Rectangle {
                         }
                         SearchIndexEmptyState {
                             id: indexEmptyState
+                            offerIndexing: root.roomEncrypted
                             visible: root.activeSource === "local"
                                      && app.messageSearch.state === "no_results"
                             Layout.fillWidth: true

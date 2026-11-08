@@ -7,9 +7,19 @@ ColumnLayout {
     id: root
     objectName: "searchIndexEmptyState"
     property bool storm: false
+    // Index-all walks encrypted rooms only, so a room search offers it only there.
+    property bool offerIndexing: true
     spacing: AppTheme.spacing8
 
     readonly property var search: app.messageSearch
+    property int clockRevision: 0
+
+    Timer {
+        interval: 60000
+        repeat: true
+        running: root.visible && root.search.indexAllFinishedMs > 0
+        onTriggered: root.clockRevision++
+    }
 
     function ago(ms) {
         var minutes = Math.max(0, Math.floor((Date.now() - ms) / 60000))
@@ -28,12 +38,13 @@ ColumnLayout {
         Layout.fillWidth: true
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
-        text: qsTr("No messages found.")
+        text: qsTr("No messages found")
         color: root.storm ? AppTheme.stormTextMuted : AppTheme.textMuted
         font.pixelSize: AppTheme.textBody
     }
     Label {
         objectName: "searchIndexLastUpdated"
+        visible: text !== ""
         Layout.fillWidth: true
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
@@ -49,7 +60,10 @@ ColumnLayout {
             if (s.sweeping || s.indexing)
                 return qsTr("Indexing new messages…") + "\n"
                     + qsTr("Results may be incomplete.")
-            if (s.indexAllFinishedMs > 0)
+            if (!root.offerIndexing)
+                return ""
+            // Reading clockRevision re-evaluates the relative time every minute.
+            if (s.indexAllFinishedMs > 0 && root.clockRevision >= 0)
                 return qsTr("Older messages last indexed %1")
                     .arg(root.ago(s.indexAllFinishedMs))
             return qsTr("Older messages are not indexed yet.")
@@ -68,7 +82,7 @@ ColumnLayout {
     }
     AppButton {
         objectName: "searchIndexOlderButton"
-        visible: !root.search.indexAllActive
+        visible: root.offerIndexing && !root.search.indexAllActive
         Layout.alignment: Qt.AlignHCenter
         storm: root.storm
         kind: "ghost"

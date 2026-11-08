@@ -72,7 +72,13 @@ pub(crate) fn query_is_long_enough(query: &str) -> bool {
 pub(crate) struct SearchIndex {
     conn: Connection,
     generation: std::sync::atomic::AtomicU64,
+    unpruned: std::sync::atomic::AtomicUsize,
 }
+
+/// Rows written between two eviction checks; `prune` counts the whole table.
+const PRUNE_EVERY: usize = 500;
+/// Redacted event ids remembered so a late writer cannot index them again.
+const MAX_REDACTED: i64 = 50_000;
 
 static GENERATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
@@ -98,8 +104,15 @@ impl SearchIndex {
         let index = Self {
             conn,
             generation: std::sync::atomic::AtomicU64::new(next_generation()),
+            unpruned: std::sync::atomic::AtomicUsize::new(0),
         };
         index.ensure_schema()?;
+        index
+            .conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS redacted(event_id TEXT PRIMARY KEY) WITHOUT ROWID;",
+            )
+            .map_err(|e| format!("cannot create the redaction list: {e}"))?;
         Ok(index)
     }
 
@@ -385,6 +398,7 @@ impl SearchIndex {
     }
 
     pub(crate) fn remove_event(&self, event_id: &str) -> Result<(), String> {
+        self.note_redacted(event_id)?;
         self.conn
             .execute("DELETE FROM messages WHERE event_id = ?1", params![event_id])
             .map_err(|e| format!("cannot remove a message from the index: {e}"))?;
@@ -395,6 +409,50 @@ impl SearchIndex {
             )
             .map_err(|e| format!("cannot remove an edited message from the index: {e}"))?;
         Ok(())
+    }
+
+    /// Every writer checks this list, so a redaction processed before the
+    /// message it redacts still wins.
+    fn note_redacted(&self, event_id: &str) -> Result<(), String> {
+        let added = self
+            .conn
+            .execute("INSERT OR IGNORE INTO redacted(event_id) VALUES (?1)", params![event_id])
+            .map_err(|e| format!("cannot record a redaction: {e}"))?;
+        if added > 0 {
+            let _ = self.conn.execute(
+                "DELETE FROM redacted WHERE event_id IN (
+                     SELECT event_id FROM redacted LIMIT max(0, (SELECT count(*) FROM redacted) - ?1))",
+                params![MAX_REDACTED],
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn redacted_among(&self, event_ids: &[String]) -> HashSet<String> {
+        let mut out = HashSet::new();
+        for slice in event_ids.chunks(500) {
+            if slice.is_empty() {
+                continue;
+            }
+            let placeholders = vec!["?"; slice.len()].join(",");
+            let sql = format!("SELECT event_id FROM redacted WHERE event_id IN ({placeholders})");
+            let Ok(mut stmt) = self.conn.prepare(&sql) else { continue };
+            if let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(slice.iter()), |r| {
+                r.get::<_, String>(0)
+            }) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// Evicts past the row cap once enough has been written since the last check.
+    pub(crate) fn maybe_prune(&self, written: usize) {
+        let before = self.unpruned.fetch_add(written, std::sync::atomic::Ordering::Relaxed);
+        if before + written >= PRUNE_EVERY {
+            self.unpruned.store(0, std::sync::atomic::Ordering::Relaxed);
+            let _ = self.prune();
+        }
     }
 
     pub(crate) fn remove_room(&self, room_id: &str) -> Result<(), String> {
@@ -1036,6 +1094,8 @@ pub(crate) struct RoomBatch {
     edits: Vec<Indexable>,
     names: std::collections::HashMap<String, String>,
     undecryptable: Vec<String>,
+    /// Redacted here: targets of redaction events, and events already redacted.
+    redactions: Vec<String>,
 }
 
 #[cfg(test)]
@@ -1070,7 +1130,25 @@ async fn batch_from(room: &Room, raws: impl Iterator<Item = serde_json::Value>) 
     let mut names: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     let mut undecryptable = Vec::new();
+    let mut redactions = Vec::new();
     for raw in raws {
+        if raw.get("unsigned").and_then(|u| u.get("redacted_because")).is_some() {
+            if let Some(id) = raw.get("event_id").and_then(|v| v.as_str()) {
+                redactions.push(id.to_owned());
+            }
+            continue;
+        }
+        if raw.get("type").and_then(|t| t.as_str()) == Some("m.room.redaction") {
+            // `redacts` moved from the event into its content in room v11.
+            let target = raw
+                .get("redacts")
+                .or_else(|| raw.get("content").and_then(|c| c.get("redacts")))
+                .and_then(|v| v.as_str());
+            if let Some(target) = target {
+                redactions.push(target.to_owned());
+            }
+            continue;
+        }
         if is_undecryptable(&raw) {
             if let Some(id) = raw.get("event_id").and_then(|v| v.as_str()) {
                 undecryptable.push(id.to_owned());
@@ -1104,62 +1182,102 @@ async fn batch_from(room: &Room, raws: impl Iterator<Item = serde_json::Value>) 
             }
         }
     }
-    RoomBatch { ordinary, edits, names, undecryptable }
+    RoomBatch { ordinary, edits, names, undecryptable, redactions }
 }
 
 const GAP_PAGES: u16 = 3;
 const GAP_PAGE_SIZE: u16 = 50;
 const GAP_QUEUE_MAX: usize = 200;
 const GAP_PACE_MS: u64 = 500;
+const GAP_HOLD_POLL_MS: u64 = 500;
+
+/// What the gap filler must wait for: the start-up delay, and the same call
+/// and scroll holds as index-all.
+pub(crate) struct GapGate {
+    pub start_delay: std::time::Duration,
+    pub held: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
+    pub stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[derive(Default)]
+struct GapQueue {
+    order: std::collections::VecDeque<String>,
+    /// Newest `prev_batch` per room, and the index generation it was seen in.
+    tokens: std::collections::HashMap<String, (String, u64)>,
+}
+
+impl GapQueue {
+    fn push(&mut self, room_id: String, token: String, generation: u64) {
+        if !self.tokens.contains_key(&room_id) {
+            if self.order.len() >= GAP_QUEUE_MAX {
+                return;
+            }
+            self.order.push_back(room_id.clone());
+        }
+        self.tokens.insert(room_id, (token, generation));
+    }
+
+    fn pop(&mut self) -> Option<(String, String, u64)> {
+        let room_id = self.order.pop_front()?;
+        let (token, generation) = self.tokens.remove(&room_id)?;
+        Some((room_id, token, generation))
+    }
+}
 
 /// Fill the gap a limited sync leaves in an already-indexed room: the room
 /// list syncs one event per room, so the rest of a burst, or what arrived while
 /// the client was away, is never delivered at all. Pages backwards from the
-/// sync's `prev_batch` through `/messages`, outside the event cache so no open
-/// timeline moves, until a page holds only messages indexed before.
+/// sync's `prev_batch` through `/messages` (which stores the events in the
+/// event-cache store but leaves the room's linked chunk, and so any open
+/// timeline, alone) until a page holds a message indexed before.
 pub(crate) fn spawn_gap_filler(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
-    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    gate: GapGate,
     events: &std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
 ) -> tokio::task::JoinHandle<()> {
     let events = std::sync::Arc::clone(events);
     let client = client.clone();
     let index = std::sync::Arc::clone(index);
-    let stop = std::sync::Arc::clone(stop);
     let mut updates = client.subscribe_to_all_room_updates();
-    let pending: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, (String, u64)>>> =
-        Default::default();
+    let queue: std::sync::Arc<std::sync::Mutex<GapQueue>> = Default::default();
     let wake = std::sync::Arc::new(tokio::sync::Notify::new());
-    let worker_pending = std::sync::Arc::clone(&pending);
+    let worker_queue = std::sync::Arc::clone(&queue);
     let worker_wake = std::sync::Arc::clone(&wake);
     let worker_index = std::sync::Arc::clone(&index);
     let worker_client = client.clone();
-    let worker_stop = std::sync::Arc::clone(&stop);
     let worker = tokio::spawn(async move {
+        let stopped = || gate.stop.load(std::sync::atomic::Ordering::Relaxed);
+        tokio::time::sleep(gate.start_delay).await;
         loop {
-            let next = worker_pending.lock().ok().and_then(|mut p| p.pop_first());
-            let Some((room_id, (token, generation))) = next else {
+            if stopped() {
+                return;
+            }
+            if (gate.held)() {
+                tokio::time::sleep(std::time::Duration::from_millis(GAP_HOLD_POLL_MS)).await;
+                continue;
+            }
+            let next = worker_queue.lock().ok().and_then(|mut q| q.pop());
+            let Some((room_id, token, generation)) = next else {
                 worker_wake.notified().await;
                 continue;
             };
-            if worker_stop.load(std::sync::atomic::Ordering::Relaxed) {
-                return;
-            }
             let (outcome, written) =
-                fill_gap(&worker_client, &worker_index, &room_id, &token, generation, &worker_stop)
+                fill_gap(&worker_client, &worker_index, &room_id, &token, generation, &gate.stop)
                     .await;
-            let stats = worker_index
-                .lock()
-                .ok()
-                .and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
-                .unwrap_or_default();
-            // Counts only; C++ logs it and refreshes a live local search.
-            crate::enqueue(&events, serde_json::json!({
-                "type": "search_index_swept", "op_id": 0, "source": "gap",
-                "outcome": outcome, "rooms": 1, "written": written,
-                "messages": stats.messages, "indexed_rooms": stats.rooms,
-            }));
+            if written > 0 || outcome == "request_failed" {
+                let stats = worker_index
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
+                    .unwrap_or_default();
+                // Counts only; C++ logs it and refreshes a live local search.
+                crate::enqueue(&events, serde_json::json!({
+                    "type": "search_index_swept", "op_id": 0, "source": "gap",
+                    "outcome": outcome, "rooms": 1, "written": written,
+                    "messages": stats.messages, "indexed_rooms": stats.rooms,
+                }));
+            }
             tokio::time::sleep(std::time::Duration::from_millis(GAP_PACE_MS)).await;
         }
     });
@@ -1173,14 +1291,10 @@ pub(crate) fn spawn_gap_filler(
             };
             let generation = current_generation(&index);
             let mut queued = false;
-            if let Ok(mut p) = pending.lock() {
+            if let Ok(mut q) = queue.lock() {
                 for (room_id, update) in rooms.joined {
-                    let (true, Some(token)) = (update.timeline.limited, update.timeline.prev_batch)
-                    else {
-                        continue;
-                    };
-                    if p.len() < GAP_QUEUE_MAX || p.contains_key(room_id.as_str()) {
-                        p.insert(room_id.to_string(), (token, generation));
+                    if let (true, Some(token)) = (update.timeline.limited, update.timeline.prev_batch) {
+                        q.push(room_id.to_string(), token, generation);
                         queued = true;
                     }
                 }
@@ -1241,17 +1355,17 @@ async fn fill_gap(
             .collect();
         let batch = batch_from(&room, raws.into_iter()).await;
         let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
-        let all_known = {
+        let reached_indexed = {
             let Ok(guard) = index.lock() else { break };
             let Some(ix) = guard.as_ref() else { break };
-            !ids.is_empty() && ix.known(&ids).unwrap_or_default().len() == ids.len()
+            !ix.known(&ids).unwrap_or_default().is_empty()
         };
         let Some(n) = write_locked(index, generation, room_id, &batch) else {
             outcome = "cleared";
             break;
         };
         written += n;
-        if all_known || page.end.is_none() {
+        if reached_indexed || page.end.is_none() {
             outcome = "closed";
             break;
         }
@@ -1282,16 +1396,15 @@ pub(crate) fn register_live_index_handler(
                 if value.get("room_id").is_none() {
                     value["room_id"] = serde_json::json!(room.room_id().as_str());
                 }
-                // Off the sync path: a write takes the index lock and commits.
+                // Awaited, not spawned: the SDK runs handlers event by event, so a
+                // redaction or edit later in the same sync lands after this row.
                 let generation = current_generation(&index);
-                tokio::spawn(async move {
-                    let batch = batch_from(&room, std::iter::once(value)).await;
-                    let room_id = room.room_id().to_string();
-                    let _ = tokio::task::spawn_blocking(move || {
-                        write_locked(&index, generation, &room_id, &batch)
-                    })
-                    .await;
-                });
+                let batch = batch_from(&room, std::iter::once(value)).await;
+                let room_id = room.room_id().to_string();
+                let _ = tokio::task::spawn_blocking(move || {
+                    write_locked(&index, generation, &room_id, &batch)
+                })
+                .await;
             }
         },
     );
@@ -1314,11 +1427,20 @@ pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch)
 }
 
 fn write_batch_rows(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
+    for id in &batch.redactions {
+        let _ = index.remove_event(id);
+    }
     let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
+    let mut edit_ids: Vec<String> = batch.edits.iter().map(|e| e.event_id.clone()).collect();
+    edit_ids.extend(batch.edits.iter().filter_map(|e| e.edit_id.clone()));
+    let redacted = index.redacted_among(&[ids.clone(), edit_ids].concat());
     let known = index.known(&ids).unwrap_or_default();
     let stale = index.stale_filename_ids(&ids).unwrap_or_default();
     let mut written = 0usize;
     for item in &batch.ordinary {
+        if redacted.contains(&item.event_id) {
+            continue;
+        }
         if known.contains(&item.event_id) {
             if stale.contains(&item.event_id) {
                 if let Some(name) = &item.filename {
@@ -1361,6 +1483,11 @@ fn write_batch_rows(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> us
         std::collections::HashMap::new();
     for edit in &batch.edits {
         let target = edit.event_id.as_str();
+        if redacted.contains(target)
+            || edit.edit_id.as_ref().is_some_and(|id| redacted.contains(id))
+        {
+            continue;
+        }
         let owner = owners
             .entry(target)
             .or_insert_with(|| index.sender_of(target).ok().flatten());
@@ -1393,7 +1520,7 @@ fn write_batch_rows(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> us
             let _ = index.set_edit_id(target, edit_id);
         }
     }
-    let _ = index.prune();
+    index.maybe_prune(written);
     written
 }
 
@@ -1597,6 +1724,7 @@ mod tests {
             edits: vec![],
             names: std::collections::HashMap::from([("@a:x".into(), "Ann".into())]),
             undecryptable: vec![],
+            redactions: vec![],
         };
         assert_eq!(write_batch(&ix, "!r:x", &batch), 40);
         assert_eq!(commits.load(Ordering::SeqCst), 1, "one commit per room batch");
@@ -1639,6 +1767,7 @@ mod tests {
             edits: vec![item("intermediate wording", 2000), item("final wording", 3000)],
             names: std::collections::HashMap::from([("@a:x".into(), "Ann".into())]),
             undecryptable: vec![],
+            redactions: vec![],
         };
         write_batch(&ix, "!r:x", &batch);
         let before = ix.conn.total_changes();
@@ -1666,6 +1795,7 @@ mod tests {
             edits: vec![edit("intermediate wording", 1500, "$e1"), edit("final wording", 2000, "$e2")],
             names: std::collections::HashMap::from([("@first:x".into(), "Latest name".into())]),
             undecryptable: vec![],
+            redactions: vec![],
         };
         assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
         let hit = ix.search("final", "", 10, 0).unwrap().remove(0);
@@ -1695,6 +1825,7 @@ mod tests {
             edits: vec![evil_edit("$img", "$ev1")],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         write_batch(&ix, "!r:x", &batch);
         assert_eq!(ix.search("alices caption", "", 10, 0).unwrap().len(), 1);
@@ -1705,6 +1836,7 @@ mod tests {
             edits: vec![evil_edit("$img", "$ev2")],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         assert_eq!(write_batch(&ix, "!r:x", &later), 0);
         assert!(ix.search("pwned", "", 10, 0).unwrap().is_empty());
@@ -1713,6 +1845,7 @@ mod tests {
             edits: vec![evil_edit("$never-seen", "$ev3")],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         assert_eq!(write_batch(&ix, "!r:x", &orphan), 0);
         assert!(!ix.contains("$never-seen").unwrap());
@@ -1724,6 +1857,7 @@ mod tests {
             edits: vec![own],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
         assert_eq!(ix.search("pwned.png", "", 10, 0).unwrap().len(), 1);
@@ -1742,6 +1876,7 @@ mod tests {
             edits: vec![edit("@alice:x", "alices real edit", "$e1"), edit("@evil:x", "evil wording", "$e2")],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         write_batch(&ix, "!r:x", &batch);
         assert_eq!(ix.search("alices real edit", "", 10, 0).unwrap().len(), 1);
@@ -1777,6 +1912,7 @@ mod tests {
             }],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         write_batch(&ix, "!r:x", &batch);
         assert_eq!(ix.search("regrettable", "", 10, 0).unwrap().len(), 1);
@@ -1967,6 +2103,7 @@ mod tests {
             edits: Vec::new(),
             names: std::collections::HashMap::new(),
             undecryptable: vec!["$u".to_owned(), "$v".to_owned()],
+            redactions: vec![],
         };
         note_undecryptable(&mut seen, &batch);
         note_undecryptable(&mut seen, &batch);
@@ -1990,6 +2127,7 @@ mod tests {
             edits: Vec::new(),
             names: std::collections::HashMap::new(),
             undecryptable: Vec::new(),
+            redactions: vec![],
         };
         let before = current_generation(&index);
         assert_ne!(before, 0);
@@ -2132,6 +2270,7 @@ mod tests {
             edits: vec![],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
         let by_name = ix.search("IMG_2041", "", 10, 0).unwrap();
@@ -2151,6 +2290,7 @@ mod tests {
             edits: vec![],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         write_batch(&ix, "!r:x", &batch);
         assert!(ix.search("never-stored", "", 10, 0).unwrap().is_empty());
@@ -2341,6 +2481,7 @@ mod tests {
             edits: vec![],
             names: std::collections::HashMap::new(),
             undecryptable: vec![],
+            redactions: vec![],
         };
         ix.conn
             .execute("UPDATE messages SET body = 'edited caption' WHERE event_id = '$img'", [])
@@ -2368,6 +2509,26 @@ mod tests {
             })
             .unwrap();
         assert_eq!(hits, 0, "unicode61 segmented CJK after all");
+    }
+
+    #[test]
+    fn aRedactionSeenBeforeItsMessageStillWins() {
+        let ix = index();
+        ix.remove_event("$gone").unwrap();
+        let batch = RoomBatch {
+            ordinary: vec![indexable_from(&serde_json::json!({
+                "type": "m.room.message", "event_id": "$gone", "sender": "@a:x",
+                "origin_server_ts": 10i64,
+                "content": { "msgtype": "m.text", "body": "words that were redacted" },
+            }))
+            .unwrap()],
+            edits: vec![],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+            redactions: vec![],
+        };
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
+        assert!(ix.search("redacted", "", 10, 0).unwrap().is_empty());
     }
 
     #[test]

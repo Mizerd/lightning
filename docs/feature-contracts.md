@@ -2002,7 +2002,15 @@ above. The event cache this index duplicates is unchanged.)
 * **Fed as sync delivers each message, and from the event cache**, never the
   live timeline (which exists only for the open room). A sync event handler
   (`register_live_index_handler`, decrypted messages included) writes every
-  `m.room.message` of a joined room as it arrives, off the sync path. Until
+  `m.room.message` of a joined room as it arrives. The write is AWAITED in
+  the handler, not spawned: the SDK runs handlers event by event, so a
+  redaction or edit later in the same sync lands after the row it changes.
+  Every redaction the index sees is also kept in a `redacted` table (event ids
+  only, at most 50,000), and every writer — this handler, the sweep, "Index
+  this room", index-all and the gap fill — skips an id in it, so a writer
+  that meets a message after its redaction cannot index it again. Encrypted
+  messages that decrypt LATE are not seen by the handler; they reach the index
+  eventually, through the sweep or a later walk. Until
   2026-11-08 the sweep was the only writer, and it reads only what the event
   cache holds IN MEMORY when its turn comes — so a message that left memory
   first (the room closed and shrank, or a later gap replaced it) was never
@@ -2018,9 +2026,15 @@ above. The event cache this index duplicates is unchanged.)
   local homeserver: of a 5-message burst into an unopened room only the last
   was ever indexed). Now a limited sync of an already-indexed room queues a gap
   fill (`spawn_gap_filler`): `/messages` backwards from the sync's
-  `prev_batch`, OUTSIDE the event cache so an open timeline never moves, at
-  most 3 pages of 50, one room at a time 0.5 s apart, at most 200 rooms queued,
-  until a page holds only messages indexed before. The sweep does the same
+  `prev_batch`. `Room::messages` stores the events in the event-cache store
+  but leaves the room's linked chunk alone, so an open timeline never moves.
+  At most 3 pages of 50, one room at a time 0.5 s apart, FIFO with the newest
+  token per room, at most 200 rooms queued; it starts 60 s after sync starts,
+  waits out the same call and scroll holds as index-all, and stops at the first
+  page holding a message indexed before. Redactions on a fetched page (a
+  redaction event, or an event already carrying `redacted_because`) remove
+  their targets. Not run in Labs background sessions. A fill is reported (and
+  logged, counts only) when it wrote something or its request failed. The sweep does the same
   through the event cache for an indexed room whose cache shows unindexed
   messages (3 pages per room, 20 per sweep). While a sweep runs an empty local search says
   "Indexing new messages… Results may be incomplete."; "Index this
@@ -2028,7 +2042,8 @@ above. The event cache this index duplicates is unchanged.)
   history in, bounded at 50 pages, indexing after EVERY page
   because `events()` returns the in-memory chunk and the history trim shrinks
   it back.
-* **Bounded at 250,000 rows**, evicting oldest first.
+* **Bounded at 250,000 rows**, evicting oldest first, checked after every
+  500 rows written (not per message).
 * **"Index encrypted rooms"** (the background "Index all rooms" action in
   Settings → Privacy & security → Message search index, also offered once
   after a sign-in made on this device) walks only encrypted joined rooms
@@ -2077,14 +2092,18 @@ above. The event cache this index duplicates is unchanged.)
   off, when this account answered "no" to the sign-in offer, or after "Clear
   index" in the same lifecycle; turning the setting off pauses an active pass
   so the next sync does not resume it. With it on the one-time sign-in offer is
-  not shown. Rooms with undecryptable or failed history are not `complete`, so
-  each start revisits them at the same bounds. The record gains
+  not shown. A room walked with undecryptable history is not `complete`; the
+  background start skips it until a room key for it arrives (the SDK's
+  room-keys stream, which backup imports feed too), while a user-started run
+  revisits it as before. Rooms whose walk failed are revisited at the same
+  bounds. The record gains
   `finished_ms` (wall clock of the last run that left nothing to walk; reset by
   "Clear index"; no message content), shown in the empty search state.
 * **Empty local search** (the global search dialog and the room search panel)
-  says "No messages found.", when the index was last updated from
-  `finished_ms`, and offers "Index older messages" (or "Resume indexing"),
-  replaced by progress while a pass runs.
+  says "No messages found", when older messages were last indexed (from
+  `finished_ms`, refreshed every minute), and offers "Index older messages"
+  (or "Resume indexing"), replaced by progress while a pass runs. The room
+  panel offers it only in an encrypted room, since index-all walks only those.
 * The find bar prefers local and offers server as an explicit CHOICE where the
   server can read the room — they answer different questions, and switching
   silently would make "no results" mean two things on consecutive keystrokes.

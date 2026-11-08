@@ -1583,6 +1583,8 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let sync_client = client.clone();
         let sync_search_index = Arc::clone(&bridge.search_index);
+        let sync_index_all = Arc::clone(&bridge.index_all);
+        let sync_index_shutdown = Arc::clone(&bridge.index_shutdown);
         let sync_notify = Arc::clone(&bridge.sync_notify);
         let bg_slot = bridge.bg.as_ref().map(|bg| bg.profile.slot.clone());
         let thread = spawn_session_thread(
@@ -1599,7 +1601,8 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 );
                 tokio::select! {
                     _ = switchtrace::sync_scope(switch_trace_started, run_authoritative_sync(
-                        sync_client, events, sync_search_index, sync_mode, room_list_slot,
+                        sync_client, events, sync_search_index, sync_index_all,
+                        sync_index_shutdown, sync_mode, room_list_slot,
                         entries_slot, active_subscription, sync_timelines,
                         sync_media_capable, sync_verification_live, sync_notify, cancel_rx,
                     )) => {}
@@ -11818,10 +11821,29 @@ fn install_event_handlers(
     );
 }
 
+/// Matches the C++ background index-all delay: start-up work goes first.
+const GAP_FILL_START_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// New room keys may make a room index-all skipped for undecryptable history
+/// readable now; the background start revisits only such rooms.
+async fn watch_room_keys_for_index_all(client: Client, index_all: Arc<indexall::Control>) {
+    let Some(stream) = client.encryption().room_keys_received_stream().await else {
+        return;
+    };
+    let mut stream = std::pin::pin!(stream);
+    while let Some(update) = stream.next().await {
+        if let Ok(keys) = update {
+            index_all.keys_arrived(keys.iter().map(|k| k.room_id.to_string()));
+        }
+    }
+}
+
 async fn run_authoritative_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
     search_index: Arc<Mutex<Option<localsearch::SearchIndex>>>,
+    index_all: Arc<indexall::Control>,
+    index_shutdown: Arc<AtomicBool>,
     sync_mode: Arc<Mutex<SyncMode>>,
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
     entries_slot: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
@@ -11855,11 +11877,26 @@ async fn run_authoritative_sync(
     let _live_index_guard = localsearch::register_live_index_handler(
         &client, &search_index);
     // Aborted when this sync ends, which a sign-out or switch does first.
-    let _gap_filler = AbortOnDrop(
-        localsearch::spawn_gap_filler(
-            &client, &search_index, &Arc::new(AtomicBool::new(false)), &events)
-        .abort_handle(),
-    );
+    let _gap_filler = background.is_none().then(|| {
+        let hold = Arc::clone(&index_all);
+        AbortOnDrop(
+            localsearch::spawn_gap_filler(
+                &client,
+                &search_index,
+                localsearch::GapGate {
+                    start_delay: GAP_FILL_START_DELAY,
+                    held: Arc::new(move || hold.held()),
+                    stop: Arc::clone(&index_shutdown),
+                },
+                &events,
+            )
+            .abort_handle(),
+        )
+    });
+    let _key_watch = background.is_none().then(|| {
+        AbortOnDrop(tokio::spawn(watch_room_keys_for_index_all(
+            client.clone(), Arc::clone(&index_all))).abort_handle())
+    });
 
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
 

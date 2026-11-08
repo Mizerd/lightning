@@ -33,6 +33,28 @@ async fn sync(client: &matrix_sdk::Client, events: Vec<serde_json::Value>, pos: 
         .unwrap();
 }
 
+fn open_gate() -> GapGate {
+    GapGate {
+        start_delay: std::time::Duration::ZERO,
+        held: Arc::new(|| false),
+        stop: Arc::new(AtomicBool::new(false)),
+    }
+}
+
+fn redaction(id: &str, target: &str, ts: u64) -> serde_json::Value {
+    serde_json::json!({"type": "m.room.redaction", "event_id": id, "room_id": ROOM,
+        "sender": "@friend:localhost", "origin_server_ts": ts, "redacts": target,
+        "content": {"redacts": target}})
+}
+
+async fn wait_indexed(index: &Arc<Mutex<Option<SearchIndex>>>, id: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !indexed(index, id) {
+        assert!(std::time::Instant::now() < deadline, "{id} never indexed");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
 fn indexed(index: &Arc<Mutex<Option<SearchIndex>>>, id: &str) -> bool {
     index.lock().unwrap().as_ref().unwrap().contains(id).unwrap()
 }
@@ -124,7 +146,7 @@ async fn a_limited_sync_gap_is_filled_without_waiting_for_a_sweep() {
     let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
     let _live = register_live_index_handler(&client, &index);
     let events = Arc::new(Mutex::new(std::collections::VecDeque::new()));
-    let filler = spawn_gap_filler(&client, &index, &Arc::new(AtomicBool::new(false)), &events);
+    let filler = spawn_gap_filler(&client, &index, open_gate(), &events);
 
     sync(&client, vec![message("$m1", "an older line", 1000)], "1", None).await;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -160,4 +182,72 @@ async fn a_limited_sync_gap_is_filled_without_waiting_for_a_sweep() {
         events.lock().unwrap().iter().any(|e| e.contains("\"source\":\"gap\"")),
         "the gap fill was not reported"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_redacted_in_the_same_sync_is_never_indexed() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
+    let _live = register_live_index_handler(&client, &index);
+    let _redactions = register_redaction_handler(&client, &index);
+
+    sync(
+        &client,
+        vec![message("$secret", "a line nobody may find", 1000), redaction("$r", "$secret", 1001)],
+        "1",
+        None,
+    )
+    .await;
+    sync(&client, vec![message("$barrier", "a later line", 2000)], "2", None).await;
+    wait_indexed(&index, "$barrier").await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(!indexed(&index, "$secret"), "a message redacted in the same sync stayed searchable");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gap_fill_applies_the_redactions_it_fetches() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
+    let _live = register_live_index_handler(&client, &index);
+    let events = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    let filler = spawn_gap_filler(&client, &index, open_gate(), &events);
+
+    sync(&client, vec![message("$m1", "an older line", 1000)], "1", None).await;
+    wait_indexed(&index, "$m1").await;
+    let mut gone = message("$m3", "an already redacted line", 3000);
+    gone["unsigned"] = serde_json::json!({"redacted_because": redaction("$r3", "$m3", 3100)});
+    let gap: Vec<Raw<matrix_sdk::ruma::events::AnyTimelineEvent>> = [
+        redaction("$r1", "$m1", 3500),
+        gone,
+        message("$m2", "a second gap line", 2000),
+        message("$m0", "the oldest line", 500),
+    ]
+    .into_iter()
+    .map(|v| serde_json::from_value(v).unwrap())
+    .collect();
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default().events(gap))
+        .mount()
+        .await;
+    sync(&client, vec![message("$m4", "the newest line", 4000)], "2", Some("gap-token")).await;
+    wait_indexed(&index, "$m2").await;
+    filler.abort();
+    assert!(!indexed(&index, "$m1"), "a redaction on a fetched page was ignored");
+    assert!(!indexed(&index, "$m3"), "an already redacted event was indexed");
+}
+
+#[test]
+fn the_gap_queue_is_first_in_first_out_with_the_newest_token() {
+    let mut queue = GapQueue::default();
+    queue.push("!b:x".into(), "b1".into(), 1);
+    queue.push("!a:x".into(), "a1".into(), 1);
+    queue.push("!b:x".into(), "b2".into(), 1);
+    assert_eq!(queue.pop(), Some(("!b:x".into(), "b2".into(), 1)));
+    assert_eq!(queue.pop(), Some(("!a:x".into(), "a1".into(), 1)));
+    assert_eq!(queue.pop(), None);
 }

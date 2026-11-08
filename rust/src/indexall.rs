@@ -54,6 +54,10 @@ pub(crate) struct Progress {
     /// Wall-clock ms of the last run that left nothing to walk; 0 = never.
     #[serde(default)]
     pub finished_ms: u64,
+    /// Rooms last walked with undecryptable history and no room key since: a
+    /// background start skips them, a user-started run does not.
+    #[serde(default)]
+    pub utd_rooms: BTreeSet<String>,
 }
 
 fn now_ms() -> u64 {
@@ -351,6 +355,14 @@ impl Control {
             if resume_only {
                 return Begin::NothingPending;
             }
+            let joined = if background {
+                joined
+                    .into_iter()
+                    .filter(|(id, _, _)| !progress.utd_rooms.contains(id))
+                    .collect()
+            } else {
+                joined
+            };
             let (queue, skipped) = plan_queue(joined, &progress.complete);
             progress.reset_run();
             progress.queue = queue;
@@ -411,6 +423,21 @@ impl Control {
         inner.progress = Some(Progress::default());
         if let Some(path) = self.path.as_ref() {
             let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// Room keys arrived for these rooms: a background start may revisit them.
+    pub(crate) fn keys_arrived(&self, room_ids: impl Iterator<Item = String>) {
+        let mut inner = self.lock();
+        let progress = self.loaded(&mut inner);
+        let mut changed = false;
+        for id in room_ids {
+            changed |= progress.utd_rooms.remove(&id);
+        }
+        if changed {
+            let snapshot = progress.clone();
+            drop(inner);
+            self.persist(&snapshot);
         }
     }
 
@@ -520,8 +547,14 @@ impl Control {
                     progress.undecryptable.saturating_add(undecryptable as u64);
                 if undecryptable > 0 {
                     progress.undecryptable_rooms += 1;
-                } else if progress.complete.len() < MAX_COMPLETE {
-                    progress.complete.insert(room_id.to_owned());
+                    if progress.utd_rooms.len() < MAX_COMPLETE {
+                        progress.utd_rooms.insert(room_id.to_owned());
+                    }
+                } else {
+                    progress.utd_rooms.remove(room_id);
+                    if progress.complete.len() < MAX_COMPLETE {
+                        progress.complete.insert(room_id.to_owned());
+                    }
                 }
             }
             RoomResult::Failed { .. } => progress.failed_rooms += 1,
@@ -1071,6 +1104,29 @@ mod tests {
 
         control.reset();
         assert_eq!(control.status(None).finished_ms, 0, "Clear index kept the timestamp");
+    }
+
+    #[test]
+    fn a_background_start_skips_undecryptable_rooms_until_keys_arrive() {
+        let control = Control::new(Path::new(""));
+        assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
+        let epoch = control.epoch();
+        control.commit_room(
+            epoch,
+            "!e2e:x",
+            RoomResult::Done { written: 1, undecryptable: 3 },
+            Duration::ZERO,
+        );
+        control.finish(Ending::Finished);
+        assert_eq!(
+            control.begin_background(|| rooms(&[("!e2e:x", 1)])),
+            Begin::NothingToDo,
+            "a background start re-walked a room no key had arrived for"
+        );
+        control.keys_arrived(std::iter::once("!e2e:x".to_owned()));
+        assert_eq!(control.begin_background(|| rooms(&[("!e2e:x", 1)])), Begin::Started);
+        control.finish(Ending::Cancelled);
+        assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
     }
 
     #[test]

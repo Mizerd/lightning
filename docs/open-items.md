@@ -2,6 +2,16 @@
 
 
 
+## 2026-11-08 — ACCEPTED FOLLOW-UP: the search index keeps the rows of rooms the user left
+
+`MatrixClient::forgetIndexedRoom` (FFI `mx_rust_search_index_forget_room`)
+has no caller, so the indexed messages of a room the user left, was kicked or
+banned from stay searchable until "Clear index". Not wired in the autoindex
+round: leave, kick, ban and forget arrive by different paths, and whether
+leaving should also drop the room's searchable history is a product decision
+(a user may leave a room and still want to find what was said there). The
+live handler, gap fill and index-all already ignore rooms that are not joined.
+
 ## 2026-11-08 — ACCEPTED FOLLOW-UP: external user links open the join flow, not the profile card
 
 A `matrix:u/…` or `https://matrix.to/#/@user…` link handed to Lightning from

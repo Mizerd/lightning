@@ -5738,6 +5738,7 @@ Rectangle {
                                                   : root.width
         Layout.fillWidth: root.searchOpen && !sideSurface.beside
         historyAvailable: root.findHistoryAvailable
+        roomEncrypted: root.currentRoom.encrypted === true
         serverAvailable: root.serverSearchAvailable
         onCloseRequested: root.searchOpen = false
         onFindLoadedRequested: {
