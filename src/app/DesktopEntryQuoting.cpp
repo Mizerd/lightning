@@ -68,6 +68,15 @@ QString withDefaultHandler(const QString &mimeapps, const QString &mime,
     return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
 }
 
+bool queryNamesAnotherHandler(bool exitedNormally, int exitCode,
+                              const QString &output, const QString &ours)
+{
+    if (!exitedNormally || exitCode != 0)
+        return true;
+    const QString handler = output.trimmed();
+    return !handler.isEmpty() && handler != ours;
+}
+
 QString claimDefaultHandler(const QString &path, const QString &mime,
                             const QString &desktopId,
                             const std::function<bool()> &handledElsewhere)

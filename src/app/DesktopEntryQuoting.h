@@ -16,6 +16,12 @@ QString quoteExecArgument(const QString &path);
 QString withDefaultHandler(const QString &mimeapps, const QString &mime,
                            const QString &desktopId);
 
+/// Whether an `xdg-mime query default` result means another handler owns the
+/// scheme. Fails closed: a query that did not exit normally with status 0
+/// counts as another handler.
+bool queryNamesAnotherHandler(bool exitedNormally, int exitCode,
+                              const QString &output, const QString &ours);
+
 /// Makes `desktopId` the default for `mime` in the mimeapps.list at `path`
 /// unless one is already set there or `handledElsewhere` says another handler
 /// exists. Never writes a file it could not read, nor through a symlink.

@@ -6,6 +6,7 @@
 
 using lightning::desktop_entry::quoteExecArgument;
 using lightning::desktop_entry::claimDefaultHandler;
+using lightning::desktop_entry::queryNamesAnotherHandler;
 using lightning::desktop_entry::withDefaultHandler;
 
 class DesktopEntryQuotingTest : public QObject
@@ -42,6 +43,17 @@ private Q_SLOTS:
         QFile f(locked);
         QVERIFY(f.open(QIODevice::ReadOnly));
         QCOMPARE(f.readAll(), mine);
+    }
+
+    void aFailedXdgMimeQueryFailsClosed()
+    {
+        const QString ours = QStringLiteral("lightning.desktop");
+        QVERIFY(queryNamesAnotherHandler(false, 0, QString(), ours));
+        QVERIFY(queryNamesAnotherHandler(true, 1, QString(), ours));
+        QVERIFY(queryNamesAnotherHandler(true, 127, ours, ours));
+        QVERIFY(queryNamesAnotherHandler(true, 0, QStringLiteral("element.desktop\n"), ours));
+        QVERIFY(!queryNamesAnotherHandler(true, 0, QString(), ours));
+        QVERIFY(!queryNamesAnotherHandler(true, 0, QStringLiteral("lightning.desktop\n"), ours));
     }
 
     void anotherHandlerOrAnExistingDefaultIsKept()

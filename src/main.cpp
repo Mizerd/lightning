@@ -1054,6 +1054,7 @@ QString claimMatrixSchemeDefault()
         if (xdgMime.isEmpty())
             return false;
         QProcess query;
+        query.setProcessEnvironment(lightning::urls::childEnvironment());
         query.start(xdgMime, { QStringLiteral("query"), QStringLiteral("default"),
                                QStringLiteral("x-scheme-handler/matrix") });
         if (!query.waitForFinished(3000)) {
@@ -1061,8 +1062,9 @@ QString claimMatrixSchemeDefault()
             query.waitForFinished(500);
             return true;
         }
-        const QString handler = QString::fromUtf8(query.readAllStandardOutput()).trimmed();
-        return !handler.isEmpty() && handler != ours;
+        return lightning::desktop_entry::queryNamesAnotherHandler(
+            query.exitStatus() == QProcess::NormalExit, query.exitCode(),
+            QString::fromUtf8(query.readAllStandardOutput()), ours);
     };
     return lightning::desktop_entry::claimDefaultHandler(
         configHome + QStringLiteral("/mimeapps.list"),
