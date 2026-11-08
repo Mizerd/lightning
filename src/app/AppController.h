@@ -54,6 +54,7 @@
 
 #include <functional>
 #include <optional>
+#include <utility>
 #include <vector>
 #include "profile/NameColorManager.h"
 #include "profile/ProfileBannerManager.h"
@@ -718,6 +719,13 @@ public Q_SLOTS:
     void showSettings();
     void openRoom(const QString &roomId);
     void openMatrixLink(const QString &link) { Q_EMIT matrixLinkRequested(link); }
+    // From argv or a second launch: held until a signed-in MainScreen takes it.
+    void queueExternalMatrixLink(const QString &link)
+    {
+        m_externalMatrixLink = link;
+        Q_EMIT externalMatrixLinkQueued();
+    }
+    QString takeExternalMatrixLink() { return std::exchange(m_externalMatrixLink, {}); }
 
     void openSpaceHome(const QString &spaceId);
     Q_INVOKABLE void openLobby();
@@ -951,6 +959,7 @@ Q_SIGNALS:
     void noticeReported(const QString &message);
     void callStartRefused(const QString &message);
     void matrixLinkRequested(const QString &link);
+    void externalMatrixLinkQueued();
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();
     void localSessionFailureChanged();
@@ -1093,6 +1102,7 @@ private:
     bool m_screenshotDemo = false;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
+    QString m_externalMatrixLink;
     lightning::RoomHistory m_roomHistory;
     bool m_roomHistoryNavigating = false;
     QString m_restoreRoomId;

@@ -73,6 +73,19 @@ private Q_SLOTS:
             QStringLiteral("StartupWMClass=lightning-matrix")));
     }
 
+    void bothLauncherEntriesHandleMatrixLinks()
+    {
+        for (const char *path : { SOURCE_DIR "/data/lightning.desktop",
+                                  SOURCE_DIR "/packaging-ci/packaging/common/lightning.desktop" }) {
+            const QString desktop = readAll(QString::fromUtf8(path));
+            QVERIFY2(!desktop.isEmpty(), path);
+            QVERIFY2(desktop.contains(QStringLiteral("\nMimeType=x-scheme-handler/matrix;\n")), path);
+            QVERIFY2(desktop.contains(QStringLiteral("\nExec=lightning-matrix --backend=rust %u\n")), path);
+        }
+        const QString snap = readAll(QStringLiteral(SOURCE_DIR "/packaging-ci/scripts/build-snap.sh"));
+        QVERIFY(snap.contains(QStringLiteral("Exec=lightning %u|")));
+    }
+
     void theSceneGraphBackendIsReportedWhateverItTurnsOutToBe()
     {
         const QString main = readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));

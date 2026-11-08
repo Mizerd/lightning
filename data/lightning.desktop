@@ -3,7 +3,8 @@ Type=Application
 Name=Lightning
 GenericName=Matrix Client
 Comment=Chat and calls on Matrix
-Exec=lightning-matrix --backend=rust
+Exec=lightning-matrix --backend=rust %u
+MimeType=x-scheme-handler/matrix;
 Icon=lightning
 Terminal=false
 Categories=Network;Chat;InstantMessaging;

@@ -9,4 +9,9 @@ namespace lightning::desktop_entry {
 /// key); the caller treats empty as "do not publish".
 QString quoteExecArgument(const QString &path);
 
+/// `mimeapps` with `desktopId` added as the default for `mime`, or empty when
+/// its [Default Applications] group already names one: the user's choice wins.
+QString withDefaultHandler(const QString &mimeapps, const QString &mime,
+                           const QString &desktopId);
+
 }

@@ -48,10 +48,11 @@ const char *claimName(int claim)
 class Launch
 {
 public:
-    Launch(const QString &root, int budgetMs)
+    Launch(const QString &root, int budgetMs, const QString &link = {})
     {
-        m_thread.reset(QThread::create([this, root, budgetMs] {
+        m_thread.reset(QThread::create([this, root, budgetMs, link] {
             SingleInstanceGuard guard(root, kApp);
+            guard.setLinkToOpen(link);
             m_result.store(int(guard.claim(budgetMs)));
         }));
         m_thread->start();
@@ -515,6 +516,57 @@ private Q_SLOTS:
         QVERIFY(!SingleInstanceGuard::parseRequest("SHOW", &token));
     }
 
+    void aLinkRidesAlongWithShowAndAnOldParserStillRaises()
+    {
+        QString token, link;
+        QVERIFY(SingleInstanceGuard::parseRequest(
+            "show kwin-42 matrix:r/room:example.org", &token, &link));
+        QCOMPARE(token, QStringLiteral("kwin-42"));
+        QCOMPARE(link, QStringLiteral("matrix:r/room:example.org"));
+        QVERIFY(SingleInstanceGuard::parseRequest(
+            "show - https://matrix.to/#/%23room:example.org", &token, &link));
+        QVERIFY(token.isEmpty());
+        QCOMPARE(link, QStringLiteral("https://matrix.to/#/%23room:example.org"));
+        QVERIFY(SingleInstanceGuard::parseRequest(
+            "show - https://evil.example/x", &token, &link));
+        QVERIFY(token.isEmpty());
+        QVERIFY(link.isEmpty());
+        QVERIFY(SingleInstanceGuard::parseRequest("show kwin-42", &token, &link));
+        QVERIFY(link.isEmpty());
+        // The pre-link parser (no link out-parameter) still accepts the line.
+        QVERIFY(SingleInstanceGuard::parseRequest(
+            "show - matrix:r/room:example.org", &token));
+    }
+
+    void onlyMatrixLinksAreOpenable()
+    {
+        QVERIFY(SingleInstanceGuard::isOpenableLink(
+            QStringLiteral("matrix:roomid/abc:example.org?via=example.org")));
+        QVERIFY(SingleInstanceGuard::isOpenableLink(
+            QStringLiteral("https://matrix.to/#/!abc:example.org")));
+        QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("--backend=rust")));
+        QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("https://example.org/")));
+        QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("matrix:r/a b")));
+        QVERIFY(!SingleInstanceGuard::isOpenableLink(
+            QStringLiteral("matrix:r/") + QString(SingleInstanceGuard::kMaxLinkBytes, QLatin1Char('a'))));
+    }
+
+    void aSecondLaunchForwardsItsLink()
+    {
+        const QString root = freshRoot();
+        SingleInstanceGuard primary(root, kApp);
+        QCOMPARE(primary.claim(1000), Claim::Primary);
+        QSignalSpy shown(&primary, &SingleInstanceGuard::activationRequested);
+
+        Launch second(root, 5000, QStringLiteral("matrix:r/room:example.org"));
+        QTRY_VERIFY_WITH_TIMEOUT(second.finished(), 15000);
+        QVERIFY2(Claim(second.result()) == Claim::Deferred,
+                 claimName(second.result()));
+        QTRY_COMPARE(shown.count(), 1);
+        QCOMPARE(shown.at(0).at(1).toString(),
+                 QStringLiteral("matrix:r/room:example.org"));
+    }
+
     void theServerNameIsKeyedByRootAppAndUser()
     {
         const QString dir = QStringLiteral("/run/user/1000");
@@ -597,6 +649,30 @@ private Q_SLOTS:
         QTRY_COMPARE(shown.count(), 1);
         QVERIFY2(err.contains(QStringLiteral("asked it to show its window")),
                  qUtf8Printable(err));
+#endif
+    }
+
+    void theBinaryForwardsALinkFromItsArguments()
+    {
+#ifndef Q_OS_LINUX
+        QSKIP("XDG profile isolation is Linux-only");
+#else
+        const QString profile = freshDir();
+        const QString root = rootForDataHome(profile + QStringLiteral("/data"));
+        SingleInstanceGuard running(root, kApp);
+        QCOMPARE(running.claim(1000), Claim::Primary);
+        QSignalSpy shown(&running, &SingleInstanceGuard::activationRequested);
+
+        const QString link = QStringLiteral("https://matrix.to/#/%23room:example.org");
+        QProcess launch;
+        launch.setProcessEnvironment(profileEnv(profile));
+        launch.setWorkingDirectory(profile);
+        launch.start(binary(), { QStringLiteral("--backend=rust"), link });
+        QVERIFY(launch.waitForStarted(10000));
+        QTRY_VERIFY_WITH_TIMEOUT(launch.state() == QProcess::NotRunning, 60000);
+        QVERIFY2(launch.exitCode() == 0, launch.readAllStandardError().constData());
+        QTRY_COMPARE(shown.count(), 1);
+        QCOMPARE(shown.at(0).at(1).toString(), link);
 #endif
     }
 

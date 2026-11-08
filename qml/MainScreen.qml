@@ -439,6 +439,14 @@ Item {
         function onMatrixLinkRequested(link) {
             roomsPanel.openDiscoverForLink(link)
         }
+        function onExternalMatrixLinkQueued() {
+            shellRoot.openExternalMatrixLink()
+        }
+    }
+    function openExternalMatrixLink() {
+        var link = app.takeExternalMatrixLink()
+        if (link.length > 0)
+            roomsPanel.openDiscoverForLink(link)
     }
 
     function findDemoDescendant(obj, name) {
@@ -504,6 +512,7 @@ Item {
         // any popup can close itself, so a press that dismisses a menu only
         // dismisses it.
         app.installMouseNavigation(shellRoot)
+        openExternalMatrixLink()
     }
     Connections {
         target: AppTheme

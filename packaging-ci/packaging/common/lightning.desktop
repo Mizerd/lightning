@@ -5,7 +5,8 @@
 Type=Application
 Name=Lightning
 Comment=Native Matrix desktop client
-Exec=lightning-matrix --backend=rust
+Exec=lightning-matrix --backend=rust %u
+MimeType=x-scheme-handler/matrix;
 Icon=lightning
 Terminal=false
 Categories=Network;Chat;InstantMessaging;

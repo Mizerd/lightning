@@ -3,12 +3,31 @@
 #include <QtTest/QtTest>
 
 using lightning::desktop_entry::quoteExecArgument;
+using lightning::desktop_entry::withDefaultHandler;
 
 class DesktopEntryQuotingTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
+    void theMatrixSchemeDefaultIsAddedOnlyWhenNoneIsSet()
+    {
+        const QString mime = QStringLiteral("x-scheme-handler/matrix");
+        const QString id = QStringLiteral("lightning.desktop");
+        QCOMPARE(withDefaultHandler(QString(), mime, id),
+                 QStringLiteral("[Default Applications]\nx-scheme-handler/matrix=lightning.desktop;\n"));
+        QCOMPARE(withDefaultHandler(QStringLiteral("[Added Associations]\ntext/plain=a.desktop;\n"), mime, id),
+                 QStringLiteral("[Added Associations]\ntext/plain=a.desktop;\n\n"
+                                "[Default Applications]\nx-scheme-handler/matrix=lightning.desktop;\n"));
+        QCOMPARE(withDefaultHandler(QStringLiteral("[Default Applications]\ntext/html=f.desktop\n"), mime, id),
+                 QStringLiteral("[Default Applications]\nx-scheme-handler/matrix=lightning.desktop;\ntext/html=f.desktop\n"));
+        QVERIFY(withDefaultHandler(QStringLiteral("[Default Applications]\nx-scheme-handler/matrix = element.desktop\n"),
+                                   mime, id).isEmpty());
+        // Only the Default group counts; an association elsewhere is not a choice of default.
+        QVERIFY(!withDefaultHandler(QStringLiteral("[Added Associations]\nx-scheme-handler/matrix=e.desktop;\n"),
+                                    mime, id).isEmpty());
+    }
+
     void anOrdinaryPathIsJustQuoted()
     {
         QCOMPARE(quoteExecArgument(QStringLiteral("/opt/Lightning.AppImage")),

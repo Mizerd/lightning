@@ -351,7 +351,7 @@ chmod 0755 "$TREE/bin/lightning-launch"
 mkdir -p "$TREE/meta/gui"
 sed -e "s|@VERSION@|$LOGICAL_VERSION|" -e "s|@ARCH@|$SNAP_ARCH|" "$TEMPLATE" > "$TREE/meta/snap.yaml"
 grep -qE '@(VERSION|ARCH)@' "$TREE/meta/snap.yaml" && die "unsubstituted snap.yaml"
-sed -e 's|^Exec=.*$|Exec=lightning|' \
+sed -e 's|^Exec=.*$|Exec=lightning %u|' \
     -e 's|^Icon=.*$|Icon=${SNAP}/meta/gui/lightning.png|' \
     "$TREE/usr/share/applications/lightning.desktop" \
     > "$TREE/meta/gui/lightning.desktop"

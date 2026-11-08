@@ -35,14 +35,18 @@ public:
     };
 
     static constexpr int kDefaultBudgetMs = 20000;
-    static constexpr int kMaxRequestBytes = 512;
+    static constexpr int kMaxRequestBytes = 1536;
     static constexpr int kMaxTokenBytes = 256;
+    static constexpr int kMaxLinkBytes = 1024;
 
     SingleInstanceGuard(const QString &dataRoot, const QString &appName,
                         QObject *parent = nullptr);
     ~SingleInstanceGuard() override;
 
     Claim claim(int budgetMs = kDefaultBudgetMs);
+
+    // A matrix: or matrix.to link to hand to the running instance on Deferred.
+    void setLinkToOpen(const QString &link) { m_link = link; }
 
     void stopListening();
 
@@ -90,10 +94,15 @@ public:
     static QString defaultSocketDir();
     static QString currentUser();
     static bool isAcceptableActivationToken(const QByteArray &token);
-    static bool parseRequest(const QByteArray &line, QString *activationToken);
+    static bool isOpenableLink(const QString &link);
+    // "show", "show TOKEN", or "show TOKEN|- LINK"; an older instance reads the
+    // last form as an unusable token and still raises its window.
+    static bool parseRequest(const QByteArray &line, QString *activationToken,
+                             QString *link = nullptr);
 
 Q_SIGNALS:
-    void activationRequested(const QString &activationToken);
+    void activationRequested(const QString &activationToken,
+                             const QString &link);
 
 private:
     enum class Lock { Acquired, Busy, Error };
@@ -108,6 +117,7 @@ private:
 
     QString m_lockPath;
     QString m_serverName;
+    QString m_link;
     QLocalServer *m_server = nullptr;
     bool m_holdLockUntilProcessExit = false;
 #ifdef Q_OS_WIN

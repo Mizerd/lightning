@@ -1034,11 +1034,42 @@ struct LauncherEntryReport {
     QString userEntry;
     int iconsCopied = 0;
     QString outcome = QStringLiteral("not an AppImage run");
+    QString schemeDefault = QStringLiteral("not attempted");
 };
 
 #if defined(Q_OS_LINUX)
 
 using lightning::desktop_entry::quoteExecArgument;
+
+QString claimMatrixSchemeDefault()
+{
+    const QString configHome = QStandardPaths::writableLocation(
+        QStandardPaths::GenericConfigLocation);
+    if (configHome.isEmpty())
+        return QStringLiteral("skipped: no config location");
+    const QString path = configHome + QStringLiteral("/mimeapps.list");
+    // A managed (e.g. home-manager) symlink must not be replaced by a file.
+    if (QFileInfo(path).isSymLink())
+        return QStringLiteral("skipped: mimeapps.list is a symlink");
+    QByteArray existing;
+    {
+        QFile current(path);
+        if (current.open(QIODevice::ReadOnly))
+            existing = current.readAll();
+    }
+    const QByteArray updated = lightning::desktop_entry::withDefaultHandler(
+        QString::fromUtf8(existing),
+        QStringLiteral("x-scheme-handler/matrix"),
+        kAppId + QStringLiteral(".desktop")).toUtf8();
+    if (updated.isEmpty())
+        return QStringLiteral("kept the existing default");
+    QDir().mkpath(configHome);
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)
+        || out.write(updated) != updated.size() || !out.commit())
+        return QStringLiteral("failed: could not write mimeapps.list");
+    return QStringLiteral("registered");
+}
 
 QStringList launcherEntrySource(const QString &payloadEntry)
 {
@@ -1348,6 +1379,7 @@ LauncherEntryReport publishAppImageLauncherEntry()
 
     if (existing == wanted) {
         report.outcome = QStringLiteral("already current");
+        report.schemeDefault = claimMatrixSchemeDefault();
         return report;
     }
     if (!QDir().mkpath(dataHome + QStringLiteral("/applications"))) {
@@ -1363,6 +1395,7 @@ LauncherEntryReport publishAppImageLauncherEntry()
         return report;
     }
     report.outcome = QStringLiteral("written");
+    report.schemeDefault = claimMatrixSchemeDefault();
     return report;
 #endif
 }
@@ -1425,6 +1458,7 @@ static int printDesktopStatus()
         out << "user launcher entry: " << report.userEntry << "\n";
     }
     out << "launcher entry: " << report.outcome << "\n";
+    out << "matrix: link handler: " << report.schemeDefault << "\n";
 
     QString visibleEntry;
     QString visibleIcon;
@@ -2206,6 +2240,14 @@ int main(int argc, char *argv[])
     // a fast relaunch open the same store while that close is still in
     // flight.
     instanceGuard.holdLockUntilProcessExit();
+    QString linkToOpen;
+    for (const QString &arg : QCoreApplication::arguments().mid(1)) {
+        if (lightning::SingleInstanceGuard::isOpenableLink(arg)) {
+            linkToOpen = arg;
+            break;
+        }
+    }
+    instanceGuard.setLinkToOpen(linkToOpen);
     switch (instanceGuard.claim()) {
     case lightning::SingleInstanceGuard::Claim::Primary:
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -2282,8 +2324,10 @@ int main(int argc, char *argv[])
     {
         const LauncherEntryReport entry = publishAppImageLauncherEntry();
         if (entry.appImageRun)
-            qInfo("lightning: AppImage launcher entry: %s (%d icon file(s) copied)",
-                  qUtf8Printable(entry.outcome), entry.iconsCopied);
+            qInfo("lightning: AppImage launcher entry: %s (%d icon file(s) "
+                  "copied); matrix: link handler: %s",
+                  qUtf8Printable(entry.outcome), entry.iconsCopied,
+                  qUtf8Printable(entry.schemeDefault));
     }
 
     {
@@ -2383,14 +2427,19 @@ int main(int argc, char *argv[])
 
     QObject::connect(
         &instanceGuard, &lightning::SingleInstanceGuard::activationRequested,
-        &controller, [&controller](const QString &activationToken) {
+        &controller, [&controller](const QString &activationToken,
+                                   const QString &link) {
             if (!activationToken.isEmpty()
                 && QGuiApplication::platformName().startsWith(
                     QLatin1String("wayland"))) {
                 qputenv("XDG_ACTIVATION_TOKEN", activationToken.toLatin1());
             }
             Q_EMIT controller.trayShowRequested();
+            if (!link.isEmpty())
+                controller.queueExternalMatrixLink(link);
         });
+    if (!linkToOpen.isEmpty())
+        controller.queueExternalMatrixLink(linkToOpen);
 
     lightning::quitsignals::install(&controller, [&controller](int) {
         Q_EMIT controller.applicationQuitIntended();

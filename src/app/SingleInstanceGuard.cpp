@@ -234,15 +234,37 @@ bool SingleInstanceGuard::isAcceptableActivationToken(const QByteArray &token)
     return true;
 }
 
+bool SingleInstanceGuard::isOpenableLink(const QString &link)
+{
+    if (link.isEmpty() || link.size() > kMaxLinkBytes)
+        return false;
+    for (const QChar c : link) {
+        if (c.unicode() < 0x21 || c.unicode() > 0x7e)
+            return false;
+    }
+    return link.startsWith(QLatin1String("matrix:"), Qt::CaseInsensitive)
+        || link.startsWith(QLatin1String("https://matrix.to/#/"),
+                           Qt::CaseInsensitive);
+}
+
 bool SingleInstanceGuard::parseRequest(const QByteArray &line,
-                                       QString *activationToken)
+                                       QString *activationToken,
+                                       QString *link)
 {
     activationToken->clear();
+    if (link)
+        link->clear();
     if (line == "show")
         return true;
     if (!line.startsWith("show "))
         return false;
-    const QByteArray token = line.mid(5);
+    QByteArray token = line.mid(5);
+    const QList<QByteArray> parts = token.split(' ');
+    if (parts.size() == 2 && isOpenableLink(QString::fromLatin1(parts.at(1)))) {
+        if (link)
+            *link = QString::fromLatin1(parts.at(1));
+        token = parts.at(0) == "-" ? QByteArray() : parts.at(0);
+    }
     if (isAcceptableActivationToken(token))
         *activationToken = QString::fromLatin1(token);
     return true;
@@ -393,7 +415,11 @@ SingleInstanceGuard::Notify SingleInstanceGuard::notifyRunningInstance(int budge
 
     QByteArray request("show");
     const QByteArray token = qgetenv("XDG_ACTIVATION_TOKEN");
-    if (isAcceptableActivationToken(token))
+    const bool hasToken = isAcceptableActivationToken(token);
+    if (isOpenableLink(m_link))
+        request += ' ' + (hasToken ? token : QByteArray("-")) + ' '
+            + m_link.toLatin1();
+    else if (hasToken)
         request += ' ' + token;
     request += '\n';
     socket.write(request);
@@ -477,7 +503,8 @@ void SingleInstanceGuard::handleClient(QLocalSocket *socket)
     disconnect(socket, &QLocalSocket::readyRead, this, nullptr);
     const QByteArray line = socket->readLine(kMaxRequestBytes + 1).trimmed();
     QString token;
-    if (!parseRequest(line, &token)) {
+    QString link;
+    if (!parseRequest(line, &token, &link)) {
         socket->abort();
         socket->deleteLater();
         return;
@@ -485,7 +512,7 @@ void SingleInstanceGuard::handleClient(QLocalSocket *socket)
     socket->write("ok\n");
     socket->flush();
     socket->disconnectFromServer();
-    Q_EMIT activationRequested(token);
+    Q_EMIT activationRequested(token, link);
 }
 
 }

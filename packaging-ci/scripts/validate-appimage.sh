@@ -337,6 +337,10 @@ test -f "$published" || die "the AppImage reported a published launcher entry th
 grep -qx 'Icon=lightning' "$published" || die "the published launcher entry does not name Icon=lightning"
 # -F: the path contains dots and is not a pattern.
 grep -qF "Exec=\"$ROOT/$app\"" "$published" || die "the published launcher entry does not exec the running AppImage"
+grep -qF -e "Exec=\"$ROOT/$app\" --backend=rust %u" "$published" || die "the published launcher entry does not pass a link to the AppImage"
+grep -qx 'MimeType=x-scheme-handler/matrix;' "$published" || die "the published launcher entry does not handle matrix: links"
+grep -qx 'x-scheme-handler/matrix=lightning.desktop;' "$desktop_home/.config/mimeapps.list" \
+    || die "the AppImage did not register itself for matrix: links in an empty profile"
 # Required, not optional: the job installs it, so its absence is a failure.
 command -v desktop-file-validate >/dev/null 2>&1 \
     || die "desktop-file-validate is missing from the validator image"
