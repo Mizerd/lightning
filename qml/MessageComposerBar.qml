@@ -491,8 +491,7 @@ Item {
     }
 
     function focusForTyping() {
-        if (!root.visible || app.currentRoomId === ""
-                || app.eventContext.active || app.thread.active)
+        if (!root.visible || app.currentRoomId === "" || app.thread.active)
             return false
         const editor = activeEditor()
         if (!editor || !editor.visible || !editor.enabled || editor.readOnly)

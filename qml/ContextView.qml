@@ -20,6 +20,10 @@ Rectangle {
     property var openImage: function(mediaKey, httpUrl) {}
     property var openArtwork: function(source, title) {}
     property var saveMedia: function(mediaKey, filename, mime, ask) {}
+    property var openReactionPicker: function(eventId, point, expanded) {}
+    property var openSenderProfile: function(member, anchor) {}
+    property var openReceiptList: function(readers, totalOthers, point, eventId) {}
+    property var closeTransientRowSurfaces: function() {}
     property var currentRoom: ({})
 
     property string highlightEventId: ""
@@ -148,7 +152,8 @@ Rectangle {
     }
     Shortcut {
         sequence: "Escape"
-        enabled: view.visible
+        enabled: view.visible && !app.composer.isReplying
+                 && !app.composer.isEditing
         onActivated: app.eventContext.jumpToLatest()
     }
 
@@ -294,7 +299,6 @@ Rectangle {
                 }
 
                 property var timelineModel: app.eventContext.model
-                property bool readOnlyContext: true
                 property string suppressRootEventId: ""
                 property bool threadContext: false
                 property string pinnedActionsKey: ""
@@ -315,8 +319,10 @@ Rectangle {
                 property var openArtwork: view.openArtwork
                 property var saveMedia: view.saveMedia
                 property string downloadSurface: "context"
-                property var openReactionPicker: function(eventId, point, expanded) {}
-                property var openSenderProfile: function(member) {}
+                property var openReactionPicker: view.openReactionPicker
+                property var openSenderProfile: view.openSenderProfile
+                property var openReceiptList: view.openReceiptList
+                property var closeTransientRowSurfaces: view.closeTransientRowSurfaces
                 property string navigationHighlightEventId: view.highlightEventId
                 property var navigateToEvent: function(eventId) {
                     if (!eventId)

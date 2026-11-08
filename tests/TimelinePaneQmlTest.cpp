@@ -30,6 +30,7 @@
 #include <QImage>
 
 #include "app/AppController.h"
+#include "app/ForwardController.h"
 #include "app/RoomDiscoveryController.h"
 #include "app/RoomInfoController.h"
 #include "auth/AuthManager.h"
@@ -11473,6 +11474,135 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(
             qAbs(timeline->property("contentY").toDouble() - minY) < 1.0, 2000);
         QCOMPARE(mock->eventContextPaginateCount(), 1);
+    }
+
+    void contextViewRowActionsTargetTheJumpedToRow()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        auto events = textFixture(roomId, 120, QStringLiteral("act"),
+                                  QStringLiteral("body"));
+        const QString target = events.at(20).eventId;
+        events[20].sender = mock->currentUserId();
+        events[20].senderDisplayName = QStringLiteral("Me");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline->property("stickToBottom").toBool());
+        mock->setEventContextEnabled(true);
+        mock->setEventContextRadius(40);
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, target));
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        auto *composer = root->findChild<QQuickItem *>(QStringLiteral("messageComposer"));
+        QVERIFY(overlay != nullptr);
+        QVERIFY(composer != nullptr);
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+        QTRY_VERIFY(overlay->property("targetPositioned").toBool());
+        QTest::qWait(200);
+        QVERIFY(composer->isVisible());
+
+        QQuickItem *row = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, row),
+                                          Q_ARG(int, context->targetRow())));
+        QVERIFY(row != nullptr);
+        const auto liveMenuOwners = [&] {
+            QStringList ids;
+            for (auto *item : timeline->findChildren<QQuickItem *>(
+                     QStringLiteral("messageDelegateRoot"))) {
+                const QString id = item->property("menuEventId").toString();
+                if (!id.isEmpty())
+                    ids << id;
+            }
+            return ids;
+        };
+        const auto openMenu = [&] {
+            row->setProperty("menuEventId", QString());
+            QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier,
+                              row->mapToScene(QPointF(120, row->height() / 2))
+                                  .toPoint());
+            QTRY_COMPARE(row->property("menuEventId").toString(), target);
+            QCOMPARE(liveMenuOwners(), QStringList{});
+        };
+        const auto trigger = [&](const char *name) {
+            auto *item = row->findChild<QObject *>(QLatin1String(name));
+            QVERIFY2(item != nullptr, name);
+            QVERIFY(item->property("enabled").toBool());
+            QVERIFY(QMetaObject::invokeMethod(item, "triggered"));
+        };
+
+        openMenu();
+        QTest::keyClick(&window, Qt::Key_R);
+        QTRY_COMPARE(controller.composer()->replyingToEventId(), target);
+        QVERIFY(context->active());
+        controller.composer()->cancelReplyOrEdit();
+
+        openMenu();
+        trigger("forwardMessageMenuItem");
+        QCOMPARE(controller.forward()->sourceEventId(), target);
+        controller.forward()->cancel();
+
+        QSignalSpy reactions(mock, &MatrixClient::reactionsChanged);
+        context->model()->toggleReaction(target, QStringLiteral("👍"));
+        QCOMPARE(reactions.count(), 1);
+        QCOMPARE(reactions.at(0).at(0).toString(), roomId);
+        QCOMPARE(reactions.at(0).at(1).toString(), target);
+
+        QSignalSpy redactions(mock, &MatrixClient::redactionFinished);
+        openMenu();
+        trigger("deleteMessageMenuItem");
+        QObject *accept = nullptr;
+        QTRY_VERIFY((accept = row->findChild<QObject *>(
+                         QStringLiteral("messageDestructiveConfirmAccept"))) != nullptr);
+        QVERIFY(QMetaObject::invokeMethod(accept, "clicked"));
+        QTRY_COMPARE(redactions.count(), 1);
+        QCOMPARE(redactions.at(0).at(1).toString(), target);
+        QVERIFY(redactions.at(0).at(2).toBool());
+        QTRY_VERIFY(context->model()->data(
+            context->model()->index(context->targetRow()),
+            TimelineModel::RedactedRole).toBool());
+    }
+
+    void sendingFromTheContextViewReturnsToTheNewestUnlessReplying()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        const auto events = textFixture(roomId, 120, QStringLiteral("snd"),
+                                        QStringLiteral("body"));
+        const QString target = events.at(20).eventId;
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, target));
+        QTRY_COMPARE(context->state(), ContextController::Ready);
+
+        controller.composer()->beginReply(target, QStringLiteral("Alice"),
+                                          QStringLiteral("body 20"), QString(),
+                                          QString());
+        controller.composer()->setText(QStringLiteral("a reply"));
+        controller.composer()->send();
+        QTest::qWait(100);
+        QVERIFY(context->active());
+
+        controller.composer()->setText(QStringLiteral("a plain message"));
+        controller.composer()->send();
+        QTRY_COMPARE(context->state(), ContextController::Closed);
     }
 
     void anOlderPageLandingInTheContextViewLeavesTheReaderInPlace_data()

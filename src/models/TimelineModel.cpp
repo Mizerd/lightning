@@ -2093,7 +2093,9 @@ QVariantList TimelineModel::voiceRunAfter(const QString &roomId,
 
 void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventId)
 {
-    if (roomId != m_roomId) return;
+    if (roomId != m_roomId
+        && !(MatrixClient::isContextTimelineId(m_roomId) && roomId == m_realRoomId))
+        return;
     const int row = rowForEventId(eventId);
     if (row < 0) return;
     m_events[row].redacted = true;
@@ -2728,14 +2730,18 @@ void TimelineModel::redactEvent(const QString &eventId, const QString &reason)
         return;
     // m_roomId, not the real room: in a thread this is the composite, which the
     // client decomposes to reach the thread timeline holding the event.
-    m_client->redactEvent(m_roomId, eventId, reason);
+    m_client->redactEvent(MatrixClient::isContextTimelineId(m_roomId)
+                              ? m_realRoomId : m_roomId,
+                          eventId, reason);
 }
 
 void TimelineModel::toggleReaction(const QString &eventId, const QString &key)
 {
     if (!m_client || m_roomId.isEmpty() || eventId.isEmpty() || key.isEmpty())
         return;
-    m_client->toggleReaction(m_roomId, eventId, key);
+    m_client->toggleReaction(MatrixClient::isContextTimelineId(m_roomId)
+                                 ? m_realRoomId : m_roomId,
+                             eventId, key);
 }
 
 bool TimelineModel::canEditEvent(const QString &eventId) const
@@ -2744,7 +2750,10 @@ bool TimelineModel::canEditEvent(const QString &eventId) const
     // Own messages only (canRedactEvent without the moderator grant), and
     // never one we cannot read: its body is the "unable to decrypt"
     // placeholder, and an edit would send that text as the new content.
+    // An edit goes through the live timeline, which does not hold a jumped-to
+    // event.
     return canRedactEvent(eventId) && event
+        && !MatrixClient::isContextTimelineId(m_roomId)
         && event->type == TimelineEvent::TextMessage
         && event->status == TimelineEvent::Sent
         && !event->undecryptable;

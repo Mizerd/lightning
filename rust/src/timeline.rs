@@ -2275,10 +2275,11 @@ impl TimelineRegistry {
             open_room_timeline.as_ref().map(|(_, g, _)| *g).unwrap_or_else(
                 || self.room_gen.load(Ordering::SeqCst));
         let room_timeline = open_room_timeline.map(|(t, _, _)| t);
+        let context_timeline = if in_thread { None } else { self.context_timeline_for(&room_id) };
         let report_room_id = room_id.clone();
         let report_thread_root = thread_root_id.clone();
         runtime.spawn(async move {
-            let item_id = TimelineEventItemId::EventId(event_id);
+            let item_id = TimelineEventItemId::EventId(event_id.clone());
             let send = tokio::spawn(async move {
                 let timeline = if in_thread {
                     match open_thread {
@@ -2289,7 +2290,15 @@ impl TimelineRegistry {
                         .await,
                     }
                 } else {
-                    room_timeline
+                    // A jumped-to event is held only by the context timeline.
+                    match (room_timeline, context_timeline) {
+                        (Some(live), Some(context))
+                            if live.item_by_event_id(&event_id).await.is_none() =>
+                        {
+                            Some(context)
+                        }
+                        (live, _) => live,
+                    }
                 };
                 match timeline {
                     Some(timeline) => {

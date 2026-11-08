@@ -45,7 +45,7 @@ Rectangle {
     readonly property bool composerFocusable:
         app.currentScreen === 1 && app.loggedIn && !app.accountSwitching
         && currentRoom.membership === "joined" && currentRoom.isSpace !== true
-        && !app.eventContext.active && !app.thread.active
+        && !app.thread.active
         && messageComposer.visible && messageComposer.enabled
         && messageComposer.activeEditor().enabled
         && !messageComposer.activeEditor().readOnly
@@ -79,7 +79,9 @@ Rectangle {
             return threadPanel.focusComposer()
         if (!root.composerFocusable)
             return false
-        if (app.timeline && app.timeline.count > 0)
+        if (app.eventContext.active)
+            app.eventContext.jumpToLatest()
+        else if (app.timeline && app.timeline.count > 0)
             timeline.goToLatest()
         return root.focusComposerForTyping()
     }
@@ -2350,7 +2352,9 @@ Rectangle {
 
             Flickable {
                 id: timeline
-                enabled: !root.invitePreview
+                // Pointer handlers below an accepting item still get the event,
+                // so rows hidden under the context view would answer its clicks.
+                enabled: !root.invitePreview && !app.eventContext.active
                 property int mediaBandFirstRow: 0
                 property int mediaBandLastRow: 2147483647
                 property int mediaRetainFirstRow: 0
@@ -4615,8 +4619,12 @@ Rectangle {
                     // Emitted before the composer clears its reply, so a reply
                     // sent from up in history keeps the reader at that context.
                     function onOwnMessageSent() {
-                        if (!timeline.stickToBottom && !app.composer.isReplying
-                                && app.settings.jumpToNewestOnSend)
+                        if (app.composer.isReplying
+                                || !app.settings.jumpToNewestOnSend)
+                            return
+                        if (app.eventContext.active)
+                            app.eventContext.jumpToLatest()
+                        else if (!timeline.stickToBottom)
                             timeline.goToLatest()
                     }
                 }
@@ -5427,6 +5435,10 @@ Rectangle {
                 saveMedia: function(mediaKey, filename, mime, ask) {
                     root.startDownload(mediaKey, filename, mime, ask, "context")
                 }
+                openReactionPicker: timeline.openReactionPicker
+                openSenderProfile: timeline.openSenderProfile
+                openReceiptList: timeline.openReceiptList
+                closeTransientRowSurfaces: timeline.closeTransientRowSurfaces
             }
         }
 
@@ -5566,8 +5578,7 @@ Rectangle {
             id: messageComposer
             objectName: "messageComposer"
             Layout.fillWidth: true
-            visible: app.currentRoomId !== "" && !app.eventContext.active
-                     && !root.invitePreview
+            visible: app.currentRoomId !== "" && !root.invitePreview
             onTimelineKeyRequested: (actionId) => timeline.runKeyAction(actionId)
         }
         Connections {
