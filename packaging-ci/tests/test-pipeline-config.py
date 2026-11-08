@@ -1935,8 +1935,11 @@ for _need in ("mirror-release-to-github", "publish-update-manifest", "sign-updat
 check(str(_com.get("image", "")).startswith("alpine@sha256:"),
       "mirror-release-to-gitlab-com uses the digest-pinned alpine image")
 _com_script = _strip_shell_comments(_read("scripts", "mirror-release-to-gitlab-com.sh"))
-check('-z "${GITLAB_COM_TOKEN:-}"' in _com_script and "exit 0" in _com_script,
-      "mirror-release-to-gitlab-com is a no-op without GITLAB_COM_TOKEN")
+_com_token_gate = _com_script.split('-z "${GITLAB_COM_TOKEN:-}"', 1)[-1].split("fi", 1)[0]
+check('-z "${GITLAB_COM_TOKEN:-}"' in _com_script
+      and '"${PUBLISH_PACKAGES:-false}" != true' in _com_token_gate
+      and "die " in _com_token_gate and "exit 0" in _com_token_gate,
+      "mirror-release-to-gitlab-com fails without GITLAB_COM_TOKEN when publishing and is a no-op otherwise")
 check("projects/88402223/packages/generic/lightning" in _com_script
       and '"update-latest"' in _com_script,
       "the gitlab.com host, project and slot are constants in the script")

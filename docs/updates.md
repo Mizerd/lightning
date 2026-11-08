@@ -10,7 +10,7 @@ true, so the privacy section below is part of the contract, not a footnote.
 
 ## What Lightning contacts, and what it sends
 
-Two hosts, with sharply different roles.
+Three hosts, with sharply different roles: one signs, two only mirror.
 
 **`gitlab.smetonis.net` — where releases are built and signed.** Update
 *metadata* — which version exists, what the artifact is called, how big it is,
@@ -19,8 +19,9 @@ release pipeline with a key that exists nowhere else, and from nothing else.
 Where that document is *fetched* from is a matter of availability, not trust:
 since the GitLab project may become private, the PRIMARY source is the fixed
 GitHub release slot below, then the public gitlab.com mirror, and GitLab itself
-is the LAST fallback, read only when neither mirror answers. A document that
-does not verify is never retried from another source. The signature check is
+is the LAST fallback, read only when neither mirror supplies a pair that
+verifies. Each pair is verified on its own against the compiled-in key, and a
+failure at GitLab, the last source, ends the check. The signature check is
 identical whichever source served it.
 
 **`github.com` — the public source of the metadata and of the files.**
@@ -42,7 +43,7 @@ publish an update* below.
 An update check is an ordinary anonymous HTTPS GET of two small public files
 from the fixed GitHub release slot first, then from the gitlab.com mirror (see
 *gitlab.com, the second source* below), and from the project's own GitLab
-package registry only when neither answers:
+package registry only when neither supplies a pair that verifies:
 
 ```
 https://github.com/Mizerd/lightning/releases/download/update-latest/update-manifest-v1.json
@@ -128,9 +129,11 @@ public key compiled into Lightning
    canonical. Falling through keeps updates working when a mirror is broken or
    stale, and costs nothing: every attempt is checked against the same signed
    hash, so none can install different bytes than another would have.
-6. **Failure is terminal.** Invalid signature, unknown key, wrong hash, wrong
-   size, unsupported schema, or a URL that is not HTTPS on an allowed host all
-   stop the update, and nothing in the interface offers a way past them.
+6. **Failure at the last source is terminal.** A mirror's failure only moves
+   on to the next source; once the canonical source has failed too, an invalid
+   signature, unknown key, wrong hash, wrong size, unsupported schema, or a URL
+   that is not HTTPS on an allowed host stops the update, and nothing in the
+   interface offers a way past it.
 
 ### Why a mirror cannot publish an update
 
@@ -139,11 +142,15 @@ versions. Concretely:
 
 - **If GitHub serves a modified binary**, its SHA-256 will not match the value
   in the signed manifest and the download is discarded. Lightning then tries
-  gitlab.com and then GitLab; if those also fail, the update fails. A tampered file is never
-  installed, and there is no way for a user to override that.
-- **If GitHub serves modified metadata**, nothing happens, because Lightning
-  never reads metadata from GitHub. The manifest and its signature come only
-  from the canonical host, and the mirror's host is not accepted for either.
+  gitlab.com and then GitLab; if those also fail, the update fails. A tampered
+  file is never installed, and there is no way for a user to override that.
+- **If a mirror serves modified metadata**, it does not verify. The manifest
+  pair may come from the GitHub slot, the gitlab.com slot or GitLab, and it is
+  trusted only because its Ed25519 signature verifies against the key compiled
+  into Lightning; a pair that does not verify is discarded and the next source
+  is asked. A mirror can replay an OLDER validly signed pair, which freezes
+  clients on that release (see *Reading order* below), but it cannot forge a
+  pair and cannot cause a downgrade.
 - **If GitHub hosts a newer or extra release**, it is ignored entirely.
   Lightning's idea of "what version exists" comes from the signed manifest, so
   an unsigned GitHub release — however new it looks — is invisible to it.
@@ -210,17 +217,19 @@ pipeline writes the slot after every GitLab promotion
 so with GitLab private or down the whole path — manifest, signature, artifacts —
 is served by GitHub and verified by the same compiled-in Ed25519 key, and a
 check costs one request pair with no failed GitLab attempt in front of it. The
-next source is read, once per check, only if the one before it did not answer:
-a transport failure (DNS, TLS, connection, stall timeout) or HTTP 401, 403,
-404, 408, 429 or 5xx. Any other failure (another status, a redirect off the
-allowed hosts, an oversized body) ends the check, and so does a document that
-does not verify: a bad signature from any source is a hard stop and never a
-reason to ask another source. A new check starts at the primary again, so an
-outage is never sticky.
+next source is read, once per check, whenever a MIRROR (GitHub or gitlab.com)
+fails in any way: a transport failure, any refused HTTP status, a redirect off
+its allowed hosts, an oversized body, or a pair that does not verify. Each
+source's pair is verified on its own against the compiled-in key, so falling
+through can never combine documents from two hosts or accept an unverified
+one; it also covers the moment a mirror upload has replaced the signature but
+not yet the manifest. The canonical source is read last and any failure there
+ends the check. A new check starts at the primary again, so an outage is never
+sticky.
 
 #### gitlab.com, the second source
 
-When GitHub does not answer, the public `gitlab.com/lightning-matrix/lightning`
+When GitHub fails, Lightning asks the public `gitlab.com/lightning-matrix/lightning`
 project's generic package registry (project 88402223). Its host, project and
 paths are compiled-in constants, never read from a manifest or a response:
 
@@ -243,7 +252,8 @@ release but never downgrade it, the same accepted trade-off as the GitHub slot
 — and since it is now read before GitLab, a stale gitlab.com slot freezes
 clients whenever GitHub is down, not only when GitLab is down too. The release
 pipeline fills it with `mirror-release-to-gitlab-com` (needs the masked CI
-variable `GITLAB_COM_TOKEN`, a no-op without it, `allow_failure`) and proves
+variable `GITLAB_COM_TOKEN`; retried and NOT `allow_failure`, and a publishing
+pipeline without the token fails rather than leave the slot stale) and proves
 each upload by anonymous re-download. Fallbacks are logged under the
 `lightning.update` category.
 
@@ -259,12 +269,13 @@ the canonical `url` only after both fail, so a GitLab that answers 401/404/5xx
 or not at all is never contacted when a mirror serves the file, and when all
 three fail the update ends in one clean failure.
 
-Trade-off, accepted (freeze and pin): the fallback runs only on a transport
-failure or a failed signature, not because the primary's answer is old. An OLD
-but validly signed manifest in the GitHub slot therefore makes the client
-report "up to date" without asking GitLab. Whoever controls the slot — the
-GitHub account, a leaked `GITHUB_MIRROR_TOKEN`, or a failed pipeline write —
-can freeze clients, or pin them to any signed release newer than the one they
+Trade-off, accepted (freeze and pin): the fallback runs only when a source
+fails, never because its answer is old. An OLD but validly signed manifest in
+the GitHub slot therefore makes the client report "up to date" without asking
+gitlab.com or GitLab, and so does one in the gitlab.com slot whenever GitHub is
+unavailable. Whoever controls a slot — the GitHub account or a leaked
+`GITHUB_MIRROR_TOKEN`, the gitlab.com project or a leaked `GITLAB_COM_TOKEN`,
+or a failed pipeline write to either — can freeze clients, or pin them to any signed release newer than the one they
 run; they cannot install anything unsigned and cannot downgrade. Before this
 order, that control sat with GitLab's rollback-guarded `latest`. It is
 inherent once GitHub is the only public source, so it is accepted; no

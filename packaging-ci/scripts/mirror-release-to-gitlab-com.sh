@@ -11,8 +11,10 @@ set -Eeuo pipefail
 # gitlab.com holds bytes and decides nothing: the manifest is signed in this
 # pipeline and clients verify the signature and every SHA-256 whichever host
 # served them. The host, project and package name are constants so no variable
-# can steer where clients are told to look. A no-op without GITLAB_COM_TOKEN.
-# allow_failure in CI; idempotent; release files are never replaced, and the
+# can steer where clients are told to look. Without GITLAB_COM_TOKEN it fails in
+# a publishing pipeline (clients read this slot before GitLab, so a stale one
+# freezes them) and is a no-op otherwise. Retried, NOT allow_failure, in CI;
+# idempotent; release files are never replaced, and the
 # slot never moves backwards without UPDATE_ALLOW_LATEST_ROLLBACK=true.
 #
 # GITLAB_COM_TOKEN lives only in a 0600 curl config file removed on exit,
@@ -34,6 +36,8 @@ GITLAB_COM_SLOT_VERSION="update-latest"
 [[ "$GITLAB_COM_READBACK_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || die "GITLAB_COM_READBACK_POLL_SECONDS must be a positive integer"
 
 if [[ -z "${GITLAB_COM_TOKEN:-}" ]]; then
+    [[ "${PUBLISH_PACKAGES:-false}" != true ]] || \
+        die "GITLAB_COM_TOKEN is not set in a publishing pipeline; the gitlab.com update slot would go stale"
     printf 'GITLAB_COM_TOKEN is not set; the gitlab.com mirror is skipped\n'
     exit 0
 fi

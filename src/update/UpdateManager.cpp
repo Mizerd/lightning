@@ -371,7 +371,7 @@ void UpdateManager::onMetadataFetchFailed(TransferError error, const QString &me
 {
     if (m_state != Checking)
         return;
-    if (isSourceUnavailable(error) && retryMetadataFromFallback())
+    if (error != TransferError::Cancelled && retryMetadataFromFallback())
         return;
     failWith(message);
 }
@@ -381,7 +381,7 @@ bool UpdateManager::retryMetadataFromFallback()
     const QList<MetadataSource> sources = metadataSources();
     if (m_metadataStage + 1 >= sources.size())
         return false;
-    qCInfo(lcUpdate) << "update metadata unavailable from"
+    qCInfo(lcUpdate) << "update metadata failed from"
                      << sources.at(m_metadataStage).manifest.host() << "- trying"
                      << sources.at(m_metadataStage + 1).manifest.host();
     ++m_metadataStage;
@@ -435,7 +435,11 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     if (!result.ok) {
         qCWarning(lcUpdate) << "update manifest from"
                             << metadataSources().at(m_metadataStage).manifest.host()
-                            << "failed verification; no other source is tried";
+                            << "failed verification";
+        // Each source's pair is verified on its own, so a mirror's bad pair just
+        // moves on; the canonical source is last and its failure is final.
+        if (m_state == Checking && retryMetadataFromFallback())
+            return;
         Q_EMIT updateInfoChanged();
         failWith(result.message);
         return;
@@ -914,19 +918,19 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
             if (hasGitlabComArtifact()) {
                 next = ArtifactSource::GitlabCom;
                 setStatusDetail(QStringLiteral(
-                    "GitHub did not respond; downloading from the gitlab.com mirror instead."));
+                    "GitHub could not supply the file; downloading from the gitlab.com mirror instead."));
             } else {
                 next = ArtifactSource::Canonical;
                 setStatusDetail(QStringLiteral(
-                    "GitHub did not respond; downloading from Lightning's own server instead."));
+                    "GitHub could not supply the file; downloading from Lightning's own server instead."));
             }
         } else if (m_attemptSource == ArtifactSource::GitlabCom) {
             m_gitlabComFailed = true;
             next = ArtifactSource::Canonical;
             setStatusDetail(m_githubFailed
-                                ? QStringLiteral("GitHub and the gitlab.com mirror did not respond; "
+                                ? QStringLiteral("GitHub and the gitlab.com mirror could not supply the file; "
                                                  "downloading from Lightning's own server instead.")
-                                : QStringLiteral("The gitlab.com mirror did not respond; "
+                                : QStringLiteral("The gitlab.com mirror could not supply the file; "
                                                  "downloading from Lightning's own server instead."));
         }
         if (next) {
@@ -983,16 +987,16 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
     }
     QString detail;
     if (m_attemptSource == ArtifactSource::GitlabCom && m_githubFailed) {
-        detail = QStringLiteral("GitHub did not respond, so this update came from the gitlab.com "
-                                "mirror. It was checked against the signed release either way.");
+        detail = QStringLiteral("GitHub could not supply the file, so this update came from the "
+                                "gitlab.com mirror. It was checked against the signed release.");
     } else if (m_attemptSource == ArtifactSource::Canonical && (m_githubFailed || m_gitlabComFailed)) {
         const QString failed = m_githubFailed && m_gitlabComFailed
-            ? QStringLiteral("GitHub and the gitlab.com mirror did not respond")
-            : m_githubFailed ? QStringLiteral("GitHub did not respond")
-                             : QStringLiteral("The gitlab.com mirror did not respond");
+            ? QStringLiteral("GitHub and the gitlab.com mirror could not supply the file")
+            : m_githubFailed ? QStringLiteral("GitHub could not supply the file")
+                             : QStringLiteral("The gitlab.com mirror could not supply the file");
         detail = failed
             + QStringLiteral(", so this update came from Lightning's own server. It was checked "
-                             "against the signed release either way.");
+                             "against the signed release.");
     }
     setStatusDetail(detail);
     setState(ReadyToInstall);

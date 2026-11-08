@@ -314,6 +314,17 @@ private:
         return manager;
     }
 
+    void toCanonicalMetadataSource(UpdateManager *manager)
+    {
+        manager->checkForUpdates();
+        while (manager->state() == UpdateManager::Checking
+               && manager->lastSignatureUrlForTest()
+                   != lightning::update::latestManifestSignatureUrl()) {
+            manager->simulateMetadataFetchFailureForTest(QStringLiteral("unreachable"));
+        }
+        QCOMPARE(manager->state(), UpdateManager::Checking);
+    }
+
     void ingest(UpdateManager *manager, const QJsonObject &manifest)
     {
         const QByteArray bytes = QJsonDocument(manifest).toJson(QJsonDocument::Compact);
@@ -412,19 +423,20 @@ private slots:
 
     void anExpiredManifestStillOffersTheUpdateAndSaysSo();
     void theFallbackFetcherHopsOnlyWithinTheMirror();
-    void aCanonicalAnswerThatDoesNotVerifyIsAHardStop();
+    void aCanonicalAnswerThatDoesNotVerifyIsFinal();
 
     void theManifestPairIsReadFromGitHubFirst();
     void aPrimaryTransportFailureFallsBackToGitlabComThenGitLabOnce();
-    void aPrimaryAnswerThatDoesNotVerifyIsAHardStop();
-    void onlyAnUnavailableSourceMovesTheCheckToTheNextSource();
-    void aBadSignatureFromGitlabComIsRefused();
+    void aGitHubAnswerThatDoesNotVerifyFallsThroughToGitlabCom();
+    void anyMirrorFailureMovesTheCheckOnAndACanonicalOneIsFinal();
+    void aBadSignatureFromGitlabComFallsThroughToTheCanonicalSource();
     void aValidManifestFromGitlabComIsOffered();
     void gitlabComAddressesAreCompileTimeConstants();
     void theGitlabComFetcherAndDownloaderStayOnGitlabCom();
     void gitlabComIsTriedBeforeTheCanonicalSource();
     void aHashMismatchFromGitlabComFallsThroughToTheCanonicalSource();
     void aHashMismatchFromTheCanonicalSourceIsFinal();
+    void theMirrorFallsBackToTheCanonicalSourceWithoutAGitlabComPath();
     void aMirrorSignedManifestNamingAForeignHostIsStillRefused();
     void aGitLabOutageCostsNothingWhenTheMirrorServesTheArtifact();
     void theReleasePageLinkIsTheGitHubTagForTheOfferedVersion();
@@ -531,8 +543,7 @@ void UpdateManagerStateTest::failsOnATamperedManifest()
         QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
     const QByteArray envelope = sign(bytes);
     bytes.replace("0.8.0", "0.9.0");
-    manager->checkForUpdates();
-    QCOMPARE(manager->state(), UpdateManager::Checking);
+    toCanonicalMetadataSource(manager.get());
     manager->ingestCheckDocuments(bytes, envelope);
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
@@ -551,7 +562,7 @@ void UpdateManagerStateTest::failsOnAnUnknownKey()
     envelope.insert(QStringLiteral("sig"),
                     QString::fromLatin1(m_signer.sign(bytes).toBase64()));
     const QByteArray rogue = QJsonDocument(envelope).toJson(QJsonDocument::Compact);
-    manager->checkForUpdates();
+    toCanonicalMetadataSource(manager.get());
     manager->ingestCheckDocuments(bytes, rogue);
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
@@ -1347,7 +1358,7 @@ void UpdateManagerStateTest::fallsBackToTheCanonicalSourceWhenBothMirrorsAreUnre
     QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
     QVERIFY(manager->errorMessage().isEmpty());
     QVERIFY2(manager->statusDetail().startsWith(
-                 QStringLiteral("GitHub and the gitlab.com mirror did not respond")),
+                 QStringLiteral("GitHub and the gitlab.com mirror could not supply the file")),
              qPrintable(manager->statusDetail()));
 
     QCOMPARE(manager->totalBytes(), qint64(payloadBytes().size()));
@@ -1465,7 +1476,7 @@ void UpdateManagerStateTest::anArtifactWithoutAMirrorTriesGitlabComThenTheCanoni
              (QStringList{ QStringLiteral("gitlab.com"), lightning::update::canonicalUpdateHost() }));
     QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
     QVERIFY2(manager->statusDetail().startsWith(
-                 QStringLiteral("The gitlab.com mirror did not respond")),
+                 QStringLiteral("The gitlab.com mirror could not supply the file")),
              qPrintable(manager->statusDetail()));
     QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
 }
@@ -1634,21 +1645,19 @@ void UpdateManagerStateTest::anExpiredManifestStillOffersTheUpdateAndSaysSo()
              qPrintable(garbled->statusDetail()));
 }
 
-void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyIsAHardStop()
+void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyIsFinal()
 {
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
-    manager->checkForUpdates();
-    QCOMPARE(manager->state(), UpdateManager::Checking);
-    QVERIFY(!manager->metadataInFallbackStageForTest());
+    toCanonicalMetadataSource(manager.get());
     const QByteArray bytes =
         QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
     QByteArray tampered = bytes;
     tampered.replace("0.8.0", "0.8.1");
     manager->ingestCheckDocuments(tampered, sign(bytes));
     QCOMPARE(manager->state(), UpdateManager::Failed);
+    QCOMPARE(manager->lastSignatureUrlForTest(), lightning::update::latestManifestSignatureUrl());
     QVERIFY(!manager->updateAvailable());
 }
-
 void UpdateManagerStateTest::theManifestPairIsReadFromGitHubFirst()
 {
     namespace u = lightning::update;
@@ -1698,7 +1707,7 @@ void UpdateManagerStateTest::aPrimaryTransportFailureFallsBackToGitlabComThenGit
     QCOMPARE(manager->lastSignatureUrlForTest(), u::mirrorLatestManifestSignatureUrl());
 }
 
-void UpdateManagerStateTest::aPrimaryAnswerThatDoesNotVerifyIsAHardStop()
+void UpdateManagerStateTest::aGitHubAnswerThatDoesNotVerifyFallsThroughToGitlabCom()
 {
     if (lightning::update::mirrorLatestManifestUrl().isEmpty())
         QSKIP("this build compiles in no mirror manifest slot");
@@ -1710,13 +1719,17 @@ void UpdateManagerStateTest::aPrimaryAnswerThatDoesNotVerifyIsAHardStop()
     QByteArray tampered = bytes;
     tampered.replace("0.8.0", "0.9.9");
     manager->ingestCheckDocuments(tampered, sign(bytes));
-    QCOMPARE(manager->state(), UpdateManager::Failed);
-    QCOMPARE(manager->metadataStageForTest(), 0);
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QCOMPARE(manager->lastSignatureUrlForTest(),
+             lightning::update::gitlabComManifestSignatureUrl());
     QVERIFY(!manager->updateAvailable());
     QVERIFY(manager->latestVersion().isEmpty());
-}
 
-void UpdateManagerStateTest::onlyAnUnavailableSourceMovesTheCheckToTheNextSource()
+    manager->ingestCheckDocuments(bytes, sign(bytes));
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    QCOMPARE(manager->latestVersion(), QStringLiteral("0.8.0"));
+}
+void UpdateManagerStateTest::anyMirrorFailureMovesTheCheckOnAndACanonicalOneIsFinal()
 {
     if (lightning::update::mirrorLatestManifestUrl().isEmpty())
         QSKIP("this build compiles in no mirror manifest slot");
@@ -1724,24 +1737,22 @@ void UpdateManagerStateTest::onlyAnUnavailableSourceMovesTheCheckToTheNextSource
     using lightning::update::TransferError;
     for (const TransferError error :
          { TransferError::HttpRejected, TransferError::SizeExceeded, TransferError::ForeignHost,
-           TransferError::TooManyRedirects, TransferError::InsecureUrl }) {
+           TransferError::TooManyRedirects, TransferError::InsecureUrl, TransferError::Network,
+           TransferError::Stalled }) {
         const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
         manager->checkForUpdates();
-        manager->simulateMetadataFetchFailureForTest(QStringLiteral("refused"), error);
-        QCOMPARE(manager->state(), UpdateManager::Failed);
-        QCOMPARE(manager->metadataStageForTest(), 0);
-    }
-
-    for (const TransferError error : { TransferError::Network, TransferError::Stalled }) {
-        const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
-        manager->checkForUpdates();
-        manager->simulateMetadataFetchFailureForTest(QStringLiteral("down"), error);
+        manager->simulateMetadataFetchFailureForTest(QStringLiteral("github"), error);
         QCOMPARE(manager->state(), UpdateManager::Checking);
         QCOMPARE(manager->metadataStageForTest(), 1);
+        manager->simulateMetadataFetchFailureForTest(QStringLiteral("gitlab.com"), error);
+        QCOMPARE(manager->state(), UpdateManager::Checking);
+        QCOMPARE(manager->metadataStageForTest(), 2);
+        manager->simulateMetadataFetchFailureForTest(QStringLiteral("canonical"), error);
+        QCOMPARE(manager->state(), UpdateManager::Failed);
+        QCOMPARE(manager->metadataStageForTest(), 2);
     }
 }
-
-void UpdateManagerStateTest::aBadSignatureFromGitlabComIsRefused()
+void UpdateManagerStateTest::aBadSignatureFromGitlabComFallsThroughToTheCanonicalSource()
 {
     if (lightning::update::mirrorLatestManifestUrl().isEmpty())
         QSKIP("this build compiles in no mirror manifest slot");
@@ -1757,12 +1768,16 @@ void UpdateManagerStateTest::aBadSignatureFromGitlabComIsRefused()
     QByteArray tampered = bytes;
     tampered.replace("0.8.0", "0.9.9");
     manager->ingestCheckDocuments(tampered, sign(bytes));
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QCOMPARE(manager->lastSignatureUrlForTest(), lightning::update::latestManifestSignatureUrl());
+    QVERIFY(!manager->updateAvailable());
+
+    manager->ingestCheckDocuments(tampered, sign(bytes));
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
     QVERIFY(manager->latestVersion().isEmpty());
     QVERIFY(!manager->errorMessage().isEmpty());
 }
-
 void UpdateManagerStateTest::aValidManifestFromGitlabComIsOffered()
 {
     if (lightning::update::mirrorLatestManifestUrl().isEmpty())
@@ -1882,8 +1897,8 @@ void UpdateManagerStateTest::gitlabComIsTriedBeforeTheCanonicalSource()
     QCOMPARE(manager->artifactSource(), QStringLiteral("gitlab-com"));
     if (!mirrorHost().isEmpty()) {
         QVERIFY2(manager->statusDetail().startsWith(
-                     QStringLiteral("GitHub did not respond, so this update came from the "
-                                    "gitlab.com mirror")),
+                     QStringLiteral("GitHub could not supply the file, so this update came "
+                                    "from the gitlab.com mirror")),
                  qPrintable(manager->statusDetail()));
     }
     QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
@@ -1948,13 +1963,49 @@ static void refusedOnBothSources(UpdateManager *m, const QByteArray &bytes,
 {
     m->checkForUpdates();
     QCOMPARE(m->state(), UpdateManager::Checking);
-    m->ingestCheckDocuments(bytes, sig);
-    if (m->state() == UpdateManager::Checking) {
-        QVERIFY(m->metadataInFallbackStageForTest());
+    for (int i = 0; i < 3 && m->state() == UpdateManager::Checking; ++i)
         m->ingestCheckDocuments(bytes, sig);
-    }
     QCOMPARE(m->state(), UpdateManager::Failed);
+    QCOMPARE(m->lastSignatureUrlForTest(), lightning::update::latestManifestSignatureUrl());
     QVERIFY(!m->updateAvailable());
+}
+
+void UpdateManagerStateTest::theMirrorFallsBackToTheCanonicalSourceWithoutAGitlabComPath()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_0.8.0+git_amd64.deb");
+    QVERIFY(lightning::update::gitlabComArtifactUrl(version, filename).isEmpty());
+
+    QJsonObject manifest = mirroredManifest(version);
+    QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
+    QJsonObject deb = artifacts.value(QStringLiteral("linux-deb")).toObject();
+    deb.insert(QStringLiteral("filename"), filename);
+    deb.insert(QStringLiteral("url"), artifactUrl(version, filename));
+    deb.insert(QStringLiteral("mirror_url"), mirrorArtifactUrl(version, filename));
+    artifacts.insert(QStringLiteral("linux-deb"), deb);
+    manifest.insert(QStringLiteral("artifacts"), artifacts);
+
+    ByteSourceRecorder source;
+    source.serve(QUrl(artifactUrl(version, filename)).toString(), payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), manifest);
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    QCOMPARE(source.requestedHosts(),
+             (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost() }));
+    QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
+    QVERIFY2(manager->statusDetail().startsWith(
+                 QStringLiteral("GitHub could not supply the file, so this update came from "
+                                "Lightning's own server")),
+             qPrintable(manager->statusDetail()));
 }
 
 void UpdateManagerStateTest::aMirrorSignedManifestNamingAForeignHostIsStillRefused()
