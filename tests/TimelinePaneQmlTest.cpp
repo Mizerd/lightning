@@ -11752,6 +11752,7 @@ false);
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         mock->setEventContextEnabled(true);
+        mock->setEventContextRadius(6);
         auto *context = controller.eventContext();
         QVERIFY(context->open(roomId, events.at(30).eventId));
         auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
