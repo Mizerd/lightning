@@ -3619,12 +3619,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallStage</name>
     <message>
-        <location filename="../qml/CallStage.qml" line="+329"/>
+        <location filename="../qml/CallStage.qml" line="+333"/>
         <source>Nobody to show here yet</source>
         <translation>अभी तक यहां दिखाने वाला कोई नहीं है</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+32"/>
         <source>Connecting…</source>
         <translation>कनेक्ट हो रहा है…</translation>
     </message>
@@ -12887,7 +12887,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1114"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1130"/>
         <source>Today</source>
         <translation>आज</translation>
     </message>
@@ -12935,13 +12935,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+806"/>
+        <location line="+824"/>
         <location line="+1120"/>
         <source>Reply</source>
         <translation>जवाब दें</translation>
     </message>
     <message>
-        <location line="-1911"/>
+        <location line="-1929"/>
         <source>(original message not loaded)</source>
         <translation>(मूल संदेश लोड नहीं हुआ)</translation>
     </message>
@@ -12996,12 +12996,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>सुरक्षा सेटिंग्स</translation>
     </message>
     <message>
-        <location line="-1904"/>
+        <location line="-1911"/>
         <source>Link</source>
         <translation>लिंक</translation>
     </message>
     <message>
-        <location line="+1334"/>
+        <location line="+1341"/>
         <source>Open this thread</source>
         <translation>यह थ्रेड खोलें</translation>
     </message>
@@ -13042,24 +13042,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2242"/>
+        <location line="+2260"/>
         <location line="+1027"/>
         <source>Retry</source>
         <translation>फिर कोशिश करें</translation>
     </message>
     <message>
-        <location line="-3252"/>
-        <location line="+1176"/>
+        <location line="-3270"/>
+        <location line="+1194"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-1171"/>
+        <location line="-1189"/>
         <source>Cancel sending this message</source>
         <translation>इस संदेश को भेजना रद्द करें</translation>
     </message>
     <message>
-        <location line="+141"/>
+        <location line="+159"/>
         <location line="+1355"/>
         <source>Hide image</source>
         <translation>छवि छिपाएँ</translation>
@@ -13188,12 +13188,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>थ्रेड में जवाब दें</translation>
     </message>
     <message>
-        <location line="-1923"/>
+        <location line="-1941"/>
         <source>Original message removed</source>
         <translation>मूल संदेश हटा दिया गया</translation>
     </message>
     <message>
-        <location line="+1933"/>
+        <location line="+1951"/>
         <source>Open in room</source>
         <translation>रूम में खोलें</translation>
     </message>
@@ -13391,7 +13391,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>संपादित करें</translation>
     </message>
     <message>
-        <location line="-3759"/>
+        <location line="-3784"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13407,45 +13407,45 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+569"/>
+        <location line="+570"/>
         <source>Sticker</source>
         <translation>स्टिकर</translation>
     </message>
     <message>
-        <location line="-566"/>
+        <location line="-567"/>
         <source>Voice message</source>
         <translation>वॉइस संदेश</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+563"/>
+        <location line="+564"/>
         <source>Audio</source>
         <translation>ऑडियो</translation>
     </message>
     <message>
-        <location line="-561"/>
-        <location line="+559"/>
-        <location line="+3498"/>
+        <location line="-562"/>
+        <location line="+560"/>
+        <location line="+3522"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-4980"/>
+        <location line="-5005"/>
         <location line="+53"/>
-        <location line="+505"/>
-        <location line="+4047"/>
+        <location line="+506"/>
+        <location line="+4071"/>
         <source>Image</source>
         <translation>तस्वीर</translation>
     </message>
     <message>
-        <location line="-4603"/>
+        <location line="-4628"/>
         <source>Attachment</source>
         <translation>अटैचमेंट</translation>
     </message>
     <message numerus="yes">
-        <location line="+542"/>
+        <location line="+543"/>
         <source>%n image(s)</source>
         <translation>
             <numerusform>%n तस्वीर</numerusform>
@@ -13461,7 +13461,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+376"/>
+        <location line="+382"/>
         <source>A reply in a thread is waiting for keys</source>
         <translation>थ्रेड में एक जवाब कुंजियों की प्रतीक्षा में है</translation>
     </message>
@@ -13506,7 +13506,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>(संपादित)</translation>
     </message>
     <message>
-        <location line="+1518"/>
+        <location line="+1536"/>
         <source>Add :%1: to my emoji</source>
         <translation>:%1: को मेरे इमोजी में जोड़ें</translation>
     </message>
@@ -13644,12 +13644,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>जिसका जवाब है</translation>
     </message>
     <message>
-        <location line="-1887"/>
+        <location line="-1905"/>
         <source>Show preview</source>
         <translation>प्रीव्यू दिखाएँ</translation>
     </message>
     <message>
-        <location line="+1730"/>
+        <location line="+1748"/>
         <source>Remove edits?</source>
         <translation>संपादन हटाएँ?</translation>
     </message>
@@ -13771,10 +13771,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्टिकर लोड नहीं हो सका — फिर कोशिश करने के लिए क्लिक करें</translation>
     </message>
     <message>
-        <location line="-5391"/>
+        <location line="-5416"/>
         <location line="+57"/>
-        <location line="+508"/>
-        <location line="+4045"/>
+        <location line="+509"/>
+        <location line="+4069"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13787,9 +13787,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>वीडियो</translation>
     </message>
     <message>
-        <location line="-5772"/>
-        <location line="+561"/>
-        <location line="+4148"/>
+        <location line="-5797"/>
+        <location line="+562"/>
+        <location line="+4172"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -21217,36 +21217,36 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+4"/>
         <location line="+3"/>
-        <location line="+1462"/>
+        <location line="+1467"/>
         <location line="+876"/>
-        <location line="+5264"/>
+        <location line="+5292"/>
         <source>Account</source>
         <translation>खाता</translation>
     </message>
     <message>
-        <location line="-7614"/>
+        <location line="-7647"/>
         <source>account profile</source>
         <translation>खाता अकाउंट प्रोफ़ाइल</translation>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+8496"/>
+        <location line="+8529"/>
         <source>Homeserver</source>
         <translation>होमसर्वर</translation>
     </message>
     <message>
-        <location line="-8496"/>
+        <location line="-8529"/>
         <source>homeserver server url</source>
         <translation>होमसर्वर सर्वर पता यूआरएल</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8531"/>
+        <location line="+8564"/>
         <source>Start minimized</source>
         <translation>मिनिमाइज़ करके शुरू करें</translation>
     </message>
     <message>
-        <location line="-8531"/>
+        <location line="-8564"/>
         <source>startup minimized</source>
         <translation>स्टार्टअप मिनिमाइज़ शुरुआत छोटा</translation>
     </message>
@@ -21257,13 +21257,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+850"/>
+        <location line="+855"/>
         <location line="+1757"/>
         <source>Theme</source>
         <translation>थीम</translation>
     </message>
     <message>
-        <location line="-2606"/>
+        <location line="-2611"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>थीम रंग मॉस इंडिगो टील लाइट डार्क ग्रेफ़ाइट मिडनाइट नॉर्डिक पर्पल वॉर्म हल्की गहरी</translation>
     </message>
@@ -21274,7 +21274,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <location line="+3"/>
         <location line="+11"/>
-        <location line="+579"/>
+        <location line="+584"/>
         <location line="+785"/>
         <location line="+900"/>
         <location line="+231"/>
@@ -21282,15 +21282,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>दिखावट</translation>
     </message>
     <message>
-        <location line="-2584"/>
-        <location line="+2123"/>
+        <location line="-2589"/>
+        <location line="+2128"/>
         <location line="+937"/>
         <location line="+43"/>
         <source>Match system light/dark</source>
         <translation>सिस्टम की लाइट/डार्क सेटिंग अपनाएँ</translation>
     </message>
     <message>
-        <location line="-3102"/>
+        <location line="-3107"/>
         <source>match system auto theme</source>
         <translation>सिस्टम के अनुसार अपने आप थीम</translation>
     </message>
@@ -21301,64 +21301,64 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+4163"/>
+        <location line="+4168"/>
         <source>Message layout</source>
         <translation>संदेश का लेआउट</translation>
     </message>
     <message>
-        <location line="-4108"/>
-        <location line="+3076"/>
+        <location line="-4113"/>
+        <location line="+3081"/>
         <source>Text size</source>
         <translation>टेक्स्ट का आकार</translation>
     </message>
     <message>
-        <location line="-3076"/>
+        <location line="-3081"/>
         <source>text size font scale</source>
         <translation>टेक्स्ट आकार फ़ॉन्ट स्केल अक्षर</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3166"/>
+        <location line="+3171"/>
         <location line="+20"/>
         <source>Interface zoom</source>
         <translation>इंटरफ़ेस ज़ूम</translation>
     </message>
     <message>
-        <location line="-3185"/>
+        <location line="-3190"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>इंटरफ़ेस ज़ूम स्केल बड़ा आकार</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3246"/>
+        <location line="+3251"/>
         <location line="+26"/>
         <source>Text rendering</source>
         <translation>टेक्स्ट रेंडरिंग</translation>
     </message>
     <message>
-        <location line="-3271"/>
+        <location line="-3276"/>
         <source>text rendering anti-aliasing antialiasing aliasing smooth hinting font native blurry fuzzy sharp subpixel fontconfig</source>
         <translation>टेक्स्ट रेंडरिंग एंटी-एलियासिंग एलियासिंग स्मूद हिंटिंग फ़ॉन्ट नेटिव धुंधला अस्पष्ट तीखा सबपिक्सल फ़ॉन्टकॉन्फ़िग text rendering anti-aliasing antialiasing aliasing smooth hinting font native blurry fuzzy sharp subpixel fontconfig</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3283"/>
+        <location line="+3288"/>
         <source>Font</source>
         <translation>फ़ॉन्ट</translation>
     </message>
     <message>
-        <location line="-3283"/>
+        <location line="-3288"/>
         <source>font family typeface</source>
         <translation>फ़ॉन्ट टाइपफ़ेस अक्षर</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3421"/>
+        <location line="+3426"/>
         <source>Code font</source>
         <translation>कोड फ़ॉन्ट</translation>
     </message>
     <message>
-        <location line="-3420"/>
+        <location line="-3425"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>कोड फ़ॉन्ट मोनोस्पेस मोनो निश्चित चौड़ाई टाइपफेस</translation>
     </message>
@@ -21370,30 +21370,30 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3489"/>
+        <location line="+3494"/>
         <source>Your own fonts</source>
         <translation>आपके अपने फ़ॉन्ट</translation>
     </message>
     <message>
-        <location line="-3488"/>
+        <location line="-3493"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>फ़ॉन्ट फ़ाइल आयात करें ttf otf कस्टम टाइपफेस स्थापित करें</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+765"/>
+        <location line="+770"/>
         <location line="+2935"/>
         <source>Language</source>
         <translation>भाषा</translation>
     </message>
     <message>
-        <location line="-3700"/>
+        <location line="-3705"/>
         <source>language locale</source>
         <translation>भाषा लोकेल</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2041"/>
+        <location line="+2046"/>
         <location line="+2523"/>
         <location line="+28"/>
         <location line="+12"/>
@@ -21401,47 +21401,47 @@ Signing out and signing in again is the only fix.</source>
         <translation>रूम की गतिविधि दिखाएँ</translation>
     </message>
     <message>
-        <location line="-4603"/>
+        <location line="-4608"/>
         <source>room activity membership joins leaves profile</source>
         <translation>रूम गतिविधि सदस्यता जुड़ना छोड़ना प्रोफ़ाइल</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4749"/>
+        <location line="+4782"/>
         <source>Mouse-wheel speed</source>
         <translation>माउस-व्हील की गति</translation>
     </message>
     <message>
-        <location line="-4748"/>
+        <location line="-4781"/>
         <source>wheel speed scroll timeline</source>
         <translation>व्हील गति स्क्रॉल टाइमलाइन</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+2049"/>
+        <location line="+2054"/>
         <location line="+2520"/>
         <source>Joins, leaves and invites</source>
         <translation>जुड़ता है, छोड़ता है और आमंत्रित करता है</translation>
     </message>
     <message>
-        <location line="-4568"/>
+        <location line="-4573"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>सदस्यता शामिल हों छुट्टी आमंत्रण किक प्रतिबंध गतिविधि छिपाएँ</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2053"/>
+        <location line="+2058"/>
         <location line="+2523"/>
         <source>Display name and avatar changes</source>
         <translation>प्रदर्शन नाम और अवतार परिवर्तन</translation>
     </message>
     <message>
-        <location line="-4575"/>
+        <location line="-4580"/>
         <source>profile change display name avatar activity hide</source>
         <translation>प्रोफ़ाइल परिवर्तन प्रदर्शन नाम अवतार गतिविधि छिपाएँ</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+40"/>
         <location line="+2057"/>
         <location line="+1726"/>
         <source>Reduce motion</source>
@@ -21532,58 +21532,58 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <location line="+2007"/>
-        <location line="+2724"/>
+        <location line="+2752"/>
         <source>Enter starts a new line</source>
         <translation>Enter एक नई लाइन शुरू करता है</translation>
     </message>
     <message>
-        <location line="-4730"/>
+        <location line="-4758"/>
         <source>enter newline send composer message box return</source>
         <translation>न्यूलाइन दर्ज करें कंपोजर संदेश बॉक्स भेजें वापसी</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+2012"/>
-        <location line="+3050"/>
+        <location line="+3078"/>
         <source>Send text with an attachment as its caption</source>
         <translation>कैप्शन के रूप में अनुलग्नक के साथ टेक्स्ट भेजें</translation>
     </message>
     <message>
-        <location line="-5061"/>
+        <location line="-5089"/>
         <source>caption attachment upload text description</source>
         <translation>कैप्शन अटैचमेंट अपलोड टेक्स्ट विवरण</translation>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+5089"/>
+        <location line="+5117"/>
         <source>Message box buttons</source>
         <translation>संदेश बॉक्स के बटन</translation>
     </message>
     <message>
-        <location line="-5088"/>
+        <location line="-5116"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation>कंपोज़र बटन छिपाएँ दिखाएँ इमोजी gif स्टिकर वॉइस माइक्रोफ़ोन फ़ॉर्मैटिंग शेड्यूल बाद में भेजें सरल करें composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+4737"/>
+        <location line="+4765"/>
         <source>Check spelling as you type</source>
         <translation>टाइप करते समय वर्तनी जाँचें</translation>
     </message>
     <message>
-        <location line="-4736"/>
+        <location line="-4764"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation>वर्तनी जाँच शब्दकोश गलती रेखांकित भाषा spell spelling checker dictionary typo underline language</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4744"/>
+        <location line="+4772"/>
         <location line="+14"/>
         <source>Spelling language</source>
         <translation>वर्तनी की भाषा</translation>
     </message>
     <message>
-        <location line="-4757"/>
+        <location line="-4785"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation>वर्तनी भाषा शब्दकोश स्वचालित सिस्टम spell spelling language dictionary automatic system</translation>
     </message>
@@ -21595,23 +21595,23 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+1155"/>
         <location line="+915"/>
-        <location line="+3056"/>
+        <location line="+3084"/>
         <source>Keyboard shortcuts</source>
         <translation>कीबोर्ड शॉर्टकट</translation>
     </message>
     <message>
-        <location line="-5135"/>
+        <location line="-5163"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>कीबोर्ड शॉर्टकट शॉर्टकट कुंजी कुंजियाँ बाइंडिंग रीबाइंड हॉटकी</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+5302"/>
+        <location line="+5330"/>
         <source>Reset all shortcuts</source>
         <translation>सभी शॉर्टकट रीसेट करें</translation>
     </message>
     <message>
-        <location line="-5301"/>
+        <location line="-5329"/>
         <source>reset shortcuts default keys</source>
         <translation>शॉर्टकट डिफ़ॉल्ट कुंजियाँ रीसेट करें</translation>
     </message>
@@ -21643,13 +21643,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+7053"/>
+        <location line="+7081"/>
         <location line="+10"/>
         <source>Album art</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7058"/>
+        <location line="-7086"/>
         <location line="+537"/>
         <source>Camera</source>
         <translation>कैमरा</translation>
@@ -21663,13 +21663,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+24"/>
         <location line="+494"/>
         <location line="+1277"/>
-        <location line="+4740"/>
+        <location line="+4768"/>
         <location line="+207"/>
         <source>Desktop notifications</source>
         <translation>डेस्कटॉप सूचनाएँ</translation>
     </message>
     <message>
-        <location line="-6717"/>
+        <location line="-6745"/>
         <source>notifications desktop enable</source>
         <translation>सूचनाएँ डेस्कटॉप चालू</translation>
     </message>
@@ -21684,12 +21684,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+1047"/>
         <location line="+925"/>
-        <location line="+4495"/>
+        <location line="+4523"/>
         <source>Notifications</source>
         <translation>सूचनाएँ</translation>
     </message>
     <message>
-        <location line="-6666"/>
+        <location line="-6694"/>
         <location line="+2020"/>
         <location line="+2256"/>
         <source>Keep the room list still while I use it</source>
@@ -21709,23 +21709,23 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-4333"/>
         <location line="+2010"/>
-        <location line="+3062"/>
+        <location line="+3090"/>
         <source>Convert :shortcode: to emoji</source>
         <translation>:शॉर्टकोड: को इमोजी में बदलें</translation>
     </message>
     <message>
-        <location line="-5071"/>
+        <location line="-5099"/>
         <source>emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</source>
         <translation>इमोजी शॉर्टकोड कोलन बदलना ऑटो-कन्वर्ट थम्सअप स्माइली स्लैक डिस्कॉर्ड emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</translation>
     </message>
     <message>
         <location line="+138"/>
-        <location line="+6501"/>
+        <location line="+6529"/>
         <source>Notification preview</source>
         <translation>सूचना का पूर्वावलोकन</translation>
     </message>
     <message>
-        <location line="-6500"/>
+        <location line="-6528"/>
         <source>notification preview privacy sender message</source>
         <translation>सूचना पूर्वावलोकन निजता भेजने वाला संदेश</translation>
     </message>
@@ -21741,23 +21741,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6557"/>
+        <location line="+6585"/>
         <source>Notification sound</source>
         <translation>सूचना की ध्वनि</translation>
     </message>
     <message>
-        <location line="-6556"/>
+        <location line="-6584"/>
         <source>notification sound mute</source>
         <translation>सूचना ध्वनि म्यूट</translation>
     </message>
     <message>
         <location line="+45"/>
-        <location line="+5222"/>
+        <location line="+5250"/>
         <source>Only exchange messages with verified devices</source>
         <translation>केवल सत्यापित डिवाइस के साथ संदेश आदान-प्रदान करें</translation>
     </message>
     <message>
-        <location line="-5221"/>
+        <location line="-5249"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation>अदृश्य क्रिप्टो क्रॉस-साइन सत्यापित डिवाइस भरोसा असुरक्षित बाहर रखें एन्क्रिप्शन invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</translation>
     </message>
@@ -21768,12 +21768,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6187"/>
+        <location line="+6215"/>
         <source>Keep downloaded media on this device</source>
         <translation>डाउनलोड किया मीडिया इस डिवाइस पर रखें</translation>
     </message>
     <message>
-        <location line="-6186"/>
+        <location line="-6214"/>
         <source>media cache video image picture file download offline storage disk keep clear</source>
         <translation>मीडिया कैश वीडियो तस्वीर फ़ाइल डाउनलोड ऑफ़लाइन स्टोरेज डिस्क रखना साफ़ करना media cache video image picture file download offline storage disk keep clear</translation>
     </message>
@@ -21783,15 +21783,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>गोपनीयता और सुरक्षा · इस डिवाइस पर रखा मीडिया</translation>
     </message>
     <message>
-        <location line="-324"/>
-        <location line="+340"/>
+        <location line="-329"/>
+        <location line="+345"/>
         <location line="+4307"/>
-        <location line="+940"/>
+        <location line="+968"/>
         <source>Read receipts</source>
         <translation>रीड रसीदें</translation>
     </message>
     <message>
-        <location line="-5246"/>
+        <location line="-5274"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation>रीड रसीद रसीदें निजी देखा टिक नीला गोपनीयता read receipt receipts private seen ticks blue m.read.private privacy</translation>
     </message>
@@ -21803,23 +21803,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+5285"/>
+        <location line="+5313"/>
         <source>Let others see when I am typing</source>
         <translation>दूसरों को दिखने दें कि मैं टाइप कर रहा हूँ</translation>
     </message>
     <message>
-        <location line="-5284"/>
+        <location line="-5312"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation>टाइपिंग सूचना नोटिफ़िकेशन कंपोज़ संकेतक गोपनीयता typing notice notification composing indicator privacy</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+5325"/>
+        <location line="+5353"/>
         <source>Share my online status</source>
         <translation>मेरी ऑनलाइन स्थिति साझा करें</translation>
     </message>
     <message>
-        <location line="-5324"/>
+        <location line="-5352"/>
         <source>presence online idle offline status share</source>
         <translation>उपस्थिति ऑनलाइन निष्क्रिय ऑफ़लाइन स्थिति साझा</translation>
     </message>
@@ -21831,12 +21831,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <location line="+404"/>
-        <location line="+4940"/>
+        <location line="+4968"/>
         <source>Ignored users</source>
         <translation>अनदेखा किए गए उपयोगकर्ता</translation>
     </message>
     <message>
-        <location line="-5343"/>
+        <location line="-5371"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>अनदेखा ब्लॉक उपयोगकर्ता म्यूट व्यक्ति छिपाएँ</translation>
     </message>
@@ -21874,20 +21874,20 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+862"/>
         <location line="+880"/>
-        <location line="+6598"/>
+        <location line="+6626"/>
         <location line="+509"/>
         <source>Sessions</source>
         <translation>सेशन</translation>
     </message>
     <message>
-        <location line="-8935"/>
+        <location line="-8963"/>
         <location line="+1628"/>
-        <location line="+4126"/>
+        <location line="+4154"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>बिना एन्क्रिप्शन वाले रूम में पूर्वावलोकन अपने आप लोड करें</translation>
     </message>
     <message>
-        <location line="-5753"/>
+        <location line="-5781"/>
         <source>link preview privacy</source>
         <translation>लिंक पूर्वावलोकन निजता</translation>
     </message>
@@ -21900,12 +21900,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-7"/>
-        <location line="+5752"/>
+        <location line="+5780"/>
         <source>Load previews in encrypted rooms</source>
         <translation>एन्क्रिप्टेड रूम में पूर्वावलोकन लोड करें</translation>
     </message>
     <message>
-        <location line="-5751"/>
+        <location line="-5779"/>
         <source>link preview encrypted</source>
         <translation>लिंक पूर्वावलोकन एन्क्रिप्टेड</translation>
     </message>
@@ -21918,12 +21918,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5904"/>
+        <location line="+5932"/>
         <source>GIF safe search</source>
         <translation>GIF सुरक्षित खोज</translation>
     </message>
     <message>
-        <location line="-5903"/>
+        <location line="-5931"/>
         <source>gif safe search rating</source>
         <translation>GIF सुरक्षित खोज रेटिंग</translation>
     </message>
@@ -21936,36 +21936,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+5927"/>
+        <location line="+5955"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>पसंदीदा GIF प्रदाता</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-5961"/>
         <source>gif provider giphy klipy</source>
         <translation>GIF प्रदाता GIPHY KLIPY</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5969"/>
+        <location line="+5997"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>हाल में इस्तेमाल किए GIF सहेजें</translation>
     </message>
     <message>
-        <location line="-5971"/>
+        <location line="-5999"/>
         <source>gif recents store</source>
         <translation>GIF हालिया सहेजना</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8047"/>
+        <location line="+8075"/>
         <source>Security status</source>
         <translation>सुरक्षा की स्थिति</translation>
     </message>
     <message>
-        <location line="-8046"/>
+        <location line="-8074"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>एन्क्रिप्शन स्थिति क्रॉस-साइनिंग बैकअप</translation>
     </message>
@@ -21973,18 +21973,18 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+896"/>
         <location line="+875"/>
-        <location line="+3285"/>
+        <location line="+3313"/>
         <source>Privacy &amp; security</source>
         <translation>निजता और सुरक्षा</translation>
     </message>
     <message>
-        <location line="-5054"/>
-        <location line="+9391"/>
+        <location line="-5082"/>
+        <location line="+9419"/>
         <source>Recovery key or passphrase</source>
         <translation>रिकवरी कुंजी या पासफ़्रेज़</translation>
     </message>
     <message>
-        <location line="-9390"/>
+        <location line="-9418"/>
         <source>recovery key passphrase backup restore</source>
         <translation>रिकवरी कुंजी पासफ़्रेज़ बैकअप पुनर्स्थापित</translation>
     </message>
@@ -21998,23 +21998,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-11"/>
-        <location line="+9401"/>
+        <location line="+9429"/>
         <source>Import room keys</source>
         <translation>रूम कुंजियाँ आयात करें</translation>
     </message>
     <message>
-        <location line="-9400"/>
+        <location line="-9428"/>
         <source>import room keys export</source>
         <translation>रूम कुंजियाँ आयात निर्यात</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9616"/>
+        <location line="+9644"/>
         <source>Danger Zone</source>
         <translation>जोखिम वाला क्षेत्र</translation>
     </message>
     <message>
-        <location line="-9615"/>
+        <location line="-9643"/>
         <source>reset danger local session</source>
         <translation>रीसेट जोखिम स्थानीय सेशन</translation>
     </message>
@@ -22025,34 +22025,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+9169"/>
+        <location line="+9197"/>
         <source>Current session</source>
         <translation>मौजूदा सेशन</translation>
     </message>
     <message>
-        <location line="-9168"/>
+        <location line="-9196"/>
         <source>device id session status</source>
         <translation>डिवाइस आईडी सेशन स्थिति</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8371"/>
+        <location line="+8399"/>
         <source>Sign in another device</source>
         <translation>दूसरे डिवाइस में साइन इन करें</translation>
     </message>
     <message>
-        <location line="-8370"/>
+        <location line="-8398"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation>क्यूआर कोड स्कैन दूसरे डिवाइस में साइन इन फ़ोन लिंक लॉगिन qr code scan sign in another device phone link msc4108 login</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+9214"/>
+        <location line="+9242"/>
         <source>Verify this session</source>
         <translation>इस सेशन को सत्यापित करें</translation>
     </message>
     <message>
-        <location line="-9213"/>
+        <location line="-9241"/>
         <source>verify verification sas cross-signing</source>
         <translation>सत्यापन सत्यापित करें क्रॉस-साइनिंग</translation>
     </message>
@@ -22077,12 +22077,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+831"/>
         <location line="+933"/>
-        <location line="+7895"/>
+        <location line="+7923"/>
         <source>Labs</source>
         <translation>लैब्स</translation>
     </message>
     <message>
-        <location line="-9667"/>
+        <location line="-9695"/>
         <source>Sync mode</source>
         <translation>सिंक मोड</translation>
     </message>
@@ -22103,12 +22103,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+9781"/>
+        <location line="+9809"/>
         <source>Refresh current room</source>
         <translation>मौजूदा रूम रीफ़्रेश करें</translation>
     </message>
     <message>
-        <location line="-9780"/>
+        <location line="-9808"/>
         <source>refresh reload timeline</source>
         <translation>रीफ़्रेश दोबारा लोड टाइमलाइन</translation>
     </message>
@@ -22118,12 +22118,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+820"/>
         <location line="+971"/>
         <location line="+11"/>
-        <location line="+7998"/>
+        <location line="+8026"/>
         <source>About</source>
         <translation>परिचय</translation>
     </message>
     <message>
-        <location line="-9801"/>
+        <location line="-9829"/>
         <source>about version license</source>
         <translation>परिचय संस्करण लाइसेंस</translation>
     </message>
@@ -22162,14 +22162,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+48"/>
-        <location line="+6698"/>
+        <location line="+6726"/>
         <location line="+183"/>
         <location line="+1232"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-7856"/>
+        <location line="-7884"/>
         <source>Needs attention</source>
         <translation>ध्यान देने की ज़रूरत</translation>
     </message>
@@ -22180,12 +22180,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4351"/>
+        <location line="+4379"/>
         <source>Clear index</source>
         <translation>इंडेक्स साफ़ करें</translation>
     </message>
     <message>
-        <location line="-4341"/>
+        <location line="-4369"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation>जब तक Lightning इतिहास को दोबारा इंडेक्स नहीं कर लेता, जो वह अपने-आप करता है, तब तक आपके इतिहास में खोज काम नहीं करेगी। कोई संदेश नहीं हटता — इंडेक्स केवल एक प्रति है जो Lightning ने खोजने के लिए बनाई है।</translation>
     </message>
@@ -22201,14 +22201,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+6090"/>
+        <location line="+6118"/>
         <location line="+366"/>
         <location line="+1816"/>
         <source>Clear</source>
         <translation>साफ़ करें</translation>
     </message>
     <message>
-        <location line="-8262"/>
+        <location line="-8290"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>इस डिवाइस पर सहेजे गए हर प्रोवाइडर GIF को हटा दें? चैट से सहेजे गए GIF पर कोई असर नहीं होगा। इसे पहले जैसा नहीं किया जा सकता।</translation>
     </message>
@@ -22290,12 +22290,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-2099"/>
         <location line="+2100"/>
         <location line="+31"/>
-        <location line="+3204"/>
+        <location line="+3232"/>
         <source>Compact</source>
         <translation>कॉम्पैक्ट</translation>
     </message>
     <message>
-        <location line="-5131"/>
+        <location line="-5159"/>
         <source>theme</source>
         <translation>थीम</translation>
     </message>
@@ -22320,7 +22320,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्टॉर्म</translation>
     </message>
     <message>
-        <location line="+2717"/>
+        <location line="+2745"/>
         <source>Typing a shortcode like &quot;:thumbsup:&quot; turns it into the emoji as soon as it is complete. Custom pack shortcodes are unaffected.</source>
         <translation>&quot;:thumbsup:&quot; जैसा शॉर्टकोड टाइप करने पर, पूरा होते ही वह इमोजी में बदल जाता है। कस्टम पैक के शॉर्टकोड प्रभावित नहीं होते।</translation>
     </message>
@@ -22355,8 +22355,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>भेजने के विकल्प</translation>
     </message>
     <message>
-        <location line="-4481"/>
-        <location line="+4739"/>
+        <location line="-4509"/>
+        <location line="+4767"/>
         <source>Device trust</source>
         <translation>डिवाइस पर भरोसा</translation>
     </message>
@@ -22371,8 +22371,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning के अगली बार शुरू होने पर लागू होगा।</translation>
     </message>
     <message>
-        <location line="-4807"/>
-        <location line="+4814"/>
+        <location line="-4835"/>
+        <location line="+4842"/>
         <source>Reading and typing</source>
         <translation>पढ़ना और टाइप करना</translation>
     </message>
@@ -22543,8 +22543,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>सूचना ध्वनि की शैली</translation>
     </message>
     <message>
-        <location line="-2895"/>
-        <location line="+2907"/>
+        <location line="-2923"/>
+        <location line="+2935"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -22747,12 +22747,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>रीसेट इस खाते के लिए केवल Lightning का स्थानीय Rust SDK स्टोर हटाता है (टर्मिनल से भी उपलब्ध: lightning-matrix --reset-crypto-store)। यह सर्वर के संदेशों या Element के डेटा को नहीं छूता। इसके बाद आपको दोबारा साइन इन करना होगा।</translation>
     </message>
     <message>
-        <location line="-7598"/>
+        <location line="-7626"/>
         <source>Moss Light</source>
         <translation>मॉस लाइट</translation>
     </message>
     <message>
-        <location line="-2638"/>
+        <location line="-2643"/>
         <source>Change password</source>
         <translation>पासवर्ड बदलें</translation>
     </message>
@@ -22763,29 +22763,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+75"/>
-        <location line="+4331"/>
+        <location line="+4336"/>
         <source>Spaces rail depth</source>
         <translation>स्पेस रेल की गहराई</translation>
     </message>
     <message>
-        <location line="-4330"/>
+        <location line="-4335"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
         <translation>स्पेस रेल गहराई स्पेस बार साइडबार नेस्टिंग क्षेत्र क्लासिक पुरानी शैली सपाट टिंट इंडेंट spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</translation>
     </message>
     <message>
         <location line="+61"/>
-        <location line="+2064"/>
+        <location line="+2069"/>
         <location line="+2518"/>
         <source>Collapse media and link embeds</source>
         <translation>मीडिया और लिंक एम्बेड समेटें</translation>
     </message>
     <message>
-        <location line="-4581"/>
+        <location line="-4586"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
         <translation>एम्बेड समेटना कॉम्पैक्ट एक पंक्ति अव्यवस्था मीडिया तस्वीर gif स्टिकर वीडियो ऑडियो वॉइस फ़ाइल अटैचमेंट लिंक पूर्वावलोकन फैलाना तीर embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</translation>
     </message>
     <message>
-        <location line="+190"/>
+        <location line="+195"/>
         <source>microphone mic input device voice call audio sound</source>
         <translation>माइक्रोफ़ोन माइक इनपुट डिवाइस वॉइस कॉल ऑडियो ध्वनि microphone mic input device voice call audio sound</translation>
     </message>
@@ -22819,13 +22819,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7019"/>
+        <location line="+7047"/>
         <location line="+20"/>
         <source>Media playback volume</source>
         <translation>मीडिया प्लेबैक वॉल्यूम</translation>
     </message>
     <message>
-        <location line="-7038"/>
+        <location line="-7066"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation>वॉल्यूम ध्वनि ऑडियो वीडियो वॉइस संदेश प्लेबैक स्तर मीडिया तेज़ volume sound audio video voice message playback level media loud</translation>
     </message>
@@ -22843,12 +22843,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <location line="+534"/>
-        <location line="+6541"/>
+        <location line="+6569"/>
         <source>Call sounds</source>
         <translation>कॉल की ध्वनियाँ</translation>
     </message>
     <message>
-        <location line="-7074"/>
+        <location line="-7102"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
         <translation>कॉल ध्वनियाँ शामिल छोड़ना म्यूट डीफ़ अनम्यूट स्क्रीन शेयर हाथ घंटी बीप प्रभाव call sounds join leave mute deafen unmute screen share hand chime beep effects</translation>
     </message>
@@ -22860,13 +22860,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-3"/>
-        <location line="+7173"/>
+        <location line="+7201"/>
         <location line="+28"/>
         <source>Ringer volume</source>
         <translation>रिंगर वॉल्यूम</translation>
     </message>
     <message>
-        <location line="-7200"/>
+        <location line="-7228"/>
         <source>ringer ringtone ring volume incoming call loud</source>
         <translation>रिंगर रिंगटोन रिंग वॉल्यूम आने वाली कॉल तेज़ ringer ringtone ring volume incoming call loud</translation>
     </message>
@@ -22892,24 +22892,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+156"/>
-        <location line="+5760"/>
+        <location line="+5788"/>
         <source>Show images and videos from links inline</source>
         <translation>लिंक की तस्वीरें और वीडियो इनलाइन दिखाएँ</translation>
     </message>
     <message>
-        <location line="-5759"/>
+        <location line="-5787"/>
         <source>link preview image video embed inline media player viewer</source>
         <translation>लिंक पूर्वावलोकन तस्वीर वीडियो एम्बेड इनलाइन मीडिया प्लेयर व्यूअर link preview image video embed inline media player viewer</translation>
     </message>
     <message>
         <location line="+926"/>
         <location line="+930"/>
-        <location line="+4870"/>
+        <location line="+4898"/>
         <source>Sound &amp; video</source>
         <translation>ध्वनि और वीडियो</translation>
     </message>
     <message>
-        <location line="-5163"/>
+        <location line="-5191"/>
         <location line="+2306"/>
         <source>Regions</source>
         <translation>क्षेत्र</translation>
@@ -22935,12 +22935,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>और थीम</translation>
     </message>
     <message>
-        <location line="-2742"/>
+        <location line="-2747"/>
         <source>Custom theme</source>
         <translation>कस्टम थीम</translation>
     </message>
     <message>
-        <location line="+2884"/>
+        <location line="+2889"/>
         <source>Build your own theme</source>
         <translation>अपनी खुद की थीम बनाएँ</translation>
     </message>
@@ -23170,7 +23170,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ट्रे में ही प्रारंभ करें</translation>
     </message>
     <message>
-        <location line="-4550"/>
+        <location line="-4555"/>
         <source>Chat background</source>
         <translation>चैट बैकग्राउंड</translation>
     </message>
@@ -23180,7 +23180,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>गहराई</translation>
     </message>
     <message>
-        <location line="+355"/>
+        <location line="+360"/>
         <source>Notification sound style and volume</source>
         <translation>सूचना ध्वनि की शैली और वॉल्यूम</translation>
     </message>
@@ -23191,12 +23191,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+61"/>
-        <location line="+6364"/>
+        <location line="+6392"/>
         <source>Always ask where to save files</source>
         <translation>फ़ाइलें कहाँ सहेजनी हैं, हमेशा पूछें</translation>
     </message>
     <message>
-        <location line="-6363"/>
+        <location line="-6391"/>
         <source>download downloads save folder location directory ask where file</source>
         <translation>डाउनलोड सहेजना फ़ोल्डर स्थान डायरेक्टरी पूछना फ़ाइल कहाँ download downloads save folder location directory ask where file</translation>
     </message>
@@ -23208,13 +23208,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+128"/>
-        <location line="+6702"/>
+        <location line="+6730"/>
         <location line="+3002"/>
         <source>Microphone noise suppression</source>
         <translation>माइक्रोफ़ोन शोर दमन</translation>
     </message>
     <message>
-        <location line="-9703"/>
+        <location line="-9731"/>
         <source>noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</source>
         <translation>शोर दमन रद्दीकरण माइक्रोफ़ोन बैकग्राउंड webrtc rnnoise deepfilternet डीनॉइज़ noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</translation>
     </message>
@@ -23260,7 +23260,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>तस्वीरें, GIF, स्टिकर, वीडियो, ऑडियो, वॉइस संदेश, फ़ाइलें और लोड किए गए लिंक पूर्वावलोकन हर एक एक पंक्ति बन जाते हैं जो बताती है कि वह क्या है। एक को दिखाने के लिए तीर पर क्लिक करें, या पंक्ति पर फ़ोकस करके Enter दबाएँ। उत्तर के उद्धरण, थ्रेड कार्ड, पोल और साझा की गई जगहें प्रभावित नहीं होतीं। समेटा हुआ अटैचमेंट फैलाने तक डाउनलोड नहीं होता।</translation>
     </message>
     <message>
-        <location line="+140"/>
+        <location line="+168"/>
         <source>Standard</source>
         <translation>मानक</translation>
     </message>
@@ -23285,7 +23285,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>माउस व्हील को एक बार घुमाने पर टाइमलाइन कितनी खिसकती है। इस सेटिंग से टचपैड और प्रिसिज़न स्क्रॉलिंग पर कोई असर नहीं पड़ता — वे बारीक ही रहती हैं।</translation>
     </message>
     <message>
-        <location line="-4217"/>
+        <location line="-4245"/>
         <location line="+186"/>
         <location line="+2841"/>
         <source>Application icon</source>
@@ -23303,12 +23303,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+4631"/>
+        <location line="+4659"/>
         <source>Choose image…</source>
         <translation>इमेज चुनें…</translation>
     </message>
     <message>
-        <location line="-4624"/>
+        <location line="-4652"/>
         <source>Reset to Lightning default</source>
         <translation>Lightning के डिफ़ॉल्ट पर लौटाएँ</translation>
     </message>
@@ -23410,7 +23410,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-3671"/>
-        <location line="+4089"/>
+        <location line="+4117"/>
         <source>Message box</source>
         <translation>संदेश बॉक्स</translation>
     </message>
@@ -23754,8 +23754,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>निजी</translation>
     </message>
     <message>
-        <location line="-3049"/>
-        <location line="+3069"/>
+        <location line="-3077"/>
+        <location line="+3097"/>
         <location line="+209"/>
         <source>Off</source>
         <translation>बंद</translation>
@@ -23786,8 +23786,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>कॉल में आपके माइक्रोफ़ोन से बैकग्राउंड शोर छानता है। एक समय में एक तरीक़ा चलता है, और बदलाव चल रही कॉल पर लागू होता है।</translation>
     </message>
     <message>
-        <location line="-9940"/>
-        <location line="+6708"/>
+        <location line="-9968"/>
+        <location line="+6736"/>
         <source>Ring for incoming voice calls</source>
         <translation>आने वाली वॉइस कॉल पर घंटी बजाएँ</translation>
     </message>
@@ -23839,7 +23839,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>बदलें</translation>
     </message>
     <message>
-        <location line="-4656"/>
+        <location line="-4684"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>चालू होने पर, Lightning सिस्टम स्कीम का पालन करता है: लाइट मोड में मॉस लाइट, डार्क मोड में इंडिगो नाइट।</translation>
     </message>
@@ -23877,7 +23877,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>चैनल प्रत्येक स्थान को एक फ़ोल्डर के रूप में सूचीबद्ध करता है, जिसमें नीचे मौजूद रूम भी शामिल हैं। बिना जगह के रूम, और आपके सीधे संदेश, रूम में एक साथ रहते हैं।</translation>
     </message>
     <message>
-        <location line="+1982"/>
+        <location line="+2010"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation>आपका होमसर्वर पूर्वावलोकन लोड करता है, इसलिए लिंक की गई साइट आपके बजाय आपके सर्वर को देखती है। यदि आपका सर्वर ऐसा नहीं कर सकता - कई लोगों ने पूर्वावलोकन बंद कर दिए हैं - Lightning इसे सीधे लोड करता है, जो आपके आईपी पते को प्रकट कर सकता है और प्रेषक द्वारा चुनी गई साइट पर समय का अनुरोध कर सकता है। अपने होमसर्वर से पूछने पर यह भी पता चलता है कि किस लिंक का पूर्वावलोकन किया गया था, जो एन्क्रिप्टेड रूम में अन्यथा उसे पता नहीं चलेगा। कोई जावास्क्रिप्ट निष्पादित नहीं है. दोनों स्विच डिफ़ॉल्ट रूप से बंद हैं; उन्हें छोड़ दें और एक समय में एक निर्णय लेने के लिए प्रत्येक संदेश के लिंक कार्ड पर &quot;शो&quot; बटन का उपयोग करें।</translation>
     </message>
@@ -23979,14 +23979,14 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>कोई बैनर नहीं</translation>
     </message>
     <message>
-        <location line="-4752"/>
-        <location line="+4486"/>
+        <location line="-4780"/>
+        <location line="+4514"/>
         <location line="+285"/>
         <source>Remove</source>
         <translation>हटाएँ</translation>
     </message>
     <message>
-        <location line="-8349"/>
+        <location line="-8382"/>
         <source>chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</source>
         <translation>चैट बैकग्राउंड वॉलपेपर तस्वीर चित्र फ़ोटो पृष्ठभूमि रूम बातचीत अपना सेट कस्टम दूसरों का साझा छिपाना chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</translation>
     </message>
@@ -24023,7 +24023,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>गहराई ग्रेडिएंट शेडिंग छाया सपाट सतहें 3d depth gradient shading shadow flat surfaces 3d</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+272"/>
         <source>Microphone test</source>
         <translation>माइक्रोफ़ोन परीक्षण</translation>
     </message>
@@ -24054,12 +24054,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+36"/>
-        <location line="+5724"/>
+        <location line="+5752"/>
         <source>Index encrypted rooms</source>
         <translation>एन्क्रिप्टेड रूम इंडेक्स करें</translation>
     </message>
     <message>
-        <location line="-3941"/>
+        <location line="-3969"/>
         <source>background</source>
         <translation>बैकग्राउंड background</translation>
     </message>
@@ -24132,7 +24132,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>यह थीम इस्तेमाल करें</translation>
     </message>
     <message>
-        <location line="-3028"/>
+        <location line="-3033"/>
         <source>Network and proxy</source>
         <translation>नेटवर्क और प्रॉक्सी</translation>
     </message>
@@ -24143,12 +24143,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+18"/>
-        <location line="+4088"/>
+        <location line="+4093"/>
         <source>Layout preset</source>
         <translation>लेआउट प्रीसेट</translation>
     </message>
     <message>
-        <location line="-4087"/>
+        <location line="-4092"/>
         <source>layout preset nheko compact density dense lightning one click</source>
         <translation>लेआउट प्रीसेट nheko कॉम्पैक्ट घनत्व सघन lightning एक क्लिक layout preset compact</translation>
     </message>
@@ -24159,80 +24159,91 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4243"/>
+        <location line="+4248"/>
         <source>Thread style</source>
         <translation>थ्रेड शैली</translation>
     </message>
     <message>
-        <location line="-4242"/>
+        <location line="-4247"/>
         <source>thread threads style panel inline nheko element interleaved</source>
         <translation>थ्रेड थ्रेड्स शैली पैनल इनलाइन nheko element thread</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4208"/>
+        <location line="+4213"/>
         <source>Threads open in</source>
         <translation>थ्रेड यहाँ खुलते हैं</translation>
     </message>
     <message>
-        <location line="-4207"/>
+        <location line="-4212"/>
         <source>thread threads open placement main view side panel column full width nheko element</source>
         <translation>थ्रेड खोलें स्थान मुख्य दृश्य साइड पैनल कॉलम पूरी चौड़ाई nheko element thread</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2152"/>
+        <location line="+2157"/>
         <location line="+2111"/>
         <source>Collapse the thread&apos;s first message</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4262"/>
+        <location line="-4267"/>
         <source>thread threads root first message original header card collapse collapsed compact one line expand</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+4176"/>
+        <location line="+4181"/>
         <source>Message spacing</source>
         <translation>संदेशों के बीच की जगह</translation>
     </message>
     <message>
-        <location line="-4175"/>
+        <location line="-4180"/>
         <source>message spacing density compact cozy roomy gap padding</source>
         <translation>संदेश जगह घनत्व कॉम्पैक्ट आरामदायक खुला अंतर पैडिंग message spacing density compact cozy roomy gap padding</translation>
     </message>
     <message>
         <location line="+70"/>
-        <location line="+4789"/>
+        <location line="+4822"/>
         <source>When returning to a conversation</source>
         <translation>किसी बातचीत पर लौटने पर</translation>
     </message>
     <message>
-        <location line="-4788"/>
+        <location line="-4821"/>
         <source>return reopen room position latest selected message reading restore remember scroll</source>
         <translation>लौटना फिर खोलना रूम स्थिति नवीनतम चुना संदेश पढ़ना पुनर्स्थापित याद स्क्रॉल return</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4835"/>
+        <location line="+4868"/>
         <source>Show the message selection outline when returning</source>
         <translation>लौटने पर संदेश चयन की रूपरेखा दिखाएँ</translation>
     </message>
     <message>
-        <location line="-4834"/>
+        <location line="-4867"/>
         <source>selection outline highlight return reopen keyboard</source>
         <translation>चयन रूपरेखा हाइलाइट लौटना फिर खोलना कीबोर्ड</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+34"/>
+        <location line="+4675"/>
+        <source>Message actions on hover</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-4674"/>
+        <source>message actions hover bar toolbar react reply thread popup hide declutter irc</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <location line="+2054"/>
-        <location line="+2637"/>
+        <location line="+2665"/>
         <source>Go to the newest message when I send</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4690"/>
+        <location line="-4718"/>
         <source>send jump scroll bottom latest newest stay place history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -24312,12 +24323,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+33"/>
         <location line="+2010"/>
-        <location line="+2736"/>
+        <location line="+2764"/>
         <source>Vim-style editing in the composer</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4745"/>
+        <location line="-4773"/>
         <source>vim modal normal insert mode keys editor composer message box hjkl</source>
         <translation type="unfinished"></translation>
     </message>
@@ -24334,34 +24345,34 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+25"/>
-        <location line="+4827"/>
+        <location line="+4855"/>
         <source>Also check</source>
         <translation>इन्हें भी जाँचें</translation>
     </message>
     <message>
-        <location line="-4826"/>
+        <location line="-4854"/>
         <source>spell spelling languages several multiple second extra dictionary bilingual</source>
         <translation>वर्तनी spell spelling भाषाएँ languages कई several multiple दूसरी second अतिरिक्त extra शब्दकोश dictionary द्विभाषी bilingual</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4942"/>
+        <location line="+4970"/>
         <source>Correct obvious typos as you type</source>
         <translation>टाइप करते समय स्पष्ट गलतियाँ ठीक करें</translation>
     </message>
     <message>
-        <location line="-4941"/>
+        <location line="-4969"/>
         <source>autocorrect auto correct autocorrection typo fix replace capital</source>
         <translation>ऑटोकरेक्ट autocorrect auto correct स्वतः सुधार autocorrection गलती typo सुधारें fix बदलें replace कैपिटल capital</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4960"/>
+        <location line="+4988"/>
         <source>Personal dictionary</source>
         <translation>निजी शब्दकोश</translation>
     </message>
     <message>
-        <location line="-4959"/>
+        <location line="-4987"/>
         <source>spell spelling dictionary personal words added learned remove</source>
         <translation>वर्तनी spell spelling शब्दकोश dictionary निजी personal शब्द words जोड़े added सीखे learned हटाएँ remove</translation>
     </message>
@@ -24403,23 +24414,23 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+32"/>
         <location line="+494"/>
-        <location line="+6250"/>
+        <location line="+6278"/>
         <source>Unread dot</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6743"/>
+        <location line="-6771"/>
         <source>unread dot badge indicator room list bold muted mentions hide</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6772"/>
+        <location line="+6800"/>
         <source>Mark all rooms read automatically</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6771"/>
+        <location line="-6799"/>
         <source>mark all read automatically auto timer interval minutes unread clear</source>
         <translation type="unfinished"></translation>
     </message>
@@ -24451,35 +24462,35 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+13"/>
-        <location line="+5821"/>
+        <location line="+5849"/>
         <location line="+3"/>
         <source>Preload videos and audio</source>
         <translation>वीडियो और ऑडियो पहले से लोड करें</translation>
     </message>
     <message>
-        <location line="-5823"/>
+        <location line="-5851"/>
         <source>video audio voice preload prefetch download size megabytes data disk instant play</source>
         <translation>वीडियो video ऑडियो audio वॉइस voice प्रीलोड preload प्रीफ़ेच prefetch डाउनलोड download आकार size मेगाबाइट megabytes डेटा data डिस्क disk तुरंत चलाएँ instant play</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5896"/>
+        <location line="+5924"/>
         <source>Spoiler blur</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5895"/>
+        <location line="-5923"/>
         <source>spoiler blur hidden image video msc4193</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5906"/>
+        <location line="+5934"/>
         <source>Photo details when sending</source>
         <translation>भेजते समय फ़ोटो का विवरण</translation>
     </message>
     <message>
-        <location line="-5905"/>
+        <location line="-5933"/>
         <source>photo image exif gps location metadata strip remove privacy upload picture camera</source>
         <translation>फ़ोटो तस्वीर exif gps लोकेशन मेटाडेटा हटाना गोपनीयता अपलोड चित्र कैमरा photo image exif gps location metadata strip remove privacy upload picture camera</translation>
     </message>
@@ -24505,12 +24516,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9750"/>
+        <location line="+9778"/>
         <source>Music activity</source>
         <translation>संगीत गतिविधि</translation>
     </message>
     <message>
-        <location line="-9749"/>
+        <location line="-9777"/>
         <source>listening music spotify song status presence activity</source>
         <translation>सुन रहे listening संगीत music spotify गाना song स्थिति status उपस्थिति presence गतिविधि activity</translation>
     </message>
@@ -24672,12 +24683,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+2"/>
-        <location line="+9030"/>
+        <location line="+9058"/>
         <source>Recovery key</source>
         <translation>रिकवरी कुंजी</translation>
     </message>
     <message>
-        <location line="-8574"/>
+        <location line="-8602"/>
         <source>Collapse %1</source>
         <translation>%1 को समेटें</translation>
     </message>
@@ -24817,7 +24828,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>मेन्यू बार में छिपा हुआ प्रारंभ करें</translation>
     </message>
     <message>
-        <location line="+319"/>
+        <location line="+347"/>
         <source>Previous position</source>
         <translation>पिछली स्थिति</translation>
     </message>
@@ -24847,7 +24858,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>कीबोर्ड फ़ोकस हटाए बिना पिछली बार चुने गए संदेश की रूपरेखा दिखाएँ</translation>
     </message>
     <message>
-        <location line="-1074"/>
+        <location line="-1102"/>
         <source>Make secondary text and borders stronger</source>
         <translation>गौण टेक्स्ट और बॉर्डर को अधिक स्पष्ट करें</translation>
     </message>
@@ -24927,7 +24938,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>हर रूम की एक पंक्ति, आखिरी संदेश के बिना</translation>
     </message>
     <message>
-        <location line="+609"/>
+        <location line="+637"/>
         <source>Hunspell (system and bundled dictionaries)</source>
         <translation>Hunspell (सिस्टम और बंडल किए शब्दकोश)</translation>
     </message>
@@ -25176,13 +25187,13 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>नहीं</translation>
     </message>
     <message>
-        <location line="-8032"/>
-        <location line="+8032"/>
+        <location line="-8060"/>
+        <location line="+8060"/>
         <source>Unknown</source>
         <translation>अज्ञात</translation>
     </message>
     <message>
-        <location line="-8323"/>
+        <location line="-8351"/>
         <source>Mute all notifications</source>
         <translation>सभी सूचनाएँ म्यूट करें</translation>
     </message>
@@ -25258,12 +25269,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+168"/>
-        <location line="+9744"/>
+        <location line="+9772"/>
         <source>Game activity</source>
         <translation>गेम गतिविधि</translation>
     </message>
     <message>
-        <location line="-9743"/>
+        <location line="-9771"/>
         <source>playing game status steam presence activity</source>
         <translation>गेम खेलना स्थिति steam उपस्थिति गतिविधि</translation>
     </message>
@@ -25325,12 +25336,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="-4309"/>
-        <location line="+5157"/>
+        <location line="+5185"/>
         <source>Use call keys from any window</source>
         <translation>किसी भी विंडो से कॉल कुंजियाँ इस्तेमाल करें</translation>
     </message>
     <message>
-        <location line="-1175"/>
+        <location line="-1203"/>
         <source>Thread panel keeps thread replies out of the room, like Element. Inline keeps them in the room in time order with a thread tag, like Nheko; click a tag to open that thread.</source>
         <translation>थ्रेड पैनल थ्रेड के जवाबों को रूम से बाहर रखता है, Element की तरह। इनलाइन उन्हें रूम में समय क्रम में थ्रेड टैग के साथ रखता है, Nheko की तरह; उस थ्रेड को खोलने के लिए टैग पर क्लिक करें।</translation>
     </message>
@@ -25340,7 +25351,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>मुख्य दृश्य</translation>
     </message>
     <message>
-        <location line="-4224"/>
+        <location line="-4229"/>
         <location line="+4"/>
         <location line="+5"/>
         <location line="+5"/>
@@ -25351,7 +25362,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+30"/>
-        <location line="+135"/>
+        <location line="+140"/>
         <location line="+5"/>
         <location line="+4"/>
         <location line="+4"/>
@@ -25364,7 +25375,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>लेआउट · रूम सूची और पैनल</translation>
     </message>
     <message>
-        <location line="-571"/>
+        <location line="-576"/>
         <location line="+5"/>
         <location line="+5"/>
         <location line="+4"/>
@@ -25374,6 +25385,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <location line="+6"/>
         <location line="+4"/>
         <location line="+4"/>
+        <location line="+5"/>
         <location line="+4"/>
         <location line="+5"/>
         <source>Chat · Timeline</source>
@@ -25504,7 +25516,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>रूम क्या दिखाता है और आप उसमें कैसे लिखते हैं — हर खाते के लिए।</translation>
     </message>
     <message>
-        <location line="+206"/>
+        <location line="+201"/>
+        <source>Show the react, reply and thread buttons on the message under the pointer, or not at all. The right-click menu offers every action either way</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+33"/>
         <source>When off, sending from up in history keeps your place. A reply always keeps your place.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -25965,15 +25982,15 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>यह सेशन</translation>
     </message>
     <message>
-        <location line="-8889"/>
-        <location line="+8795"/>
+        <location line="-8917"/>
+        <location line="+8823"/>
         <location line="+100"/>
         <source>Verified</source>
         <translation>सत्यापित</translation>
     </message>
     <message>
-        <location line="-8894"/>
-        <location line="+8896"/>
+        <location line="-8922"/>
+        <location line="+8924"/>
         <source>Not verified</source>
         <translation>सत्यापित नहीं</translation>
     </message>
@@ -26129,14 +26146,14 @@ Note: importing keys does not verify this session.</source>
         <translation>सत्यापन से इस सेशन पर भरोसा स्थापित होता है। सिक्योर बैकअप और रूम-कुंजी आयात पुराने संदेशों को डिक्रिप्ट करने की कुंजियाँ देते हैं। ये अलग-अलग काम हैं।</translation>
     </message>
     <message>
-        <location line="-10193"/>
-        <location line="+10226"/>
+        <location line="-10226"/>
+        <location line="+10259"/>
         <source>Hide</source>
         <translation>छिपाएँ</translation>
     </message>
     <message>
-        <location line="-10228"/>
-        <location line="+10228"/>
+        <location line="-10261"/>
+        <location line="+10261"/>
         <source>Show</source>
         <translation>दिखाएँ</translation>
     </message>
@@ -26211,7 +26228,7 @@ Note: importing keys does not verify this session.</source>
         <translation>लाइसेंस: GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location line="-10324"/>
+        <location line="-10352"/>
         <location line="+3764"/>
         <source>Disable cursor blinking</source>
         <translation>कर्सर का झपकना बंद करें</translation>
@@ -26233,29 +26250,29 @@ Note: importing keys does not verify this session.</source>
         <translation>फ़ॉन्ट खोजें</translation>
     </message>
     <message>
-        <location line="-3537"/>
+        <location line="-3542"/>
         <source>On hover</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+153"/>
-        <location line="+4602"/>
+        <location line="+4607"/>
         <source>Avatars in messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4601"/>
+        <location line="-4606"/>
         <source>avatar avatars picture profile sender hide hover gutter declutter</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4624"/>
+        <location line="+4629"/>
         <source>Reactions</source>
         <translation type="unfinished">प्रतिक्रियाएँ</translation>
     </message>
     <message>
-        <location line="-4623"/>
+        <location line="-4628"/>
         <source>reaction reactions emoji chips hide hover declutter</source>
         <translation type="unfinished"></translation>
     </message>
@@ -26265,14 +26282,14 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+8"/>
         <location line="+2051"/>
-        <location line="+2636"/>
+        <location line="+2664"/>
         <source>Show emoji-only messages large</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4686"/>
+        <location line="-4714"/>
         <source>big large emoji jumbo size</source>
         <translation type="unfinished"></translation>
     </message>
@@ -26292,7 +26309,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+39"/>
         <source>Applies to rooms, threads and jump-to-message views. &quot;On hover&quot; also shows them on the message selected with the keyboard. Hiding read receipts here does not stop sending your own; that is under Privacy.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -26823,7 +26840,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ShortcutRegistry</name>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+282"/>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+311"/>
         <source>Dialogs</source>
         <translation>संवाद</translation>
     </message>
@@ -31960,18 +31977,18 @@ Note: importing keys does not verify this session.</source>
         <translation>अटैचमेंट %1 हटाएँ</translation>
     </message>
     <message>
-        <location line="+38"/>
-        <location line="+774"/>
+        <location line="+55"/>
+        <location line="+766"/>
         <source>Attach files</source>
         <translation>फ़ाइलें अटैच करें</translation>
     </message>
     <message>
-        <location line="-773"/>
+        <location line="-765"/>
         <source>Attach</source>
         <translation>अटैच करें</translation>
     </message>
     <message>
-        <location line="+235"/>
+        <location line="+227"/>
         <source>Reply…</source>
         <translation type="unfinished">उत्तर दें…</translation>
     </message>
@@ -32296,7 +32313,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+722"/>
+        <location filename="../qml/TimelinePane.qml" line="+733"/>
         <source>Seen by 1 person</source>
         <translation>1 व्यक्ति ने देखा</translation>
     </message>
@@ -32315,7 +32332,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
-        <location filename="../qml/TimelinePane.qml" line="+295"/>
+        <location filename="../qml/TimelinePane.qml" line="+293"/>
         <location line="+5155"/>
         <source>Space</source>
         <translation>स्पेस</translation>
@@ -33042,7 +33059,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="+177"/>
+        <location filename="../qml/TimelinePane.qml" line="-6438"/>
+        <location line="+6615"/>
         <source>Room</source>
         <translation>कक्ष</translation>
     </message>
@@ -33117,8 +33135,8 @@ Note: importing keys does not verify this session.</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5744"/>
-        <location line="+67"/>
+        <location line="-5742"/>
+        <location line="+65"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
     </message>
@@ -34049,7 +34067,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VideoControlBar</name>
     <message>
-        <location filename="../qml/VideoControlBar.qml" line="+108"/>
+        <location filename="../qml/VideoControlBar.qml" line="+122"/>
         <source>Track %1</source>
         <translation>ट्रैक %1</translation>
     </message>
@@ -34147,7 +34165,7 @@ Note: importing keys does not verify this session.</source>
         <translation>वीडियो प्लेयर</translation>
     </message>
     <message>
-        <location line="+418"/>
+        <location line="+438"/>
         <source>Downloading…</source>
         <translation>डाउनलोड हो रहा है…</translation>
     </message>
