@@ -1999,9 +1999,17 @@ above. The event cache this index duplicates is unchanged.)
   it REPLACES using `m.new_content`, never under its own id with the
   "* fallback" body. A redacted message is removed outright — leaving it
   findable by its own text would be the worst thing this index could do.
-* **Fed from the event cache**, never the live timeline (which exists only for
-  the open room). A sweep runs on sync and every five minutes, rooms with
-  messages since the previous sweep first, then 40 rooms round-robin. **The
+* **Fed as sync delivers each message, and from the event cache**, never the
+  live timeline (which exists only for the open room). A sync event handler
+  (`register_live_index_handler`, decrypted messages included) writes every
+  `m.room.message` of a joined room as it arrives, off the sync path. Until
+  2026-11-08 the sweep was the only writer, and it reads only what the event
+  cache holds IN MEMORY when its turn comes — so a message that left memory
+  first (the room closed and shrank, or a later gap replaced it) was never
+  indexed, the user's own included. A sweep runs on sync and every five
+  minutes: the first one after start-up takes the 40 most recently active
+  rooms, later ones the rooms with messages since the previous sweep first,
+  then 40 rooms round-robin. **The
   room list syncs ONE event per room** (`timeline_limit` 1, matrix-sdk-ui's
   default), so a burst, or whatever arrived while the client was closed, sits
   behind a gap in the event cache that the cache alone never fills; the sweep

@@ -898,7 +898,8 @@ const SWEEP_CATCH_UP_PAGE_SIZE: u16 = 50;
 static SWEEP_LAST_MS: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> =
     std::sync::Mutex::new(None);
 
-/// Rooms active since the previous sweep first, newest first, then the
+/// Rooms active since the previous sweep (every room, on the first sweep),
+/// newest first, then the
 /// round-robin window over the rest; `batch` rooms in all. The second value is
 /// how far the round-robin cursor moved.
 pub(crate) fn sweep_order<T: Clone>(
@@ -907,8 +908,9 @@ pub(crate) fn sweep_order<T: Clone>(
     start: usize,
     batch: usize,
 ) -> (Vec<T>, usize) {
+    // The first sweep has nothing to compare with: newest rooms first.
     let (mut recent, rest): (Vec<_>, Vec<_>) =
-        all.into_iter().partition(|(_, stamp)| since_ms > 0 && *stamp >= since_ms);
+        all.into_iter().partition(|(_, stamp)| since_ms == 0 || *stamp >= since_ms);
     recent.sort_by(|a, b| b.1.cmp(&a.1));
     recent.truncate(batch);
     let left = batch - recent.len();
@@ -1056,16 +1058,19 @@ pub(crate) async fn collect_from(
         .events()
         .await
         .map_err(|e| format!("cannot read the event cache: {e}"))?;
+    let raws = events
+        .iter()
+        .filter_map(|event| event.raw().deserialize_as::<serde_json::Value>().ok());
+    Ok(batch_from(room, raws).await)
+}
 
+async fn batch_from(room: &Room, raws: impl Iterator<Item = serde_json::Value>) -> RoomBatch {
     let mut ordinary = Vec::new();
     let mut edits = Vec::new();
     let mut names: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     let mut undecryptable = Vec::new();
-    for event in &events {
-        let Ok(raw) = event.raw().deserialize_as::<serde_json::Value>() else {
-            continue;
-        };
+    for raw in raws {
         if is_undecryptable(&raw) {
             if let Some(id) = raw.get("event_id").and_then(|v| v.as_str()) {
                 undecryptable.push(id.to_owned());
@@ -1099,7 +1104,45 @@ pub(crate) async fn collect_from(
             }
         }
     }
-    Ok(RoomBatch { ordinary, edits, names, undecryptable })
+    RoomBatch { ordinary, edits, names, undecryptable }
+}
+
+/// Index each message as sync delivers it, decrypted ones included. The
+/// sweep alone saw only what the event cache still held when its turn came.
+pub(crate) fn register_live_index_handler(
+    client: &matrix_sdk::Client,
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+) -> matrix_sdk::event_handler::EventHandlerDropGuard {
+    let index = std::sync::Arc::clone(index);
+    let handle = client.add_event_handler(
+        move |_ev: matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent,
+              room: Room,
+              raw: matrix_sdk::event_handler::RawEvent| {
+            let index = std::sync::Arc::clone(&index);
+            async move {
+                if !matches!(room.state(), matrix_sdk::RoomState::Joined) {
+                    return;
+                }
+                let Ok(mut value) = serde_json::from_str::<serde_json::Value>(raw.get()) else {
+                    return;
+                };
+                if value.get("room_id").is_none() {
+                    value["room_id"] = serde_json::json!(room.room_id().as_str());
+                }
+                // Off the sync path: a write takes the index lock and commits.
+                let generation = current_generation(&index);
+                tokio::spawn(async move {
+                    let batch = batch_from(&room, std::iter::once(value)).await;
+                    let room_id = room.room_id().to_string();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        write_locked(&index, generation, &room_id, &batch)
+                    })
+                    .await;
+                });
+            }
+        },
+    );
+    client.event_handler_drop_guard(handle)
 }
 
 pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {

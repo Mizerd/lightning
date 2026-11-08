@@ -8,8 +8,12 @@ use std::sync::{Arc, Mutex};
 const ROOM: &str = "!dm:localhost";
 
 fn message(id: &str, body: &str, ts: u64) -> serde_json::Value {
+    from("@friend:localhost", id, body, ts)
+}
+
+fn from(sender: &str, id: &str, body: &str, ts: u64) -> serde_json::Value {
     serde_json::json!({"type": "m.room.message", "event_id": id, "room_id": ROOM,
-        "sender": "@friend:localhost", "origin_server_ts": ts,
+        "sender": sender, "origin_server_ts": ts,
         "content": {"msgtype": "m.text", "body": body}})
 }
 
@@ -88,6 +92,26 @@ fn rooms_active_since_the_last_sweep_come_first() {
     assert_eq!(order.len(), 40);
     assert_eq!(order[0], 97, "the room with new messages waited for its turn");
     assert_eq!(moved, 39);
-    let (first, _) = sweep_order(rooms, 0, 0, 40);
-    assert_eq!(first[0], 0, "a first sweep has no previous one to compare with");
+    let (first, moved) = sweep_order(rooms, 0, 0, 40);
+    assert_eq!(first[0], 97, "the first sweep after start-up skipped the newest room");
+    assert_eq!(moved, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_own_message_is_indexed_as_sync_delivers_it_without_a_sweep() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
+    let _guard = register_live_index_handler(&client, &index);
+    let me = client.user_id().unwrap().to_string();
+
+    sync(&client, vec![from(&me, "$own", "Issue is still there", 1000)], "1", None).await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !indexed(&index, "$own") {
+        assert!(std::time::Instant::now() < deadline, "the user's own message was never indexed");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let hits = index.lock().unwrap().as_ref().unwrap().search("issue is still", "", 10, 0).unwrap();
+    assert_eq!(hits.len(), 1);
 }

@@ -11852,6 +11852,8 @@ async fn run_authoritative_sync(
     // event cache, so the removal must hold on the Rust side.
     let _redaction_guard = localsearch::register_redaction_handler(
         &client, &search_index);
+    let _live_index_guard = localsearch::register_live_index_handler(
+        &client, &search_index);
 
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
 
