@@ -11454,7 +11454,7 @@ false);
         QVERIFY(overlay != nullptr);
         QVERIFY(composer != nullptr);
         QTRY_VERIFY(overlay->isVisible());
-        QVERIFY(!composer->isVisible());
+        QVERIFY(composer->isVisible());
         auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
         QVERIFY(list != nullptr);
         QTRY_VERIFY(list->property("count").toInt() > 0);
