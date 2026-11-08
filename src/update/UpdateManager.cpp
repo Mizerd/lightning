@@ -900,14 +900,14 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
             m_mirrorFallbackUsed = true;
             next = ArtifactSource::Canonical;
             setStatusDetail(QStringLiteral(
-                "The mirror copy could not be used; retrying from the canonical source."));
+                "GitHub did not respond; downloading from Lightning's own server instead."));
         } else if (m_attemptSource == ArtifactSource::Canonical && isSourceUnavailable(error)
                    && !gitlabComArtifactUrl(m_manifest.versionString(),
                                             m_artifact ? m_artifact->filename : QString())
                            .isEmpty()) {
             next = ArtifactSource::GitlabCom;
             setStatusDetail(QStringLiteral(
-                "The canonical source could not be reached; retrying from gitlab.com."));
+                "Lightning's own server did not respond; downloading from the gitlab.com mirror instead."));
         }
         if (next) {
             qCInfo(lcUpdate) << "artifact download failed from source"
@@ -962,12 +962,14 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
         break;
     }
     if (m_attemptSource == ArtifactSource::GitlabCom)
-        setStatusDetail(QStringLiteral("The other sources could not be used, so this update "
-                                       "was downloaded from gitlab.com."));
+        setStatusDetail(QStringLiteral("GitHub and Lightning's own server did not respond, so this "
+                                       "update came from the gitlab.com mirror. It was "
+                                       "checked against the signed release either way."));
     else
         setStatusDetail(m_mirrorFallbackUsed
-                            ? QStringLiteral("The mirror copy could not be used, so this update "
-                                             "was downloaded from the canonical source.")
+                            ? QStringLiteral("GitHub did not respond, so this update came from "
+                                             "Lightning's own server. It was checked against "
+                                             "the signed release either way.")
                             : QString());
     setState(ReadyToInstall);
 }
