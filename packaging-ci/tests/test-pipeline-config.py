@@ -2554,6 +2554,13 @@ check("arm64" in _strip_shell_comments(_read("scripts", "report-optional-assets.
       and "optional arm64 asset ABSENT" in _read("scripts", "report-optional-assets.sh"),
       "report-optional-assets reports the arm64 assets")
 
+# A job runs its script directly, so a script git records as 644 dies on
+# "Permission denied" (0.10.5's mirror-release-to-gitlab-com).
+for _script in sorted(set(re.findall(r"\./(packaging-ci/scripts/[\w./-]+\.sh)", _ci_text))):
+    _path = os.path.join(HERE, "..", "..", _script)
+    check(os.path.isfile(_path) and os.access(_path, os.X_OK),
+          f"{_script}, run by a CI job, is executable")
+
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
     sys.exit(1)
