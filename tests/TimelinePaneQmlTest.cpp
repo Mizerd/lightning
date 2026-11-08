@@ -11747,7 +11747,7 @@ false);
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                         events, 0, 200, &timeline);
+                                         events, 0, 400, &timeline);
         QVERIFY(root != nullptr);
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
