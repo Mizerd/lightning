@@ -26,12 +26,15 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.10.4** (`v0.10.4` -> `fd5aedfe`),
-tagged 2026-11-02 by **project 6** pipeline **351, first attempt** (macOS
-attached; Flathub PR #5 opened by `flathub-update-pr`). Notes in
-`docs/releases/v0.10.4.md`. **Verification bar PASSED IN FULL on 2026-11-02**
-(11 links, signature verified, 11 mirror assets; result in
-`docs/release-operations.md`). Before it: 0.10.3 (`485ec7e2`, pipeline 349,
+Latest published release: **Lightning 0.10.5** (`v0.10.5` -> `2b63840b`),
+tagged 2026-11-07 by **project 6** pipeline **410**, the first release built on
+gitlab.com runners, with the first ARM64 packages (macOS attached; Flathub PR
+#6). Its one red job, `mirror-release-to-gitlab-com`, died on a 644 script and
+was completed by hand (`c0a40cc5` fixes the mode and checks every CI script).
+Notes in `docs/releases/v0.10.5.md`. **Verification bar PASSED IN FULL on
+2026-11-08** (16 links, signature verified, 15 GitHub assets; result in
+`docs/release-operations.md`). Before it: 0.10.4 (`fd5aedfe`, pipeline 351),
+0.10.3 (`485ec7e2`, pipeline 349,
 30/30), 0.10.2 (`a32229a6`, pipeline 344,
 30/30), 0.10.1 (`712ed6dd`, pipeline 315,
 30/30) and 0.10.0 (`1e808997`, pipeline 284, 28/28, the first release whose
@@ -40,7 +43,7 @@ pipeline opened the Flathub PR itself). Round record: `docs/round-history.md`.
 half-land — **and there is a SIXTH it does NOT compare, the AppStream
 metainfo; see §14.** The root Flathub manifest is a SEVENTH, re-pinned to
 the new tag after each release (`test-flathub-manifest-pin.py` waits for it);
-it names `v0.10.4` / `fd5aedfe…`. Media from encrypted rooms is kept
+it names `v0.10.5` / `2b63840b…`. Media from encrypted rooms is kept
 encrypted at rest (a per-account key in the keyring; §6's plaintext rule
 holds for media).
 
