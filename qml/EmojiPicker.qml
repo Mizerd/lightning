@@ -612,6 +612,7 @@ AnchoredPopup {
                             id: customCellImage
                             objectName: "pickerCustomEmoji"
                             mxc: customCell.modelData.url || ""
+                            edge: 28
                             prominent: true
                         }
                         onClicked: picker.chooseCustom(customCell.modelData.url,

@@ -51,8 +51,13 @@ private Q_SLOTS:
                                       QStringLiteral("MenuSectionLabel {"));
         QVERIFY(palette.contains(QStringLiteral("picker.visible && !picker.compact")));
         QVERIFY(strip.contains(QStringLiteral("ListView.Horizontal")));
-        QVERIFY(strip.contains(QStringLiteral("cache: false")));
-        QVERIFY(strip.contains(QStringLiteral("sourceSize.width: 28")));
+        QVERIFY(strip.contains(QStringLiteral("CustomEmojiImage {")));
+        QVERIFY(strip.contains(QStringLiteral("edge: 28")));
+        QVERIFY(!strip.contains(QStringLiteral("stillCache:")));
+        const QString cell = read(QStringLiteral(QML_DIR "/CustomEmojiImage.qml"));
+        QVERIFY(cell.contains(QStringLiteral("property bool stillCache: false")));
+        QVERIFY(cell.contains(QStringLiteral("cache: emoji.stillCache")));
+        QVERIFY(cell.contains(QStringLiteral("sourceSize.width: emoji.edge")));
     }
 
     void packTraceOmitsRemoteIdentifiers()
