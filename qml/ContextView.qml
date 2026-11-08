@@ -305,8 +305,21 @@ Rectangle {
                 property string hoveredActionsKey: ""
                 property bool emojiPickerOpen: false
                 property string transientInteractionOwner: ""
-                function claimTransientInteraction(owner) {}
-                function releaseTransientInteraction(owner, fallback) {}
+                function claimTransientInteraction(owner) {
+                    if (!owner)
+                        return
+                    hoveredActionsKey = ""
+                    pinnedActionsKey = ""
+                    transientInteractionOwner = owner
+                }
+                function releaseTransientInteraction(owner, fallback) {
+                    if (transientInteractionOwner === owner)
+                        transientInteractionOwner = fallback ? fallback : ""
+                }
+                onHoveredActionsKeyChanged: {
+                    if (transientInteractionOwner !== "" && hoveredActionsKey !== "")
+                        hoveredActionsKey = ""
+                }
                 property bool roomEncrypted: view.currentRoom
                                              && view.currentRoom.encrypted === true
                 property bool isDirectRoom: view.currentRoom
