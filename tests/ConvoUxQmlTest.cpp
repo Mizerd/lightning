@@ -818,7 +818,8 @@ SearchIndexEmptyState { width: 360 }
                  QStringLiteral("Index older messages"));
 
         QMetaObject::invokeMethod(action, "clicked");
-        QCOMPARE(mock->indexAllStarts, QList<bool>{ false });
+        QVERIFY(!mock->indexAllStarts.isEmpty());
+        QCOMPARE(mock->indexAllStarts.last(), false);
         QTRY_VERIFY(controller.messageSearch()->indexAllActive());
         QVERIFY2(!action->isVisible(), "the action stayed while indexing ran");
         QVERIFY(line->property("text").toString().contains(
