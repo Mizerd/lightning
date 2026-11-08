@@ -173,32 +173,6 @@ QUrl releasePageUrlForVersion(const QString &version)
     return isAllowedFallbackManifestUrl(url) ? url : QUrl{};
 }
 
-QUrl primaryManifestUrl()
-{
-    const QUrl mirror = mirrorLatestManifestUrl();
-    return mirror.isEmpty() ? latestManifestUrl() : mirror;
-}
-
-QUrl primaryManifestSignatureUrl()
-{
-    const QUrl mirror = mirrorLatestManifestSignatureUrl();
-    return mirror.isEmpty() ? latestManifestSignatureUrl() : mirror;
-}
-
-QUrl fallbackManifestUrl()
-{
-    if (mirrorLatestManifestUrl().isEmpty() || mirrorLatestManifestSignatureUrl().isEmpty())
-        return {};
-    return latestManifestUrl();
-}
-
-QUrl fallbackManifestSignatureUrl()
-{
-    if (mirrorLatestManifestUrl().isEmpty() || mirrorLatestManifestSignatureUrl().isEmpty())
-        return {};
-    return latestManifestSignatureUrl();
-}
-
 bool isAllowedArtifactUrl(const QUrl &url)
 {
     return isAllowedUrlOn(url, allowedUpdateHosts());

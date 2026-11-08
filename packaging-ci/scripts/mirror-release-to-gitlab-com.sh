@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # Copy the published release bytes and the signed update-manifest pair to the
-# public gitlab.com mirror, the clients' last-resort byte source
+# public gitlab.com mirror, the clients' second source after GitHub
 # (src/update/UpdateEndpoints.cpp).
 #
 #   <base>/<version>/<file>                  every file in dist/manifest.json

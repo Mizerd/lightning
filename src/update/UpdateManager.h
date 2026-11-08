@@ -203,6 +203,7 @@ private:
     void failWith(const QString &message);
     bool isBusy() const;
 
+    bool hasGitlabComArtifact() const;
     void beginDownloadAttempt(ArtifactSource source);
     void handleDownloadFinished(bool ok, TransferError error, const QString &message);
 
@@ -288,7 +289,8 @@ private:
     std::unique_ptr<QLockFile> m_lock;
 
     ArtifactSource m_attemptSource = ArtifactSource::Canonical;
-    bool m_mirrorFallbackUsed = false;
+    bool m_githubFailed = false;
+    bool m_gitlabComFailed = false;
     bool m_fallbackPending = false;
     ArtifactByteSource m_artifactByteSource;
 

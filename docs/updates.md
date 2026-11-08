@@ -18,18 +18,18 @@ and what its SHA-256 must be — comes from a signed document, signed in the
 release pipeline with a key that exists nowhere else, and from nothing else.
 Where that document is *fetched* from is a matter of availability, not trust:
 since the GitLab project may become private, the PRIMARY source is the fixed
-GitHub release slot below and GitLab is the single FALLBACK, read only when
-GitHub does not answer (and then the gitlab.com mirror, below, as a last resort).
-A document that does not verify is never retried from another source. The
-signature check is identical either way.
+GitHub release slot below, then the public gitlab.com mirror, and GitLab itself
+is the LAST fallback, read only when neither mirror answers. A document that
+does not verify is never retried from another source. The signature check is
+identical whichever source served it.
 
 **`github.com` — the public source of the metadata and of the files.**
 Lightning reads the signed manifest pair from one fixed GitHub release slot
 first (see *Reading order and a private GitLab* below) and downloads the update
 *file* from the project's GitHub mirror first, too. GitHub redirects both to
 `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, so
-those hosts are contacted too. If the mirror cannot supply the file, Lightning
-falls back to GitLab and the update proceeds normally.
+those hosts are contacted too. If GitHub cannot supply the file, Lightning
+tries the gitlab.com mirror and then GitLab, and the update proceeds normally.
 
 GitHub is never asked *what* to install. Lightning makes no GitHub API call, and
 never reads GitHub's releases list, `/releases/latest`, tags, or any other
@@ -40,14 +40,15 @@ against the SHA-256 the signed manifest already fixed. See *Why a mirror cannot
 publish an update* below.
 
 An update check is an ordinary anonymous HTTPS GET of two small public files
-from the fixed GitHub release slot first, and from the project's GitLab package
-registry only when GitHub does not answer:
+from the fixed GitHub release slot first, then from the gitlab.com mirror (see
+*gitlab.com, the second source* below), and from the project's own GitLab
+package registry only when neither answers:
 
 ```
 https://github.com/Mizerd/lightning/releases/download/update-latest/update-manifest-v1.json
 https://github.com/Mizerd/lightning/releases/download/update-latest/update-manifest-v1.json.sig
-.../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json       (fallback)
-.../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json.sig   (fallback)
+.../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json       (last fallback)
+.../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json.sig   (last fallback)
 ```
 
 The request carries the URL and Lightning's update user agent, which is exactly
@@ -92,7 +93,7 @@ past a failure, and the interface deliberately offers none.
 public key compiled into Lightning
   -> Ed25519 signature over the exact manifest bytes   (whichever host served it)
   -> expected filename, size and SHA-256 of the artifact
-  -> those exact bytes fetched from the GitHub mirror, or GitLab if that fails
+  -> those exact bytes fetched from GitHub, else gitlab.com, else GitLab
   -> SHA-256 verified against the signed value
   -> package-specific installation
 ```
@@ -109,22 +110,24 @@ public key compiled into Lightning
    the transfer, so a truncated or oversized download fails rather than
    completing.
 4. **The download host is chosen from the signed manifest, never discovered.**
-   The mirror is tried first and the canonical host is the fallback. Both are
-   checked against a compiled-in allowlist of hosts, exact-matched. A manifest
+   The GitHub mirror is tried first, then the gitlab.com mirror, and the
+   canonical host is the last fallback. Every one is checked against a
+   compiled-in allowlist of hosts, exact-matched. A manifest
    naming an unknown host for the *canonical* address is rejected outright; an
    unknown *mirror* host is simply ignored, and that artifact downloads from
-   the canonical source as if no mirror had been offered — so moving the mirror
+   gitlab.com and then the canonical source as if no mirror had been offered — so moving the mirror
    in future cannot strand clients built before the move. The manifest
-   pair may be served from the mirror slot (primary) or the canonical registry
-   (fallback) and nowhere else, and only because its signature verifies; the
+   pair may be served from the GitHub slot, the gitlab.com slot or the canonical
+   registry and nowhere else, and only because its signature verifies; the
    manifest's artifact `url` and `release_notes_url` must still name the
    canonical host, so a mirror-delivered manifest cannot move the fallback or
    the notes link onto a host the key did not name.
-5. **A mismatch from the mirror is retried once from the canonical host, and a
-   mismatch there stops everything.** Falling back keeps updates working when a
-   mirror is broken or stale, and costs nothing: both attempts are checked
-   against the same signed hash, so neither can install different bytes than the
-   other would have.
+5. **A mismatch from a mirror (GitHub or gitlab.com) moves on to the next
+   source, and a mismatch from the canonical host stops everything.** Each
+   source is tried at most once per download, in the order GitHub, gitlab.com,
+   canonical. Falling through keeps updates working when a mirror is broken or
+   stale, and costs nothing: every attempt is checked against the same signed
+   hash, so none can install different bytes than another would have.
 6. **Failure is terminal.** Invalid signature, unknown key, wrong hash, wrong
    size, unsupported schema, or a URL that is not HTTPS on an allowed host all
    stop the update, and nothing in the interface offers a way past them.
@@ -135,8 +138,8 @@ The mirror holds bytes. It holds no key, and it is not consulted about
 versions. Concretely:
 
 - **If GitHub serves a modified binary**, its SHA-256 will not match the value
-  in the signed manifest and the download is discarded. Lightning then retries
-  from GitLab; if that also fails, the update fails. A tampered file is never
+  in the signed manifest and the download is discarded. Lightning then tries
+  gitlab.com and then GitLab; if those also fail, the update fails. A tampered file is never
   installed, and there is no way for a user to override that.
 - **If GitHub serves modified metadata**, nothing happens, because Lightning
   never reads metadata from GitHub. The manifest and its signature come only
@@ -198,26 +201,26 @@ assumption that an update exists.
 
 ### Reading order and a private GitLab
 
-The client compiles in two addresses for its update metadata: the fixed GitHub
-release slot `…/releases/download/update-latest/…` (PRIMARY) and the canonical
-Generic Package Registry path on GitLab (the single FALLBACK). The release
+The client compiles in three addresses for its update metadata, read in this
+order: the fixed GitHub release slot `…/releases/download/update-latest/…`
+(PRIMARY), the gitlab.com `update-latest` slot (below), and the canonical
+Generic Package Registry path on GitLab (the LAST fallback). The release
 pipeline writes the slot after every GitLab promotion
 (`mirror-update-manifest-to-github`), and every package is mirrored per release,
 so with GitLab private or down the whole path — manifest, signature, artifacts —
 is served by GitHub and verified by the same compiled-in Ed25519 key, and a
 check costs one request pair with no failed GitLab attempt in front of it. The
-fallback is read once per check if the primary did not answer: a transport
-failure (DNS, TLS, connection, stall timeout) or HTTP 401, 403, 404, 408, 429
-or 5xx. Any other failure (another status, a redirect off the allowed hosts, an
-oversized body) ends the check, and so does a document that does not verify: a
-bad signature from any source is a hard stop and never a reason to ask
-another source. The last resort is the public gitlab.com mirror, below. A new
-check starts at the primary again, so an outage is never sticky.
+next source is read, once per check, only if the one before it did not answer:
+a transport failure (DNS, TLS, connection, stall timeout) or HTTP 401, 403,
+404, 408, 429 or 5xx. Any other failure (another status, a redirect off the
+allowed hosts, an oversized body) ends the check, and so does a document that
+does not verify: a bad signature from any source is a hard stop and never a
+reason to ask another source. A new check starts at the primary again, so an
+outage is never sticky.
 
-#### gitlab.com, the last resort
+#### gitlab.com, the second source
 
-After GitHub and then the canonical registry both fail to answer, one more
-source is tried, once: the public `gitlab.com/lightning-matrix/lightning`
+When GitHub does not answer, the public `gitlab.com/lightning-matrix/lightning`
 project's generic package registry (project 88402223). Its host, project and
 paths are compiled-in constants, never read from a manifest or a response:
 
@@ -232,10 +235,13 @@ https://gitlab.com/api/v4/projects/88402223/packages/generic/lightning/<version>
 just another byte source: the same Ed25519 check applies to the manifest, the
 same SHA-256 and size ceiling to the artifact, the same redirect limit, and it
 is neither a trusted manifest `url` nor a valid `mirror_url` host. Artifacts
-fall back to it only after the canonical source did not answer; a hash mismatch
-from any source is final. The older-than-installed rule is unchanged, so a
-stale copy there can pin a client to an older signed release but never
-downgrade it, the same accepted trade-off as the GitHub slot. The release
+come from it when GitHub could not supply them (or the manifest names no GitHub
+copy), before the canonical source is asked; a hash mismatch from it moves on
+to the canonical source like a GitHub mismatch does. The older-than-installed
+rule is unchanged, so a stale copy there can pin a client to an older signed
+release but never downgrade it, the same accepted trade-off as the GitHub slot
+— and since it is now read before GitLab, a stale gitlab.com slot freezes
+clients whenever GitHub is down, not only when GitLab is down too. The release
 pipeline fills it with `mirror-release-to-gitlab-com` (needs the masked CI
 variable `GITLAB_COM_TOKEN`, a no-op without it, `allow_failure`) and proves
 each upload by anonymous re-download. Fallbacks are logged under the
@@ -247,11 +253,11 @@ could choose; only strictly newer versions are offered, so the slot can never
 cause an unsigned install or a downgrade. The document fetcher's host policy is fixed by
 the address it STARTS at: from the GitHub slot it accepts redirects among the
 mirror hosts only (github.com to its asset object hosts), from GitLab the
-canonical host only. Artifacts: the signed manifest's `mirror_url` (GitHub) is
-tried first and the canonical `url` only after it fails, so a GitLab that
-answers 401/404/5xx or not at all is never contacted when GitHub serves the
-file, and when GitHub fails and GitLab does too the update ends in one clean
-failure.
+canonical host only, from gitlab.com gitlab.com only. Artifacts: the signed
+manifest's `mirror_url` (GitHub) is tried first, the gitlab.com copy second and
+the canonical `url` only after both fail, so a GitLab that answers 401/404/5xx
+or not at all is never contacted when a mirror serves the file, and when all
+three fail the update ends in one clean failure.
 
 Trade-off, accepted (freeze and pin): the fallback runs only on a transport
 failure or a failed signature, not because the primary's answer is old. An OLD
@@ -277,8 +283,9 @@ Verifying with GitLab blocked: point `gitlab.smetonis.net` at `0.0.0.0` in
 `/etc/hosts` (and separately drop its traffic, to see the timeout case), run a
 check and a download with `--console --log-file`, and confirm the requests go
 only to `github.com` and `*.githubusercontent.com`, the update is offered and
-the hash verifies. Then block GitHub instead and confirm the check succeeds via
-the GitLab fallback.
+the hash verifies. Then block GitHub instead and confirm the check and the
+download succeed via gitlab.com; block both mirrors to exercise the GitLab
+fallback.
 
 ## Installation type detection
 

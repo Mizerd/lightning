@@ -70,11 +70,11 @@ struct MetadataSource
 QList<MetadataSource> metadataSources()
 {
     QList<MetadataSource> sources;
-    sources.append(MetadataSource{ primaryManifestUrl(), primaryManifestSignatureUrl() });
-    if (!fallbackManifestUrl().isEmpty() && !fallbackManifestSignatureUrl().isEmpty())
-        sources.append(MetadataSource{ fallbackManifestUrl(), fallbackManifestSignatureUrl() });
+    if (!mirrorLatestManifestUrl().isEmpty() && !mirrorLatestManifestSignatureUrl().isEmpty())
+        sources.append(MetadataSource{ mirrorLatestManifestUrl(), mirrorLatestManifestSignatureUrl() });
     if (!gitlabComManifestUrl().isEmpty() && !gitlabComManifestSignatureUrl().isEmpty())
         sources.append(MetadataSource{ gitlabComManifestUrl(), gitlabComManifestSignatureUrl() });
+    sources.append(MetadataSource{ latestManifestUrl(), latestManifestSignatureUrl() });
     return sources;
 }
 
@@ -805,7 +805,8 @@ void UpdateManager::downloadUpdate()
     }
 
     m_handoffSummary.clear();
-    m_mirrorFallbackUsed = false;
+    m_githubFailed = false;
+    m_gitlabComFailed = false;
     m_fallbackPending = false;
     setArtifactSource({});
 
@@ -824,8 +825,18 @@ void UpdateManager::downloadUpdate()
     connect(m_downloader, &UpdateDownloader::finished, this,
             &UpdateManager::handleDownloadFinished);
 
-    beginDownloadAttempt(m_artifact->mirrorUrl.isEmpty() ? ArtifactSource::Canonical
-                                                         : ArtifactSource::Mirror);
+    if (!m_artifact->mirrorUrl.isEmpty())
+        beginDownloadAttempt(ArtifactSource::Mirror);
+    else if (hasGitlabComArtifact())
+        beginDownloadAttempt(ArtifactSource::GitlabCom);
+    else
+        beginDownloadAttempt(ArtifactSource::Canonical);
+}
+
+bool UpdateManager::hasGitlabComArtifact() const
+{
+    return m_artifact
+        && !gitlabComArtifactUrl(m_manifest.versionString(), m_artifact->filename).isEmpty();
 }
 
 void UpdateManager::beginDownloadAttempt(ArtifactSource source)
@@ -895,19 +906,28 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
             return;
         }
 
+        // Mirrors fall through on any failure, a hash mismatch included: every
+        // source is checked against the same signed hash. The canonical source is last.
         std::optional<ArtifactSource> next;
         if (m_attemptSource == ArtifactSource::Mirror) {
-            m_mirrorFallbackUsed = true;
+            m_githubFailed = true;
+            if (hasGitlabComArtifact()) {
+                next = ArtifactSource::GitlabCom;
+                setStatusDetail(QStringLiteral(
+                    "GitHub did not respond; downloading from the gitlab.com mirror instead."));
+            } else {
+                next = ArtifactSource::Canonical;
+                setStatusDetail(QStringLiteral(
+                    "GitHub did not respond; downloading from Lightning's own server instead."));
+            }
+        } else if (m_attemptSource == ArtifactSource::GitlabCom) {
+            m_gitlabComFailed = true;
             next = ArtifactSource::Canonical;
-            setStatusDetail(QStringLiteral(
-                "GitHub did not respond; downloading from Lightning's own server instead."));
-        } else if (m_attemptSource == ArtifactSource::Canonical && isSourceUnavailable(error)
-                   && !gitlabComArtifactUrl(m_manifest.versionString(),
-                                            m_artifact ? m_artifact->filename : QString())
-                           .isEmpty()) {
-            next = ArtifactSource::GitlabCom;
-            setStatusDetail(QStringLiteral(
-                "Lightning's own server did not respond; downloading from the gitlab.com mirror instead."));
+            setStatusDetail(m_githubFailed
+                                ? QStringLiteral("GitHub and the gitlab.com mirror did not respond; "
+                                                 "downloading from Lightning's own server instead.")
+                                : QStringLiteral("The gitlab.com mirror did not respond; "
+                                                 "downloading from Lightning's own server instead."));
         }
         if (next) {
             qCInfo(lcUpdate) << "artifact download failed from source"
@@ -961,16 +981,20 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
         setArtifactSource(QString::fromLatin1(kSourceGitlabCom));
         break;
     }
-    if (m_attemptSource == ArtifactSource::GitlabCom)
-        setStatusDetail(QStringLiteral("GitHub and Lightning's own server did not respond, so this "
-                                       "update came from the gitlab.com mirror. It was "
-                                       "checked against the signed release either way."));
-    else
-        setStatusDetail(m_mirrorFallbackUsed
-                            ? QStringLiteral("GitHub did not respond, so this update came from "
-                                             "Lightning's own server. It was checked against "
-                                             "the signed release either way.")
-                            : QString());
+    QString detail;
+    if (m_attemptSource == ArtifactSource::GitlabCom && m_githubFailed) {
+        detail = QStringLiteral("GitHub did not respond, so this update came from the gitlab.com "
+                                "mirror. It was checked against the signed release either way.");
+    } else if (m_attemptSource == ArtifactSource::Canonical && (m_githubFailed || m_gitlabComFailed)) {
+        const QString failed = m_githubFailed && m_gitlabComFailed
+            ? QStringLiteral("GitHub and the gitlab.com mirror did not respond")
+            : m_githubFailed ? QStringLiteral("GitHub did not respond")
+                             : QStringLiteral("The gitlab.com mirror did not respond");
+        detail = failed
+            + QStringLiteral(", so this update came from Lightning's own server. It was checked "
+                             "against the signed release either way.");
+    }
+    setStatusDetail(detail);
     setState(ReadyToInstall);
 }
 

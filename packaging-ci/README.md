@@ -122,7 +122,7 @@ Only manually created `web` and `api` pipelines are accepted.
 | sign | `sign-update-manifest` | Build and Ed25519-sign the client update manifest |
 | release | `finalize-release` | Attach links / create the release |
 | mirror | `mirror-release-to-github` | Copy the published binaries to the GitHub mirror and verify them anonymously |
-| update | `mirror-release-to-gitlab-com` | `allow_failure`. Copy the release files and the signed `update-latest` pair to the public gitlab.com project (clients' last-resort source) and verify by re-download; no-op without `GITLAB_COM_TOKEN` |
+| update | `mirror-release-to-gitlab-com` | `allow_failure`. Copy the release files and the signed `update-latest` pair to the public gitlab.com project (clients' second source, after GitHub) and verify by re-download; no-op without `GITLAB_COM_TOKEN` |
 | update | `publish-update-manifest` | Publish the signed manifest and move the `latest` pointer (final action) |
 
 The graph no longer ends after validation. When `PUBLISH_PACKAGES=true` the

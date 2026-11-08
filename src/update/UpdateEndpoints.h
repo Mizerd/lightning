@@ -9,18 +9,18 @@
 //
 //   * Metadata (manifest, signature, release_notes_url) is trusted only
 //     because the Ed25519 signature verifies against the compiled-in key, and
-//     only strictly newer versions are ever offered. The PRIMARY source is the
-//     fixed GitHub release slot and the canonical GitLab registry is the
-//     single FALLBACK, so a private or unreachable GitLab costs nothing.
-//     Neither host decides anything: the signature does.
+//     only strictly newer versions are ever offered. Sources are read in the
+//     order GitHub slot, gitlab.com slot, canonical GitLab registry (last), so
+//     a private or unreachable GitLab costs nothing. No host decides anything:
+//     the signature does.
 //   * Artifact bytes (and their redirect hops) may come from the compiled-in
-//     mirror (tried first) or the canonical host (the fallback), and only
-//     supply bytes the signed manifest already named, sized and hashed.
+//     mirror, gitlab.com or the canonical host, in that order, and only supply
+//     bytes the signed manifest already named, sized and hashed.
 //
-// gitlab.com is a last-resort byte source, reached only after the other sources
-// fail to answer. Its host, project and paths are constants here: nothing in
-// a manifest or a response can name it, and it is excluded from
-// isAllowedArtifactUrl so no other transfer can be redirected onto it.
+// gitlab.com is the second source for both. Its host, project and paths are
+// constants here: nothing in a manifest or a response can name it, and it is
+// excluded from isAllowedArtifactUrl so no other transfer can be redirected
+// onto it.
 //
 // Every manifest URL and redirect Location is re-validated here (https, port
 // 443, no userinfo, exact host match), so neither a hostile manifest nor a
@@ -39,11 +39,6 @@ QStringList allowedUpdateHosts();
 bool isAllowedManifestUrl(const QUrl &url);
 
 bool isAllowedFallbackManifestUrl(const QUrl &url);
-
-QUrl primaryManifestUrl();
-QUrl primaryManifestSignatureUrl();
-QUrl fallbackManifestUrl();
-QUrl fallbackManifestSignatureUrl();
 
 QUrl releasePageUrlForVersion(const QString &version);
 
