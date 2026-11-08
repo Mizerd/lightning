@@ -242,9 +242,8 @@ bool SingleInstanceGuard::isOpenableLink(const QString &link)
         if (c.unicode() < 0x21 || c.unicode() > 0x7e)
             return false;
     }
-    return link.startsWith(QLatin1String("matrix:"), Qt::CaseInsensitive)
-        || link.startsWith(QLatin1String("https://matrix.to/#/"),
-                           Qt::CaseInsensitive);
+    return link.startsWith(QLatin1String("matrix:"))
+        || link.startsWith(QLatin1String("https://matrix.to/#/"));
 }
 
 bool SingleInstanceGuard::parseRequest(const QByteArray &line,

@@ -6627,6 +6627,7 @@ void AppController::refreshTrayUnread()
 void AppController::onLoggedOut()
 {
     m_currentRoomId.clear();
+    m_externalMatrixLink.clear();
     ++m_currentRoomOpenSerial;
     m_currentRoomListed = false;
     m_memberHydratedRooms.clear();

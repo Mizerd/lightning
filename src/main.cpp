@@ -96,6 +96,7 @@
 #endif
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QProcess>
 #include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
@@ -1047,28 +1048,25 @@ QString claimMatrixSchemeDefault()
         QStandardPaths::GenericConfigLocation);
     if (configHome.isEmpty())
         return QStringLiteral("skipped: no config location");
-    const QString path = configHome + QStringLiteral("/mimeapps.list");
-    // A managed (e.g. home-manager) symlink must not be replaced by a file.
-    if (QFileInfo(path).isSymLink())
-        return QStringLiteral("skipped: mimeapps.list is a symlink");
-    QByteArray existing;
-    {
-        QFile current(path);
-        if (current.open(QIODevice::ReadOnly))
-            existing = current.readAll();
-    }
-    const QByteArray updated = lightning::desktop_entry::withDefaultHandler(
-        QString::fromUtf8(existing),
-        QStringLiteral("x-scheme-handler/matrix"),
-        kAppId + QStringLiteral(".desktop")).toUtf8();
-    if (updated.isEmpty())
-        return QStringLiteral("kept the existing default");
-    QDir().mkpath(configHome);
-    QSaveFile out(path);
-    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)
-        || out.write(updated) != updated.size() || !out.commit())
-        return QStringLiteral("failed: could not write mimeapps.list");
-    return QStringLiteral("registered");
+    const QString ours = kAppId + QStringLiteral(".desktop");
+    const auto handledElsewhere = [&ours] {
+        const QString xdgMime = QStandardPaths::findExecutable(QStringLiteral("xdg-mime"));
+        if (xdgMime.isEmpty())
+            return false;
+        QProcess query;
+        query.start(xdgMime, { QStringLiteral("query"), QStringLiteral("default"),
+                               QStringLiteral("x-scheme-handler/matrix") });
+        if (!query.waitForFinished(3000)) {
+            query.kill();
+            query.waitForFinished(500);
+            return true;
+        }
+        const QString handler = QString::fromUtf8(query.readAllStandardOutput()).trimmed();
+        return !handler.isEmpty() && handler != ours;
+    };
+    return lightning::desktop_entry::claimDefaultHandler(
+        configHome + QStringLiteral("/mimeapps.list"),
+        QStringLiteral("x-scheme-handler/matrix"), ours, handledElsewhere);
 }
 
 QStringList launcherEntrySource(const QString &payloadEntry)

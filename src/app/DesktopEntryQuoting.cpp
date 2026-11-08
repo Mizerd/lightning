@@ -1,5 +1,9 @@
 #include "app/DesktopEntryQuoting.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
 #include <QStringList>
 
 namespace lightning::desktop_entry {
@@ -62,6 +66,37 @@ QString withDefaultHandler(const QString &mimeapps, const QString &mime,
         lines.insert(insertAt, entry);
     }
     return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
+}
+
+QString claimDefaultHandler(const QString &path, const QString &mime,
+                            const QString &desktopId,
+                            const std::function<bool()> &handledElsewhere)
+{
+    const QFileInfo info(path);
+    // A managed (e.g. home-manager) symlink must not be replaced by a file.
+    if (info.isSymLink())
+        return QStringLiteral("skipped: mimeapps.list is a symlink");
+    QByteArray existing;
+    if (info.exists()) {
+        QFile current(path);
+        if (!current.open(QIODevice::ReadOnly))
+            return QStringLiteral("skipped: mimeapps.list unreadable");
+        existing = current.readAll();
+        if (current.error() != QFileDevice::NoError)
+            return QStringLiteral("skipped: mimeapps.list unreadable");
+    }
+    const QByteArray updated =
+        withDefaultHandler(QString::fromUtf8(existing), mime, desktopId).toUtf8();
+    if (updated.isEmpty())
+        return QStringLiteral("kept the existing default");
+    if (handledElsewhere && handledElsewhere())
+        return QStringLiteral("kept another handler");
+    QDir().mkpath(info.absolutePath());
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)
+        || out.write(updated) != updated.size() || !out.commit())
+        return QStringLiteral("failed: could not write mimeapps.list");
+    return QStringLiteral("registered");
 }
 
 }

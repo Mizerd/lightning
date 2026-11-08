@@ -545,6 +545,8 @@ private Q_SLOTS:
         QVERIFY(SingleInstanceGuard::isOpenableLink(
             QStringLiteral("https://matrix.to/#/!abc:example.org")));
         QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("--backend=rust")));
+        QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("MATRIX:r/a:example.org")));
+        QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("HTTPS://MATRIX.TO/#/!a:example.org")));
         QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("https://example.org/")));
         QVERIFY(!SingleInstanceGuard::isOpenableLink(QStringLiteral("matrix:r/a b")));
         QVERIFY(!SingleInstanceGuard::isOpenableLink(

@@ -323,6 +323,7 @@ set +e
 ( cd /tmp && timeout 60s env \
     HOME="$desktop_home" \
     XDG_DATA_HOME="$desktop_home/data" \
+    XDG_CONFIG_HOME="$desktop_home/.config" \
     XDG_DATA_DIRS="$desktop_home/empty" \
     APPIMAGE="$ROOT/$app" APPDIR="$tree" \
     QT_QPA_PLATFORM=offscreen "$ROOT/$app" --desktop-status ) \

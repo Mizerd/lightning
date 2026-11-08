@@ -2,7 +2,10 @@
 
 #include <QtTest/QtTest>
 
+#include <QTemporaryDir>
+
 using lightning::desktop_entry::quoteExecArgument;
+using lightning::desktop_entry::claimDefaultHandler;
 using lightning::desktop_entry::withDefaultHandler;
 
 class DesktopEntryQuotingTest : public QObject
@@ -10,6 +13,64 @@ class DesktopEntryQuotingTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void aMimeappsListThatCannotBeReadIsNeverReplaced()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString mime = QStringLiteral("x-scheme-handler/matrix");
+        const QString id = QStringLiteral("lightning.desktop");
+
+        const QString asDir = dir.filePath(QStringLiteral("dir.list"));
+        QVERIFY(QDir().mkpath(asDir));
+        QCOMPARE(claimDefaultHandler(asDir, mime, id, {}),
+                 QStringLiteral("skipped: mimeapps.list unreadable"));
+        QVERIFY(QFileInfo(asDir).isDir());
+
+        const QString locked = dir.filePath(QStringLiteral("mimeapps.list"));
+        const QByteArray mine("[Default Applications]\ntext/html=firefox.desktop\n");
+        {
+            QFile f(locked);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(mine);
+        }
+        QFile::setPermissions(locked, QFileDevice::Permissions());
+        if (QFile probe(locked); probe.open(QIODevice::ReadOnly))
+            QSKIP("running with privileges that read a mode-000 file");
+        QCOMPARE(claimDefaultHandler(locked, mime, id, {}),
+                 QStringLiteral("skipped: mimeapps.list unreadable"));
+        QFile::setPermissions(locked, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        QFile f(locked);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(), mine);
+    }
+
+    void anotherHandlerOrAnExistingDefaultIsKept()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString mime = QStringLiteral("x-scheme-handler/matrix");
+        const QString id = QStringLiteral("lightning.desktop");
+        const QString path = dir.filePath(QStringLiteral("cfg/mimeapps.list"));
+
+        int asked = 0;
+        QCOMPARE(claimDefaultHandler(path, mime, id, [&asked] { ++asked; return true; }),
+                 QStringLiteral("kept another handler"));
+        QCOMPARE(asked, 1);
+        QVERIFY(!QFileInfo::exists(path));
+
+        QCOMPARE(claimDefaultHandler(path, mime, id, [&asked] { ++asked; return false; }),
+                 QStringLiteral("registered"));
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(),
+                 QByteArray("[Default Applications]\nx-scheme-handler/matrix=lightning.desktop;\n"));
+        f.close();
+
+        QCOMPARE(claimDefaultHandler(path, mime, id, [&asked] { ++asked; return true; }),
+                 QStringLiteral("kept the existing default"));
+        QCOMPARE(asked, 2);
+    }
+
     void theMatrixSchemeDefaultIsAddedOnlyWhenNoneIsSet()
     {
         const QString mime = QStringLiteral("x-scheme-handler/matrix");

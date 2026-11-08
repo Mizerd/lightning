@@ -2,6 +2,15 @@
 
 
 
+## 2026-11-08 — ACCEPTED FOLLOW-UP: external user links open the join flow, not the profile card
+
+A `matrix:u/…` or `https://matrix.to/#/@user…` link handed to Lightning from
+outside (argv or a second launch) goes to the room join flow, which reports
+it as not a room (a matrix.to user link is handed back to the web browser).
+In a message the same link opens the profile card
+(`MessageDelegate.openMessageLink`). Route external user links to the profile
+card as well.
+
 ## 2026-11-07 — ACCEPTED FOLLOW-UP: secondary multi-SFU connections do not act on a resume
 
 A signalling resume (GitHub #70) is handled for every connection in Rust, but

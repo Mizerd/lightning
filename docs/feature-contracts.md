@@ -2645,6 +2645,19 @@ when a floating window is most useful.
 
 Live validation of the actions, the keys and the PiP window: **NOT TESTED**.
 
+**`matrix:` links from outside the app.** Every launcher entry declares
+`MimeType=x-scheme-handler/matrix;` and passes `%u`. A `matrix:` or
+`https://matrix.to/#/` link in argv opens through the same join flow as a
+link clicked in a message (a joined room opens, any other room shows the
+join dialog; nothing is joined without the user); a second launch forwards
+the link to the running instance over the single-instance socket, and a link
+that arrives before sign-in waits for it and is dropped on sign-out.
+Packaged installs (deb, rpm, Flatpak, snap) only DECLARE the scheme. The
+AppImage also CLAIMS the default in `$XDG_CONFIG_HOME/mimeapps.list`, and
+only when nothing handles the scheme: not when that file's
+`[Default Applications]` names a handler, not when `xdg-mime query default`
+names another one, and never when the file is a symlink or unreadable.
+
 ### Reading and typing privacy
 
 `Settings → Privacy & security → Reading and typing`.
