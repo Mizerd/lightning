@@ -1121,7 +1121,9 @@ pub(crate) fn spawn_gap_filler(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
     stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    events: &std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
 ) -> tokio::task::JoinHandle<()> {
+    let events = std::sync::Arc::clone(events);
     let client = client.clone();
     let index = std::sync::Arc::clone(index);
     let stop = std::sync::Arc::clone(stop);
@@ -1144,7 +1146,20 @@ pub(crate) fn spawn_gap_filler(
             if worker_stop.load(std::sync::atomic::Ordering::Relaxed) {
                 return;
             }
-            fill_gap(&worker_client, &worker_index, &room_id, &token, generation, &worker_stop).await;
+            let (outcome, written) =
+                fill_gap(&worker_client, &worker_index, &room_id, &token, generation, &worker_stop)
+                    .await;
+            let stats = worker_index
+                .lock()
+                .ok()
+                .and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
+                .unwrap_or_default();
+            // Counts only; C++ logs it and refreshes a live local search.
+            crate::enqueue(&events, serde_json::json!({
+                "type": "search_index_swept", "op_id": 0, "source": "gap",
+                "outcome": outcome, "rooms": 1, "written": written,
+                "messages": stats.messages, "indexed_rooms": stats.rooms,
+            }));
             tokio::time::sleep(std::time::Duration::from_millis(GAP_PACE_MS)).await;
         }
     });
@@ -1192,11 +1207,11 @@ async fn fill_gap(
     token: &str,
     generation: u64,
     stop: &std::sync::atomic::AtomicBool,
-) -> usize {
-    let Ok(parsed) = matrix_sdk::ruma::RoomId::parse(room_id) else { return 0 };
-    let Some(room) = client.get_room(&parsed) else { return 0 };
+) -> (&'static str, usize) {
+    let Ok(parsed) = matrix_sdk::ruma::RoomId::parse(room_id) else { return ("gone", 0) };
+    let Some(room) = client.get_room(&parsed) else { return ("gone", 0) };
     if !matches!(room.state(), matrix_sdk::RoomState::Joined) {
-        return 0;
+        return ("gone", 0);
     }
     let indexed = index
         .lock()
@@ -1204,9 +1219,10 @@ async fn fill_gap(
         .and_then(|g| g.as_ref().map(|ix| ix.has_room(room_id).unwrap_or(false)))
         .unwrap_or(false);
     if !indexed {
-        return 0;
+        return ("not_indexed", 0);
     }
     let mut written = 0;
+    let mut outcome = "pages_exhausted";
     let mut from = Some(token.to_owned());
     for _ in 0..GAP_PAGES {
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1214,7 +1230,10 @@ async fn fill_gap(
         }
         let mut options = matrix_sdk::room::MessagesOptions::backward().from(from.as_deref());
         options.limit = GAP_PAGE_SIZE.into();
-        let Ok(page) = room.messages(options).await else { break };
+        let Ok(page) = room.messages(options).await else {
+            outcome = "request_failed";
+            break;
+        };
         let raws: Vec<serde_json::Value> = page
             .chunk
             .iter()
@@ -1227,14 +1246,18 @@ async fn fill_gap(
             let Some(ix) = guard.as_ref() else { break };
             !ids.is_empty() && ix.known(&ids).unwrap_or_default().len() == ids.len()
         };
-        let Some(n) = write_locked(index, generation, room_id, &batch) else { break };
+        let Some(n) = write_locked(index, generation, room_id, &batch) else {
+            outcome = "cleared";
+            break;
+        };
         written += n;
         if all_known || page.end.is_none() {
+            outcome = "closed";
             break;
         }
         from = page.end;
     }
-    written
+    (outcome, written)
 }
 
 /// Index each message as sync delivers it, decrypted ones included. The

@@ -150,8 +150,8 @@ void MessageSearchController::setClient(MatrixClient *client)
         Q_EMIT indexStatsChanged();
     });
     connect(m_client, &MatrixClient::searchIndexSwept, this,
-            [this](quint64, int, int, qint64 messages, qint64 rooms) {
-        if (m_sweepOp != 0) {
+            [this](quint64 op, int, int, qint64 messages, qint64 rooms) {
+        if (op != 0 && m_sweepOp != 0) {
             m_sweepOp = 0;
             Q_EMIT indexingChanged();
         }

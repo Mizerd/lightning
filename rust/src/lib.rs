@@ -11856,8 +11856,9 @@ async fn run_authoritative_sync(
         &client, &search_index);
     // Aborted when this sync ends, which a sign-out or switch does first.
     let _gap_filler = AbortOnDrop(
-        localsearch::spawn_gap_filler(&client, &search_index, &Arc::new(AtomicBool::new(false)))
-            .abort_handle(),
+        localsearch::spawn_gap_filler(
+            &client, &search_index, &Arc::new(AtomicBool::new(false)), &events)
+        .abort_handle(),
     );
 
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);

@@ -12547,6 +12547,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("search_index_swept")) {
+        if (event.value(QStringLiteral("source")).toString()
+            == QLatin1String("gap")) {
+            qCInfo(lcRust) << "search index gap fill outcome="
+                           << event.value(QStringLiteral("outcome")).toString()
+                           << "written="
+                           << event.value(QStringLiteral("written")).toInt();
+        }
         Q_EMIT searchIndexSwept(
             opId(), event.value(QStringLiteral("rooms")).toInt(),
             event.value(QStringLiteral("written")).toInt(),

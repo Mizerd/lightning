@@ -123,7 +123,8 @@ async fn a_limited_sync_gap_is_filled_without_waiting_for_a_sweep() {
     client.event_cache().subscribe().unwrap();
     let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
     let _live = register_live_index_handler(&client, &index);
-    let filler = spawn_gap_filler(&client, &index, &Arc::new(AtomicBool::new(false)));
+    let events = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    let filler = spawn_gap_filler(&client, &index, &Arc::new(AtomicBool::new(false)), &events);
 
     sync(&client, vec![message("$m1", "an older line", 1000)], "1", None).await;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -155,4 +156,8 @@ async fn a_limited_sync_gap_is_filled_without_waiting_for_a_sweep() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
     filler.abort();
+    assert!(
+        events.lock().unwrap().iter().any(|e| e.contains("\"source\":\"gap\"")),
+        "the gap fill was not reported"
+    );
 }
