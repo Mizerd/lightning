@@ -77,6 +77,7 @@ constexpr const char *kComponents[] = {
     "EmojiPicker",
     "QuickSwitcher",
     "MessageSearchDialog",
+    "SearchIndexEmptyState",
     "ThemeEditorDialog",
     "IncomingCallPrompt",
     "EncryptionBrokenPrompt",

@@ -3292,6 +3292,24 @@ quint64 MockMatrixClient::indexAllRooms(bool resumeOnly)
     return op;
 }
 
+quint64 MockMatrixClient::indexAllRoomsInBackground()
+{
+    const quint64 op = ++m_opCounter;
+    ++indexAllBackgroundStarts;
+    const bool starts = mockIndexAllPending;
+    const qint64 total = qMax<qint64>(1, m_timelines.size());
+    QTimer::singleShot(0, this, [this, op, starts, total] {
+        QVariantMap status = mockIndexAllStatus(
+            starts ? QStringLiteral("running") : QStringLiteral("idle"),
+            starts ? total : 0);
+        if (!starts)
+            status.insert(QStringLiteral("finishedMs"),
+                          QDateTime::currentMSecsSinceEpoch());
+        Q_EMIT searchIndexAllProgress(op, status);
+    });
+    return op;
+}
+
 quint64 MockMatrixClient::pauseIndexAll()
 {
     const quint64 op = ++m_opCounter;

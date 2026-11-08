@@ -46,6 +46,8 @@ class MessageSearchController : public QAbstractListModel
                    NOTIFY indexStatsChanged)
     Q_PROPERTY(qint64 indexedRooms READ indexedRooms NOTIFY indexStatsChanged)
     Q_PROPERTY(bool indexing READ indexing NOTIFY indexingChanged)
+    /// A sweep for newly arrived messages is in flight.
+    Q_PROPERTY(bool sweeping READ sweeping NOTIFY indexingChanged)
     Q_PROPERTY(int minLocalChars READ minLocalChars NOTIFY stateChanged)
     Q_PROPERTY(QString indexAllState READ indexAllState NOTIFY indexAllChanged)
     Q_PROPERTY(bool indexAllActive READ indexAllActive NOTIFY indexAllChanged)
@@ -68,6 +70,10 @@ class MessageSearchController : public QAbstractListModel
                    NOTIFY indexAllChanged)
     Q_PROPERTY(bool indexAllOffered READ indexAllOffered
                    NOTIFY indexAllOfferChanged)
+    /// When the last index-all pass left nothing to walk, ms since epoch;
+    /// 0 when none has.
+    Q_PROPERTY(qint64 indexAllFinishedMs READ indexAllFinishedMs
+                   NOTIFY indexAllChanged)
 
 public:
     enum Roles {
@@ -86,7 +92,7 @@ public:
     explicit MessageSearchController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    void setSettings(SettingsManager *settings) { m_settings = settings; }
+    void setSettings(SettingsManager *settings);
     void setProfileResolver(UserProfileResolver *resolver);
 
     QString query() const { return m_query; }
@@ -114,6 +120,7 @@ public:
     qint64 indexedMessages() const { return m_indexedMessages; }
     qint64 indexedRooms() const { return m_indexedRooms; }
     bool indexing() const { return m_deepOp != 0; }
+    bool sweeping() const { return m_sweepOp != 0; }
     int minLocalChars() const { return m_minLocalChars; }
     QString indexAllState() const { return m_indexAllState; }
     bool indexAllActive() const;
@@ -128,6 +135,7 @@ public:
     qint64 indexAllEtaMs() const { return m_indexAllEtaMs; }
     qint64 indexAllRetryInMs() const { return m_indexAllRetryInMs; }
     bool indexAllOffered() const { return m_indexAllOffered; }
+    qint64 indexAllFinishedMs() const { return m_indexAllFinishedMs; }
 
     Q_INVOKABLE void refreshIndexStats();
     Q_INVOKABLE void sweepIndex();
@@ -152,6 +160,7 @@ public:
     Q_INVOKABLE QVariantMap rowAt(int row) const;
 
     void setDebounceMs(int ms) { m_debounce.setInterval(ms); }
+    void setBackgroundIndexDelayMs(int ms) { m_backgroundIndex.setInterval(ms); }
 
 Q_SIGNALS:
     void queryChanged();
@@ -184,6 +193,9 @@ private:
     void rebuildFilterSets();
     void resetIndexAll();
     void setIndexAllOffered(bool offered);
+    void onSyncing();
+    bool backgroundIndexWanted() const;
+    void startBackgroundIndex();
 
     MatrixClient *m_client = nullptr;
     QString m_query;
@@ -214,6 +226,7 @@ private:
     qint64 m_indexedMessages = 0;
     qint64 m_indexedRooms = 0;
     quint64 m_deepOp = 0;
+    quint64 m_sweepOp = 0;
     int m_minLocalChars = 0;
     SettingsManager *m_settings = nullptr;
     UserProfileResolver *m_profiles = nullptr;
@@ -230,5 +243,10 @@ private:
     unsigned m_indexAllHold = 0;
     bool m_indexAllOffered = false;
     QString m_indexAllOfferUserId;
+    qint64 m_indexAllFinishedMs = 0;
+    QTimer m_backgroundIndex;
+    /// Once per sign-in lifecycle: set when the background pass was asked
+    /// for, or when this lifecycle must not ask (the index was cleared).
+    bool m_backgroundIndexSpent = false;
     static constexpr int kLocalPage = 50;
 };

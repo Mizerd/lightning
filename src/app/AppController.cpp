@@ -1946,9 +1946,8 @@ true, ringSeconds, acceptOffered,
             m_client->requestActivitySeed(60);
         }
         if (state == MatrixClient::Syncing) {
-            m_client->sweepSearchIndex();
+            m_messageSearch->sweepIndex();
             m_client->searchIndexStats();
-            m_messageSearch->resumeIndexAllIfPending();
             if (!m_searchIndexTimer.isActive())
                 m_searchIndexTimer.start();
         } else {
@@ -1964,8 +1963,7 @@ true, ringSeconds, acceptOffered,
     m_searchIndexTimer.setInterval(5 * 60 * 1000);
     m_searchIndexTimer.setSingleShot(false);
     connect(&m_searchIndexTimer, &QTimer::timeout, this, [this] {
-        if (m_client)
-            m_client->sweepSearchIndex();
+        m_messageSearch->sweepIndex();
     });
     const auto refreshIndexAllCallHold = [this] {
         using CallState = CallController::State;

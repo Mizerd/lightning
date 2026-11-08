@@ -1249,6 +1249,7 @@ set(APP_QML_FILES
     qml/DiscoverJoinDialog.qml
     qml/MessageSearchDialog.qml
     qml/SearchPanel.qml
+    qml/SearchIndexEmptyState.qml
     qml/SearchMemberSection.qml
     qml/MediaListThumbnail.qml
     qml/InvitePeopleDialog.qml

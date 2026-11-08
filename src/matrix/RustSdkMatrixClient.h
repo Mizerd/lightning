@@ -498,6 +498,7 @@ public:
     void forgetIndexedRoom(const QString &roomId) override;
     bool clearSearchIndex() override;
     quint64 indexAllRooms(bool resumeOnly) override;
+    quint64 indexAllRoomsInBackground() override;
     quint64 pauseIndexAll() override;
     quint64 cancelIndexAll() override;
     quint64 requestIndexAllStatus() override;
@@ -855,6 +856,7 @@ Q_SIGNALS:
     void localSessionCleanupFinished(bool ok, const QString &message);
 
 private:
+    quint64 startIndexAll(unsigned mode);
     QString tokenOwnerForRunningSession() const;
     bool settleRetiringSignIn(const QString &userId);
     void persistRetiredSessionTokens(const QString &restoringUserId);

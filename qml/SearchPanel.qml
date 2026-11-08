@@ -198,14 +198,6 @@ Rectangle {
         if (st === "too_short")
             return qsTr("Type at least %1 characters.")
                 .arg(app.messageSearch.minLocalChars)
-        if (app.messageSearch.indexAllActive && activeSource === "local")
-            return app.messageSearch.indexAllTotal > 0
-                ? qsTr("Indexing encrypted rooms… %1 of %2")
-                    .arg(app.messageSearch.indexAllPosition)
-                    .arg(app.messageSearch.indexAllTotal)
-                : qsTr("Indexing encrypted rooms…")
-        if (activeSource === "local" && app.messageSearch.indexedMessages <= 0)
-            return qsTr("Nothing is indexed yet.")
         if (activeSource === "server")
             return qsTr("No matching messages. Try a less common word, or search the local index.")
         return qsTr("No matching messages")
@@ -525,7 +517,8 @@ Rectangle {
                             Layout.alignment: Qt.AlignHCenter
                         }
                         Label {
-                            visible: app.messageSearch.state === "no_results"
+                            visible: (app.messageSearch.state === "no_results"
+                                      && !indexEmptyState.visible)
                                      || app.messageSearch.state === "error"
                                      || app.messageSearch.state === "too_short"
                             objectName: "roomSearchEmptyLabel"
@@ -538,15 +531,13 @@ Rectangle {
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.textBody
                         }
-                        AppButton {
-                            objectName: "roomSearchIndexAllButton"
+                        SearchIndexEmptyState {
+                            id: indexEmptyState
                             visible: root.activeSource === "local"
                                      && app.messageSearch.state === "no_results"
-                                     && app.messageSearch.indexedMessages <= 0
-                                     && !app.messageSearch.indexAllActive
-                            Layout.alignment: Qt.AlignHCenter
-                            text: qsTr("Index encrypted rooms")
-                            onClicked: app.messageSearch.indexAllRooms()
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: resultsList.width
+                                                 - AppTheme.spacing12 * 2
                         }
                         AppButton {
                             visible: app.messageSearch.canLoadMore

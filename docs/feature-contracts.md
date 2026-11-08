@@ -1979,9 +1979,9 @@ above. The event cache this index duplicates is unchanged.)
   **Rooms that "Index encrypted rooms" had already completed were walked
   without file names, and the queue skips completed rooms, so on the first start
   after this change the stored index-all record (`lightning-index-all.json`,
-  version 1 -> 2) forgets its `complete` set ONCE.** Nothing starts by itself:
-  the old names appear for a room when the user next starts "Index encrypted
-  rooms", which re-walks it at the existing pacing (one room and one page at a
+  version 1 -> 2) forgets its `complete` set ONCE.** The migration starts
+  nothing itself: the old names appear for a room when the next run (the
+  background start below, or "Index encrypted rooms") re-walks it at the existing pacing (one room and one page at a
   time, 5 s and 10 s gaps). Until then only rooms the sweeps happen to re-read
   (about one cached page per room, 40 rooms per wake) gain names.
 * **An edit counts only from the original's sender**, as the spec says: the
@@ -2000,7 +2000,17 @@ above. The event cache this index duplicates is unchanged.)
   "* fallback" body. A redacted message is removed outright — leaving it
   findable by its own text would be the worst thing this index could do.
 * **Fed from the event cache**, never the live timeline (which exists only for
-  the open room). A sweep runs on sync and every five minutes; "Index this
+  the open room). A sweep runs on sync and every five minutes, rooms with
+  messages since the previous sweep first, then 40 rooms round-robin. **The
+  room list syncs ONE event per room** (`timeline_limit` 1, matrix-sdk-ui's
+  default), so a burst, or whatever arrived while the client was closed, sits
+  behind a gap in the event cache that the cache alone never fills; the sweep
+  used to index only what was cached, and an indexed DM lost its newer
+  messages until "Index this room" (2026-11-08 report). Now, when an
+  already-indexed room shows new messages, the sweep pages backwards (at most
+  3 pages of 50 per room, 20 per sweep) until a page holds only messages
+  indexed before. While a sweep runs an empty local search says
+  "Indexing new messages… Results may be incomplete."; "Index this
   room" remains available for any room, encrypted or unencrypted, and pages
   history in, bounded at 50 pages, indexing after EVERY page
   because `events()` returns the in-memory chunk and the history trim shrinks
@@ -2044,6 +2054,24 @@ above. The event cache this index duplicates is unchanged.)
   is up. Runs on the room-action pool and stops on sign-out, account switch or
   teardown through `index_shutdown` and the lifecycle generation. NOT
   live-tested.
+* **Background start (2026-11-08).** "Index older messages in the background"
+  (Settings → Privacy & security → Message search index, default ON, global)
+  runs that same queue once per sign-in lifecycle, 60 s after the client first
+  reaches Syncing. Mode 2 of `mx_rust_search_index_all_start`: it resumes an
+  interrupted run or plans a new one over rooms NOT in `complete`, and leaves
+  a run the user PAUSED paused. No second run: an active pass is left alone
+  (Rust `begin` also answers `AlreadyRunning`). Not started when the setting is
+  off, when this account answered "no" to the sign-in offer, or after "Clear
+  index" in the same lifecycle; turning the setting off pauses an active pass
+  so the next sync does not resume it. With it on the one-time sign-in offer is
+  not shown. Rooms with undecryptable or failed history are not `complete`, so
+  each start revisits them at the same bounds. The record gains
+  `finished_ms` (wall clock of the last run that left nothing to walk; reset by
+  "Clear index"; no message content), shown in the empty search state.
+* **Empty local search** (the global search dialog and the room search panel)
+  says "No messages found.", when the index was last updated from
+  `finished_ms`, and offers "Index older messages" (or "Resume indexing"),
+  replaced by progress while a pass runs.
 * The find bar prefers local and offers server as an explicit CHOICE where the
   server can read the room — they answer different questions, and switching
   silently would make "no results" mean two things on consecutive keystrokes.

@@ -51,6 +51,16 @@ pub(crate) struct Progress {
     pub failed_rooms: u64,
     #[serde(default)]
     pub elapsed_ms: u64,
+    /// Wall-clock ms of the last run that left nothing to walk; 0 = never.
+    #[serde(default)]
+    pub finished_ms: u64,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }
 
 impl Progress {
@@ -136,6 +146,7 @@ pub(crate) struct Status {
     pub complete_rooms: usize,
     pub retry_in_ms: u64,
     pub elapsed_ms: u64,
+    pub finished_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -278,9 +289,27 @@ impl Control {
         resume_only: bool,
         joined: impl FnOnce() -> Vec<(String, u64, bool)>,
     ) -> Begin {
+        self.begin_with(resume_only, false, joined)
+    }
+
+    /// The automatic start: resumes or plans a run like `begin(false)`, but a
+    /// run the user paused stays paused.
+    pub(crate) fn begin_background(
+        &self,
+        joined: impl FnOnce() -> Vec<(String, u64, bool)>,
+    ) -> Begin {
+        self.begin_with(false, true, joined)
+    }
+
+    fn begin_with(
+        &self,
+        resume_only: bool,
+        background: bool,
+        joined: impl FnOnce() -> Vec<(String, u64, bool)>,
+    ) -> Begin {
         let mut inner = self.lock();
         if inner.running {
-            if !resume_only {
+            if !resume_only && !background {
                 inner.pause_requested = false;
                 inner.cancel_requested = false;
             }
@@ -314,7 +343,7 @@ impl Control {
             self.persist(progress);
         }
         if progress.pending() {
-            if resume_only && progress.paused {
+            if (resume_only || background) && progress.paused {
                 return Begin::PausedPending;
             }
             progress.paused = false;
@@ -327,6 +356,7 @@ impl Control {
             progress.queue = queue;
             progress.skipped = skipped;
             if progress.queue.is_empty() {
+                progress.finished_ms = now_ms();
                 let snapshot = progress.clone();
                 self.persist(&snapshot);
                 return Begin::NothingToDo;
@@ -447,6 +477,7 @@ impl Control {
             complete_rooms: progress.complete.len(),
             retry_in_ms,
             elapsed_ms: progress.elapsed_ms,
+            finished_ms: progress.finished_ms,
         }
     }
 
@@ -554,6 +585,7 @@ impl Progress {
     fn reset_run_keeping_counters(&mut self, ending: Ending) {
         if ending == Ending::Finished {
             self.position = self.queue.len();
+            self.finished_ms = now_ms();
         } else {
             self.queue.clear();
             self.position = 0;
@@ -992,6 +1024,53 @@ mod tests {
         let control = Control::new(&store.0);
         let begin = control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1)]));
         assert_eq!(begin, Begin::NothingToDo);
+    }
+
+    #[test]
+    fn a_background_start_walks_only_new_rooms_and_keeps_a_user_pause() {
+        let store = Store::new("background");
+        let control = Control::new(&store.0);
+        assert_eq!(
+            control.begin_background(|| rooms(&[("!a:x", 2), ("!b:x", 1)])),
+            Begin::Started
+        );
+        control.pause();
+        control.finish(Ending::Paused);
+        assert_eq!(
+            control.begin_background(|| rooms(&[("!a:x", 2), ("!b:x", 1)])),
+            Begin::PausedPending,
+            "a background start overrode the user's pause"
+        );
+        assert_eq!(
+            control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
+            Begin::Started
+        );
+        let epoch = control.epoch();
+        for room in ["!a:x", "!b:x"] {
+            control.commit_room(
+                epoch,
+                room,
+                RoomResult::Done { written: 1, undecryptable: 0 },
+                Duration::ZERO,
+            );
+        }
+        control.finish(Ending::Finished);
+        let finished = control.status(None).finished_ms;
+        assert!(finished > 0, "a finished run left no timestamp");
+
+        let control = Control::new(&store.0);
+        assert_eq!(control.status(None).finished_ms, finished);
+        assert_eq!(
+            control.begin_background(|| rooms(&[("!a:x", 2), ("!b:x", 1), ("!new:x", 3)])),
+            Begin::Started
+        );
+        let status = control.status(None);
+        assert_eq!(status.total, 1, "a finished room was walked again");
+        assert_eq!(status.current_room, "!new:x");
+        control.finish(Ending::Cancelled);
+
+        control.reset();
+        assert_eq!(control.status(None).finished_ms, 0, "Clear index kept the timestamp");
     }
 
     #[test]

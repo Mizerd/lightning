@@ -284,9 +284,17 @@ Dialog {
                 Label {
                     anchors.centerIn: parent
                     visible: app.messageSearch.state === "no_results"
+                             && app.messageSearch.source !== "local"
                     text: qsTr("No messages found")
                     color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.textBody
+                }
+                SearchIndexEmptyState {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width, 360)
+                    storm: true
+                    visible: app.messageSearch.state === "no_results"
+                             && app.messageSearch.source === "local"
                 }
                 ColumnLayout {
                     anchors.centerIn: parent

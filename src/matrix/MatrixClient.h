@@ -816,6 +816,8 @@ public:
     virtual bool clearSearchIndex() { return false; }
     virtual quint64 indexAllRooms(bool resumeOnly)
     { Q_UNUSED(resumeOnly); return 0; }
+    /// Starts or resumes the same pass, but leaves a paused one paused.
+    virtual quint64 indexAllRoomsInBackground() { return 0; }
     virtual quint64 pauseIndexAll() { return 0; }
     virtual quint64 cancelIndexAll() { return 0; }
     virtual quint64 requestIndexAllStatus() { return 0; }

@@ -148,6 +148,14 @@ class MessageSearchControllerTest : public QObject
         return true;
     }
 
+    static bool signInWithoutSync(MockMatrixClient &client)
+    {
+        QSignalSpy spy(&client, &MatrixClient::loginSucceeded);
+        client.login(QStringLiteral("https://mock.local"),
+                     QStringLiteral("alice"), QStringLiteral("x"));
+        return spy.wait(kSignalTimeoutMs);
+    }
+
 private Q_SLOTS:
     void initTestCase()
     {
@@ -747,9 +755,120 @@ private Q_SLOTS:
         QTRY_COMPARE(model.indexAllState(), QStringLiteral("running"));
     }
 
+    void theBackgroundPassStartsOncePerLifecycleAfterSync()
+    {
+        SettingsManager settings;
+        MockMatrixClient client;
+        QVERIFY(signInWithoutSync(client));
+        MessageSearchController model;
+        model.setBackgroundIndexDelayMs(0);
+        model.setSettings(&settings);
+        model.setClient(&client);
+        QVERIFY(settings.backgroundIndexing());
+
+        QTest::qWait(30);
+        QCOMPARE(client.indexAllBackgroundStarts, 0);
+
+        client.startSync();
+        QTRY_COMPARE(client.indexAllBackgroundStarts, 1);
+        QTRY_VERIFY(model.indexAllFinishedMs() > 0);
+
+        client.stopSync();
+        client.startSync();
+        QTest::qWait(30);
+        QCOMPARE(client.indexAllBackgroundStarts, 1);
+        QCOMPARE(client.indexAllStarts, QList<bool>{ true });
+
+        recordAccount(settings, alice());
+        model.offerIndexAllAfterSignIn(alice(), true);
+        QVERIFY2(!model.indexAllOffered(),
+                 "the sign-in offer was made while background indexing is on");
+
+        client.logout();
+        QCOMPARE(model.indexAllFinishedMs(), qint64(0));
+        QVERIFY(signInWithoutSync(client));
+        client.startSync();
+        QTRY_COMPARE(client.indexAllBackgroundStarts, 2);
+        model.setSettings(nullptr);
+    }
+
+    void theBackgroundPassFollowsTheSettingAndTheUsersChoices()
+    {
+        SettingsManager settings;
+        settings.setBackgroundIndexing(false);
+        MockMatrixClient client;
+        QVERIFY(signInWithoutSync(client));
+        MessageSearchController model;
+        model.setBackgroundIndexDelayMs(0);
+        model.setSettings(&settings);
+        model.setClient(&client);
+
+        client.startSync();
+        QTest::qWait(30);
+        QCOMPARE(client.indexAllBackgroundStarts, 0);
+        QCOMPARE(client.indexAllStarts, QList<bool>{ true });
+
+        settings.setBackgroundIndexing(true);
+        recordAccount(settings, client.currentUserId());
+        settings.setIndexAllOfferAnswer(client.currentUserId(),
+                                        QStringLiteral("no"));
+        client.stopSync();
+        client.startSync();
+        QTest::qWait(30);
+        QVERIFY2(client.indexAllBackgroundStarts == 0,
+                 "an account that declined indexing was indexed anyway");
+
+        settings.setIndexAllOfferAnswer(client.currentUserId(), QString());
+        QVERIFY(model.clearIndex());
+        client.stopSync();
+        client.startSync();
+        QTest::qWait(30);
+        QVERIFY2(client.indexAllBackgroundStarts == 0,
+                 "a cleared index was refilled in the same session");
+
+        model.indexAllRooms();
+        QTRY_VERIFY(model.indexAllActive());
+        settings.setBackgroundIndexing(false);
+        QCOMPARE(client.indexAllPauses, 1);
+        model.setSettings(nullptr);
+    }
+
+    void noBackgroundPassWhileOneIsActive()
+    {
+        SettingsManager settings;
+        MockMatrixClient client;
+        QVERIFY(signInWithoutSync(client));
+        MessageSearchController model;
+        model.setBackgroundIndexDelayMs(40);
+        model.setSettings(&settings);
+        model.setClient(&client);
+
+        client.startSync();
+        model.indexAllRooms();
+        QTRY_VERIFY(model.indexAllActive());
+        QTest::qWait(150);
+        QCOMPARE(client.indexAllBackgroundStarts, 0);
+        QCOMPARE(client.indexAllStarts, QList<bool>{ false });
+        model.setSettings(nullptr);
+    }
+
+    void aSweepForNewMessagesIsReportedWhileItRuns()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setClient(&client);
+        QVERIFY(!model.sweeping());
+        model.sweepIndex();
+        QVERIFY2(model.sweeping(), "a sweep in flight was not reported");
+        QTRY_VERIFY(!model.sweeping());
+        QCOMPARE(client.indexSweeps, 1);
+    }
+
     void theIndexAllOfferIsMadeOnceAfterASignInMadeHere()
     {
         SettingsManager settings;
+        settings.setBackgroundIndexing(false);
         recordAccount(settings, alice());
         MockMatrixClient client;
         QVERIFY(login(client));
@@ -778,6 +897,7 @@ private Q_SLOTS:
     void aRestoredSessionIsNeverOfferedIndexAll()
     {
         SettingsManager settings;
+        settings.setBackgroundIndexing(false);
         recordAccount(settings, alice());
         MockMatrixClient client;
         QVERIFY(login(client));
@@ -813,6 +933,7 @@ private Q_SLOTS:
     void yesToTheIndexAllOfferStartsThePass()
     {
         SettingsManager settings;
+        settings.setBackgroundIndexing(false);
         recordAccount(settings, alice());
         MockMatrixClient client;
         QVERIFY(login(client));

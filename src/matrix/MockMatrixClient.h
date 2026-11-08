@@ -509,6 +509,8 @@ public:
     QStringList accountDataRequests;
     quint64 m_aboutOp = 9000;
     quint64 indexAllRooms(bool resumeOnly) override;
+    quint64 indexAllRoomsInBackground() override;
+    int indexAllBackgroundStarts = 0;
     quint64 pauseIndexAll() override;
     quint64 cancelIndexAll() override;
     quint64 requestIndexAllStatus() override;

@@ -37,6 +37,8 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
+#include "matrix/MockMatrixClient.h"
+#include "models/MessageSearchController.h"
 #include "backdrop/ChatBackdropController.h"
 #include "threads/ThreadController.h"
 
@@ -777,6 +779,58 @@ ApplicationWindow {
         QTRY_VERIFY2_WITH_TIMEOUT(field->hasActiveFocus(),
                                   "the search field did not take the keyboard",
                                   kSignalTimeoutMs);
+    }
+
+    void anEmptySearchSaysWhenTheIndexRanAndOffersToIndex()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+SearchIndexEmptyState { width: 360 }
+)"), QUrl(QStringLiteral("qrc:/index-empty.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *root = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(root);
+        auto *line = findItem(root, QStringLiteral("searchIndexLastUpdated"));
+        auto *action = findItem(root, QStringLiteral("searchIndexOlderButton"));
+        QVERIFY(line && action);
+        QTRY_VERIFY(!controller.messageSearch()->sweeping());
+
+        QVariantMap status;
+        status.insert(QStringLiteral("state"), QStringLiteral("done"));
+        status.insert(QStringLiteral("finishedMs"),
+                      QDateTime::currentMSecsSinceEpoch() - 3 * 3600 * 1000);
+        Q_EMIT mock->searchIndexAllProgress(1, status);
+        QCOMPARE(line->property("text").toString(),
+                 QStringLiteral("Older messages last indexed 3 hours ago"));
+        QVERIFY(action->isVisible());
+        QCOMPARE(action->property("text").toString(),
+                 QStringLiteral("Index older messages"));
+
+        QMetaObject::invokeMethod(action, "clicked");
+        QCOMPARE(mock->indexAllStarts, QList<bool>{ false });
+        QTRY_VERIFY(controller.messageSearch()->indexAllActive());
+        QVERIFY2(!action->isVisible(), "the action stayed while indexing ran");
+        QVERIFY(line->property("text").toString().contains(
+            QStringLiteral("Indexing older messages")));
+
+        status.insert(QStringLiteral("state"), QStringLiteral("done"));
+        Q_EMIT mock->searchIndexAllProgress(1, status);
+        controller.messageSearch()->sweepIndex();
+        QVERIFY(line->property("text").toString().startsWith(
+            QStringLiteral("Indexing new messages")));
+        QTRY_VERIFY(!controller.messageSearch()->sweeping());
+        QVERIFY(line->property("text").toString().contains(
+            QStringLiteral("last indexed")));
     }
 
 private:

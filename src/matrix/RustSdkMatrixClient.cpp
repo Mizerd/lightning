@@ -9115,9 +9115,9 @@ quint64 RustSdkMatrixClient::sweepSearchIndex()
     if (!m_rustHandle)
         return 0;
     const quint64 opId = nextOpId();
-    takeRustString(mx_rust_search_index_sweep(
+    const QString error = takeRustString(mx_rust_search_index_sweep(
         m_rustHandle, static_cast<unsigned long long>(opId)));
-    return opId;
+    return error.isEmpty() ? opId : 0;
 }
 
 quint64 RustSdkMatrixClient::deepenSearchIndex(const QString &roomId)
@@ -9157,15 +9157,24 @@ bool RustSdkMatrixClient::clearSearchIndex()
     return takeRustString(mx_rust_search_index_clear(m_rustHandle)).isEmpty();
 }
 
-quint64 RustSdkMatrixClient::indexAllRooms(bool resumeOnly)
+quint64 RustSdkMatrixClient::startIndexAll(unsigned mode)
 {
     if (!m_rustHandle)
         return 0;
     const quint64 opId = nextOpId();
     const QString error = takeRustString(mx_rust_search_index_all_start(
-        m_rustHandle, resumeOnly ? 1u : 0u,
-        static_cast<unsigned long long>(opId)));
+        m_rustHandle, mode, static_cast<unsigned long long>(opId)));
     return error.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::indexAllRooms(bool resumeOnly)
+{
+    return startIndexAll(resumeOnly ? 1u : 0u);
+}
+
+quint64 RustSdkMatrixClient::indexAllRoomsInBackground()
+{
+    return startIndexAll(2u);
 }
 
 quint64 RustSdkMatrixClient::pauseIndexAll()
@@ -12568,6 +12577,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         status.insert(QStringLiteral("completeRooms"), count("complete_rooms"));
         status.insert(QStringLiteral("retryInMs"), count("retry_in_ms"));
         status.insert(QStringLiteral("elapsedMs"), count("elapsed_ms"));
+        status.insert(QStringLiteral("finishedMs"), count("finished_ms"));
         if (event.contains(QStringLiteral("messages"))) {
             status.insert(QStringLiteral("messages"), count("messages"));
             status.insert(QStringLiteral("indexedRooms"),

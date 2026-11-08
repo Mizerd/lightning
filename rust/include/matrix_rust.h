@@ -1727,15 +1727,16 @@ char *mx_rust_search_index_clear(void *client);
    walk as mx_rust_search_index_deep, strictly one room and one page at a time,
    paced, backing off on the server's retry_after_ms. The queue and its
    position persist in the account's store directory, so a restart continues.
-   `resume_only` != 0 continues an interrupted, unpaused run and otherwise only
-   reports. Every call answers on `search_index_all {op_id, lifecycle, state,
+   `mode` 1 continues an interrupted, unpaused run and otherwise only
+   reports; 2 (background) starts or resumes like 0 but leaves a paused run
+   paused. Every call answers on `search_index_all {op_id, lifecycle, state,
    total, position, current_room, written, skipped, undecryptable,
    undecryptable_rooms, failed_rooms, complete_rooms, retry_in_ms,
-   elapsed_ms[, messages, indexed_rooms]}`; a running pass keeps reporting on
+   elapsed_ms, finished_ms[, messages, indexed_rooms]}`; a running pass keeps reporting on
    the same op id. `state`: idle | running | held | backoff | paused | done |
    cancelled | stopped. Room ids and counters only, never message text. */
 char *mx_rust_search_index_all_start(void *client,
-                                     unsigned int resume_only,
+                                     unsigned int mode,
                                      unsigned long long op_id);
 char *mx_rust_search_index_all_pause(void *client, unsigned long long op_id);
 char *mx_rust_search_index_all_cancel(void *client, unsigned long long op_id);

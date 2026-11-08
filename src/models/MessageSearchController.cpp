@@ -10,6 +10,8 @@ namespace {
 constexpr int kDebounceMs = 400;
 constexpr int kPageSize = 25;
 constexpr int kMaxFilteredPagesPerAction = 4;
+// After sync is up, so the start-up sweep and room opens go first.
+constexpr int kBackgroundIndexDelayMs = 60 * 1000;
 
 QSet<QString> stringSet(const QVariant &value)
 {
@@ -46,6 +48,62 @@ MessageSearchController::MessageSearchController(QObject *parent)
     m_debounce.setInterval(kDebounceMs);
     connect(&m_debounce, &QTimer::timeout, this,
             [this] { dispatch(false); });
+    m_backgroundIndex.setSingleShot(true);
+    m_backgroundIndex.setInterval(kBackgroundIndexDelayMs);
+    connect(&m_backgroundIndex, &QTimer::timeout, this,
+            &MessageSearchController::startBackgroundIndex);
+}
+
+void MessageSearchController::setSettings(SettingsManager *settings)
+{
+    if (m_settings == settings)
+        return;
+    if (m_settings)
+        disconnect(m_settings, nullptr, this, nullptr);
+    m_settings = settings;
+    if (!m_settings)
+        return;
+    connect(m_settings, &SettingsManager::backgroundIndexingChanged, this,
+            [this] {
+        if (m_settings->backgroundIndexing())
+            return;
+        m_backgroundIndex.stop();
+        // Otherwise the resume on the next sync would carry it on.
+        if (indexAllActive())
+            pauseIndexAll();
+    });
+}
+
+bool MessageSearchController::backgroundIndexWanted() const
+{
+    if (!m_settings || !m_settings->backgroundIndexing() || !m_client)
+        return false;
+    // The one-time offer answered "no" is this account's explicit refusal.
+    const QString userId = m_client->currentUserId();
+    return userId.isEmpty()
+        || m_settings->indexAllOfferAnswer(userId) != QLatin1String("no");
+}
+
+void MessageSearchController::onSyncing()
+{
+    if (!m_client || !m_client->supportsLocalSearch())
+        return;
+    if (!m_backgroundIndexSpent && backgroundIndexWanted()) {
+        if (!m_backgroundIndex.isActive())
+            m_backgroundIndex.start();
+        return;
+    }
+    m_client->indexAllRooms(true);
+}
+
+void MessageSearchController::startBackgroundIndex()
+{
+    if (m_backgroundIndexSpent || !m_client || !backgroundIndexWanted()
+        || !m_client->supportsLocalSearch())
+        return;
+    m_backgroundIndexSpent = true;
+    if (!indexAllActive())
+        m_client->indexAllRoomsInBackground();
 }
 
 namespace {
@@ -73,6 +131,9 @@ void MessageSearchController::setClient(MatrixClient *client)
     if (m_client)
         disconnect(m_client, nullptr, this, nullptr);
     m_client = client;
+    m_sweepOp = 0;
+    m_backgroundIndex.stop();
+    m_backgroundIndexSpent = false;
     clear();
     if (!m_client) {
         Q_EMIT stateChanged();
@@ -92,6 +153,10 @@ void MessageSearchController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::searchIndexSwept, this,
             [this](quint64, int, int, qint64 messages, qint64 rooms) {
+        if (m_sweepOp != 0) {
+            m_sweepOp = 0;
+            Q_EMIT indexingChanged();
+        }
         const bool grew = messages > m_indexedMessages;
         m_indexedMessages = messages;
         m_indexedRooms = rooms;
@@ -119,6 +184,11 @@ void MessageSearchController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::searchIndexAllProgress, this,
             &MessageSearchController::onIndexAllProgress);
+    connect(m_client, &MatrixClient::connectionStateChanged, this,
+            [this](MatrixClient::ConnectionState state) {
+        if (state == MatrixClient::Syncing)
+            onSyncing();
+    });
     setProperty(kIgnoredUsersProperty, QStringList());
     setProperty(kIgnoredAskOpProperty, QVariant());
     setProperty(kIgnoredStaleOpProperty, QVariant());
@@ -168,6 +238,12 @@ void MessageSearchController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
         clear();
         resetIndexAll();
+        m_backgroundIndex.stop();
+        m_backgroundIndexSpent = false;
+        if (m_sweepOp != 0) {
+            m_sweepOp = 0;
+            Q_EMIT indexingChanged();
+        }
         setProperty(kIgnoredUsersProperty, QStringList());
         setProperty(kIgnoredAskOpProperty, QVariant());
         setProperty(kIgnoredStaleOpProperty, QVariant());
@@ -223,8 +299,12 @@ void MessageSearchController::refreshIndexStats()
 
 void MessageSearchController::sweepIndex()
 {
-    if (m_client)
-        m_client->sweepSearchIndex();
+    if (!m_client)
+        return;
+    const bool was = sweeping();
+    m_sweepOp = m_client->sweepSearchIndex();
+    if (sweeping() != was)
+        Q_EMIT indexingChanged();
 }
 
 void MessageSearchController::indexRoomHistory(const QString &roomId)
@@ -243,6 +323,8 @@ bool MessageSearchController::clearIndex()
     m_indexedMessages = 0;
     m_indexedRooms = 0;
     Q_EMIT indexStatsChanged();
+    m_backgroundIndex.stop();
+    m_backgroundIndexSpent = true;
     refreshIndexAllStatus();
     if (effectiveSource() == QLatin1String("local"))
         clear();
@@ -327,6 +409,9 @@ void MessageSearchController::onIndexAllProgress(quint64 opId,
     m_indexAllFailedRooms = status.value(QStringLiteral("failedRooms")).toInt();
     m_indexAllRetryInMs =
         status.value(QStringLiteral("retryInMs")).toLongLong();
+    if (status.contains(QStringLiteral("finishedMs")))
+        m_indexAllFinishedMs =
+            status.value(QStringLiteral("finishedMs")).toLongLong();
     const qint64 elapsed = status.value(QStringLiteral("elapsedMs")).toLongLong();
     const int left = m_indexAllTotal - m_indexAllPosition;
     m_indexAllEtaMs = (indexAllActive() && m_indexAllPosition > 0 && left > 0
@@ -367,6 +452,7 @@ void MessageSearchController::resetIndexAll()
     m_indexAllFailedRooms = 0;
     m_indexAllEtaMs = -1;
     m_indexAllRetryInMs = 0;
+    m_indexAllFinishedMs = 0;
     Q_EMIT indexAllChanged();
     m_indexAllOfferUserId.clear();
     setIndexAllOffered(false);
@@ -384,6 +470,7 @@ void MessageSearchController::offerIndexAllAfterSignIn(const QString &userId,
                                                        bool interactiveSignIn)
 {
     const bool offer = interactiveSignIn && !userId.isEmpty() && m_settings
+        && !m_settings->backgroundIndexing()
         && localAvailable() && m_settings->hasSavedAccount(userId)
         && m_settings->indexAllOfferAnswer(userId).isEmpty();
     m_indexAllOfferUserId = offer ? userId : QString();

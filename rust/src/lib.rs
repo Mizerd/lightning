@@ -8342,6 +8342,7 @@ pub unsafe extern "C" fn mx_rust_search_index_clear(ptr: *mut c_void) -> *mut c_
 }
 
 const INDEX_ALL_STATS_EVERY_MS: u64 = 5_000;
+const INDEX_ALL_BACKGROUND: c_uint = 2;
 
 fn index_all_event(
     op_id: u64,
@@ -8360,6 +8361,7 @@ fn index_all_event(
         "failed_rooms": status.failed_rooms,
         "complete_rooms": status.complete_rooms,
         "retry_in_ms": status.retry_in_ms, "elapsed_ms": status.elapsed_ms,
+        "finished_ms": status.finished_ms,
     });
     let stats = index.and_then(|index| {
         index.lock().ok().and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
@@ -8412,7 +8414,7 @@ async fn index_all_walk(
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_all_start(
     ptr: *mut c_void,
-    resume_only: c_uint,
+    mode: c_uint,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -8426,7 +8428,7 @@ pub unsafe extern "C" fn mx_rust_search_index_all_start(
         let lifecycle = timelines.lifecycle();
 
         let listing = client.clone();
-        let begin = control.begin(resume_only != 0, move || {
+        let joined = move || {
             listing
                 .joined_rooms()
                 .into_iter()
@@ -8438,7 +8440,11 @@ pub unsafe extern "C" fn mx_rust_search_index_all_start(
                     (room.room_id().to_string(), stamp, room.encryption_state().is_encrypted())
                 })
                 .collect()
-        });
+        };
+        let begin = match mode {
+            INDEX_ALL_BACKGROUND => control.begin_background(joined),
+            resume_only => control.begin(resume_only != 0, joined),
+        };
         if begin != indexall::Begin::Started {
             let state = match begin {
                 indexall::Begin::NothingToDo => Some("done"),

@@ -599,6 +599,12 @@ Item {
           section: "privacy",
           breadcrumb: qsTr("Privacy & security · Message search index"),
           anchor: "indexAllRoomsButton" },
+        { title: qsTr("Index older messages in the background"),
+          keywords: QT_TR_NOOP("message search index background automatic "
+                         + "startup older messages encrypted history"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Message search index"),
+          anchor: "backgroundIndexingCheck" },
         { title: qsTr("Sign out other sessions"),
           keywords: QT_TR_NOOP("sessions devices sign out remove device delete"),
           section: "sessions",
@@ -6226,6 +6232,23 @@ Item {
                                     }
                                 }
 
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "backgroundIndexingCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    Rectangle {
+                                        objectName: "checkFocusRing"
+                                        anchors.fill: parent
+                                        radius: 4
+                                        color: "transparent"
+                                        border.color: AppTheme.stormText
+                                        border.width: 2
+                                        visible: parent.visualFocus
+                                    }
+                                    text: qsTr("Index older messages in the background")
+                                    checked: app.settings.backgroundIndexing
+                                    onToggled: app.settings.backgroundIndexing = checked
+                                }
                                 Label {
                                     objectName: "indexAllHelpText"
                                     Layout.fillWidth: true
@@ -6249,7 +6272,10 @@ Item {
                                         + "arrive — run it again then and "
                                         + "they are added. It pauses during "
                                         + "calls and continues after a "
-                                        + "restart.")
+                                        + "restart. With background indexing "
+                                        + "on, it runs by itself shortly "
+                                        + "after start-up and walks only "
+                                        + "rooms not yet indexed.")
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.settingsHintSize
                                 }
