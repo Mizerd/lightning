@@ -1,6 +1,10 @@
 #include "storage/LibSecretStore.h"
 
+#include <QCoreApplication>
 #include <QLoggingCategory>
+#include <QThread>
+
+#include <atomic>
 
 #ifdef HAVE_LIBSECRET
 #include <dlfcn.h>
@@ -78,9 +82,18 @@ GHashTable *scopedAttributes(const QByteArray &userId, const QByteArray *key,
 
 enum class KeyringLock { Open, Unlocked, Locked };
 
+// Process-wide: every LibSecretStore shares the one prompt.
+std::atomic<bool> g_unlockPromptOffered{false};
+
+bool onGuiThread()
+{
+    const QCoreApplication *app = QCoreApplication::instance();
+    return app && QThread::currentThread() == app->thread();
+}
+
 // gnome-keyring keeps a locked item's attributes only hashed and without its
 // schema name, so a lookup by schema misses it and libsecret never unlocks.
-KeyringLock defaultCollectionLock(std::atomic<bool> &promptOffered)
+KeyringLock defaultCollectionLock()
 {
     SecretService *svc =
         secret_service_get_sync(SECRET_SERVICE_NONE, nullptr, nullptr);
@@ -91,7 +104,9 @@ KeyringLock defaultCollectionLock(std::atomic<bool> &promptOffered)
     KeyringLock state = collection && secret_collection_get_locked(collection)
                             ? KeyringLock::Locked
                             : KeyringLock::Open;
-    if (state == KeyringLock::Locked && !promptOffered.exchange(true)) {
+    // Only the GUI thread prompts: a worker's read is bounded by a timeout.
+    if (state == KeyringLock::Locked && onGuiThread()
+        && !g_unlockPromptOffered.exchange(true)) {
         GList *objects = g_list_append(nullptr, collection);
         if (secret_service_unlock_sync(svc, objects, nullptr, nullptr, nullptr) > 0)
             state = KeyringLock::Unlocked;
@@ -278,6 +293,17 @@ bool LibSecretStore::storeIn(Backend backend, const QString &userId,
     return true;
 }
 
+bool LibSecretStore::throughSecretService(Backend backend) const
+{
+    return backend == Backend::Service
+           || m_backendKind == QLatin1String(kServiceKind);
+}
+
+void LibSecretStore::allowUnlockPrompt()
+{
+    g_unlockPromptOffered = false;
+}
+
 QString LibSecretStore::readFrom(Backend backend, const QString &userId,
                                  const QString &key) const
 {
@@ -297,21 +323,14 @@ QString LibSecretStore::readFrom(Backend backend, const QString &userId,
     const QByteArray i = toUtf8(installScope());
 
     QString out = lookup(backend, u, k, i, &err);
-    if (!err && out.isEmpty()
-        && (backend == Backend::Service
-            || m_backendKind != QLatin1String(kFileKind))) {
-        switch (defaultCollectionLock(m_unlockPromptOffered)) {
-        case KeyringLock::Locked:
+    if (!err && out.isEmpty() && throughSecretService(backend)) {
+        if (defaultCollectionLock() == KeyringLock::Locked) {
             setError(QStringLiteral("the keyring is locked"));
             m_lastReadFailed = true;
             qCWarning(lcLibSecret) << "readSecret failed:" << m_lastError;
             return {};
-        case KeyringLock::Unlocked:
-            out = lookup(backend, u, k, i, &err);
-            break;
-        case KeyringLock::Open:
-            break;
         }
+        out = lookup(backend, u, k, i, &err);
     }
 
     if (err) {
@@ -367,11 +386,23 @@ QString LibSecretStore::readLegacySecret(const QString &userId,
     const QByteArray u = toUtf8(userId);
     const QByteArray k = toUtf8(key);
 
-    gchar *raw = secret_password_lookup_sync(
-        legacySchema(), nullptr, &err,
-        "user_id", u.constData(),
-        "key",     k.constData(),
-        nullptr);
+    const auto legacyLookup = [&] {
+        return secret_password_lookup_sync(
+            legacySchema(), nullptr, &err,
+            "user_id", u.constData(),
+            "key",     k.constData(),
+            nullptr);
+    };
+    gchar *raw = legacyLookup();
+    if (!err && !raw && throughSecretService(Backend::Default)) {
+        if (defaultCollectionLock() == KeyringLock::Locked) {
+            setError(QStringLiteral("the keyring is locked"));
+            m_lastReadFailed = true;
+            qCWarning(lcLibSecret) << "readLegacySecret failed:" << m_lastError;
+            return {};
+        }
+        raw = legacyLookup();
+    }
 
     if (err) {
         setError(QString::fromUtf8(err->message));
@@ -468,5 +499,6 @@ QString LibSecretStore::readFrom(Backend, const QString &, const QString &) cons
 QString LibSecretStore::readLegacySecret(const QString &, const QString &) const { return {}; }
 bool LibSecretStore::deleteLegacySecret(const QString &, const QString &) { return false; }
 bool LibSecretStore::clearFrom(Backend, const QString &, const QString *) { return false; }
+void LibSecretStore::allowUnlockPrompt() {}
 
 #endif

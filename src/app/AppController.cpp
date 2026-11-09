@@ -6092,9 +6092,8 @@ void AppController::refreshKeyringUnavailable()
     bool unavailable = false;
     if (!m_screenshotDemo && m_settings) {
         QStringList ask = m_settings->savedAccountUserIds();
-        // A native store's answer is the backend's, and every lookup in a
-        // locked collection can raise an unlock prompt (a dismissed one reads
-        // as "no such item", so a loop would never stop early): one read.
+        // A native store's answer is the backend's, and a read in a locked
+        // keyring may raise its one unlock prompt: one read is enough.
         if (!m_settings->secretMissesAreInconclusive() && !ask.isEmpty()) {
             const QString active = m_settings->activeAccountUserId();
             ask = QStringList{active.isEmpty() ? ask.first() : active};

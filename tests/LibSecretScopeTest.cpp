@@ -242,6 +242,7 @@ void LibSecretScopeTest::init()
     LibSecretStore probe;
     if (!probe.isAvailable())
         QSKIP("no usable Secret Service on the private bus");
+    probe.allowUnlockPrompt();
     if (probe.backendKind() == QLatin1String("file")
         && qstrcmp(QTest::currentTestFunction(),
                    "aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyring") != 0)
