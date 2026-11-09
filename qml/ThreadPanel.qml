@@ -1264,6 +1264,7 @@ Rectangle {
                         break
                     case "timeline.deleteMessage":
                     case "timeline.saveMessage":
+                    case "timeline.reactToMessage":
                         var selected = rowForEvent(selectedEventId)
                         var rowItem = selected >= 0 ? itemAtIndex(selected) : null
                         if (rowItem && rowItem.runSelectionAction)
@@ -3232,6 +3233,7 @@ Rectangle {
 
     EmojiPicker {
         id: threadReactionPicker
+        objectName: "threadReactionPicker"
         mode: "reaction"
         property string targetEventId: ""
         onOpened: {

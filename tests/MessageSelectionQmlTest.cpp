@@ -22,6 +22,7 @@
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "models/ReverseListProxyModel.h"
+#include "threads/ThreadController.h"
 
 class DeferredRedactionClient : public MockMatrixClient
 {
@@ -1130,6 +1131,143 @@ ApplicationWindow {
         };
         QTRY_VERIFY(findSourceDialog() != nullptr);
         QTRY_VERIFY(findSourceDialog()->property("visible").toBool());
+    }
+
+    void reactionPickerRunsFromTheKeyboardAndReturnsToTheSelection()
+    {
+        openJoinedRoom();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                        Qt::ControlModifier | Qt::ShiftModifier);
+        auto *list = item("timelineListView");
+        QTRY_VERIFY(list->hasActiveFocus());
+        auto *pane = item("timelinePane");
+        const QString selected =
+            pane->property("keyboardSelectedEventId").toString();
+        QVERIFY(!selected.isEmpty());
+        QObject *picker = nullptr;
+        {
+            QList<QQuickItem *> stack{ m_window->contentItem() };
+            while (!stack.isEmpty() && !picker) {
+                QQuickItem *it = stack.takeLast();
+                picker = it->findChild<QObject *>(
+                    QStringLiteral("sharedReactionPicker"));
+                stack.append(it->childItems());
+            }
+        }
+        QVERIFY(picker);
+        auto *catalog = m_controller->emojiCatalog();
+
+        QTest::keyClick(m_window, Qt::Key_A);
+        QTRY_VERIFY(picker->property("opened").toBool());
+        QVERIFY(picker->property("expanded").toBool());
+        QTest::keyClicks(m_window, "heart");
+        QTRY_COMPARE(catalog->searchText(), QStringLiteral("heart"));
+        QVERIFY(catalog->rowCount() > 1);
+        const QString second =
+            catalog->data(catalog->index(1, 0), Qt::UserRole + 1).toString();
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_VERIFY(!picker->property("visible").toBool());
+        auto *model = m_controller->timeline();
+        const QVariantList reactions =
+            model->data(model->index(model->rowForStableId(selected), 0),
+                        TimelineModel::ReactionsRole).toList();
+        QVERIFY(std::any_of(reactions.cbegin(), reactions.cend(),
+                            [&](const QVariant &r) {
+            const QVariantMap m = r.toMap();
+            return m.value(QStringLiteral("key")).toString() == second
+                && m.value(QStringLiteral("byMe")).toBool();
+        }));
+        QTRY_VERIFY(list->hasActiveFocus());
+        QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
+
+        QTest::keyClick(m_window, Qt::Key_A);
+        QTRY_VERIFY(picker->property("opened").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!picker->property("visible").toBool());
+        QTRY_VERIFY(list->hasActiveFocus());
+        QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
+        QTest::keyClick(m_window, Qt::Key_K);
+        QTRY_VERIFY(pane->property("keyboardSelectedEventId").toString()
+                    != selected);
+    }
+
+    void threadReactionPickerRunsFromTheKeyboard()
+    {
+        const QString room = QStringLiteral("!dev:lightning.example");
+        m_controller->openRoom(room);
+        QTRY_COMPARE(m_controller->currentRoomId(), room);
+        QTRY_VERIFY(m_controller->timeline()->realEventCount() > 2);
+        QString root;
+        for (const TimelineEvent &e : m_controller->timeline()->events()) {
+            if (e.isThreadRoot) {
+                root = e.eventId;
+                break;
+            }
+        }
+        QVERIFY(!root.isEmpty());
+        m_controller->thread()->openThread(room, root);
+        QTRY_VERIFY(m_controller->thread()->model()->rowCount() > 2);
+        QTest::qWait(300);
+        auto *list = item("threadReplyList");
+        QVERIFY(list);
+        QVariant entered;
+        QVERIFY(QMetaObject::invokeMethod(list, "enterMessageSelection",
+                                          Q_RETURN_ARG(QVariant, entered),
+                                          Q_ARG(QVariant, true)));
+        QVERIFY(entered.toBool());
+        QTRY_VERIFY(list->hasActiveFocus());
+        const QString selected = list->property("selectedEventId").toString();
+        QVERIFY(!selected.isEmpty());
+        QObject *picker = nullptr;
+        {
+            QList<QQuickItem *> stack{ m_window->contentItem() };
+            while (!stack.isEmpty() && !picker) {
+                QQuickItem *it = stack.takeLast();
+                picker = it->findChild<QObject *>(
+                    QStringLiteral("threadReactionPicker"));
+                stack.append(it->childItems());
+            }
+        }
+        QVERIFY(picker);
+
+        QTest::keyClick(m_window, Qt::Key_A);
+        QTRY_VERIFY(picker->property("opened").toBool());
+        QVERIFY(picker->property("expanded").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!picker->property("visible").toBool());
+        QTRY_VERIFY(list->hasActiveFocus());
+        QCOMPARE(list->property("selectedEventId").toString(), selected);
+
+        QTest::keyClick(m_window, Qt::Key_A);
+        QTRY_VERIFY(picker->property("opened").toBool());
+        auto *catalog = m_controller->emojiCatalog();
+        QTest::keyClicks(m_window, "heart");
+        QTRY_COMPARE(catalog->searchText(), QStringLiteral("heart"));
+        QVERIFY(catalog->rowCount() > 1);
+        const QString second =
+            catalog->data(catalog->index(1, 0), Qt::UserRole + 1).toString();
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_VERIFY(!picker->property("visible").toBool());
+        auto *model = m_controller->thread()->model();
+        int row = -1;
+        for (int r = 0; r < model->rowCount(); ++r)
+            if (model->eventIdAt(r) == selected)
+                row = r;
+        QVERIFY(row >= 0);
+        QTRY_VERIFY([&] {
+            const QVariantList reactions = model->data(
+                model->index(row, 0), TimelineModel::ReactionsRole).toList();
+            return std::any_of(reactions.cbegin(), reactions.cend(),
+                               [&](const QVariant &r) {
+                return r.toMap().value(QStringLiteral("key")).toString() == second;
+            });
+        }());
+        QTRY_VERIFY(list->hasActiveFocus());
+        m_controller->thread()->close();
     }
 
     void enteringSelectionCancelsQueuedAndDelayedComposerFocus()
