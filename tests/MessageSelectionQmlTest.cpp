@@ -1160,7 +1160,8 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_A);
         QTRY_VERIFY(picker->property("opened").toBool());
         QVERIFY(picker->property("expanded").toBool());
-        QTest::keyClicks(m_window, "heart");
+        for (const char c : { 'h', 'e', 'a', 'r', 't' })
+            QTest::keyClick(m_window, c);
         QTRY_COMPARE(catalog->searchText(), QStringLiteral("heart"));
         QVERIFY(catalog->rowCount() > 1);
         const QString second =
@@ -1243,7 +1244,8 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_A);
         QTRY_VERIFY(picker->property("opened").toBool());
         auto *catalog = m_controller->emojiCatalog();
-        QTest::keyClicks(m_window, "heart");
+        for (const char c : { 'h', 'e', 'a', 'r', 't' })
+            QTest::keyClick(m_window, c);
         QTRY_COMPARE(catalog->searchText(), QStringLiteral("heart"));
         QVERIFY(catalog->rowCount() > 1);
         const QString second =
