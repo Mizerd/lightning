@@ -2,6 +2,10 @@
 
 #include "storage/TwoBackendSecretStore.h"
 
+#include <atomic>
+
+typedef struct _GError GError;
+
 class LibSecretStore final : public TwoBackendSecretStore
 {
     Q_OBJECT
@@ -20,6 +24,7 @@ public:
                             const QString &key) override;
 
     QString backendKind() const override { return m_backendKind; }
+    void allowUnlockPrompt() override { m_unlockPromptOffered = false; }
 
 protected:
     // Backend::Default is libsecret's password API, which goes wherever
@@ -36,7 +41,13 @@ protected:
 private:
     void probe();
     void detectBackendKind();
+    QString lookup(Backend backend, const QByteArray &userId,
+                   const QByteArray &key, const QByteArray &install,
+                   GError **err) const;
 
     bool m_available = false;
     QString m_backendKind;
+    // At most one unlock prompt until allowUnlockPrompt(): a dismissed one
+    // must not come back on every read.
+    mutable std::atomic<bool> m_unlockPromptOffered{false};
 };

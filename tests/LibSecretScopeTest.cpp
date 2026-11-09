@@ -8,7 +8,7 @@
 //   dbus-run-session -- sh -c 'printf throwaway |
 //       gnome-keyring-daemon --unlock --components=secrets --daemonize;
 //       LIGHTNING_KEYRING_TEST_BUS="$DBUS_SESSION_BUS_ADDRESS"
-//       ./libsecret-scope-test'
+//       LIGHTNING_KEYRING_TEST_PASSWORD=throwaway ./libsecret-scope-test'
 //
 // What it pins is what the fake keyring in KeyringScopeTest assumes: Secret
 // Service lookups and clears match a SUBSET of attributes, so only a distinct
@@ -137,6 +137,76 @@ int countScoped(const QString &userId, const QString &install)
     return count;
 }
 
+QByteArray defaultCollectionPath(GDBusConnection *bus)
+{
+    GVariant *reply = g_dbus_connection_call_sync(
+        bus, "org.freedesktop.secrets", "/org/freedesktop/secrets",
+        "org.freedesktop.Secret.Service", "ReadAlias",
+        g_variant_new("(s)", "default"), G_VARIANT_TYPE("(o)"),
+        G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, nullptr);
+    if (!reply)
+        return {};
+    const gchar *path = nullptr;
+    g_variant_get(reply, "(&o)", &path);
+    const QByteArray out(path);
+    g_variant_unref(reply);
+    return out;
+}
+
+bool lockDefaultCollection()
+{
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr);
+    const QByteArray path = defaultCollectionPath(bus);
+    const char *paths[] = {path.constData(), nullptr};
+    GVariant *reply = path.isEmpty() ? nullptr : g_dbus_connection_call_sync(
+        bus, "org.freedesktop.secrets", "/org/freedesktop/secrets",
+        "org.freedesktop.Secret.Service", "Lock",
+        g_variant_new("(^ao)", paths), nullptr, G_DBUS_CALL_FLAGS_NONE, 5000,
+        nullptr, nullptr);
+    if (reply)
+        g_variant_unref(reply);
+    g_object_unref(bus);
+    return reply != nullptr;
+}
+
+// gnome-keyring's own unlock, the one its --unlock flag uses: no prompt.
+bool unlockDefaultCollection(const QByteArray &password)
+{
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr);
+    const QByteArray path = defaultCollectionPath(bus);
+    GVariant *opened = g_dbus_connection_call_sync(
+        bus, "org.freedesktop.secrets", "/org/freedesktop/secrets",
+        "org.freedesktop.Secret.Service", "OpenSession",
+        g_variant_new("(sv)", "plain", g_variant_new_string("")),
+        G_VARIANT_TYPE("(vo)"), G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, nullptr);
+    bool ok = false;
+    if (opened && !path.isEmpty()) {
+        GVariant *output = nullptr;
+        const gchar *session = nullptr;
+        g_variant_get(opened, "(v&o)", &output, &session);
+        GVariant *secret = g_variant_new(
+            "(o@ay@ays)", session,
+            g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, "", 0, 1),
+            g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, password.constData(),
+                                      password.size(), 1),
+            "text/plain");
+        GVariant *reply = g_dbus_connection_call_sync(
+            bus, "org.freedesktop.secrets", "/org/freedesktop/secrets",
+            "org.gnome.keyring.InternalUnsupportedGuiltRiddenInterface",
+            "UnlockWithMasterPassword",
+            g_variant_new("(o@(oayays))", path.constData(), secret), nullptr,
+            G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, nullptr);
+        ok = reply != nullptr;
+        if (reply)
+            g_variant_unref(reply);
+        g_variant_unref(output);
+    }
+    if (opened)
+        g_variant_unref(opened);
+    g_object_unref(bus);
+    return ok;
+}
+
 }
 
 class LibSecretScopeTest : public QObject
@@ -157,6 +227,8 @@ private Q_SLOTS:
 
     void aSignInRecordedInTheFileKeyringIsUnreadableFromTheSecretService();
     void aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyring();
+
+    void aLockedKeyringIsAnUnansweredReadNotAMiss();
 
 private:
     QString m_user;
@@ -376,6 +448,34 @@ void LibSecretScopeTest::aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyri
     flatpak.setRecordedBackendLookup({});
     QVERIFY(flatpak.readSecret(m_user, QStringLiteral("mediaStoreKey")).isEmpty());
     QVERIFY(!flatpak.lastReadFailed());
+}
+
+void LibSecretScopeTest::aLockedKeyringIsAnUnansweredReadNotAMiss()
+{
+    const QByteArray password = qgetenv("LIGHTNING_KEYRING_TEST_PASSWORD");
+    if (password.isEmpty())
+        QSKIP("needs LIGHTNING_KEYRING_TEST_PASSWORD, the private keyring's "
+              "password, to unlock it again afterwards");
+    LibSecretStore store;
+    store.setInstallScope(QStringLiteral("install-a"));
+    QVERIFY(store.storeSecret(m_user, QStringLiteral("accessToken"),
+                              QStringLiteral("saved-access")));
+    QVERIFY(lockDefaultCollection());
+
+    // No prompter on the private bus: the one unlock prompt is dismissed.
+    const QString locked = store.readSecret(m_user, QStringLiteral("accessToken"));
+    const bool failed = store.lastReadFailed();
+    const QString again = store.readSecret(m_user, QStringLiteral("accessToken"));
+    const bool failedAgain = store.lastReadFailed();
+    QVERIFY(unlockDefaultCollection(password));
+
+    QVERIFY(locked.isEmpty());
+    QVERIFY2(failed, "a locked keyring read as a missing sign-in");
+    QVERIFY(again.isEmpty());
+    QVERIFY(failedAgain);
+    QCOMPARE(store.readSecret(m_user, QStringLiteral("accessToken")),
+             QStringLiteral("saved-access"));
+    QVERIFY(!store.lastReadFailed());
 }
 
 QTEST_GUILESS_MAIN(LibSecretScopeTest)

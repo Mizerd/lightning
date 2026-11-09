@@ -198,10 +198,9 @@ class AppController : public QObject
     // A saved account's sign-in cannot be read because the secret store says
     // it cannot answer (no Secret Service on the bus, a store that failed to
     // open, a lookup that errors): the login screen says so instead of
-    // looking signed out, and offers retryKeyring(). NOT detected: an unlock
-    // prompt the user dismissed, which libsecret reports as "no such item",
-    // exactly like an empty keyring. Never true where no native store exists
-    // at all, since the plaintext store is the real one there (CLAUDE.md §6).
+    // looking signed out, and offers retryKeyring(), which may ask to unlock a
+    // locked keyring once more. Never true where no native store exists at
+    // all, since the plaintext store is the real one there (CLAUDE.md §6).
     Q_PROPERTY(bool keyringUnavailable READ keyringUnavailable
                NOTIFY keyringUnavailableChanged)
     Q_PROPERTY(QString mediaKeepState READ mediaKeepState

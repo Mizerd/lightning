@@ -6173,6 +6173,8 @@ bool AppController::retryKeyring()
             m_secretStore = std::move(candidate);
         }
     }
+    if (m_secretStore)
+        m_secretStore->allowUnlockPrompt();
     refreshKeyringUnavailable();
     if (m_keyringUnavailable) {
         Q_EMIT errorReported(

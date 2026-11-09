@@ -76,6 +76,33 @@ GHashTable *scopedAttributes(const QByteArray &userId, const QByteArray *key,
     return attributes;
 }
 
+enum class KeyringLock { Open, Unlocked, Locked };
+
+// gnome-keyring keeps a locked item's attributes only hashed and without its
+// schema name, so a lookup by schema misses it and libsecret never unlocks.
+KeyringLock defaultCollectionLock(std::atomic<bool> &promptOffered)
+{
+    SecretService *svc =
+        secret_service_get_sync(SECRET_SERVICE_NONE, nullptr, nullptr);
+    if (!svc)
+        return KeyringLock::Open;
+    SecretCollection *collection = secret_collection_for_alias_sync(
+        svc, SECRET_COLLECTION_DEFAULT, SECRET_COLLECTION_NONE, nullptr, nullptr);
+    KeyringLock state = collection && secret_collection_get_locked(collection)
+                            ? KeyringLock::Locked
+                            : KeyringLock::Open;
+    if (state == KeyringLock::Locked && !promptOffered.exchange(true)) {
+        GList *objects = g_list_append(nullptr, collection);
+        if (secret_service_unlock_sync(svc, objects, nullptr, nullptr, nullptr) > 0)
+            state = KeyringLock::Unlocked;
+        g_list_free(objects);
+    }
+    if (collection)
+        g_object_unref(collection);
+    g_object_unref(svc);
+    return state;
+}
+
 }
 
 LibSecretStore::LibSecretStore(QObject *parent)
@@ -269,27 +296,21 @@ QString LibSecretStore::readFrom(Backend backend, const QString &userId,
     const QByteArray k = toUtf8(key);
     const QByteArray i = toUtf8(installScope());
 
-    QString out;
-    if (backend == Backend::Service) {
-        GHashTable *attributes = scopedAttributes(u, &k, i);
-        SecretValue *secret = secret_service_lookup_sync(
-            nullptr, scopedSchema(), attributes, nullptr, &err);
-        g_hash_table_unref(attributes);
-        if (secret) {
-            if (const gchar *text = secret_value_get_text(secret))
-                out = QString::fromUtf8(text);
-            secret_value_unref(secret);
-        }
-    } else {
-        gchar *raw = secret_password_lookup_sync(
-            scopedSchema(), nullptr, &err,
-            "user_id", u.constData(),
-            "key",     k.constData(),
-            "install", i.constData(),
-            nullptr);
-        if (raw) {
-            out = QString::fromUtf8(raw);
-            secret_password_free(raw);
+    QString out = lookup(backend, u, k, i, &err);
+    if (!err && out.isEmpty()
+        && (backend == Backend::Service
+            || m_backendKind != QLatin1String(kFileKind))) {
+        switch (defaultCollectionLock(m_unlockPromptOffered)) {
+        case KeyringLock::Locked:
+            setError(QStringLiteral("the keyring is locked"));
+            m_lastReadFailed = true;
+            qCWarning(lcLibSecret) << "readSecret failed:" << m_lastError;
+            return {};
+        case KeyringLock::Unlocked:
+            out = lookup(backend, u, k, i, &err);
+            break;
+        case KeyringLock::Open:
+            break;
         }
     }
 
@@ -301,6 +322,36 @@ QString LibSecretStore::readFrom(Backend backend, const QString &userId,
         return {};
     }
     m_lastReadFailed = false;
+    return out;
+}
+
+QString LibSecretStore::lookup(Backend backend, const QByteArray &u,
+                               const QByteArray &k, const QByteArray &i,
+                               GError **err) const
+{
+    QString out;
+    if (backend == Backend::Service) {
+        GHashTable *attributes = scopedAttributes(u, &k, i);
+        SecretValue *secret = secret_service_lookup_sync(
+            nullptr, scopedSchema(), attributes, nullptr, err);
+        g_hash_table_unref(attributes);
+        if (secret) {
+            if (const gchar *text = secret_value_get_text(secret))
+                out = QString::fromUtf8(text);
+            secret_value_unref(secret);
+        }
+    } else {
+        gchar *raw = secret_password_lookup_sync(
+            scopedSchema(), nullptr, err,
+            "user_id", u.constData(),
+            "key",     k.constData(),
+            "install", i.constData(),
+            nullptr);
+        if (raw) {
+            out = QString::fromUtf8(raw);
+            secret_password_free(raw);
+        }
+    }
     return out;
 }
 
