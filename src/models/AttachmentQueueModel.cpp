@@ -332,9 +332,9 @@ void AttachmentQueueModel::resolveDroppedUrls(
         const bool documentPortalPath = std::any_of(
             normalized.cbegin(), normalized.cend(),
             [](const QUrl &url) { return isDocumentPortalUrl(url); });
-        qCDebug(lcAttach) << "drop resolved via="
-                          << (documentPortalPath ? "document_path" : "file_url")
-                          << "count=" << normalized.size();
+        qCInfo(lcAttach) << "drop resolved via="
+                         << (documentPortalPath ? "document_path" : "file_url")
+                         << "count=" << normalized.size();
         done(normalized);
         return;
     }
