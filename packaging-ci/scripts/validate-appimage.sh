@@ -377,10 +377,12 @@ grep -qx 'StartupWMClass=edited-by-validator' "$published" \
     || die "a second launch overwrote the user's edited launcher entry"
 grep -qx 'not the payload icon' "$user_icon" \
     || die "a second launch overwrote the user's edited icon"
-grep -qx '256x256/apps/lightning.png' "$icon_manifest" \
+grep -q '^256x256/apps/lightning\.png'$'\t' "$icon_manifest" \
     && die "the icon manifest still claims the user's edited icon"
-grep -q $'\t' "$icon_manifest" \
+grep -Eq $'\t[0-9a-f]{64}$' "$icon_manifest" \
     || die "the path-only icon manifest was not migrated to record hashes"
+grep -q $'\t$' "$icon_manifest" \
+    && die "the icon manifest still has a line without a hash"
 
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \
