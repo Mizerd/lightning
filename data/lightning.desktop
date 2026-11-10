@@ -10,4 +10,4 @@ Terminal=false
 Categories=Network;Chat;InstantMessaging;
 Keywords=Matrix;Chat;Messaging;
 StartupNotify=true
-StartupWMClass=lightning-matrix
+StartupWMClass=matrix-client

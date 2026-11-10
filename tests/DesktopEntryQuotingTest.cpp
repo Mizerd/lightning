@@ -8,6 +8,34 @@ using lightning::desktop_entry::quoteExecArgument;
 using lightning::desktop_entry::claimDefaultHandler;
 using lightning::desktop_entry::queryNamesAnotherHandler;
 using lightning::desktop_entry::withDefaultHandler;
+using lightning::desktop_entry::withGeneratedMarker;
+using lightning::desktop_entry::isUntouchedGeneratedEntry;
+
+namespace {
+
+// What 0.10.5 wrote, captured from the published AppImage.
+QString releasedEntry(const QString &comment, const QString &exec,
+                      const QString &tryExecLine)
+{
+    return QStringLiteral("[Desktop Entry]\n"
+                          "Type=Application\n"
+                          "Name=Lightning\n"
+                          "GenericName=Matrix Client\n"
+                          "Comment=%1\n"
+                          "Terminal=false\n"
+                          "Categories=Network;Chat;InstantMessaging;\n"
+                          "Keywords=Matrix;Chat;Messaging;\n"
+                          "StartupNotify=true\n"
+                          "Exec=%2 --backend=rust\n"
+                          "%3"
+                          "Icon=lightning\n"
+                          "StartupWMClass=lightning-matrix\n"
+                          "X-AppImage-Version=0.10.5\n"
+                          "X-Lightning-Generated=true\n")
+        .arg(comment, exec, tryExecLine);
+}
+
+}
 
 class DesktopEntryQuotingTest : public QObject
 {
@@ -99,6 +127,81 @@ private Q_SLOTS:
         // Only the Default group counts; an association elsewhere is not a choice of default.
         QVERIFY(!withDefaultHandler(QStringLiteral("[Added Associations]\nx-scheme-handler/matrix=e.desktop;\n"),
                                     mime, id).isEmpty());
+    }
+
+    void aMarkedEntryIsOursOnlyUntilTheUserEditsIt()
+    {
+        const QString body = QStringLiteral(
+            "[Desktop Entry]\nType=Application\nName=Lightning\n"
+            "Exec=\"/opt/Lightning.AppImage\" --backend=rust %u\n"
+            "Icon=lightning\nStartupWMClass=matrix-client\n");
+        const QString entry = withGeneratedMarker(body);
+        QVERIFY(entry.startsWith(body));
+        QVERIFY(entry.endsWith(QLatin1Char('\n')));
+        QVERIFY(isUntouchedGeneratedEntry(entry));
+        QCOMPARE(withGeneratedMarker(body), entry);
+
+        QString wmClass = entry;
+        wmClass.replace(QStringLiteral("StartupWMClass=matrix-client"),
+                        QStringLiteral("StartupWMClass=lightning"));
+        QVERIFY(!isUntouchedGeneratedEntry(wmClass));
+        QVERIFY(!isUntouchedGeneratedEntry(
+            entry + QStringLiteral("NoDisplay=true\n")));
+        QVERIFY(!isUntouchedGeneratedEntry(
+            QStringLiteral("# mine\n") + entry));
+        QVERIFY(!isUntouchedGeneratedEntry(entry.chopped(1)));
+        QString trueMarker = body + QStringLiteral("X-Lightning-Generated=true\n");
+        QVERIFY(!isUntouchedGeneratedEntry(trueMarker));
+        QVERIFY(!isUntouchedGeneratedEntry(body));
+        QVERIFY(!isUntouchedGeneratedEntry(QString()));
+    }
+
+    void anEntryAnEarlierReleaseWroteIsStillOurs()
+    {
+        const QString path = QStringLiteral("/home/u/Apps/Lightning-0.10.5-x86_64.AppImage");
+        const QString tryExec = QStringLiteral("TryExec=%1\n").arg(path);
+        QVERIFY(isUntouchedGeneratedEntry(releasedEntry(
+            QStringLiteral("Chat and calls on Matrix"),
+            QStringLiteral("\"%1\"").arg(path), tryExec)));
+        QVERIFY(isUntouchedGeneratedEntry(releasedEntry(
+            QStringLiteral("Native Qt Matrix chat client"),
+            QStringLiteral("\"%1\"").arg(path), tryExec)));
+        QVERIFY(isUntouchedGeneratedEntry(releasedEntry(
+            QStringLiteral("Chat and calls on Matrix"),
+            QStringLiteral("\"/home/u/My Apps/L.AppImage\""), QString())));
+        QVERIFY(isUntouchedGeneratedEntry(releasedEntry(
+            QStringLiteral("Chat and calls on Matrix"),
+            QStringLiteral("\"/opt/a\\\\\\\\b/100%%/L.AppImage\""),
+            QStringLiteral("TryExec=/opt/a\\\\b/100%/L.AppImage\n"))));
+    }
+
+    void anEarlierReleasesEntryTheUserEditedIsTheirs()
+    {
+        const QString path = QStringLiteral("/home/u/Apps/Lightning.AppImage");
+        const QString exec = QStringLiteral("\"%1\"").arg(path);
+        const QString tryExec = QStringLiteral("TryExec=%1\n").arg(path);
+        const QString original = releasedEntry(
+            QStringLiteral("Chat and calls on Matrix"), exec, tryExec);
+        QVERIFY(isUntouchedGeneratedEntry(original));
+
+        QString wmClass = original;
+        wmClass.replace(QStringLiteral("StartupWMClass=lightning-matrix"),
+                        QStringLiteral("StartupWMClass=matrix-client"));
+        QVERIFY(!isUntouchedGeneratedEntry(wmClass));
+        QString args = original;
+        args.replace(QStringLiteral("--backend=rust\n"),
+                     QStringLiteral("--backend=rust --console\n"));
+        QVERIFY(!isUntouchedGeneratedEntry(args));
+        QString name = original;
+        name.replace(QStringLiteral("Name=Lightning"), QStringLiteral("Name=Chat"));
+        QVERIFY(!isUntouchedGeneratedEntry(name));
+        QVERIFY(!isUntouchedGeneratedEntry(releasedEntry(
+            QStringLiteral("Chat and calls on Matrix"), exec, QString())));
+        QVERIFY(!isUntouchedGeneratedEntry(releasedEntry(
+            QStringLiteral("Chat and calls on Matrix"), exec,
+            QStringLiteral("TryExec=/elsewhere\n"))));
+        QVERIFY(!isUntouchedGeneratedEntry(releasedEntry(
+            QStringLiteral("My comment"), exec, tryExec)));
     }
 
     void anOrdinaryPathIsJustQuoted()

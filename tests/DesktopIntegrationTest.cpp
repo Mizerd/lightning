@@ -69,8 +69,30 @@ private Q_SLOTS:
         QVERIFY(desktop.contains(QStringLiteral("Icon=lightning")));
         QVERIFY(desktop.contains(
             QStringLiteral("Exec=lightning-matrix --backend=rust")));
-        QVERIFY(desktop.contains(
-            QStringLiteral("StartupWMClass=lightning-matrix")));
+    }
+
+    // Qt's xcb plugin takes the WM_CLASS class from the application name and
+    // the instance from argv[0], which is "AppRun.wrapped" inside an AppImage.
+    void startupWmClassIsTheApplicationName()
+    {
+        const QString main =
+            readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        static const QRegularExpression appName(QStringLiteral(
+            "\\n    QCoreApplication::setApplicationName\\(\"([^\"]+)\"\\);"));
+        const auto match = appName.match(main);
+        QVERIFY2(match.hasMatch(), "the GUI path's setApplicationName is gone");
+        const QString wmClass = match.captured(1);
+        QVERIFY(main.contains(QStringLiteral(
+            "constexpr QLatin1String kWmClass(\"%1\");").arg(wmClass)));
+        for (const char *path : { SOURCE_DIR "/data/lightning.desktop",
+                                  SOURCE_DIR "/packaging-ci/packaging/common/lightning.desktop" }) {
+            const QString desktop = readAll(QString::fromUtf8(path));
+            QVERIFY2(!desktop.isEmpty(), path);
+            static const QRegularExpression key(
+                QStringLiteral("^StartupWMClass=(.*)$"),
+                QRegularExpression::MultilineOption);
+            QCOMPARE(key.match(desktop).captured(1), wmClass);
+        }
     }
 
     void bothLauncherEntriesHandleMatrixLinks()
@@ -267,7 +289,7 @@ private Q_SLOTS:
         QVERIFY(main.contains(QStringLiteral(
             "LIGHTNING_NO_DESKTOP_INTEGRATION")));
 
-        QVERIFY(main.contains(QStringLiteral("X-Lightning-Generated=true")));
+        QVERIFY(main.contains(QStringLiteral("isUntouchedGeneratedEntry(")));
 
         QVERIFY(main.contains(QStringLiteral("systemLauncherEntry()")));
         QVERIFY(main.contains(QStringLiteral("TryExec=")));

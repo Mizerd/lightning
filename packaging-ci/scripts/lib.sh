@@ -498,8 +498,8 @@ assert_desktop_launcher_payload() {
         "$label: the launcher entry has no Icon= key, so the app id resolves to an entry that names no icon -- a generic placeholder, and every other check still passes"
     [[ "$icon" == lightning ]] || die \
         "$label: the launcher entry names Icon=$icon; it must be \"lightning\", the basename of the installed hicolor icons"
-    grep -qx 'StartupWMClass=lightning-matrix' "$entry" || die \
-        "$label: the launcher entry has no StartupWMClass=lightning-matrix, so an X11/XWayland session cannot map the window to it"
+    grep -qx 'StartupWMClass=matrix-client' "$entry" || die \
+        "$label: the launcher entry has no StartupWMClass=matrix-client (the X11 class Qt takes from the application name), so an X11/XWayland session cannot map the window to it"
     grep -q '^Exec=' "$entry" || die "$label: the launcher entry has no Exec="
 
     # An entry naming an uninstalled icon is as bad as no entry.

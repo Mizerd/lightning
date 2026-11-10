@@ -70,6 +70,7 @@
 #include <QAudioDevice>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
+#include <QMap>
 #include <QMediaDevices>
 #include <QThread>
 #include <QVersionNumber>
@@ -1017,7 +1018,7 @@ void installRepeatLimiter()
 namespace {
 
 constexpr QLatin1String kAppId("lightning");
-constexpr QLatin1String kWmClass("lightning-matrix");
+constexpr QLatin1String kWmClass("matrix-client");
 
 QString resolvedAppId()
 {
@@ -1034,6 +1035,7 @@ struct LauncherEntryReport {
     int payloadIcons = 0;
     QString userEntry;
     int iconsCopied = 0;
+    int iconsKept = 0;
     QString outcome = QStringLiteral("not an AppImage run");
     QString schemeDefault = QStringLiteral("not attempted");
 };
@@ -1141,8 +1143,8 @@ QString launcherEntryText(const QString &payloadEntry,
     kept.append(QStringLiteral("StartupWMClass=") + kWmClass);
     kept.append(QStringLiteral("X-AppImage-Version=")
                 + QLatin1String(APP_VERSION));
-    kept.append(QStringLiteral("X-Lightning-Generated=true"));
-    return kept.join(QLatin1Char('\n')) + QLatin1Char('\n');
+    return lightning::desktop_entry::withGeneratedMarker(
+        kept.join(QLatin1Char('\n')) + QLatin1Char('\n'));
 }
 
 QString userIconManifestPath(const QString &dataHome)
@@ -1151,27 +1153,45 @@ QString userIconManifestPath(const QString &dataHome)
            + QStringLiteral("/lightning/appimage-icons.list");
 }
 
-QStringList readUserIconManifest(const QString &dataHome)
+// relative path -> SHA-256 of what we wrote; empty for a line from before the
+// manifest carried hashes.
+QMap<QString, QString> readUserIconManifest(const QString &dataHome)
 {
+    QMap<QString, QString> recorded;
     QFile file(userIconManifestPath(dataHome));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
-        return {};
-    return QString::fromUtf8(file.readAll())
+        return recorded;
+    const QStringList lines = QString::fromUtf8(file.readAll())
         .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines)
+        recorded.insert(line.section(QLatin1Char('\t'), 0, 0),
+                        line.section(QLatin1Char('\t'), 1));
+    return recorded;
 }
 
-void removeUserIcons(const QString &dataHome)
+QString payloadIconPath(const QString &appDir, const QString &relative)
+{
+    return appDir + QStringLiteral("/usr/share/icons/hicolor/") + relative;
+}
+
+void removeUserIcons(const QString &appDir, const QString &dataHome)
 {
     const QString root = dataHome + QStringLiteral("/icons/hicolor/");
     const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
-    for (const QString &relative : readUserIconManifest(dataHome)) {
-        const QString target = root + relative;
+    const QMap<QString, QString> recorded = readUserIconManifest(dataHome);
+    for (auto it = recorded.cbegin(); it != recorded.cend(); ++it) {
+        const QString target = root + it.key();
         const QString canonicalTarget = QFileInfo(target).canonicalFilePath();
         if (canonicalRoot.isEmpty() || canonicalTarget.isEmpty())
             continue;
         if (!canonicalTarget.startsWith(canonicalRoot + QLatin1Char('/')))
             continue;
-        QFile::remove(target);
+        const QString wrote = it.value().isEmpty()
+            ? lightning::desktop_entry::fileSha256(payloadIconPath(appDir, it.key()))
+            : it.value();
+        if (!wrote.isEmpty()
+            && lightning::desktop_entry::fileSha256(target) == wrote)
+            QFile::remove(target);
     }
     QFile::remove(userIconManifestPath(dataHome));
 }
@@ -1194,11 +1214,13 @@ void countPayloadIcons(const QString &appDir, int *payloadIcons)
 }
 
 int installUserIcons(const QString &appDir, const QString &dataHome,
-                     int *payloadIcons)
+                     int *payloadIcons, int *iconsKept)
 {
+    using lightning::desktop_entry::fileSha256;
     int copied = 0;
-    const QStringList recorded = readUserIconManifest(dataHome);
-    QStringList written;
+    const QMap<QString, QString> recorded = readUserIconManifest(dataHome);
+    QMap<QString, QString> written;
+    QStringList seen;
     const QDir hicolor(appDir + QStringLiteral("/usr/share/icons/hicolor"));
     if (!hicolor.exists())
         return 0;
@@ -1220,23 +1242,25 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
             const QString to = toDir + QLatin1Char('/') + name;
             const QString relative =
                 size + QStringLiteral("/apps/") + name;
-            // An untracked file is the user's. Adopt it into the manifest
-            // only if it is byte-identical to our payload icon (a copy from
-            // before the manifest existed); otherwise leave it alone.
-            if (QFileInfo::exists(to) && !recorded.contains(relative)) {
-                QFile ours(from);
-                QFile theirs(to);
-                bool identical = QFileInfo(to).size() == QFileInfo(from).size()
-                                 && ours.open(QIODevice::ReadOnly)
-                                 && theirs.open(QIODevice::ReadOnly)
-                                 && ours.readAll() == theirs.readAll();
-                if (identical)
-                    written.append(relative);
+            seen.append(relative);
+            const QString wanted = fileSha256(from);
+            if (wanted.isEmpty())
                 continue;
+            if (QFileInfo::exists(to)) {
+                const QString current = fileSha256(to);
+                const QString wrote = recorded.value(relative);
+                const bool ours = current == wanted
+                    || (!wrote.isEmpty() && current == wrote);
+                if (!ours) {
+                    if (iconsKept)
+                        ++*iconsKept;
+                    continue;
+                }
+                if (current == wanted) {
+                    written.insert(relative, wanted);
+                    continue;
+                }
             }
-            written.append(relative);
-            if (QFileInfo(to).size() == QFileInfo(from).size())
-                continue;
             if (!QDir().mkpath(toDir))
                 continue;
             const QString staging = to + QStringLiteral(".new");
@@ -1244,21 +1268,28 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
             if (!QFile::copy(from, staging))
                 continue;
             QFile::remove(to);
-            if (QFile::rename(staging, to))
+            if (QFile::rename(staging, to)) {
                 ++copied;
-            else
+                written.insert(relative, wanted);
+            } else {
                 QFile::remove(staging);
+            }
         }
     }
-    for (const QString &earlier : recorded) {
-        if (!written.contains(earlier))
-            written.append(earlier);
+    for (auto it = recorded.cbegin(); it != recorded.cend(); ++it) {
+        if (!seen.contains(it.key()))
+            written.insert(it.key(), it.value());
     }
-    if (!written.isEmpty()) {
+    if (written.isEmpty()) {
+        QFile::remove(userIconManifestPath(dataHome));
+    } else if (written != recorded) {
+        QStringList lines;
+        for (auto it = written.cbegin(); it != written.cend(); ++it)
+            lines.append(it.key() + QLatin1Char('\t') + it.value());
         QDir().mkpath(dataHome + QStringLiteral("/lightning"));
         QSaveFile manifest(userIconManifestPath(dataHome));
         if (manifest.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            manifest.write(written.join(QLatin1Char('\n')).toUtf8());
+            manifest.write(lines.join(QLatin1Char('\n')).toUtf8());
             if (!manifest.commit())
                 qWarning("lightning: could not record the icons written");
         }
@@ -1347,14 +1378,17 @@ LauncherEntryReport publishAppImageLauncherEntry()
             existing = current.readAll();
     }
     if (!existing.isEmpty()
-        && !existing.contains("X-Lightning-Generated=true")) {
-        report.outcome = QStringLiteral(
-            "skipped: an existing launcher entry was not written by Lightning");
+        && !lightning::desktop_entry::isUntouchedGeneratedEntry(
+            QString::fromUtf8(existing))) {
+        report.outcome = existing.contains("X-Lightning-Generated=")
+            ? QStringLiteral("kept (edited by the user)")
+            : QStringLiteral(
+                  "skipped: an existing launcher entry was not written by Lightning");
         return report;
     }
 
     if (const QString installed = systemLauncherEntry(); !installed.isEmpty()) {
-        removeUserIcons(dataHome);
+        removeUserIcons(report.appDir, dataHome);
         if (!existing.isEmpty() && QFile::remove(report.userEntry))
             report.outcome = QStringLiteral(
                 "skipped: %1 is installed; removed our own shadowing copy")
@@ -1375,7 +1409,8 @@ LauncherEntryReport publishAppImageLauncherEntry()
     }
 
     report.iconsCopied =
-        installUserIcons(report.appDir, dataHome, &report.payloadIcons);
+        installUserIcons(report.appDir, dataHome, &report.payloadIcons,
+                         &report.iconsKept);
 
     if (existing == wanted) {
         report.outcome = QStringLiteral("already current");
@@ -1455,6 +1490,8 @@ static int printDesktopStatus()
             << "\n";
         out << "payload icon files: " << report.payloadIcons << "\n";
         out << "user icon files copied: " << report.iconsCopied << "\n";
+        out << "user icon files kept (edited by the user): "
+            << report.iconsKept << "\n";
         out << "user launcher entry: " << report.userEntry << "\n";
     }
     out << "launcher entry: " << report.outcome << "\n";
@@ -2325,9 +2362,10 @@ int main(int argc, char *argv[])
         const LauncherEntryReport entry = publishAppImageLauncherEntry();
         if (entry.appImageRun)
             qInfo("lightning: AppImage launcher entry: %s (%d icon file(s) "
-                  "copied); matrix: link handler: %s",
+                  "copied, %d kept (edited by the user)); matrix: link "
+                  "handler: %s",
                   qUtf8Printable(entry.outcome), entry.iconsCopied,
-                  qUtf8Printable(entry.schemeDefault));
+                  entry.iconsKept, qUtf8Printable(entry.schemeDefault));
     }
 
     {

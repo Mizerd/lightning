@@ -11,6 +11,17 @@ namespace lightning::desktop_entry {
 /// key); the caller treats empty as "do not publish".
 QString quoteExecArgument(const QString &path);
 
+/// `body` plus a last `X-Lightning-Generated=` line carrying its SHA-256.
+QString withGeneratedMarker(const QString &body);
+
+/// Whether `entry` is still exactly what Lightning wrote: its marker matches
+/// the rest, or it is byte for byte what 0.9.3 to 0.10.5 wrote. Anything else
+/// is the user's and must not be overwritten.
+bool isUntouchedGeneratedEntry(const QString &entry);
+
+/// Lowercase hex SHA-256 of the file at `path`, empty when unreadable.
+QString fileSha256(const QString &path);
+
 /// `mimeapps` with `desktopId` added as the default for `mime`, or empty when
 /// its [Default Applications] group already names one: the user's choice wins.
 QString withDefaultHandler(const QString &mimeapps, const QString &mime,

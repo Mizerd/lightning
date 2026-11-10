@@ -2718,6 +2718,18 @@ only when nothing handles the scheme: not when that file's
 `[Default Applications]` names a handler, not when `xdg-mime query default`
 names another one, and never when the file is a symlink or unreadable.
 
+**The AppImage's own launcher entry and icons are the user's once edited**
+(GitHub #71). The entry ends in `X-Lightning-Generated=<sha256 of the rest>`
+and is rewritten (moved AppImage, new version, new keys) only while the hash
+still matches; an entry from 0.9.3-0.10.5 (`=true`) counts as ours only if it
+is byte for byte what those releases wrote. Anything else logs and reports
+`launcher entry: kept (edited by the user)`. The icon manifest records each
+copied icon's hash and follows the same rule. `StartupWMClass` is
+`matrix-client`, the X11 class Qt takes from the application name: the
+instance half is argv[0], which inside an AppImage is `AppRun.wrapped`, so
+the old `lightning-matrix` matched nothing there. The Wayland app id is the
+desktop file name (`lightning`, or `FLATPAK_ID`).
+
 ### Reading and typing privacy
 
 `Settings → Privacy & security → Reading and typing`.

@@ -92,7 +92,7 @@ Icon=lightning
 Terminal=false
 Categories=Network;Chat;InstantMessaging;
 StartupNotify=true
-StartupWMClass=lightning-matrix
+StartupWMClass=matrix-client
 """
 
 ICON_SIZES = (16, 32, 48, 64, 128, 192, 256, 512)
@@ -155,7 +155,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     tree = make_tree(base / "no-wmclass",
                      entry=GOOD_ENTRY.replace(
-                         "StartupWMClass=lightning-matrix\n", ""))
+                         "StartupWMClass=matrix-client\n", ""))
     expect_fail(f'assert_desktop_launcher_payload Probe "{tree}"',
                 "StartupWMClass",
                 "an entry with no StartupWMClass is refused")

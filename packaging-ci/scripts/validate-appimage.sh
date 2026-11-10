@@ -347,6 +347,22 @@ command -v desktop-file-validate >/dev/null 2>&1 \
     || die "desktop-file-validate is missing from the validator image"
 desktop-file-validate "$published" \
     || die "the published launcher entry is not a valid desktop entry"
+grep -qx 'StartupWMClass=matrix-client' "$published" \
+    || die "the published launcher entry's StartupWMClass is not the window's X11 class"
+# A second launch must leave an entry the user edited alone (GitHub #71).
+sed -i 's/^StartupWMClass=.*/StartupWMClass=edited-by-validator/' "$published"
+( cd /tmp && timeout 60s env \
+    HOME="$desktop_home" \
+    XDG_DATA_HOME="$desktop_home/data" \
+    XDG_CONFIG_HOME="$desktop_home/.config" \
+    XDG_DATA_DIRS="$desktop_home/empty" \
+    APPIMAGE="$ROOT/$app" APPDIR="$tree" \
+    QT_QPA_PLATFORM=offscreen "$ROOT/$app" --desktop-status ) \
+    > dist/appimage-desktop-status-edited.txt 2>&1 || true
+grep -qx 'launcher entry: kept (edited by the user)' dist/appimage-desktop-status-edited.txt \
+    || die "a second launch did not report the user's edited launcher entry as kept"
+grep -qx 'StartupWMClass=edited-by-validator' "$published" \
+    || die "a second launch overwrote the user's edited launcher entry"
 
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \
