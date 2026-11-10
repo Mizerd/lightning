@@ -69,8 +69,8 @@ QString unquoteExecArgument(const QString &quoted)
     return path;
 }
 
-// Frozen copy of what 0.9.3 to 0.10.5 wrote; the two releases differ only in
-// the payload's Comment=.
+// Frozen copy of what 0.9.3 to 0.10.5 wrote; only the payload's Comment=
+// varied.
 bool isReleasedEntry(const QString &entry)
 {
     QString exec;
@@ -129,6 +129,14 @@ bool isUntouchedGeneratedEntry(const QString &entry)
     if (last == kMarker + QLatin1String("true"))
         return isReleasedEntry(entry);
     return last.mid(kMarker.size()) == sha256Hex(entry.left(at).toUtf8());
+}
+
+bool isOurIcon(const QString &current, const QString &payload,
+               const QString &recorded)
+{
+    if (current.isEmpty())
+        return false;
+    return current == payload || current == recorded;
 }
 
 QString fileSha256(const QString &path)

@@ -349,8 +349,15 @@ desktop-file-validate "$published" \
     || die "the published launcher entry is not a valid desktop entry"
 grep -qx 'StartupWMClass=matrix-client' "$published" \
     || die "the published launcher entry's StartupWMClass is not the window's X11 class"
-# A second launch must leave an entry the user edited alone (GitHub #71).
+# A second launch must leave an entry and an icon the user edited alone.
 sed -i 's/^StartupWMClass=.*/StartupWMClass=edited-by-validator/' "$published"
+user_icon="$desktop_home/data/icons/hicolor/256x256/apps/lightning.png"
+test -f "$user_icon" || die "the AppImage copied no 256x256 icon to $user_icon"
+printf 'not the payload icon\n' > "$user_icon"
+# A path-only line is what the manifest held before it recorded hashes.
+icon_manifest="$desktop_home/data/lightning/appimage-icons.list"
+test -f "$icon_manifest" || die "the AppImage recorded no icon manifest at $icon_manifest"
+sed -i 's/\t.*//' "$icon_manifest"
 ( cd /tmp && timeout 60s env \
     HOME="$desktop_home" \
     XDG_DATA_HOME="$desktop_home/data" \
@@ -359,10 +366,21 @@ sed -i 's/^StartupWMClass=.*/StartupWMClass=edited-by-validator/' "$published"
     APPIMAGE="$ROOT/$app" APPDIR="$tree" \
     QT_QPA_PLATFORM=offscreen "$ROOT/$app" --desktop-status ) \
     > dist/appimage-desktop-status-edited.txt 2>&1 || true
-grep -qx 'launcher entry: kept (edited by the user)' dist/appimage-desktop-status-edited.txt \
-    || die "a second launch did not report the user's edited launcher entry as kept"
+edited_ok=1
+grep -qx 'launcher entry: kept (edited by the user)' dist/appimage-desktop-status-edited.txt || edited_ok=0
+grep -qx 'user icon files kept (edited by the user): 1' dist/appimage-desktop-status-edited.txt || edited_ok=0
+if [[ $edited_ok == 0 ]]; then
+    cat dist/appimage-desktop-status-edited.txt
+    die "a second launch did not report the user's edited launcher entry and icon as kept"
+fi
 grep -qx 'StartupWMClass=edited-by-validator' "$published" \
     || die "a second launch overwrote the user's edited launcher entry"
+grep -qx 'not the payload icon' "$user_icon" \
+    || die "a second launch overwrote the user's edited icon"
+grep -qx '256x256/apps/lightning.png' "$icon_manifest" \
+    && die "the icon manifest still claims the user's edited icon"
+grep -q $'\t' "$icon_manifest" \
+    || die "the path-only icon manifest was not migrated to record hashes"
 
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \

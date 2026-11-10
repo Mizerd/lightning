@@ -19,6 +19,12 @@ QString withGeneratedMarker(const QString &body);
 /// is the user's and must not be overwritten.
 bool isUntouchedGeneratedEntry(const QString &entry);
 
+/// Whether a copied icon whose content hashes to `current` may be replaced or
+/// removed: it is still the payload icon (`payload`) or still what we last
+/// wrote (`recorded`, empty for a manifest line from before hashes).
+bool isOurIcon(const QString &current, const QString &payload,
+               const QString &recorded);
+
 /// Lowercase hex SHA-256 of the file at `path`, empty when unreadable.
 QString fileSha256(const QString &path);
 

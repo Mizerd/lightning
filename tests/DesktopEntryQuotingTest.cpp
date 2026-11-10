@@ -10,6 +10,7 @@ using lightning::desktop_entry::queryNamesAnotherHandler;
 using lightning::desktop_entry::withDefaultHandler;
 using lightning::desktop_entry::withGeneratedMarker;
 using lightning::desktop_entry::isUntouchedGeneratedEntry;
+using lightning::desktop_entry::isOurIcon;
 
 namespace {
 
@@ -202,6 +203,20 @@ private Q_SLOTS:
             QStringLiteral("TryExec=/elsewhere\n"))));
         QVERIFY(!isUntouchedGeneratedEntry(releasedEntry(
             QStringLiteral("My comment"), exec, tryExec)));
+    }
+
+    void aCopiedIconIsOursOnlyWhileItHoldsOurBytes()
+    {
+        const QString payload = QStringLiteral("aa");
+        const QString older = QStringLiteral("bb");
+        const QString users = QStringLiteral("cc");
+        QVERIFY(isOurIcon(payload, payload, QString()));
+        QVERIFY(isOurIcon(payload, payload, older));
+        QVERIFY(isOurIcon(older, payload, older));
+        QVERIFY(!isOurIcon(users, payload, older));
+        QVERIFY(!isOurIcon(users, payload, payload));
+        QVERIFY(!isOurIcon(users, payload, QString()));
+        QVERIFY(!isOurIcon(QString(), payload, QString()));
     }
 
     void anOrdinaryPathIsJustQuoted()

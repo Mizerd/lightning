@@ -1186,11 +1186,12 @@ void removeUserIcons(const QString &appDir, const QString &dataHome)
             continue;
         if (!canonicalTarget.startsWith(canonicalRoot + QLatin1Char('/')))
             continue;
-        const QString wrote = it.value().isEmpty()
-            ? lightning::desktop_entry::fileSha256(payloadIconPath(appDir, it.key()))
-            : it.value();
-        if (!wrote.isEmpty()
-            && lightning::desktop_entry::fileSha256(target) == wrote)
+        const QString current = lightning::desktop_entry::fileSha256(target);
+        if (lightning::desktop_entry::isOurIcon(
+                current,
+                lightning::desktop_entry::fileSha256(
+                    payloadIconPath(appDir, it.key())),
+                it.value()))
             QFile::remove(target);
     }
     QFile::remove(userIconManifestPath(dataHome));
@@ -1248,10 +1249,8 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
                 continue;
             if (QFileInfo::exists(to)) {
                 const QString current = fileSha256(to);
-                const QString wrote = recorded.value(relative);
-                const bool ours = current == wanted
-                    || (!wrote.isEmpty() && current == wrote);
-                if (!ours) {
+                if (!lightning::desktop_entry::isOurIcon(
+                        current, wanted, recorded.value(relative))) {
                     if (iconsKept)
                         ++*iconsKept;
                     continue;
@@ -1371,25 +1370,34 @@ LauncherEntryReport publishAppImageLauncherEntry()
     report.userEntry = dataHome + QStringLiteral("/applications/") + kAppId
         + QStringLiteral(".desktop");
 
+    const QFileInfo entryInfo(report.userEntry);
+    const bool entryPresent = entryInfo.exists() || entryInfo.isSymLink();
     QByteArray existing;
-    {
+    if (entryPresent) {
         QFile current(report.userEntry);
-        if (current.open(QIODevice::ReadOnly))
-            existing = current.readAll();
+        if (!current.open(QIODevice::ReadOnly)) {
+            report.outcome = QStringLiteral(
+                "skipped: the existing launcher entry is unreadable");
+            return report;
+        }
+        existing = current.readAll();
     }
-    if (!existing.isEmpty()
+    if (entryPresent
         && !lightning::desktop_entry::isUntouchedGeneratedEntry(
             QString::fromUtf8(existing))) {
         report.outcome = existing.contains("X-Lightning-Generated=")
             ? QStringLiteral("kept (edited by the user)")
             : QStringLiteral(
                   "skipped: an existing launcher entry was not written by Lightning");
+        if (systemLauncherEntry().isEmpty())
+            report.iconsCopied = installUserIcons(
+                report.appDir, dataHome, &report.payloadIcons, &report.iconsKept);
         return report;
     }
 
     if (const QString installed = systemLauncherEntry(); !installed.isEmpty()) {
         removeUserIcons(report.appDir, dataHome);
-        if (!existing.isEmpty() && QFile::remove(report.userEntry))
+        if (entryPresent && QFile::remove(report.userEntry))
             report.outcome = QStringLiteral(
                 "skipped: %1 is installed; removed our own shadowing copy")
                                  .arg(installed);

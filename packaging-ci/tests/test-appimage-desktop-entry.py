@@ -182,7 +182,7 @@ with tempfile.TemporaryDirectory() as tmp:
 GOOD_STATUS = """qt version: 6.8.2
 app id (desktop file name): lightning
 launcher entry basename: lightning.desktop
-wm class: lightning-matrix
+wm class: matrix-client
 appimage runtime: yes
 appimage: /tmp/Lightning-0.9.2-x86_64.AppImage
 appdir: /tmp/squashfs-root

@@ -3865,7 +3865,7 @@ app's own `--desktop-status`: `app id (desktop file name): lightning`,
 `visible launcher entry: NONE`, `visible icon: NONE`. The flatpak exports
 `org.lightning_matrix.Lightning.desktop` while the binary stamps `lightning`.
 The deb is the control and resolves both. On X11 it still works (WM_CLASS is
-`lightning-matrix` and `StartupWMClass` matches); the WAYLAND half is NOT
+`lightning-matrix`, `matrix-client` and `StartupWMClass` is `matrix-client`); the WAYLAND half is NOT
 TESTED for want of a Wayland guest, but `--desktop-status` classifies it.
 
 **THREE THINGS THE FLATPAK SANDBOX BREAKS THAT THE APPIMAGE DOES NOT:**
