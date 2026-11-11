@@ -1005,7 +1005,7 @@ Popup {
                 }
                 IconButton {
                     objectName: "viewerSaveButton"
-                    visible: viewer.usesBridge
+                    visible: viewer.usesBridge && viewer.currentMxc.length === 0
                     iconName: "download"
                     iconSize: 20
                     implicitWidth: 32; implicitHeight: 32
