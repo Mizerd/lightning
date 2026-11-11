@@ -1,5 +1,6 @@
 
 #include "matrix/MatrixClient.h"
+#include "media/StagedImageStore.h"
 #include "models/AttachmentQueueModel.h"
 #include "models/MessageComposer.h"
 
@@ -316,6 +317,125 @@ private Q_SLOTS:
 
         composer.setRoomId(QStringLiteral("!other:example.org"));
         QCOMPARE(client.fileSends, 2);
+    }
+
+    void eachRoomKeepsItsOwnTrayWithItsSpoilers()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        StagedImageStore staged;
+        composer.attachments()->setStagedImages(&staged);
+        composer.setClient(&client);
+        const QString roomA = QStringLiteral("!a:example.org");
+        const QString roomB = QStringLiteral("!b:example.org");
+        composer.setRoomId(roomA);
+        auto *model = composer.attachments();
+
+        QVERIFY(model->addImageData(tinyPng(), QStringLiteral("image/png"), 1, 1)
+                    .isEmpty());
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("shot.png"), tinyPng())));
+        model->setSpoilerAt(0, true);
+        QCOMPARE(model->rowCount(), 2);
+
+        composer.setRoomId(roomB);
+        QCOMPARE(model->rowCount(), 0);
+        QCOMPARE(staged.count(), 1);
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("other.png"), tinyPng())));
+        QCOMPARE(model->rowCount(), 1);
+
+        composer.setRoomId(roomA);
+        QCOMPARE(model->rowCount(), 2);
+        QVERIFY(model->data(model->index(0), AttachmentQueueModel::SpoilerRole).toBool());
+        QVERIFY(!model->data(model->index(1), AttachmentQueueModel::SpoilerRole).toBool());
+        QCOMPARE(model->data(model->index(1), AttachmentQueueModel::FileNameRole)
+                     .toString(), QStringLiteral("shot.png"));
+
+        composer.send();
+        QCOMPARE(client.spoilerSends, 1);
+        Q_EMIT client.attachmentQueueFinished(client.lastOpId, roomA, true, {});
+        QCOMPARE(client.fileSends, 1);
+        Q_EMIT client.attachmentQueueFinished(client.lastOpId, roomA, true, {});
+        QCOMPARE(model->rowCount(), 0);
+        QCOMPARE(staged.count(), 0);
+
+        composer.setRoomId(roomB);
+        QCOMPARE(model->rowCount(), 1);
+        QCOMPARE(model->data(model->index(0), AttachmentQueueModel::FileNameRole)
+                     .toString(), QStringLiteral("other.png"));
+    }
+
+    void anUploadFinishingWhileItsRoomIsAwayIsSettledThere()
+    {
+        for (const bool accepted : {true, false}) {
+            FakeClient client;
+            MessageComposer composer;
+            composer.setClient(&client);
+            const QString roomA = QStringLiteral("!a:example.org");
+            composer.setRoomId(roomA);
+            QTemporaryDir dir;
+            composer.addAttachment(QUrl::fromLocalFile(
+                writeFile(dir, QStringLiteral("a.bin"), QByteArray(16, 'a'))));
+            composer.send();
+            QCOMPARE(client.fileSends, 1);
+
+            composer.setRoomId(QStringLiteral("!b:example.org"));
+            Q_EMIT client.attachmentQueueFinished(client.lastOpId, roomA,
+                                                  accepted, {});
+            composer.setRoomId(roomA);
+            QCOMPARE(composer.attachments()->rowCount(), accepted ? 0 : 1);
+            if (!accepted)
+                QCOMPARE(composer.attachments()->entries().first().state,
+                         QStringLiteral("failed"));
+        }
+    }
+
+    void anInlineThreadKeepsItsOwnTray()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!a:example.org"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("main.bin"), QByteArray(16, 'a'))));
+
+        composer.setThreadTargetRootId(QStringLiteral("$root"));
+        QCOMPARE(composer.attachments()->rowCount(), 0);
+        composer.setThreadTargetRootId(QString());
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+    }
+
+    void signingOutOrSwitchingAccountDropsEveryTray()
+    {
+        for (const bool viaLogout : {true, false}) {
+            FakeClient client;
+            MessageComposer composer;
+            StagedImageStore staged;
+            composer.attachments()->setStagedImages(&staged);
+            composer.setClient(&client);
+            composer.setRoomId(QStringLiteral("!a:example.org"));
+            QVERIFY(composer.attachments()
+                        ->addImageData(tinyPng(), QStringLiteral("image/png"), 1, 1)
+                        .isEmpty());
+            composer.setRoomId(QStringLiteral("!b:example.org"));
+            QVERIFY(composer.attachments()
+                        ->addImageData(tinyPng(), QStringLiteral("image/png"), 1, 1)
+                        .isEmpty());
+            QCOMPARE(staged.count(), 2);
+
+            if (viaLogout)
+                client.logout();
+            else
+                composer.discardAllAttachments();
+            QCOMPARE(staged.count(), 0);
+            composer.setRoomId(QStringLiteral("!a:example.org"));
+            QCOMPARE(composer.attachments()->rowCount(), 0);
+            composer.setRoomId(QStringLiteral("!b:example.org"));
+            QCOMPARE(composer.attachments()->rowCount(), 0);
+        }
     }
 };
 

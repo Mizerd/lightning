@@ -90,6 +90,7 @@ public:
     QString imageMetadataMode() const { return m_imageMetadataMode; }
     void setImageMetadataMode(const QString &mode);
     void setDraftStore(class DraftStore *store) { m_drafts = store; }
+    void discardAllAttachments();
 
     bool supported() const;
     State state() const { return m_state; }
@@ -225,7 +226,7 @@ private:
     QString timelineId() const;
     bool dispatchAttachments();
     void dispatchAttachment(int row);
-    void clearAttachments();
+    void parkAttachments();
 
     struct VoiceOp {
         QString localPath;
@@ -242,7 +243,8 @@ private:
     int m_lastReplyCount = -1;
     int m_lastExactReplyCount = -1;
     AttachmentQueueModel *m_attachments = nullptr;
-    QHash<QString, QList<AttachmentQueueModel::Entry>> m_committedAttachments;
+    // Trays of the threads not on screen, by timelineId(); memory only.
+    QHash<QString, QList<AttachmentQueueModel::Entry>> m_parkedAttachments;
     State m_state = Closed;
     bool m_traceEnabled = false;
     quint64 m_traceGeneration = 0;

@@ -179,7 +179,7 @@ void MessageComposer::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             ++m_dropGeneration;
             m_imagePrep.releaseAll();
-            m_attachments->clearAll();
+            discardAllAttachments();
             // Unresolved voice recordings must not outlive the session on disk.
             for (const VoiceOp &op : std::as_const(m_voiceOps))
                 QFile::remove(op.localPath);
@@ -548,11 +548,13 @@ void MessageComposer::setThreadTargetRootId(const QString &rootEventId)
     m_replyingToPreview.clear();
     m_replyingToMediaKey.clear();
     m_replyThreadRootId.clear();
+    parkAttachments();
     m_threadTargetRootId = rootEventId;
     m_slashJoinOp = 0;
     m_text.clear();
     m_mentionRefs.clear();
     restoreDraft();
+    unparkAttachments();
     setCommandError(QString());
     if (hadReply || !m_replyingToEventId.isEmpty())
         Q_EMIT replyStateChanged();
@@ -590,11 +592,15 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
                 tr("The voice message could not be sent."));
         return;
     }
-    if (!roomId.isEmpty() && roomId != m_roomId)
+    if (opId == 0)
         return;
+    if (!roomId.isEmpty() && roomId != m_roomId) {
+        finishParkedAttachment(opId, ok);
+        return;
+    }
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
-        if (entries[row].opId != opId || opId == 0)
+        if (entries[row].opId != opId)
             continue;
         if (ok) {
             entries[row].state = QStringLiteral("sent");
@@ -608,6 +614,68 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
         pumpAttachments();
         return;
     }
+    finishParkedAttachment(opId, ok);
+}
+
+void MessageComposer::parkAttachments()
+{
+    // Rows already sent go now, to the room they were sent from.
+    if (m_client && !m_roomId.isEmpty()) {
+        auto &pending = m_attachments->entries();
+        for (int row = 0; row < pending.size(); ++row) {
+            if (pending[row].state == QLatin1String("queued")
+                && pending[row].sendRequested)
+                dispatchAttachment(row);
+        }
+    }
+    const QList<AttachmentQueueModel::Entry> entries = m_attachments->takeAll();
+    const QString key = draftKey();
+    if (key.isEmpty())
+        m_attachments->discardEntries(entries);
+    else if (!entries.isEmpty())
+        m_parkedAttachments[key].append(entries);
+}
+
+void MessageComposer::unparkAttachments()
+{
+    const QString key = draftKey();
+    if (key.isEmpty())
+        return;
+    m_attachments->restoreEntries(m_parkedAttachments.take(key));
+    pumpAttachments();
+}
+
+bool MessageComposer::finishParkedAttachment(quint64 opId, bool ok)
+{
+    for (auto it = m_parkedAttachments.begin(); it != m_parkedAttachments.end();
+         ++it) {
+        auto &entries = it.value();
+        for (int row = 0; row < entries.size(); ++row) {
+            auto &entry = entries[row];
+            if (entry.opId != opId)
+                continue;
+            if (ok) {
+                m_attachments->discardEntries({entry});
+                entries.removeAt(row);
+                if (entries.isEmpty())
+                    m_parkedAttachments.erase(it);
+            } else {
+                entry.state = QStringLiteral("failed");
+                entry.error = tr("Upload failed. Retry or remove.");
+                entry.opId = 0;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+void MessageComposer::discardAllAttachments()
+{
+    m_attachments->clearAll();
+    for (const auto &entries : std::as_const(m_parkedAttachments))
+        m_attachments->discardEntries(entries);
+    m_parkedAttachments.clear();
 }
 
 void MessageComposer::setText(const QString &t)
@@ -642,15 +710,7 @@ void MessageComposer::setRoomId(const QString &r)
         Q_EMIT threadStateChanged();
     }
     m_draftDebounce.stop();
-    if (m_client && !m_roomId.isEmpty()) {
-        auto &pending = m_attachments->entries();
-        for (int row = 0; row < pending.size(); ++row) {
-            if (pending[row].state == QLatin1String("queued")
-                && pending[row].sendRequested)
-                dispatchAttachment(row);
-        }
-    }
-    m_attachments->clearAll();
+    parkAttachments();
     if (!m_roomId.isEmpty() && !m_emoticonRefs.isEmpty())
         m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
     m_emoticonRefs.clear();
@@ -659,6 +719,7 @@ void MessageComposer::setRoomId(const QString &r)
     m_text.clear();
     m_mentionRefs.clear();
     restoreDraft();
+    unparkAttachments();
     setCommandError(QString());
     Q_EMIT commandCompletionsChanged();
     Q_EMIT textChanged();

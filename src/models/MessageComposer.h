@@ -229,6 +229,8 @@ public:
     Q_INVOKABLE void addDroppedAttachments(const QList<QUrl> &urls,
                                            const QString &portalKey);
     Q_INVOKABLE bool pasteFromClipboard();
+    // Drops the tray and every room's kept tray (account switch, sign-out).
+    void discardAllAttachments();
 
     Q_INVOKABLE QVariantMap toggleFormat(const QString &format,
                                          const QString &text,
@@ -295,6 +297,9 @@ private:
     void dispatchAttachments();
     void pumpAttachments();
     void dispatchAttachment(int row);
+    void parkAttachments();
+    void unparkAttachments();
+    bool finishParkedAttachment(quint64 opId, bool ok);
     bool takeTextAsCaption(const QString &body, const QStringList &mentionIds);
 
     MatrixClient *m_client = nullptr;
@@ -307,6 +312,9 @@ private:
     std::function<QString(const QString &)> m_unicodeShortcodeResolver;
     bool m_emojiAutoConvert = true;
     AttachmentQueueModel *m_attachments = nullptr;
+    // Trays of the rooms (and inline threads) not on screen, keyed by draftKey().
+    // Memory only: they can hold encrypted-room pictures.
+    QHash<QString, QList<AttachmentQueueModel::Entry>> m_parkedAttachments;
     VimKeymap *m_vim = nullptr;
     VimKeymap *m_threadVim = nullptr;
     bool m_sendTextAsCaption = false;

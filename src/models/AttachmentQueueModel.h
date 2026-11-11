@@ -130,7 +130,8 @@ public:
     bool isEmpty() const { return m_entries.isEmpty(); }
     QList<Entry> &entries() { return m_entries; }
     void updateEntry(int row);
-    QList<Entry> takeCommitted();
+    // Hands every entry over without releasing it; the caller owns them now.
+    QList<Entry> takeAll();
     void restoreEntries(const QList<Entry> &entries);
     void discardEntries(const QList<Entry> &entries);
 

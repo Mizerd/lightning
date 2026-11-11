@@ -182,6 +182,35 @@ private Q_SLOTS:
         QCOMPARE(controller.attachments()->rowCount(), 0);
     }
 
+    void aQueuedPictureStaysWithItsThreadUntilSignOut()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        StagedImageStore staged;
+        controller.setClient(&client);
+        controller.attachments()->setStagedImages(&staged);
+        const QString firstRoot = firstThreadRootId(client, kGeneral);
+        const QString secondRoot = firstThreadRootId(client, kDevs);
+        controller.openThread(kGeneral, firstRoot);
+        QVERIFY(controller.attachments()->addImageData("image-bytes", QStringLiteral("image/png"),
+                                                        1, 1).isEmpty());
+        controller.attachments()->setSpoilerAt(0, true);
+
+        controller.openThread(kDevs, secondRoot);
+        QCOMPARE(controller.attachments()->rowCount(), 0);
+        controller.close();
+        controller.openThread(kGeneral, firstRoot);
+        QCOMPARE(controller.attachments()->rowCount(), 1);
+        QCOMPARE(controller.attachments()->entries().first().spoiler,
+                 client.supportsSpoilerMedia());
+        QCOMPARE(staged.count(), 1);
+
+        controller.close();
+        Q_EMIT client.loggedOut();
+        QCOMPARE(staged.count(), 0);
+    }
+
     void optInTraceDistinguishesFailureAndStaleResultsWithoutContent()
     {
         QStringList lines;

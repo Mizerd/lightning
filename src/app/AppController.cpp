@@ -6853,6 +6853,9 @@ void AppController::clearCrossAccountCaches()
     m_roomHistory.clear();
     if (m_draftStore)
         m_draftStore->clearMemoryDrafts();
+    m_composer->discardAllAttachments();
+    if (m_thread)
+        m_thread->discardAllAttachments();
     m_sessionDevices.clear();
     m_sessionDevicesLoading = false;
     m_sessionDevicesFailed = false;

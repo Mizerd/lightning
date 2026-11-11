@@ -886,18 +886,14 @@ void AttachmentQueueModel::clearAll()
     Q_EMIT countChanged();
 }
 
-QList<AttachmentQueueModel::Entry> AttachmentQueueModel::takeCommitted()
+QList<AttachmentQueueModel::Entry> AttachmentQueueModel::takeAll()
 {
-    QList<Entry> taken;
-    for (int row = m_entries.size() - 1; row >= 0; --row) {
-        if (!m_entries.at(row).committed)
-            continue;
-        beginRemoveRows({}, row, row);
-        taken.prepend(m_entries.takeAt(row));
-        endRemoveRows();
-    }
-    if (!taken.isEmpty())
-        Q_EMIT countChanged();
+    if (m_entries.isEmpty())
+        return {};
+    beginResetModel();
+    QList<Entry> taken = std::exchange(m_entries, {});
+    endResetModel();
+    Q_EMIT countChanged();
     return taken;
 }
 
@@ -910,6 +906,12 @@ void AttachmentQueueModel::restoreEntries(const QList<Entry> &entries)
     m_entries.append(entries);
     endInsertRows();
     Q_EMIT countChanged();
+    // A poster or SVG job that finished while the entry was taken out found no
+    // row for its tag, so it is asked again.
+    for (int row = first; row < m_entries.size(); ++row) {
+        if (m_entries.at(row).posterPending)
+            startPosterJob(row);
+    }
 }
 
 void AttachmentQueueModel::discardEntries(const QList<Entry> &entries)

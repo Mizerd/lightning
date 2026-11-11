@@ -296,7 +296,12 @@ void ThreadController::setClient(MatrixClient *client)
                     Q_EMIT listStateChanged();
                 });
         connect(m_client, &MatrixClient::loggedOut, this,
-                [this] { m_pendingThreadReads.clear(); close(); closeList(); });
+                [this] {
+                    m_pendingThreadReads.clear();
+                    close();
+                    closeList();
+                    discardAllAttachments();
+                });
         connect(m_client, &MatrixClient::threadReadMarkerAdvanced, this,
                 [this](const QString &, const QString &, quint64 opId) {
                     const auto it = m_pendingThreadReads.find(opId);
@@ -348,12 +353,7 @@ void ThreadController::openThread(const QString &roomId,
     m_draftDebounce.stop();
     saveDraftNow();
 
-    const QString previousId = timelineId();
-    if (!previousId.isEmpty()) {
-        auto committed = m_attachments->takeCommitted();
-        if (!committed.isEmpty())
-            m_committedAttachments[previousId].append(committed);
-    }
+    parkAttachments();
 
     stopHistoryFill();
     ++m_traceGeneration;
@@ -364,8 +364,7 @@ void ThreadController::openThread(const QString &roomId,
     cancelReply();
     clearComposerText();
     restoreDraft();
-    clearAttachments();
-    m_attachments->restoreEntries(m_committedAttachments.take(timelineId()));
+    m_attachments->restoreEntries(m_parkedAttachments.take(timelineId()));
     clearNavigation(true);
     m_model.setRoomId(timelineId());
     resetFollowState();
@@ -390,6 +389,7 @@ void ThreadController::close()
 {
     m_draftDebounce.stop();
     saveDraftNow();
+    parkAttachments();
     stopHistoryFill();
     const bool wasActive = m_state != Closed;
     if (wasActive)
@@ -403,10 +403,6 @@ void ThreadController::close()
     m_model.setRoomId(QString{});
     cancelReply();
     clearComposerText();
-    clearAttachments();
-    for (const auto &entries : std::as_const(m_committedAttachments))
-        m_attachments->discardEntries(entries);
-    m_committedAttachments.clear();
     clearNavigation(true);
     resetFollowState();
     m_lastMarkedReadEventId.clear();
@@ -895,8 +891,8 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
         }
         return;
     }
-    for (auto it = m_committedAttachments.begin();
-         it != m_committedAttachments.end(); ++it) {
+    for (auto it = m_parkedAttachments.begin();
+         it != m_parkedAttachments.end(); ++it) {
         for (int row = 0; row < it.value().size(); ++row) {
             auto &entry = it.value()[row];
             if (entry.opId != opId
@@ -908,7 +904,7 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
                 m_attachments->discardEntries({entry});
                 it.value().removeAt(row);
                 if (it.value().isEmpty())
-                    m_committedAttachments.erase(it);
+                    m_parkedAttachments.erase(it);
             } else {
                 entry.state = QStringLiteral("failed");
                 entry.error = tr("Upload failed. Retry or remove.");
@@ -919,10 +915,22 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
     }
 }
 
-void ThreadController::clearAttachments()
+void ThreadController::parkAttachments()
 {
-    if (m_attachments && !m_attachments->isEmpty())
-        m_attachments->clearAll();
+    const QList<AttachmentQueueModel::Entry> entries = m_attachments->takeAll();
+    const QString key = timelineId();
+    if (key.isEmpty())
+        m_attachments->discardEntries(entries);
+    else if (!entries.isEmpty())
+        m_parkedAttachments[key].append(entries);
+}
+
+void ThreadController::discardAllAttachments()
+{
+    m_attachments->clearAll();
+    for (const auto &entries : std::as_const(m_parkedAttachments))
+        m_attachments->discardEntries(entries);
+    m_parkedAttachments.clear();
 }
 
 void ThreadController::beginReply(const QString &eventId)
