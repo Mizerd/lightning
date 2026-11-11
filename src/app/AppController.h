@@ -846,6 +846,14 @@ public:
     }
     Q_INVOKABLE int historyTrimRowThreshold() const { return 400; }
 
+    static constexpr qint64 kIdleLiveTrimQuietMs = 2 * 60 * 1000;
+    static bool idleLiveTrimDue(bool followingLatest, qint64 msSinceInput)
+    {
+        return followingLatest && msSinceInput >= kIdleLiveTrimQuietMs;
+    }
+    void setInputIdleProbe(std::function<qint64()> probe)
+    { m_inputIdleMs = std::move(probe); }
+
     Q_INVOKABLE void copyImageToClipboard(const QString &mediaKey);
     Q_INVOKABLE void starChatGif(const QString &mediaKey);
     Q_INVOKABLE bool isChatGifStarred(const QString &mediaKey) const;
@@ -921,6 +929,7 @@ public:
     bool roomKeyImportRunning() const { return m_roomKeyImportRunning; }
 
 Q_SIGNALS:
+    void idleLiveHistoryTrimmed();
     void trayShowRequested();
     void storedMediaCleared(bool ok, qint64 files, qint64 bytes);
     void mediaKeepStateChanged();
@@ -1276,6 +1285,11 @@ private:
     int m_activitySeedAttempts = 0;
     QHash<quint64, QString> m_pendingDateJumps;
     QTimer m_searchIndexTimer;
+    // Each row of the open room stays a live delegate (~0.5 MB) until the room
+    // closes, so a room left open at the live edge grows with every message.
+    QTimer m_idleLiveTrimTimer;
+    std::function<qint64()> m_inputIdleMs;
+    void onIdleLiveTrimTimeout();
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // Generation captured when a crypto-health query is dispatched, so an
     // answer arriving after a logout or switch is rejected.

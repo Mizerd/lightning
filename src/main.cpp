@@ -2470,6 +2470,9 @@ int main(int argc, char *argv[])
     app.installEventFilter(&idleTrim);
     QObject::connect(&controller, &AppController::currentRoomIdChanged,
                      &idleTrim, [&idleTrim] { idleTrim.noteActivity(); });
+    controller.setInputIdleProbe([&idleTrim] { return idleTrim.msSinceInput(); });
+    QObject::connect(&controller, &AppController::idleLiveHistoryTrimmed,
+                     &idleTrim, [&idleTrim] { idleTrim.requestTrim(); });
 
     QObject::connect(
         &instanceGuard, &lightning::SingleInstanceGuard::activationRequested,

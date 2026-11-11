@@ -79,6 +79,17 @@ public:
 #endif
     }
 
+    qint64 msSinceInput() const { return m_sinceInput.elapsed(); }
+
+    // Arms a check without counting as input, for memory released by the app itself.
+    void requestTrim()
+    {
+#if defined(LIGHTNING_IDLE_TRIM)
+        if (!m_timer.isActive())
+            m_timer.start(5000);
+#endif
+    }
+
     static qint64 freeArenaBytes()
     {
 #if defined(LIGHTNING_IDLE_TRIM)

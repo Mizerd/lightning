@@ -280,6 +280,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_timeline.get(), &TimelineModel::retranslate);
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
     m_timelineView->setSourceModel(m_timeline.get());
+    m_idleLiveTrimTimer.setSingleShot(true);
+    connect(&m_idleLiveTrimTimer, &QTimer::timeout, this,
+            &AppController::onIdleLiveTrimTimeout);
+    connect(m_timeline.get(), &QAbstractItemModel::rowsInserted, this, [this] {
+        if (!m_idleLiveTrimTimer.isActive()
+            && m_timeline->rowCount() > historyTrimRowThreshold())
+            m_idleLiveTrimTimer.start(int(kIdleLiveTrimQuietMs));
+    });
     m_composer     = std::make_unique<MessageComposer>(this);
     m_policy       = std::make_unique<PolicyListController>(this);
     m_about        = std::make_unique<AboutController>(this);
@@ -5508,6 +5516,23 @@ bool AppController::trimHistoryAndJumpToLive()
 #else
     return false;
 #endif
+}
+
+void AppController::onIdleLiveTrimTimeout()
+{
+    if (!m_inputIdleMs || !m_readReceipts || !m_readReceipts->nearBottom())
+        return;
+    const qint64 idle = m_inputIdleMs();
+    if (!idleLiveTrimDue(true, idle)) {
+        m_idleLiveTrimTimer.start(int(kIdleLiveTrimQuietMs - idle));
+        return;
+    }
+    if (trimHistoryAndJumpToLive()) {
+        qCInfo(lcApp) << "idle live-edge trim idleMs=" << idle;
+        if (m_pagination)
+            m_pagination->saveFollowingLatest(m_currentRoomId);
+        Q_EMIT idleLiveHistoryTrimmed();
+    }
 }
 
 void AppController::retryDecryptionInCurrentRoom()

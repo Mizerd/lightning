@@ -2373,6 +2373,14 @@ false, rows, threshold));
                                                   12, threshold));
     }
 
+    void idleLiveTrimWaitsForAQuietReaderAtTheLiveEdge()
+    {
+        const qint64 quiet = AppController::kIdleLiveTrimQuietMs;
+        QVERIFY(AppController::idleLiveTrimDue(true, quiet));
+        QVERIFY(!AppController::idleLiveTrimDue(true, quiet - 1));
+        QVERIFY(!AppController::idleLiveTrimDue(false, quiet * 10));
+    }
+
     void jumpToLiveTrimIsRefusedByABackendWithNoEventCacheAndIsThenANoOp()
     {
         AppController controller(AppController::MockBackend);
