@@ -1014,13 +1014,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6179"/>
+        <location filename="../src/app/AppController.cpp" line="+6180"/>
         <location line="+1013"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6619"/>
+        <location filename="../src/app/AppController.cpp" line="-6620"/>
         <location line="+2688"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1093,13 +1093,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4098"/>
+        <location line="+4099"/>
         <location line="+802"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-4941"/>
+        <location line="-4942"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1167,12 +1167,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3874"/>
+        <location line="+3875"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-3872"/>
+        <location line="-3873"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1250,12 +1250,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <location line="+8"/>
         <location line="+1695"/>
         <location line="+41"/>
-        <location line="+188"/>
+        <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Diese Version enthält kein Rust-SDK-Backend.</translation>
     </message>
     <message>
-        <location line="-1635"/>
+        <location line="-1636"/>
         <source>Choose a local image file.</source>
         <translation>Wähle eine lokale Bilddatei aus.</translation>
     </message>
@@ -1393,7 +1393,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Lightning konnte die lokale Sitzung dieses Kontos nicht vollständig zurücksetzen. Prüfe die Anwendungsprotokolle und die Dateisystemberechtigungen und versuche es dann erneut.</translation>
     </message>
     <message>
-        <location line="+163"/>
+        <location line="+164"/>
         <source>The keyring still does not return this account&apos;s saved sign-in.</source>
         <translation>Der Schlüsselbund liefert die gespeicherte Anmeldung dieses Kontos weiterhin nicht.</translation>
     </message>
@@ -4633,24 +4633,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+179"/>
+        <location filename="../qml/ContextView.qml" line="+201"/>
         <source>Viewing an older message</source>
         <translation>Du siehst eine ältere Nachricht</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+215"/>
+        <location line="+227"/>
         <source>Jump to latest</source>
         <translation>Zur neuesten springen</translation>
     </message>
     <message>
-        <location line="-208"/>
+        <location line="-220"/>
         <location line="+1"/>
         <source>Dismiss</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+176"/>
+        <location line="+188"/>
         <location line="+28"/>
         <source>Could not load. Try again</source>
         <translation>Konnte nicht geladen werden. Erneut versuchen</translation>
@@ -7672,7 +7672,7 @@ Größe: %3</translation>
         <translation>Rechtsklick zum Hinzufügen zu oder Entfernen aus den Favoriten</translation>
     </message>
     <message>
-        <location line="+274"/>
+        <location line="+249"/>
         <source>No recently used emoji</source>
         <translation>Keine zuletzt verwendeten Emojis</translation>
     </message>
@@ -7969,7 +7969,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2627"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2645"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -10156,7 +10156,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>InvitePreviewCard</name>
     <message>
-        <location filename="../qml/InvitePreviewCard.qml" line="+102"/>
+        <location filename="../qml/InvitePreviewCard.qml" line="+107"/>
         <source>%1 invited you to join this Space</source>
         <translation>%1 hat dich eingeladen, diesem Space beizutreten</translation>
     </message>
@@ -10176,7 +10176,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Du wurdest zum Beitritt eingeladen</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+17"/>
+        <source>View %1&apos;s profile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+34"/>
         <source>You can read and send messages here after you accept.</source>
         <translation>Du kannst hier Nachrichten lesen und senden, nachdem du angenommen hast.</translation>
     </message>
@@ -11991,7 +11996,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+296"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+304"/>
         <source>Invited</source>
         <translation>Eingeladen</translation>
     </message>
@@ -12404,7 +12409,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Sprachaufnahme ist nicht verfügbar.</translation>
     </message>
     <message>
-        <location line="+681"/>
+        <location line="+680"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Link hinzufügen</translation>
@@ -12911,14 +12916,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-569"/>
         <location line="+57"/>
         <location line="+509"/>
-        <location line="+4069"/>
+        <location line="+4055"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-5784"/>
+        <location line="-5770"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -12931,24 +12936,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-562"/>
         <location line="+560"/>
-        <location line="+3522"/>
+        <location line="+3508"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5005"/>
+        <location line="-4991"/>
         <location line="+53"/>
         <location line="+506"/>
-        <location line="+4071"/>
+        <location line="+4057"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-4629"/>
+        <location line="-4615"/>
         <location line="+562"/>
-        <location line="+4172"/>
+        <location line="+4158"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -12956,7 +12961,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-6025"/>
+        <location line="-6011"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -13062,12 +13067,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+91"/>
         <location line="+824"/>
-        <location line="+1120"/>
+        <location line="+1104"/>
         <source>Reply</source>
         <translation>Antworten</translation>
     </message>
     <message>
-        <location line="-1931"/>
+        <location line="-1915"/>
         <source>Original message removed</source>
         <translation>Ursprüngliche Nachricht entfernt</translation>
     </message>
@@ -13182,30 +13187,30 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2260"/>
+        <location line="+2246"/>
         <location line="+1027"/>
         <source>Retry</source>
         <translation>Wiederholen</translation>
     </message>
     <message>
-        <location line="-3270"/>
-        <location line="+1194"/>
+        <location line="-3256"/>
+        <location line="+1178"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location line="-1189"/>
+        <location line="-1173"/>
         <source>Cancel sending this message</source>
         <translation>Senden dieser Nachricht abbrechen</translation>
     </message>
     <message>
         <location line="+159"/>
-        <location line="+1355"/>
+        <location line="+1339"/>
         <source>Hide image</source>
         <translation>Bild ausblenden</translation>
     </message>
     <message>
-        <location line="-1351"/>
+        <location line="-1335"/>
         <source>Hide</source>
         <translation>Ausblenden</translation>
     </message>
@@ -13227,23 +13232,23 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+25"/>
         <location line="+4"/>
-        <location line="+1105"/>
+        <location line="+1089"/>
         <source>Reply in thread</source>
         <translation>Im Thread antworten</translation>
     </message>
     <message>
-        <location line="-1088"/>
+        <location line="-1072"/>
         <source>Edit message</source>
         <translation>Nachricht bearbeiten</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1338"/>
+        <location line="+1322"/>
         <source>Edit</source>
         <translation>Bearbeiten</translation>
     </message>
     <message>
-        <location line="-1317"/>
+        <location line="-1301"/>
         <source>More message actions</source>
         <translation>Weitere Nachrichtenaktionen</translation>
     </message>
@@ -13283,7 +13288,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Benutzerdefiniertes Emoji</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+62"/>
         <source>Reaction %1, %2, selected</source>
         <translation>Reaktion %1, %2, ausgewählt</translation>
     </message>
@@ -13413,12 +13418,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+653"/>
+        <location line="+655"/>
         <source>Show link preview</source>
         <translation>Linkvorschau anzeigen</translation>
     </message>
     <message>
-        <location line="-644"/>
+        <location line="-646"/>
         <source>Copy image</source>
         <translation>Bild kopieren</translation>
     </message>
@@ -13490,7 +13495,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nachrichten zum Löschen auswählen</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+17"/>
         <source>Forward</source>
         <translation>Weiterleiten</translation>
     </message>
@@ -13500,18 +13505,18 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nachricht melden</translation>
     </message>
     <message>
-        <location line="-638"/>
-        <location line="+652"/>
+        <location line="-640"/>
+        <location line="+654"/>
         <source>Delete</source>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2478"/>
+        <location line="-2464"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
     <message>
-        <location line="+1823"/>
+        <location line="+1807"/>
         <source>Delete message?</source>
         <translation>Nachricht löschen?</translation>
     </message>
@@ -13536,7 +13541,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Entfernen</translation>
     </message>
     <message>
-        <location line="+685"/>
+        <location line="+687"/>
         <source>Message details</source>
         <translation>Nachrichtendetails</translation>
     </message>
@@ -17591,7 +17596,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>%1, stummgeschaltet</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+63"/>
         <source>Yesterday</source>
         <translation>Gestern</translation>
     </message>
@@ -17626,7 +17631,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Raumeinladung</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+18"/>
+        <source>View %1&apos;s profile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+30"/>
         <source>Accept</source>
         <translation>Annehmen</translation>
     </message>
@@ -17671,7 +17681,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die Beitrittsanfrage zurückziehen</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+58"/>
         <source>Accept invitation</source>
         <translation type="unfinished">Einladung annehmen</translation>
     </message>
@@ -17682,6 +17692,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+9"/>
+        <source>View inviter&apos;s profile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Ignore user</source>
         <translation>Benutzer ignorieren</translation>
     </message>
@@ -17824,7 +17839,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <name>RoomInfoController</name>
     <message>
         <location filename="../src/app/OpenRoomPermissions.cpp" line="+66"/>
-        <location filename="../src/app/RoomInfoController.cpp" line="+198"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="+229"/>
         <source>You are not in this room.</source>
         <translation>Du bist nicht in diesem Raum.</translation>
     </message>
@@ -17835,12 +17850,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Du hast keine Berechtigung, in diesem Raum zu schreiben.</translation>
     </message>
     <message>
-        <location filename="../src/app/RoomInfoController.cpp" line="-148"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="-161"/>
         <source>The server did not accept the change.</source>
         <translation>Der Server hat die Änderung nicht akzeptiert.</translation>
     </message>
     <message>
-        <location line="+378"/>
+        <location line="+391"/>
         <source>You do not have permission to change that.</source>
         <translation>Du hast keine Berechtigung, das zu ändern.</translation>
     </message>
@@ -17953,6 +17968,32 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+196"/>
         <source>You do not have permission to invite them.</source>
         <translation>Du hast keine Berechtigung, diese Person einzuladen.</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>No rooms in common</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n room(s) in common</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No known rooms in common</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>At least %n room(s) in common</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -18917,7 +18958,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Unterhaltungen</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+117"/>
         <source>In a call</source>
         <translation>In einem Anruf</translation>
     </message>
@@ -18927,8 +18968,8 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Einladungen</translation>
     </message>
     <message>
-        <location line="-119"/>
-        <location line="+121"/>
+        <location line="-120"/>
+        <location line="+122"/>
         <source>Favourites</source>
         <translation>Favoriten</translation>
     </message>
@@ -18938,7 +18979,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Niedrige Priorität</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+115"/>
         <source>Sign in to see rooms</source>
         <translation>Melde dich an, um Räume zu sehen</translation>
     </message>
@@ -19304,13 +19345,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+749"/>
+        <location line="+756"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>Räume suchen</translation>
     </message>
     <message>
-        <location line="-692"/>
+        <location line="-699"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>Optionen der Raumliste</translation>
@@ -19399,7 +19440,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Favoriten</translation>
     </message>
     <message>
-        <location line="+153"/>
+        <location line="+158"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
         <translation>„%1“ konnte nicht verlassen werden</translation>
     </message>
@@ -19539,7 +19580,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Räume verlassen</translation>
     </message>
     <message>
-        <location line="+202"/>
+        <location line="+204"/>
         <source>Expand %1 room list</source>
         <translation>Raumliste von %1 aufklappen</translation>
     </message>
@@ -31759,7 +31800,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Diesen Thread als gelesen markieren</translation>
     </message>
     <message>
-        <location line="+1125"/>
+        <location line="+1126"/>
         <source>Jump to the newest reply</source>
         <translation>Zur neuesten Antwort springen</translation>
     </message>
@@ -31772,7 +31813,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         </translation>
     </message>
     <message>
-        <location line="-1483"/>
+        <location line="-1484"/>
         <source>This room has been replaced.</source>
         <translation>Dieser Raum wurde ersetzt.</translation>
     </message>
@@ -31985,7 +32026,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Noch keine Antworten. Beginne unten die Unterhaltung.</translation>
     </message>
     <message>
-        <location line="+495"/>
+        <location line="+496"/>
         <source>Loading older replies…</source>
         <translation>Ältere Antworten werden geladen …</translation>
     </message>
@@ -32319,7 +32360,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1519"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1527"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 hat den Anzeigenamen von „%2“ in „%3“ geändert und den Avatar geändert.</translation>
     </message>
@@ -32369,7 +32410,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 hat einen Anruf gestartet.</translation>
     </message>
     <message>
-        <location line="+1271"/>
+        <location line="+1279"/>
         <source>%1 is typing…</source>
         <translation>%1 schreibt …</translation>
     </message>
@@ -32401,7 +32442,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+6776"/>
+        <location filename="../qml/TimelinePane.qml" line="+6807"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -32445,8 +32486,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5636"/>
-        <location line="+5156"/>
+        <location filename="../qml/TimelinePane.qml" line="-5665"/>
+        <location line="+5185"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32470,8 +32511,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="+141"/>
-        <location filename="../qml/TimelinePane.qml" line="-5979"/>
-        <location line="+6616"/>
+        <location filename="../qml/TimelinePane.qml" line="-6008"/>
+        <location line="+6645"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -32525,7 +32566,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6220"/>
+        <location filename="../qml/TimelinePane.qml" line="-6249"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -32642,12 +32683,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3703"/>
+        <location line="+3710"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-3692"/>
+        <location line="-3699"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -32893,7 +32934,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Suche konnte nicht abgeschlossen werden.</translation>
     </message>
     <message>
-        <location line="+2596"/>
+        <location line="+2603"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -32976,14 +33017,14 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+75"/>
-        <location line="+176"/>
-        <location line="+1228"/>
+        <location line="+197"/>
+        <location line="+1229"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message numerus="yes">
-        <location line="-1319"/>
+        <location line="-1320"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>%n Nachricht ausgewählt</numerusform>
@@ -33001,7 +33042,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Weiterleiten …</translation>
     </message>
     <message>
-        <location line="+435"/>
+        <location line="+436"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>Raum hinzugefügt – wartet auf die Bestätigung des Servers.</translation>
     </message>
@@ -33291,7 +33332,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5215"/>
+        <location line="-5244"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>
@@ -34855,7 +34896,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2366"/>
+        <location filename="../src/main.cpp" line="+2412"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Nativer Qt/QML-Matrix-Client. Backend: --backend={mock,http,rust}. Standard: rust (http in Versionen ohne das Rust-SDK).</translation>
     </message>
