@@ -2114,6 +2114,14 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
 </context>
 <context>
+    <name>AvatarViewAction</name>
+    <message>
+        <location filename="../qml/AvatarViewAction.qml" line="+27"/>
+        <source>View picture</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>BackgroundSyncPrompt</name>
     <message>
         <location filename="../qml/BackgroundSyncPrompt.qml" line="+64"/>
@@ -9731,7 +9739,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+316"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+346"/>
         <source>Copy image</source>
         <translation>Bild kopieren</translation>
     </message>
@@ -12031,7 +12039,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Profil von %1</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+221"/>
         <location line="+298"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
@@ -18158,7 +18166,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Lokale Einstellung: Sie ändert die Server-Push-Regeln dieses Raums nicht.</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+43"/>
         <source>(unnamed room)</source>
         <translation>(unbenannter Raum)</translation>
     </message>
@@ -28229,12 +28237,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="-40"/>
         <location line="+43"/>
-        <location line="+1047"/>
+        <location line="+1049"/>
         <source>Invite</source>
         <translation>Einladen</translation>
     </message>
     <message>
-        <location line="-1089"/>
+        <location line="-1091"/>
         <location line="+43"/>
         <source>Kick</source>
         <translation>Rauswerfen</translation>
@@ -28263,18 +28271,18 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+1"/>
-        <location line="+340"/>
+        <location line="+342"/>
         <source>Space name</source>
         <translation>Space-Name</translation>
     </message>
     <message>
-        <location line="-339"/>
-        <location line="+366"/>
+        <location line="-341"/>
+        <location line="+368"/>
         <source>Space topic</source>
         <translation>Space-Thema</translation>
     </message>
     <message>
-        <location line="-410"/>
+        <location line="-412"/>
         <location line="+48"/>
         <source>Settings</source>
         <translation>Einstellungen</translation>
@@ -28384,7 +28392,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Raum aktualisieren</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+76"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -28434,7 +28442,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Profil</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Change avatar…</source>
         <translation>Avatar ändern …</translation>
     </message>
@@ -32452,7 +32460,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+6807"/>
+        <location filename="../qml/TimelinePane.qml" line="+6808"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -32496,8 +32504,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5665"/>
-        <location line="+5185"/>
+        <location filename="../qml/TimelinePane.qml" line="-5666"/>
+        <location line="+5186"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32521,8 +32529,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="+141"/>
-        <location filename="../qml/TimelinePane.qml" line="-6008"/>
-        <location line="+6645"/>
+        <location filename="../qml/TimelinePane.qml" line="-6009"/>
+        <location line="+6646"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -32576,7 +32584,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6249"/>
+        <location filename="../qml/TimelinePane.qml" line="-6250"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -33028,13 +33036,13 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+75"/>
         <location line="+197"/>
-        <location line="+1229"/>
+        <location line="+1230"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message numerus="yes">
-        <location line="-1320"/>
+        <location line="-1321"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>%n Nachricht ausgewählt</numerusform>
@@ -33122,7 +33130,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Das Banner konnte nicht gespeichert werden (%1).</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+60"/>
         <source>%1 • %2 unread</source>
         <translation>%1 • %2 ungelesen</translation>
     </message>
@@ -33342,7 +33350,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5244"/>
+        <location line="-5245"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>

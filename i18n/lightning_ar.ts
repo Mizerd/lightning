@@ -2156,6 +2156,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
 </context>
 <context>
+    <name>AvatarViewAction</name>
+    <message>
+        <location filename="../qml/AvatarViewAction.qml" line="+27"/>
+        <source>View picture</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>BackgroundSyncPrompt</name>
     <message>
         <location filename="../qml/BackgroundSyncPrompt.qml" line="+64"/>
@@ -9854,7 +9862,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+316"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+346"/>
         <source>Copy image</source>
         <translation>نسخ الصورة</translation>
     </message>
@@ -12165,14 +12173,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>ملف %1 الشخصي</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+221"/>
         <location line="+298"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>الحضور غير متاح</translation>
     </message>
     <message>
-        <location line="-664"/>
+        <location line="-665"/>
         <source>Invited</source>
         <translation>مدعو</translation>
     </message>
@@ -12192,7 +12200,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تم نسخ رابط الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+542"/>
+        <location line="+543"/>
         <source>Bio</source>
         <translation>السيرة الذاتية</translation>
     </message>
@@ -12423,7 +12431,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-1197"/>
+        <location line="-1198"/>
         <source>Matrix ID copied</source>
         <translation>نُسخ معرّف Matrix</translation>
     </message>
@@ -18337,7 +18345,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>إعداد محلي: لا يغيّر قواعد الدفع في الخادوم لهذه الغرفة.</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+43"/>
         <source>(unnamed room)</source>
         <translation>(غرفة بلا اسم)</translation>
     </message>
@@ -18352,12 +18360,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>غير معمّاة</translation>
     </message>
     <message>
-        <location line="-544"/>
+        <location line="-545"/>
         <source>Widgets</source>
         <translation>الودجات</translation>
     </message>
     <message>
-        <location line="+2119"/>
+        <location line="+2120"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
@@ -18367,7 +18375,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تصدير الغرفة…</translation>
     </message>
     <message>
-        <location line="-547"/>
+        <location line="-548"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>يمكن لأي شخص قراءة سجل هذه الغرفة دون الانضمام إليها، رغم أن الانضمام إليها ليس متاحًا للجميع.</translation>
     </message>
@@ -18418,7 +18426,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ليس لهذه الغرفة تجاوز — تسري إعدادات إشعارات حسابك.</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+118"/>
         <source>Show less</source>
         <translation>عرض أقل</translation>
     </message>
@@ -28588,12 +28596,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-40"/>
         <location line="+43"/>
-        <location line="+1047"/>
+        <location line="+1049"/>
         <source>Invite</source>
         <translation>دعوة</translation>
     </message>
     <message>
-        <location line="-1089"/>
+        <location line="-1091"/>
         <location line="+43"/>
         <source>Kick</source>
         <translation>ركلة</translation>
@@ -28622,18 +28630,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+340"/>
+        <location line="+342"/>
         <source>Space name</source>
         <translation>اسم الفضاء</translation>
     </message>
     <message>
-        <location line="-339"/>
-        <location line="+366"/>
+        <location line="-341"/>
+        <location line="+368"/>
         <source>Space topic</source>
         <translation>موضوع الفضاء</translation>
     </message>
     <message>
-        <location line="-410"/>
+        <location line="-412"/>
         <location line="+48"/>
         <source>Settings</source>
         <translation>الإعدادات</translation>
@@ -28673,7 +28681,7 @@ Note: importing keys does not verify this session.</source>
         <translation>إعدادات أخرى</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
@@ -28703,7 +28711,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الصور (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
-        <location line="-421"/>
+        <location line="-422"/>
         <source>Default order saved. Your personal room order still takes precedence.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -28773,7 +28781,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ترقية الغرفة</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+76"/>
         <source>Room</source>
         <translation>الغرفة</translation>
     </message>
@@ -28793,7 +28801,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Change avatar…</source>
         <translation>تغيير الصورة الرمزية…</translation>
     </message>
@@ -33025,12 +33033,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5185"/>
+        <location line="+5186"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5184"/>
+        <location filename="../qml/TimelinePane.qml" line="-5185"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -33543,7 +33551,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر حفظ البانر (%1).</translation>
     </message>
     <message>
-        <location line="+570"/>
+        <location line="+571"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33767,8 +33775,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6468"/>
-        <location line="+6645"/>
+        <location filename="../qml/TimelinePane.qml" line="-6469"/>
+        <location line="+6646"/>
         <source>Room</source>
         <translation>غرفة</translation>
     </message>
@@ -33851,15 +33859,15 @@ Note: importing keys does not verify this session.</source>
         <translation>تبقى الغرف موجودة وتبقى أنت فيها — إنما تغادر قائمة هذا الفضاء فحسب.</translation>
     </message>
     <message>
-        <location line="-1412"/>
+        <location line="-1413"/>
         <location line="+197"/>
-        <location line="+1229"/>
+        <location line="+1230"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-5772"/>
+        <location line="-5773"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>عرض الملف الشخصي</translation>
@@ -33870,7 +33878,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الصور (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
-        <location line="+280"/>
+        <location line="+281"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
         <translation>الصور (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
@@ -33941,7 +33949,7 @@ Note: importing keys does not verify this session.</source>
         <translation>أفلت الملفات لإرفاقها</translation>
     </message>
     <message>
-        <location line="-5244"/>
+        <location line="-5245"/>
         <source>Join space</source>
         <translation>انضم إلى المساحة</translation>
     </message>

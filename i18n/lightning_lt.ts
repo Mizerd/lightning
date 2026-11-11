@@ -2125,6 +2125,14 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
 </context>
 <context>
+    <name>AvatarViewAction</name>
+    <message>
+        <location filename="../qml/AvatarViewAction.qml" line="+27"/>
+        <source>View picture</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>BackgroundSyncPrompt</name>
     <message>
         <location filename="../qml/BackgroundSyncPrompt.qml" line="+64"/>
@@ -9764,7 +9772,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+316"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+346"/>
         <source>Copy image</source>
         <translation>Kopijuoti vaizdą</translation>
     </message>
@@ -12073,7 +12081,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>%1 profilis</translation>
     </message>
     <message>
-        <location line="+357"/>
+        <location line="+358"/>
         <source>Message</source>
         <translation>Žinutė</translation>
     </message>
@@ -18163,7 +18171,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Vietinis nustatymas: jis nekeičia šio kambario serverio siunčiamųjų pranešimų taisyklių.</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+43"/>
         <source>(unnamed room)</source>
         <translation>(nepavadintas kambarys)</translation>
     </message>
@@ -18178,12 +18186,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nešifruota</translation>
     </message>
     <message>
-        <location line="-544"/>
+        <location line="-545"/>
         <source>Widgets</source>
         <translation>Valdikliai</translation>
     </message>
     <message>
-        <location line="+2119"/>
+        <location line="+2120"/>
         <source>Open</source>
         <translation>Atidaryti</translation>
     </message>
@@ -18193,7 +18201,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Eksportuoti kambarį…</translation>
     </message>
     <message>
-        <location line="-547"/>
+        <location line="-548"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>Šio kambario istoriją gali skaityti visi, net ir neprisijungę, nors prisijungti prie jo gali ne kiekvienas.</translation>
     </message>
@@ -18244,7 +18252,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Šis kambarys neturi išimties – taikomi jūsų paskyros pranešimų nustatymai.</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+118"/>
         <source>Show less</source>
         <translation>Rodyti mažiau</translation>
     </message>
@@ -28321,12 +28329,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-40"/>
         <location line="+43"/>
-        <location line="+1047"/>
+        <location line="+1049"/>
         <source>Invite</source>
         <translation>Pakviesti</translation>
     </message>
     <message>
-        <location line="-1089"/>
+        <location line="-1091"/>
         <location line="+43"/>
         <source>Kick</source>
         <translation>Pašalinti</translation>
@@ -28355,18 +28363,18 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+340"/>
+        <location line="+342"/>
         <source>Space name</source>
         <translation>Erdvės pavadinimas</translation>
     </message>
     <message>
-        <location line="-339"/>
-        <location line="+366"/>
+        <location line="-341"/>
+        <location line="+368"/>
         <source>Space topic</source>
         <translation>Erdvės tema</translation>
     </message>
     <message>
-        <location line="-410"/>
+        <location line="-412"/>
         <location line="+48"/>
         <source>Settings</source>
         <translation>Nustatymai</translation>
@@ -28406,7 +28414,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kiti nustatymai</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
@@ -28436,7 +28444,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paveikslėliai (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
-        <location line="-421"/>
+        <location line="-422"/>
         <source>Default order saved. Your personal room order still takes precedence.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -28506,7 +28514,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atnaujinti kambarį</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+76"/>
         <source>Room</source>
         <translation>Kambarys</translation>
     </message>
@@ -28526,7 +28534,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Profilis</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Change avatar…</source>
         <translation>Keisti avatarą…</translation>
     </message>
@@ -32602,12 +32610,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5185"/>
+        <location line="+5186"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5184"/>
+        <location filename="../qml/TimelinePane.qml" line="-5185"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -33117,7 +33125,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Reklamjuostės išsaugoti nepavyko (%1).</translation>
     </message>
     <message>
-        <location line="+570"/>
+        <location line="+571"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33332,8 +33340,8 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6468"/>
-        <location line="+6645"/>
+        <location filename="../qml/TimelinePane.qml" line="-6469"/>
+        <location line="+6646"/>
         <source>Room</source>
         <translation>Kambarys</translation>
     </message>
@@ -33404,15 +33412,15 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kambariai išlieka, o jūs juose liekate – jie tiesiog palieka šios erdvės sąrašą.</translation>
     </message>
     <message>
-        <location line="-1412"/>
+        <location line="-1413"/>
         <location line="+197"/>
-        <location line="+1229"/>
+        <location line="+1230"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-5772"/>
+        <location line="-5773"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Peržiūrėti profilį</translation>
@@ -33423,7 +33431,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paveikslėliai (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
-        <location line="+280"/>
+        <location line="+281"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
         <translation>Paveikslėliai (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
@@ -33494,7 +33502,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Numeskite failus, kuriuos norite pridėti</translation>
     </message>
     <message>
-        <location line="-5244"/>
+        <location line="-5245"/>
         <source>Join space</source>
         <translation>Prisijungti prie erdvės</translation>
     </message>

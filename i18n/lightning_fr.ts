@@ -2114,6 +2114,14 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
 </context>
 <context>
+    <name>AvatarViewAction</name>
+    <message>
+        <location filename="../qml/AvatarViewAction.qml" line="+27"/>
+        <source>View picture</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>BackgroundSyncPrompt</name>
     <message>
         <location filename="../qml/BackgroundSyncPrompt.qml" line="+64"/>
@@ -9731,7 +9739,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+316"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+346"/>
         <source>Copy image</source>
         <translation>Copier l&apos;image</translation>
     </message>
@@ -12006,14 +12014,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Profil de %1</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+221"/>
         <location line="+298"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Présence indisponible</translation>
     </message>
     <message>
-        <location line="-664"/>
+        <location line="-665"/>
         <source>Invited</source>
         <translation>Invité</translation>
     </message>
@@ -12033,7 +12041,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lien du profil copié</translation>
     </message>
     <message>
-        <location line="+542"/>
+        <location line="+543"/>
         <source>Bio</source>
         <translation>Biographie</translation>
     </message>
@@ -12264,7 +12272,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1197"/>
+        <location line="-1198"/>
         <source>Matrix ID copied</source>
         <translation>Identifiant Matrix copié</translation>
     </message>
@@ -18102,7 +18110,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Réglage local : cela ne modifie pas les règles push du serveur pour ce salon.</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+43"/>
         <source>(unnamed room)</source>
         <translation>(salon sans nom)</translation>
     </message>
@@ -18117,12 +18125,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Non chiffré</translation>
     </message>
     <message>
-        <location line="-544"/>
+        <location line="-545"/>
         <source>Widgets</source>
         <translation>Widgets</translation>
     </message>
     <message>
-        <location line="+2119"/>
+        <location line="+2120"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
@@ -18132,7 +18140,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Exporter le salon…</translation>
     </message>
     <message>
-        <location line="-547"/>
+        <location line="-548"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>Tout le monde peut lire l’historique de ce salon sans le rejoindre, même si tout le monde ne peut pas le rejoindre.</translation>
     </message>
@@ -18183,7 +18191,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Ce salon n&apos;a pas de réglage propre : les paramètres de notification de votre compte s&apos;appliquent.</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+118"/>
         <source>Show less</source>
         <translation>Afficher moins</translation>
     </message>
@@ -28229,12 +28237,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="-40"/>
         <location line="+43"/>
-        <location line="+1047"/>
+        <location line="+1049"/>
         <source>Invite</source>
         <translation>Inviter</translation>
     </message>
     <message>
-        <location line="-1089"/>
+        <location line="-1091"/>
         <location line="+43"/>
         <source>Kick</source>
         <translation>Coup de pied</translation>
@@ -28263,18 +28271,18 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+340"/>
+        <location line="+342"/>
         <source>Space name</source>
         <translation>Nom de l&apos;espace</translation>
     </message>
     <message>
-        <location line="-339"/>
-        <location line="+366"/>
+        <location line="-341"/>
+        <location line="+368"/>
         <source>Space topic</source>
         <translation>Sujet de l&apos;espace</translation>
     </message>
     <message>
-        <location line="-410"/>
+        <location line="-412"/>
         <location line="+48"/>
         <source>Settings</source>
         <translation>Paramètres</translation>
@@ -28314,7 +28322,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Autres paramètres</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
@@ -28344,7 +28352,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
-        <location line="-421"/>
+        <location line="-422"/>
         <source>Default order saved. Your personal room order still takes precedence.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -28414,7 +28422,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Mettre à niveau le salon</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+76"/>
         <source>Room</source>
         <translation>Salon</translation>
     </message>
@@ -28434,7 +28442,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Profil</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Change avatar…</source>
         <translation>Changer l&apos;avatar…</translation>
     </message>
@@ -32458,12 +32466,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5185"/>
+        <location line="+5186"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5184"/>
+        <location filename="../qml/TimelinePane.qml" line="-5185"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -32972,7 +32980,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La bannière n&apos;a pas pu être enregistrée (%1).</translation>
     </message>
     <message>
-        <location line="+570"/>
+        <location line="+571"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33184,8 +33192,8 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6468"/>
-        <location line="+6645"/>
+        <location filename="../qml/TimelinePane.qml" line="-6469"/>
+        <location line="+6646"/>
         <source>Room</source>
         <translation>Salon</translation>
     </message>
@@ -33252,15 +33260,15 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Les salons continuent d&apos;exister et vous y restez — ils quittent seulement la liste de cet espace.</translation>
     </message>
     <message>
-        <location line="-1412"/>
+        <location line="-1413"/>
         <location line="+197"/>
-        <location line="+1229"/>
+        <location line="+1230"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-5772"/>
+        <location line="-5773"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
@@ -33271,7 +33279,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
-        <location line="+280"/>
+        <location line="+281"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
         <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
@@ -33342,7 +33350,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
     <message>
-        <location line="-5244"/>
+        <location line="-5245"/>
         <source>Join space</source>
         <translation>Rejoindre l&apos;espace</translation>
     </message>

@@ -2114,6 +2114,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
 </context>
 <context>
+    <name>AvatarViewAction</name>
+    <message>
+        <location filename="../qml/AvatarViewAction.qml" line="+27"/>
+        <source>View picture</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>BackgroundSyncPrompt</name>
     <message>
         <location filename="../qml/BackgroundSyncPrompt.qml" line="+64"/>
@@ -9731,7 +9739,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+316"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+346"/>
         <source>Copy image</source>
         <translation>छवि कॉपी करें</translation>
     </message>
@@ -12006,14 +12014,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 की प्रोफ़ाइल</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+221"/>
         <location line="+298"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>उपस्थिति उपलब्ध नहीं</translation>
     </message>
     <message>
-        <location line="-664"/>
+        <location line="-665"/>
         <source>Invited</source>
         <translation>आमंत्रित</translation>
     </message>
@@ -12033,7 +12041,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>प्रोफ़ाइल लिंक कॉपी किया गया</translation>
     </message>
     <message>
-        <location line="+542"/>
+        <location line="+543"/>
         <source>Bio</source>
         <translation>बायो</translation>
     </message>
@@ -12264,7 +12272,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-1197"/>
+        <location line="-1198"/>
         <source>Matrix ID copied</source>
         <translation>Matrix ID कॉपी हो गई</translation>
     </message>
@@ -18102,7 +18110,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्थानीय सेटिंग: इससे इस रूम के सर्वर पुश नियम नहीं बदलते।</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+43"/>
         <source>(unnamed room)</source>
         <translation>(बिना नाम का रूम)</translation>
     </message>
@@ -18117,12 +18125,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>एन्क्रिप्टेड नहीं</translation>
     </message>
     <message>
-        <location line="-544"/>
+        <location line="-545"/>
         <source>Widgets</source>
         <translation>विजेट</translation>
     </message>
     <message>
-        <location line="+2119"/>
+        <location line="+2120"/>
         <source>Open</source>
         <translation>खोलें</translation>
     </message>
@@ -18132,7 +18140,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>रूम निर्यात करें…</translation>
     </message>
     <message>
-        <location line="-547"/>
+        <location line="-548"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>कोई भी इस रूम में शामिल हुए बिना इसका इतिहास पढ़ सकता है, हालाँकि हर कोई इसमें शामिल नहीं हो सकता।</translation>
     </message>
@@ -18183,7 +18191,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>इस रूम में कोई ओवरराइड नहीं है — आपके खाते की सूचना सेटिंग्स लागू होती हैं।</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+118"/>
         <source>Show less</source>
         <translation>कम दिखाएँ</translation>
     </message>
@@ -28229,12 +28237,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-40"/>
         <location line="+43"/>
-        <location line="+1047"/>
+        <location line="+1049"/>
         <source>Invite</source>
         <translation>आमंत्रित करें</translation>
     </message>
     <message>
-        <location line="-1089"/>
+        <location line="-1091"/>
         <location line="+43"/>
         <source>Kick</source>
         <translation>लात</translation>
@@ -28263,18 +28271,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+340"/>
+        <location line="+342"/>
         <source>Space name</source>
         <translation>स्पेस का नाम</translation>
     </message>
     <message>
-        <location line="-339"/>
-        <location line="+366"/>
+        <location line="-341"/>
+        <location line="+368"/>
         <source>Space topic</source>
         <translation>स्पेस का विषय</translation>
     </message>
     <message>
-        <location line="-410"/>
+        <location line="-412"/>
         <location line="+48"/>
         <source>Settings</source>
         <translation>सेटिंग्स</translation>
@@ -28314,7 +28322,7 @@ Note: importing keys does not verify this session.</source>
         <translation>अन्य सेटिंग्स</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
@@ -28344,7 +28352,7 @@ Note: importing keys does not verify this session.</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
-        <location line="-421"/>
+        <location line="-422"/>
         <source>Default order saved. Your personal room order still takes precedence.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -28414,7 +28422,7 @@ Note: importing keys does not verify this session.</source>
         <translation>रूम अपग्रेड करें</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+76"/>
         <source>Room</source>
         <translation>रूम</translation>
     </message>
@@ -28434,7 +28442,7 @@ Note: importing keys does not verify this session.</source>
         <translation>प्रोफाइल</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Change avatar…</source>
         <translation>अवतार बदलें…</translation>
     </message>
@@ -32458,12 +32466,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5185"/>
+        <location line="+5186"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5184"/>
+        <location filename="../qml/TimelinePane.qml" line="-5185"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -32972,7 +32980,7 @@ Note: importing keys does not verify this session.</source>
         <translation>बैनर सहेजा नहीं जा सका (%1)।</translation>
     </message>
     <message>
-        <location line="+570"/>
+        <location line="+571"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33184,8 +33192,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6468"/>
-        <location line="+6645"/>
+        <location filename="../qml/TimelinePane.qml" line="-6469"/>
+        <location line="+6646"/>
         <source>Room</source>
         <translation>कक्ष</translation>
     </message>
@@ -33252,15 +33260,15 @@ Note: importing keys does not verify this session.</source>
         <translation>कक्ष बने रहते हैं और आप उनमें बने रहते हैं — वे बस इस स्पेस की सूची से निकल जाते हैं।</translation>
     </message>
     <message>
-        <location line="-1412"/>
+        <location line="-1413"/>
         <location line="+197"/>
-        <location line="+1229"/>
+        <location line="+1230"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5772"/>
+        <location line="-5773"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
@@ -33271,7 +33279,7 @@ Note: importing keys does not verify this session.</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
-        <location line="+280"/>
+        <location line="+281"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
@@ -33342,7 +33350,7 @@ Note: importing keys does not verify this session.</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-5244"/>
+        <location line="-5245"/>
         <source>Join space</source>
         <translation>स्पेस में शामिल हों</translation>
     </message>
