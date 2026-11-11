@@ -4417,6 +4417,24 @@ Rectangle {
                 }
                 Binding {
                     target: app
+                    property: "timelineWindowActive"
+                    value: timeline.Window.active === true
+                }
+                Binding {
+                    target: app
+                    property: "idleTrimBlocked"
+                    value: timeline.transientInteractionOwner !== ""
+                           || app.playback.audibleOwner !== ""
+                           || app.eventContext.active
+                           || app.forward.selecting
+                           || timeline.pinnedActionsKey !== ""
+                           || Object.keys(timeline.expandedStateGroups).some(
+                                  function(k) {
+                                      return timeline.expandedStateGroups[k] === true
+                                  })
+                }
+                Binding {
+                    target: app
                     property: "activeRoomAtLatest"
                     value: timeline.visible && timeline.presentationReady
                            && timeline.Window.active === true

@@ -72,8 +72,8 @@ public:
 
     void noteActivity()
     {
-#if defined(LIGHTNING_IDLE_TRIM)
         m_sinceInput.restart();
+#if defined(LIGHTNING_IDLE_TRIM)
         if (!m_timer.isActive())
             m_timer.start(static_cast<int>(kIdleTrimQuietMs));
 #endif

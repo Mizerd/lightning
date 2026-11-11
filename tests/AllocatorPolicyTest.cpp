@@ -142,6 +142,20 @@ private slots:
         s.freeArenaBytes = 0;
         QCOMPARE(idleTrimWaitMs(s), qint64(-1));
     }
+
+    void inputRestartsTheIdleClockOnEveryPlatform()
+    {
+        struct Probe : lightning::IdleTrim
+        {
+            using lightning::IdleTrim::eventFilter;
+        } trim;
+        QObject target;
+        QTest::qSleep(60);
+        QVERIFY(trim.msSinceInput() >= 50);
+        QEvent key(QEvent::KeyPress);
+        trim.eventFilter(&target, &key);
+        QVERIFY2(trim.msSinceInput() < 50, "a key press did not count as input");
+    }
 };
 
 QTEST_APPLESS_MAIN(AllocatorPolicyTest)

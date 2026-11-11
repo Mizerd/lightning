@@ -332,6 +332,8 @@ class AppController : public QObject
     Q_PROPERTY(QObject* mediaHistory READ mediaHistory CONSTANT)
     Q_PROPERTY(CryptoBootstrapModel* cryptoBootstrap READ cryptoBootstrap CONSTANT)
     Q_PROPERTY(QVariantList sessionDevices READ sessionDevices NOTIFY sessionDevicesChanged)
+    Q_PROPERTY(bool idleTrimBlocked MEMBER m_idleTrimBlocked)
+    Q_PROPERTY(bool timelineWindowActive MEMBER m_timelineWindowActive)
     Q_PROPERTY(bool activeRoomAtLatest READ activeRoomAtLatest
                    WRITE setActiveRoomAtLatest NOTIFY activeRoomAtLatestChanged)
     Q_PROPERTY(bool activeRoomHydrating READ activeRoomHydrating
@@ -847,9 +849,12 @@ public:
     Q_INVOKABLE int historyTrimRowThreshold() const { return 400; }
 
     static constexpr qint64 kIdleLiveTrimQuietMs = 2 * 60 * 1000;
-    static bool idleLiveTrimDue(bool followingLatest, qint64 msSinceInput)
+    static bool idleLiveTrimDue(bool followingLatest, qint64 msSinceInput,
+                                bool windowActive, bool blocked,
+                                bool accountSwitching)
     {
-        return followingLatest && msSinceInput >= kIdleLiveTrimQuietMs;
+        return followingLatest && msSinceInput >= kIdleLiveTrimQuietMs
+            && !windowActive && !blocked && !accountSwitching;
     }
     void setInputIdleProbe(std::function<qint64()> probe)
     { m_inputIdleMs = std::move(probe); }
@@ -1289,6 +1294,9 @@ private:
     // closes, so a room left open at the live edge grows with every message.
     QTimer m_idleLiveTrimTimer;
     std::function<qint64()> m_inputIdleMs;
+    // Published by TimelinePane: state a timeline reset would destroy.
+    bool m_idleTrimBlocked = false;
+    bool m_timelineWindowActive = true;
     void onIdleLiveTrimTimeout();
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // Generation captured when a crypto-health query is dispatched, so an

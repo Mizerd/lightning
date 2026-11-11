@@ -109,7 +109,14 @@ of `goToLatest()` — wiring it to scrolling or pagination would reset a
 reader's timeline out from under them — committing (`stickToBottom`,
 `saveFollowingLatest`) ONLY on a real dispatch success. Deliberate side
 effect: `onModelReset` now closes the row-anchored surfaces on EVERY
-reset, including the same-room recovery reload. **LIVE-VALIDATED PASS**
+reset, including the same-room recovery reload. **A SECOND CALLER, from
+C++ only** (`AppController::onIdleLiveTrimTimeout`, contract-pinned in
+`ElementParityContractTest`): more than the threshold of rows, reader at the
+live edge, no input for two minutes, window NOT active (or hidden), no
+account switch, and nothing a reset would destroy (`idleTrimBlocked` from
+the pane: a transient interaction such as the image viewer, audible media,
+the event-context view, forward selection, pinned actions, an expanded state
+group; plus any open popup, checked in C++). **LIVE-VALIDATED PASS**
 (`cachedBefore= 1083 released= true reloadedItems= 19`). The payload
 carries both `trimmed_from` and `trim_shrunk` so a timed-out wait cannot
 look like a successful trim, and the baseline must be sampled BEFORE the
@@ -123,10 +130,10 @@ every message it received as a delegate: measured ~0.5 MB per row (heaptrack:
 ~40 Loaders, ~110 Components and ~470 bindings per row), 66 -> 1713 rows and
 RSS 721 -> 1510 MB in 34 min of steady traffic. A single-shot timer, armed
 when the loaded rows pass `historyTrimRowThreshold()`, calls the same
-`trimHistoryAndJumpToLive()` from C++ once the reader is following the live
-edge (`readReceipts.nearBottom`) and has given no input for two minutes, then
-asks `IdleTrim` to return the freed arenas. The QML call site stays the one
-the contract test pins. Not done while the reader is scrolled up or active.
+`trimHistoryAndJumpToLive()` from C++ under the conditions listed in
+"Shipped 4", then asks `IdleTrim` to return the freed arenas. A focused
+window, a scrolled-up reader or any open viewer, player or menu keeps the
+rows.
 
 *Shipped 5 — the row window (`b74b518`, made live by `7092eab`).*
 `ReverseListProxyModel` carries a window: `windowSkip` (how many of the

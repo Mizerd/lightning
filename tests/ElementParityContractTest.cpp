@@ -178,6 +178,23 @@ private Q_SLOTS:
         QVERIFY(wheel > call);
     }
 
+    void theOnlyOtherHistoryTrimIsTheGuardedIdleOne()
+    {
+        const QString cpp = normalized(read(
+            QStringLiteral(QML_DIR "/../src/app/AppController.cpp")));
+        QVERIFY(!cpp.isEmpty());
+        QCOMPARE(cpp.count(QStringLiteral("trimHistoryAndJumpToLive()")), 2);
+        const int fn = cpp.indexOf(
+            QStringLiteral("void AppController::onIdleLiveTrimTimeout()"));
+        QVERIFY(fn >= 0);
+        const int call = cpp.indexOf(
+            QStringLiteral("if (trimHistoryAndJumpToLive())"), fn);
+        QVERIFY(call > fn);
+        const QString scope = cpp.mid(fn, call - fn);
+        QVERIFY(scope.contains(QStringLiteral("idleLiveTrimDue(following, idle, m_timelineWindowActive, blocked, m_accountSwitching)")));
+        QVERIFY(scope.contains(QStringLiteral("m_idleTrimBlocked || anyPopupOpen()")));
+    }
+
     void speculativeMediaGatesOnSettleNotMerelyOnScreen()
     {
         const QString pane = normalized(

@@ -2376,9 +2376,18 @@ false, rows, threshold));
     void idleLiveTrimWaitsForAQuietReaderAtTheLiveEdge()
     {
         const qint64 quiet = AppController::kIdleLiveTrimQuietMs;
-        QVERIFY(AppController::idleLiveTrimDue(true, quiet));
-        QVERIFY(!AppController::idleLiveTrimDue(true, quiet - 1));
-        QVERIFY(!AppController::idleLiveTrimDue(false, quiet * 10));
+        using C = AppController;
+        QVERIFY(C::idleLiveTrimDue(true, quiet, false, false, false));
+        QVERIFY2(!C::idleLiveTrimDue(true, quiet - 1, false, false, false),
+                 "input within the quiet period");
+        QVERIFY2(!C::idleLiveTrimDue(false, quiet * 10, false, false, false),
+                 "reader scrolled away from the live edge");
+        QVERIFY2(!C::idleLiveTrimDue(true, quiet * 10, true, false, false),
+                 "the window is active, so the reader may be looking");
+        QVERIFY2(!C::idleLiveTrimDue(true, quiet * 10, false, true, false),
+                 "a viewer, player, menu or selection would be destroyed");
+        QVERIFY2(!C::idleLiveTrimDue(true, quiet * 10, false, false, true),
+                 "an account switch is in progress");
     }
 
     void jumpToLiveTrimIsRefusedByABackendWithNoEventCacheAndIsThenANoOp()

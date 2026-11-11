@@ -283,6 +283,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_idleLiveTrimTimer.setSingleShot(true);
     connect(&m_idleLiveTrimTimer, &QTimer::timeout, this,
             &AppController::onIdleLiveTrimTimeout);
+    connect(this, &AppController::currentRoomIdChanged, &m_idleLiveTrimTimer,
+            &QTimer::stop);
     connect(m_timeline.get(), &QAbstractItemModel::rowsInserted, this, [this] {
         if (!m_idleLiveTrimTimer.isActive()
             && m_timeline->rowCount() > historyTrimRowThreshold())
@@ -5518,13 +5520,41 @@ bool AppController::trimHistoryAndJumpToLive()
 #endif
 }
 
+static bool anyPopupOpen()
+{
+    for (QWindow *w : QGuiApplication::topLevelWindows()) {
+        auto *window = qobject_cast<QQuickWindow *>(w);
+        if (!window || !window->contentItem())
+            continue;
+        for (QQuickItem *top : window->contentItem()->childItems()) {
+            if (!top->inherits("QQuickOverlay"))
+                continue;
+            for (QQuickItem *item : top->childItems()) {
+                QObject *popup = item->parent();
+                if (item->isVisible() && popup && popup->inherits("QQuickPopup")
+                    && !popup->inherits("QQuickToolTip"))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 void AppController::onIdleLiveTrimTimeout()
 {
-    if (!m_inputIdleMs || !m_readReceipts || !m_readReceipts->nearBottom())
+    if (!m_inputIdleMs || !m_readReceipts)
         return;
     const qint64 idle = m_inputIdleMs();
-    if (!idleLiveTrimDue(true, idle)) {
-        m_idleLiveTrimTimer.start(int(kIdleLiveTrimQuietMs - idle));
+    const bool following = m_readReceipts->nearBottom();
+    const bool blocked = m_idleTrimBlocked || anyPopupOpen();
+    if (!idleLiveTrimDue(following, idle, m_timelineWindowActive, blocked,
+                         m_accountSwitching)) {
+        // Only a short quiet period is worth waiting out; anything else waits
+        // for the next row to re-arm the timer.
+        if (idleLiveTrimDue(following, kIdleLiveTrimQuietMs,
+                            m_timelineWindowActive, blocked,
+                            m_accountSwitching))
+            m_idleLiveTrimTimer.start(int(kIdleLiveTrimQuietMs - idle));
         return;
     }
     if (trimHistoryAndJumpToLive()) {
@@ -6811,6 +6841,8 @@ void AppController::setAccountSwitching(bool switching)
     if (m_accountSwitching == switching)
         return;
     m_accountSwitching = switching;
+    if (switching)
+        m_idleLiveTrimTimer.stop();
     Q_EMIT accountSwitchingChanged();
     if (!switching && !m_queuedSwitchTarget.isEmpty()) {
         const QString next = std::exchange(m_queuedSwitchTarget, QString{});
