@@ -23,6 +23,7 @@ public:
 
     QString backendKind() const override { return m_backendKind; }
     void allowUnlockPrompt() override;
+    bool unlockedForWriting() override;
 
 protected:
     // Backend::Default is libsecret's password API, which goes wherever

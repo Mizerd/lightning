@@ -910,6 +910,7 @@ private:
     // fresh store. False when the store could not be moved.
     bool moveRevokedDeviceStoreAside(const matrix::app_data::AccountIdentity &identity);
     QString storeMoveFailureText() const;
+    QString keyringRefusedSignInText() const;
     matrix::app_data::QuarantineFailure m_lastStoreMoveFailure
         = matrix::app_data::QuarantineFailure::None;
     QString m_revokedUserId;

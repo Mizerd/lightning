@@ -259,6 +259,14 @@ bool LibSecretStore::storeIn(Backend backend, const QString &userId,
     const QByteArray v = toUtf8(value);
     const QByteArray label = toUtf8(makeLabel(userId, key));
 
+    // libsecret would raise its own prompt for every item: the shared one stands in.
+    if (onGuiThread() && throughSecretService(backend)
+        && defaultCollectionLock() == KeyringLock::Locked) {
+        setError(QStringLiteral("the keyring is locked"));
+        qCWarning(lcLibSecret) << "storeSecret failed:" << m_lastError;
+        return false;
+    }
+
     gboolean ok = FALSE;
     if (backend == Backend::Service) {
         GHashTable *attributes = scopedAttributes(u, &k, i);
@@ -302,6 +310,12 @@ bool LibSecretStore::throughSecretService(Backend backend) const
 void LibSecretStore::allowUnlockPrompt()
 {
     g_unlockPromptOffered = false;
+}
+
+bool LibSecretStore::unlockedForWriting()
+{
+    return !m_available || !throughSecretService(Backend::Default)
+           || defaultCollectionLock() != KeyringLock::Locked;
 }
 
 QString LibSecretStore::readFrom(Backend backend, const QString &userId,
@@ -500,5 +514,6 @@ QString LibSecretStore::readLegacySecret(const QString &, const QString &) const
 bool LibSecretStore::deleteLegacySecret(const QString &, const QString &) { return false; }
 bool LibSecretStore::clearFrom(Backend, const QString &, const QString *) { return false; }
 void LibSecretStore::allowUnlockPrompt() {}
+bool LibSecretStore::unlockedForWriting() { return true; }
 
 #endif

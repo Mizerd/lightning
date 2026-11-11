@@ -5111,7 +5111,7 @@ QString SettingsManager::secretBackendName() const
                          : QStringLiteral("no secret store");
 }
 
-void SettingsManager::saveSession(const QString &homeserverUrl_,
+bool SettingsManager::saveSession(const QString &homeserverUrl_,
                                   const QString &userId_,
                                   const QString &deviceId_,
                                   const QString &accessToken_,
@@ -5130,9 +5130,13 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
         uidCanonical = identity.userId;
     }
 
+    if (m_secretStore && !m_secretStore->unlockedForWriting()) {
+        qCWarning(lcSettings) << "saveSession refused: the keyring is locked";
+        return false;
+    }
     if (!upsertAccountRecord(uidCanonical, hsCanonical, deviceId_)) {
         qCWarning(lcSettings) << "saveSession rejected: unsafe user id";
-        return;
+        return false;
     }
     const QString slug = matrix::app_data::safeUserSlug(uidCanonical);
     m_store->remove(accountKey(slug, kAccountSyncToken));
@@ -5147,8 +5151,10 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     m_store->setValue(accountKey(slug, kAccountAuthType), authType);
     markKeyringItems(slug, kKeyringItemsOwn);
 
+    bool saved = true;
     if (m_secretStore) {
         if (!m_secretStore->storeSecret(uidCanonical, QLatin1String(kSecretAccessToken), accessToken_)) {
+            saved = false;
             qCWarning(lcSettings)
                 << "failed to persist access token to SecretStore:"
                 << m_secretStore->lastError();
@@ -5177,6 +5183,7 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     if (hsChanged)
         Q_EMIT homeserverUrlChanged();
     Q_EMIT sessionChanged();
+    return saved;
 }
 
 void SettingsManager::recordPendingSignOut(

@@ -1669,6 +1669,13 @@ true, ringSeconds, acceptOffered,
         QTimer::singleShot(kSignOutCallLeaveBoundMs, waiter,
                            [finish] { finish(false); });
     };
+    m_auth->setKeyringReady([this] {
+        SecretStore *store = m_settings ? m_settings->secretStore() : nullptr;
+        if (!store)
+            return true;
+        store->allowUnlockPrompt();
+        return store->unlockedForWriting();
+    });
     m_auth->setBeforeLogout([beforeLogout](std::function<void()> proceed) {
         (*beforeLogout)(std::move(proceed));
     });

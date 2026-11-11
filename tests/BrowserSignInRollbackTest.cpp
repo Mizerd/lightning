@@ -12,6 +12,7 @@
 #include <QtTest>
 
 #ifdef ENABLE_RUST_SDK_BACKEND
+#include "auth/AuthManager.h"
 #include "matrix/RustSdkMatrixClient.h"
 #include "matrix/RustSessionPolicy.h"
 #include "storage/InMemorySecretStore.h"
@@ -25,6 +26,18 @@ class BrowserSignInRollbackTest : public QObject
 
 #ifdef ENABLE_RUST_SDK_BACKEND
     static constexpr const char *kServer = "https://example.org";
+
+    // A keyring that is locked, or that refuses an item even when open.
+    class RefusingSecretStore : public InMemorySecretStore
+    {
+    public:
+        bool locked = true;
+        bool storeSecret(const QString &, const QString &, const QString &) override
+        {
+            return false;
+        }
+        bool unlockedForWriting() override { return !locked; }
+    };
 
     struct Restore {
         int calls = 0;
@@ -1138,6 +1151,90 @@ private slots:
             QCOMPARE(reset.count(), 1);
             QCOMPARE(reset.last().at(0).toString(), code);
         }
+#endif
+    }
+
+    void aSignInTheKeyringDoesNotTakeIsNotKept_data()
+    {
+        QTest::addColumn<bool>("locked");
+        QTest::addColumn<bool>("browser");
+        QTest::newRow("password, locked") << true << false;
+        QTest::newRow("password, refused") << false << false;
+        QTest::newRow("browser, locked") << true << true;
+        QTest::newRow("browser, refused") << false << true;
+    }
+
+    void aSignInTheKeyringDoesNotTakeIsNotKept()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The Rust backend owns the SDK store.");
+#else
+        QFETCH(bool, locked);
+        QFETCH(bool, browser);
+        RefusingSecretStore secrets;
+        secrets.locked = locked;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy succeeded(&client, &MatrixClient::loginSucceeded);
+        QSignalSpy failed(&client, &MatrixClient::loginFailed);
+        const QString kay = QStringLiteral("@kay:example.org");
+
+        Restore restore;
+        if (browser) {
+            adopt(client, kay, QStringLiteral("NEWDEVICE"), restore);
+        } else {
+            QJsonObject accepted;
+            accepted.insert(QStringLiteral("type"), QStringLiteral("login_ok"));
+            accepted.insert(QStringLiteral("homeserver"), QString::fromLatin1(kServer));
+            accepted.insert(QStringLiteral("user_id"), kay);
+            accepted.insert(QStringLiteral("device_id"), QStringLiteral("NEWDEVICE"));
+            accepted.insert(QStringLiteral("access_token"), QStringLiteral("not-a-real-token"));
+            client.handleRustEventForTest(accepted);
+        }
+
+        QCOMPARE(succeeded.count(), 0);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY2(failed.last().at(0).toString().contains(QStringLiteral("keyring")),
+                 qPrintable(failed.last().at(0).toString()));
+        QCOMPARE(restore.calls, 0);
+        QVERIFY(!client.isLoggedIn());
+        QVERIFY(!settings.hasSavedAccount(kay));
+        QVERIFY(settings.activeAccountUserId().isEmpty());
+#endif
+    }
+
+    void aSignInIsRefusedBeforeTheServerWhileTheKeyringIsLocked()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Browser sign-in exists on the Rust backend only.");
+#else
+        InMemorySecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        RustSdkMatrixClient client(&settings);
+        AuthManager auth(&client);
+        int asked = 0;
+        auth.setKeyringReady([&asked] {
+            ++asked;
+            return false;
+        });
+        QSignalSpy failed(&auth, &AuthManager::loginFailed);
+        const QString server = QStringLiteral("https://localhost:1");
+
+        auth.login(server, QStringLiteral("kay"), QStringLiteral("not-a-password"));
+        QCOMPARE(asked, 1);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(!auth.isLoggingIn());
+        QVERIFY2(auth.lastError().contains(QStringLiteral("keyring")),
+                 qPrintable(auth.lastError()));
+
+        auth.beginBrowserLogin(server);
+        auth.beginSsoLogin(server, QString());
+        QCOMPARE(asked, 3);
+        QCOMPARE(failed.count(), 3);
+        QVERIFY(!auth.browserLoginInProgress());
+        QVERIFY(!auth.isLoggingIn());
 #endif
     }
 };

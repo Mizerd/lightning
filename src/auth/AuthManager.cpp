@@ -272,6 +272,8 @@ void AuthManager::login(const QString &homeserver,
         refuseServerAddress();
         return;
     }
+    if (refuseWhileKeyringLocked())
+        return;
     m_errorSurvivesRestore = false;
     setLoggingIn(true);
     setLastError({});
@@ -408,7 +410,7 @@ void AuthManager::beginBrowserLogin(const QString &homeserver)
         refuseServerAddress();
         return;
     }
-    if (!refuseBeforeTheBrowser(hs))
+    if (!refuseBeforeTheBrowser(hs) || refuseWhileKeyringLocked())
         return;
     m_browserLaunchFailed = false;
     m_errorSurvivesRestore = false;
@@ -430,7 +432,7 @@ void AuthManager::beginBrowserSignUp(const QString &homeserver)
         Q_EMIT loginFailed(m_lastError);
         return;
     }
-    if (!refuseBeforeTheBrowser(hs))
+    if (!refuseBeforeTheBrowser(hs) || refuseWhileKeyringLocked())
         return;
     m_browserLaunchFailed = false;
     m_errorSurvivesRestore = false;
@@ -555,7 +557,7 @@ void AuthManager::beginSsoLogin(const QString &homeserver, const QString &idpId)
         refuseServerAddress();
         return;
     }
-    if (!refuseBeforeTheBrowser(hs))
+    if (!refuseBeforeTheBrowser(hs) || refuseWhileKeyringLocked())
         return;
     m_browserLaunchFailed = false;
     m_errorSurvivesRestore = false;
@@ -595,6 +597,16 @@ bool AuthManager::refuseBeforeTheBrowser(const QString &homeserver)
                     "device, so it did not open your browser."));
     Q_EMIT loginFailed(m_lastError);
     return false;
+}
+
+bool AuthManager::refuseWhileKeyringLocked()
+{
+    if (!m_keyringReady || m_keyringReady())
+        return false;
+    setLastError(tr("Your system keyring is locked, and Lightning keeps your "
+                    "sign-in there. Unlock it when asked, then try again."));
+    Q_EMIT loginFailed(m_lastError);
+    return true;
 }
 
 void AuthManager::refuseServerAddress()

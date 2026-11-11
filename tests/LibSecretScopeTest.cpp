@@ -27,6 +27,8 @@
 #include <QUuid>
 #include <QtTest>
 
+#include <atomic>
+
 #pragma push_macro("signals")
 #undef signals
 #include <libsecret/secret.h>
@@ -169,6 +171,40 @@ bool lockDefaultCollection()
     return reply != nullptr;
 }
 
+// Counts Unlock calls this process sends on the shared session connection,
+// which is the one libsecret uses.
+class UnlockCalls
+{
+public:
+    UnlockCalls()
+        : m_bus(g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr))
+        , m_filter(g_dbus_connection_add_filter(m_bus, &UnlockCalls::seen, &m_count,
+                                                nullptr))
+    {
+    }
+    ~UnlockCalls()
+    {
+        g_dbus_connection_remove_filter(m_bus, m_filter);
+        g_object_unref(m_bus);
+    }
+    int count() const { return m_count.load(); }
+
+private:
+    static GDBusMessage *seen(GDBusConnection *, GDBusMessage *message,
+                              gboolean incoming, gpointer data)
+    {
+        if (!incoming
+            && g_dbus_message_get_message_type(message) == G_DBUS_MESSAGE_TYPE_METHOD_CALL
+            && qstrcmp(g_dbus_message_get_member(message), "Unlock") == 0)
+            ++*static_cast<std::atomic<int> *>(data);
+        return message;
+    }
+
+    GDBusConnection *m_bus;
+    guint m_filter;
+    std::atomic<int> m_count{0};
+};
+
 // gnome-keyring's own unlock, the one its --unlock flag uses: no prompt.
 bool unlockDefaultCollection(const QByteArray &password)
 {
@@ -229,6 +265,7 @@ private Q_SLOTS:
     void aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyring();
 
     void aLockedKeyringIsAnUnansweredReadNotAMiss();
+    void aLockedKeyringTakesNoSignInAndAsksOnce();
 
 private:
     QString m_user;
@@ -477,6 +514,42 @@ void LibSecretScopeTest::aLockedKeyringIsAnUnansweredReadNotAMiss()
     QCOMPARE(store.readSecret(m_user, QStringLiteral("accessToken")),
              QStringLiteral("saved-access"));
     QVERIFY(!store.lastReadFailed());
+}
+
+void LibSecretScopeTest::aLockedKeyringTakesNoSignInAndAsksOnce()
+{
+    const QByteArray password = qgetenv("LIGHTNING_KEYRING_TEST_PASSWORD");
+    if (password.isEmpty())
+        QSKIP("needs LIGHTNING_KEYRING_TEST_PASSWORD, the private keyring's "
+              "password, to unlock it again afterwards");
+    LibSecretStore store;
+    store.setInstallScope(QStringLiteral("install-a"));
+    QVERIFY(lockDefaultCollection());
+
+    // No prompter on the private bus: the one unlock prompt is dismissed.
+    bool access = false;
+    bool refresh = false;
+    bool ready = true;
+    int unlocks = 0;
+    {
+        UnlockCalls calls;
+        access = store.storeSecret(m_user, QStringLiteral("accessToken"),
+                                   QStringLiteral("new-access"));
+        refresh = store.storeSecret(m_user, QStringLiteral("refreshToken"),
+                                    QStringLiteral("new-refresh"));
+        ready = store.unlockedForWriting();
+        unlocks = calls.count();
+    }
+    QVERIFY(unlockDefaultCollection(password));
+
+    QCOMPARE(unlocks, 1);
+    QVERIFY(!access);
+    QVERIFY(!refresh);
+    QCOMPARE(store.lastError(), QStringLiteral("the keyring is locked"));
+    QVERIFY(!ready);
+    QVERIFY(store.readSecret(m_user, QStringLiteral("accessToken")).isEmpty());
+    QVERIFY(!store.lastReadFailed());
+    QVERIFY(store.unlockedForWriting());
 }
 
 QTEST_GUILESS_MAIN(LibSecretScopeTest)

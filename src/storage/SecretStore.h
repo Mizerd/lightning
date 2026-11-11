@@ -36,6 +36,9 @@ public:
     // A store that may prompt to unlock its keyring may do so once more.
     virtual void allowUnlockPrompt() {}
 
+    // False while the store's keyring is locked; may raise its unlock prompt.
+    virtual bool unlockedForWriting() { return true; }
+
     /// Whether a miss is inconclusive by construction: true for the whole life
     /// of a store standing in for a native backend it could not open.
     /// Destructive decisions key on this structural fact, not on

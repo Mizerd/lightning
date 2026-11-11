@@ -114,6 +114,10 @@ public:
     using BeforeLogout = std::function<void(std::function<void()> proceed)>;
     void setBeforeLogout(BeforeLogout hook) { m_beforeLogout = std::move(hook); }
     bool logoutPending() const { return m_logoutPending; }
+    // Asked before every sign-in; false refuses it before the server is
+    // contacted. It may raise the keyring's unlock prompt.
+    using KeyringReady = std::function<bool()>;
+    void setKeyringReady(KeyringReady check) { m_keyringReady = std::move(check); }
     Q_INVOKABLE void restoreSession();
     Q_INVOKABLE void clearLastError();
 
@@ -149,11 +153,13 @@ private:
     void runDeferredDiscovery();
     void refuseServerAddress();
     bool refuseBeforeTheBrowser(const QString &homeserver);
+    bool refuseWhileKeyringLocked();
 
     MatrixClient *m_client = nullptr;
     void setLogoutPending(bool pending);
 
     BeforeLogout m_beforeLogout;
+    KeyringReady m_keyringReady;
     bool m_logoutPending = false;
     quint64 m_sessionGeneration = 0;
     bool m_loggingIn = false;

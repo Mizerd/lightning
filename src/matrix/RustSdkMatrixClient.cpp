@@ -2440,15 +2440,18 @@ void RustSdkMatrixClient::adoptBrowserSession(
     setState(Connecting);
 
     if (m_settings) {
-        m_settings->saveSession(identity.homeserver, identity.userId, deviceId,
-                                accessToken, refreshToken,
-                                authType, clientId);
+        const bool saved = m_settings->saveSession(identity.homeserver, identity.userId,
+                                                   deviceId, accessToken, refreshToken,
+                                                   authType, clientId);
         m_persistedAccessDigest = accessTokenDigest(accessToken);
-        if (!m_settings->hasSavedAccount(identity.userId)) {
-            rollBackFailedAttempt(std::exchange(m_freshLoginIdentity, {}), {});
+        if (!saved || !m_settings->hasSavedAccount(identity.userId)) {
+            rollBackFailedAttempt(std::exchange(m_freshLoginIdentity, {}),
+                                  hasSavedSession ? matrix::app_data::AccountIdentity{}
+                                                  : identity);
             setState(Error);
-            Q_EMIT loginFailed(tr("You signed in, but Lightning could not save this "
-                                  "account on this device, so it did not open it."));
+            Q_EMIT loginFailed(saved ? tr("You signed in, but Lightning could not save this "
+                                          "account on this device, so it did not open it.")
+                                     : keyringRefusedSignInText());
             return;
         }
         if (!hasSavedSession)
@@ -2551,6 +2554,14 @@ bool RustSdkMatrixClient::resumedDeviceCheckIsFor(const QString &userId,
     return m_loggedIn && !m_resumedCheckDeviceId.isEmpty()
            && userId == m_resumedCheckUserId && deviceId == m_resumedCheckDeviceId
            && userId == m_userId && deviceId == m_deviceId;
+}
+
+QString RustSdkMatrixClient::keyringRefusedSignInText() const
+{
+    return tr("You signed in, but your system keyring is locked or did not "
+              "accept the sign-in, so Lightning did not keep it. Unlock the "
+              "keyring and sign in again. The server now lists an unused "
+              "session from this attempt; you can sign it out under Sessions.");
 }
 
 QString RustSdkMatrixClient::storeMoveFailureText() const
@@ -6041,8 +6052,29 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const QString accessToken = event.value(QStringLiteral("access_token")).toString();
         const QString refreshToken = event.value(QStringLiteral("refresh_token")).toString();
         if (m_loggedIn && m_settings && !accessToken.isEmpty()) {
-            m_settings->saveSession(m_homeserver, m_userId, m_deviceId, accessToken,
-                                    refreshToken);
+            const bool known = m_settings->hasSavedAccount(m_userId);
+            if (!m_settings->saveSession(m_homeserver, m_userId, m_deviceId,
+                                         accessToken, refreshToken)) {
+                qCWarning(lcRust) << "sign-in not kept: the keyring did not take its tokens"
+                                  << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+                const bool fresh = attempt.isValid()
+                    && QFileInfo(attempt.rustStorePath).absoluteFilePath()
+                           == QFileInfo(m_storePath).absoluteFilePath();
+                const auto record = !known && identity.isValid()
+                        && identity.userId == m_userId
+                    ? identity : matrix::app_data::AccountIdentity{};
+                m_loggedIn = false;
+                disarmResumedDeviceCheck();
+                setState(Error);
+                if (!fresh)
+                    releaseRustHandle();
+                rollBackFailedAttempt(fresh ? attempt : matrix::app_data::AccountIdentity{},
+                                      record);
+                m_userId.clear();
+                m_deviceId.clear();
+                Q_EMIT loginFailed(keyringRefusedSignInText());
+                return;
+            }
             m_persistedAccessDigest = accessTokenDigest(accessToken);
             m_settings->setSyncToken({});
         }
