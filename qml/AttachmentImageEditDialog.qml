@@ -84,6 +84,15 @@ AppDialog {
         strokes = last.strokes; activeStroke = []
         refresh()
     }
+    // A room or thread switch swaps the tray out; the row would then name another room's entry.
+    Connections {
+        target: root.queue
+        function onModelAboutToBeReset() {
+            if (root.row >= 0) root.queue.cancelImageEdit(root.row)
+            root.row = -1
+            root.close()
+        }
+    }
     onClosed: {
         if (queue && row >= 0) queue.cancelImageEdit(row)
         previewUrl = ""
