@@ -609,6 +609,7 @@ Popup {
                     name: root.visibleName
                     colorKey: root.userId
                     prominent: true
+                    AvatarViewAction {}
                 }
                 PresenceDot {
                     id: avatarPresenceDot

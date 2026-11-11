@@ -520,6 +520,7 @@ Rectangle {
                             mxc: root.roomData.avatarUrl || ""
                             colorKey: root.roomData.identityColorKey || ""
                             circle: root.roomData.isDirect === true
+                            AvatarViewAction {}
 
                             PresenceDot {
                                 objectName: "roomInfoPresenceDot"

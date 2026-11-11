@@ -58,10 +58,14 @@ Popup {
         ? Math.round(zoom * baseWidth / naturalWidth * 100)
         : Math.round(zoom * 100)
 
+    readonly property string currentMxc: current !== null ? (current.mxc || "") : ""
     readonly property bool usesBridge:
-        current !== null && current.mediaKey.length > 0 && app.mediaBridge.supported
+        current !== null && (current.mediaKey.length > 0 || currentMxc.length > 0)
+        && app.mediaBridge.supported
+    // "mxc:0:" is MediaBridge's key for wideImageSource (full-size mxc content).
     readonly property string bridgeCacheKey:
-        current !== null ? ("full:" + current.mediaKey) : ""
+        currentMxc.length > 0 ? ("mxc:0:" + currentMxc)
+        : current !== null ? ("full:" + current.mediaKey) : ""
     property string bridgeSource: ""
     property string animatedSource: ""
     property bool bridgeFailed: false
@@ -174,6 +178,28 @@ Popup {
         }], 0)
     }
 
+    // A room, space or user picture: full-size content of its mxc, still
+    // through the bridge.
+    function openMxc(mxc, title) {
+        if (!mxc || mxc.indexOf("mxc://") !== 0)
+            return
+        openAt([{
+            "row": -1,
+            "mediaKey": "",
+            "mxc": mxc,
+            "filename": title || "",
+            "sender": "",
+            "timestamp": undefined,
+            "mime": "",
+            "httpUrl": "",
+            "isImage": true,
+            "isVideo": false,
+            "isVisual": true,
+            "thumbAvailable": false,
+            "size": 0
+        }], 0)
+    }
+
     function resetView() {
         zoom = 1.0
         baseWidth = 0
@@ -189,6 +215,10 @@ Popup {
         if (!usesBridge || current === null)
             return
         bridgeFailed = false
+        if (currentMxc.length > 0) {
+            bridgeSource = app.mediaBridge.wideImageSource(currentMxc)
+            return
+        }
         if (maybeAnimated && animateGifs)
             animatedSource = app.mediaBridge.animatedSource(current.mediaKey, true)
         bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")

@@ -6318,6 +6318,7 @@ Rectangle {
                             mxc: spaceHome.info.avatarUrl || ""
                             colorKey: spaceHome.spaceId
                             prominent: true
+                            AvatarViewAction {}
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

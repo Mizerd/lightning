@@ -262,6 +262,7 @@ AppDialog {
                 name: root.info.name || ""
                 mxc: root.info.avatarUrl || ""
                 colorKey: root.spaceId
+                AvatarViewAction {}
             }
             Label {
                 objectName: "spaceSettingsHeaderName"
@@ -516,6 +517,7 @@ AppDialog {
                                         name: root.info.name || ""
                                         mxc: root.info.avatarUrl || ""
                                         colorKey: root.spaceId
+                                        AvatarViewAction {}
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true

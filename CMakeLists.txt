@@ -1284,6 +1284,7 @@ set(APP_QML_FILES
     qml/AccountMenu.qml
     qml/MemberProfilePopover.qml
     qml/Avatar.qml
+    qml/AvatarViewAction.qml
     qml/BannerMotion.qml
     # Chat backgrounds and gradient surfaces (2026-10-06).
     qml/ChatBackdrop.qml

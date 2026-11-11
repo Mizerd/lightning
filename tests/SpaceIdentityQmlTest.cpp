@@ -442,6 +442,70 @@ private slots:
         QTRY_COMPARE(avatar->property("mxc").toString(), QString());
     }
 
+    QObject *openViewer() const
+    {
+        const auto popups = m_root->findChildren<QObject *>(
+            QStringLiteral("imageViewerOverlay"));
+        for (QObject *popup : popups) {
+            if (popup->property("opened").toBool())
+                return popup;
+        }
+        return nullptr;
+    }
+
+    void clickCentre(QQuickItem *target)
+    {
+        const QPointF centre = target->mapToScene(
+            QPointF(target->width() / 2, target->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, centre.toPoint());
+        QCoreApplication::processEvents();
+    }
+
+    void theHeaderPictureOpensInTheImageViewer()
+    {
+        openFor(QString::fromLatin1(kParentId));
+        auto *avatar = item("spaceSettingsHeaderAvatar");
+        QVERIFY(avatar);
+        auto *action = findItem(avatar, QStringLiteral("avatarViewAction"));
+        QVERIFY(action);
+        QVERIFY(action->isVisible());
+        QCOMPARE(action->property("activeFocusOnTab").toBool(), true);
+
+        clickCentre(avatar);
+        QObject *viewer = nullptr;
+        QTRY_VERIFY((viewer = openViewer()) != nullptr);
+        QCOMPARE(viewer->property("currentMxc").toString(),
+                 QStringLiteral("mxc://example.org/parent"));
+        QVERIFY(QMetaObject::invokeMethod(viewer, "close"));
+        QTRY_VERIFY(!openViewer());
+
+        action->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_VERIFY((viewer = openViewer()) != nullptr);
+        QCOMPARE(viewer->property("currentMxc").toString(),
+                 QStringLiteral("mxc://example.org/parent"));
+        QVERIFY(QMetaObject::invokeMethod(viewer, "close"));
+        QTRY_VERIFY(!openViewer());
+    }
+
+    void aHeaderWithoutAPictureOffersNoViewer()
+    {
+        m_fake->roomList[0].avatarUrl.clear();
+        m_fake->announce();
+        QCoreApplication::processEvents();
+        openFor(QString::fromLatin1(kParentId));
+        auto *avatar = item("spaceSettingsHeaderAvatar");
+        QVERIFY(avatar);
+        QTRY_COMPARE(avatar->property("mxc").toString(), QString());
+        auto *action = findItem(avatar, QStringLiteral("avatarViewAction"));
+        QVERIFY(action);
+        QVERIFY(!action->isVisible());
+
+        clickCentre(avatar);
+        QTest::qWait(100);
+        QVERIFY(!openViewer());
+    }
+
     void spaceInfoAnswersForTheSpaceItWasAskedAbout()
     {
         SpaceManager *spaces = m_controller->spaces();
