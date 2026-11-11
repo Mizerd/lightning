@@ -3139,6 +3139,12 @@ false, rows, threshold));
         QVERIFY(label != nullptr);
         QCOMPARE(label->property("text").toString(),
                  QStringLiteral("New messages"));
+
+        fixture.insert(QStringLiteral("dividerIntroducesVisibleContent"), false);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QCoreApplication::processEvents();
+        QVERIFY(!root->isVisible());
+        QCOMPARE(root->implicitHeight(), 0.0);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 

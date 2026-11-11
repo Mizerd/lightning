@@ -201,7 +201,7 @@ Item {
         : isStateActivity ? "state" : "event"
 
     readonly property bool dividerSuppressed:
-        isVirtualRow && model.eventType === 7
+        isVirtualRow && (model.eventType === 7 || model.eventType === 8)
         && model.dividerIntroducesVisibleContent === false
 
     readonly property bool deletedFollower:

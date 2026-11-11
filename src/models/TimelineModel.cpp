@@ -1161,12 +1161,18 @@ QString TimelineModel::visibleBodyFor(const TimelineEvent &e) const
 
 bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
 {
+    // The SDK keeps its read marker when the row after it is removed (a UTD
+    // that decrypts to a thread reply), so it can end up introducing nothing.
+    const bool readMarker =
+        m_events.at(dividerRow).type == TimelineEvent::ReadMarker;
     bool stateRunChecked = false;
     for (int row = dividerRow + 1; row < m_events.size(); ++row) {
         const auto &e = m_events.at(row);
-        if (e.type == TimelineEvent::DateDivider)
+        if (e.type == TimelineEvent::DateDivider && !readMarker)
             return false;
         if (e.isVirtual())
+            continue;
+        if (readMarker && !m_selfUserId.isEmpty() && e.sender == m_selfUserId)
             continue;
         if (isCallEventRow(e))
             return true;
@@ -1260,6 +1266,10 @@ void TimelineModel::emitPresentationGroupingChanged(int first, int last)
                          BeginsSenderGroupRole, ContinuesSenderGroupRole,
                          EndsSenderGroupRole, ShowSenderIdentityRole,
                          DividerIntroducesVisibleContentRole });
+    const int marker = readMarkerRow();
+    if (marker >= 0 && marker < first)
+        Q_EMIT dataChanged(index(marker), index(marker),
+                           { DividerIntroducesVisibleContentRole });
 }
 
 void TimelineModel::rebuildThreadReplyIndex()
@@ -1564,7 +1574,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             : -1.0;
     case IsVirtualRole:          return e.isVirtual();
     case DividerIntroducesVisibleContentRole:
-        return e.type != TimelineEvent::DateDivider
+        return (e.type != TimelineEvent::DateDivider
+                && e.type != TimelineEvent::ReadMarker)
             || dividerIntroducesVisibleContent(raw);
     case MediaKeyRole:           return e.mediaKey;
     case MediaSourceAvailableRole: return e.mediaSourceAvailable;

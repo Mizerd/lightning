@@ -124,6 +124,7 @@ private Q_SLOTS:
     void multiDayRunYieldsOneGroupPerDay();
     void aDividerLeadingOnlyActivityStillIntroducesVisibleContent();
     void readMarkerDoesNotSplitGroup();
+    void readMarkerIntroducesOnlyALoadedUnreadRow();
     void timelineStartDoesNotSplitGroup();
     void visibleTextMessageBreaksGroup();
     void undecryptableEventIsNotRoutineActivity();
@@ -712,6 +713,66 @@ void StateActivityGroupingTest::hiddenRoutineActivityLeavesItsDividerWithNothing
                            TimelineModel::DividerIntroducesVisibleContentRole)
                  .toBool(),
              true);
+}
+
+void StateActivityGroupingTest::readMarkerIntroducesOnlyALoadedUnreadRow()
+{
+    auto mine = makeMessage(QStringLiteral("$mine"), QStringLiteral("sent here"));
+    mine.sender = QStringLiteral("@me:example.org");
+    auto reply = makeMessage(QStringLiteral("$utd"), QStringLiteral("utd"));
+    reply.undecryptable = true;
+    reply.threadRootId = QStringLiteral("$root");
+    m_client->mirror = {
+        makeMessage(QStringLiteral("$read"), QStringLiteral("read")),
+        makeVirtual(TimelineEvent::ReadMarker, QStringLiteral("$marker")),
+        reply,
+    };
+    m_model->setRoomId(kRoom);
+    const auto introduces = [this] {
+        return m_model->data(m_model->index(1),
+                             TimelineModel::DividerIntroducesVisibleContentRole)
+            .toBool();
+    };
+    QVERIFY(introduces());
+
+    m_client->mirror.removeLast();
+    Q_EMIT m_client->eventRemovedAt(kRoom, 2);
+    QCOMPARE(m_model->rowCount(), 2);
+    QVERIFY(!introduces());
+
+    m_client->mirror.append(mine);
+    Q_EMIT m_client->eventAppended(kRoom, mine);
+    QVERIFY(!introduces());
+
+    m_model->setShowRoomActivity(false);
+    const auto join = makeStateChange(QStringLiteral("$join"),
+                                      QStringLiteral("joined"),
+                                      QStringLiteral("membership"),
+                                      QStringLiteral("Bob"));
+    m_client->mirror.append(join);
+    Q_EMIT m_client->eventAppended(kRoom, join);
+    QVERIFY(!introduces());
+
+    const auto day = onDay(makeVirtual(TimelineEvent::DateDivider,
+                                       QStringLiteral("$day")), 1);
+    const auto fresh = onDay(makeMessage(QStringLiteral("$fresh"),
+                                         QStringLiteral("new")), 1);
+    m_client->mirror.append(day);
+    Q_EMIT m_client->eventAppended(kRoom, day);
+    QVERIFY(!introduces());
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    m_client->mirror.append(fresh);
+    Q_EMIT m_client->eventAppended(kRoom, fresh);
+    QVERIFY(introduces());
+    bool announced = false;
+    for (const QList<QVariant> &emitted : changed) {
+        if (emitted.at(0).value<QModelIndex>().row() <= 1
+            && emitted.at(1).value<QModelIndex>().row() >= 1
+            && emitted.at(2).value<QList<int>>().contains(
+                   TimelineModel::DividerIntroducesVisibleContentRole))
+            announced = true;
+    }
+    QVERIFY(announced);
 }
 
 void StateActivityGroupingTest::showRoomActivityFlipReAnnouncesTheDividerRows()
