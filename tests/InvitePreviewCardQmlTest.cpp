@@ -188,41 +188,39 @@ private Q_SLOTS:
         for (const bool withhold : {false, true}) {
             QQmlEngine engine;
             QQmlComponent stubComponent(&engine);
-            stubComponent.setData(QByteArrayLiteral(R"(
-import QtQuick
-QtObject {
-    property string currentRoomId: ""
-    property QtObject banners: QtObject {
-        property int revision: 0
-        property int requests: 0
-        function request(id) { requests += 1 }
-        function bannerFor(id) { return "mxc://evil.example/banner" }
-    }
-    property QtObject mediaBridge: QtObject { property bool supported: false }
-    property QtObject moderation: QtObject {
-        property bool supported: false
-        property bool busy: false
-    }
-    property QtObject conversations: QtObject { property bool supported: false }
-    function textFontWithEmoji(f) { return f }
-}
-)"),
+            stubComponent.setData(QByteArray(
+                "import QtQuick\n"
+                "QtObject {\n"
+                "    property string currentRoomId: \"\"\n"
+                "    property QtObject banners: QtObject {\n"
+                "        property int revision: 0\n"
+                "        property int requests: 0\n"
+                "        function request(id) { requests += 1 }\n"
+                "        function bannerFor(id) { return \"mxc://evil.example/banner\" }\n"
+                "    }\n"
+                "    property QtObject mediaBridge: QtObject { property bool supported: false }\n"
+                "    property QtObject moderation: QtObject {\n"
+                "        property bool supported: false\n"
+                "        property bool busy: false\n"
+                "    }\n"
+                "    property QtObject conversations: QtObject { property bool supported: false }\n"
+                "    function textFontWithEmoji(f) { return f }\n"
+                "}\n"),
                                   QUrl(QStringLiteral("qrc:/withheld-appstub.qml")));
             std::unique_ptr<QObject> stub(stubComponent.create());
             QVERIFY2(stub, qPrintable(stubComponent.errorString()));
             engine.rootContext()->setContextProperty(QStringLiteral("app"), stub.get());
             QQmlComponent scene(&engine);
-            scene.setData(QByteArrayLiteral(R"(
-import QtQuick
-import QtQuick.Controls
-import MatrixClient
-ApplicationWindow {
-    width: 500
-    height: 600
-    visible: true
-    MemberProfilePopover { objectName: "popover"; parent: Overlay.overlay }
-}
-)"),
+            scene.setData(QByteArray(
+                "import QtQuick\n"
+                "import QtQuick.Controls\n"
+                "import MatrixClient\n"
+                "ApplicationWindow {\n"
+                "    width: 500\n"
+                "    height: 600\n"
+                "    visible: true\n"
+                "    MemberProfilePopover { objectName: \"popover\"; parent: Overlay.overlay }\n"
+                "}\n"),
                           QUrl(QStringLiteral("qrc:/withheld-scene.qml")));
             std::unique_ptr<QObject> root(scene.create());
             QVERIFY2(root, qPrintable(scene.errorString()));
