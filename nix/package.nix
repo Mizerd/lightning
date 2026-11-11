@@ -56,6 +56,9 @@ stdenv.mkDerivation {
   inherit version;
 
   cargoRoot = "rust";
+  # Newer nixpkgs makes cargoSetupHook force system libraries; that breaks
+  # aws-lc-sys and would swap the bundled SQLite (FTS5 search) for the system one.
+  dontCargoUseSystemLibs = true;
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = ../rust/Cargo.lock;
   };
