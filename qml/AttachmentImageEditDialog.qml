@@ -33,8 +33,10 @@ AppDialog {
     closePolicy: Popup.CloseOnEscape
 
     function openFor(model, index) {
+        if (queue) queue.modelAboutToBeReset.disconnect(trayReset)
         queue = model
         row = index
+        queue.modelAboutToBeReset.connect(trayReset)
         cropLeft = 0; cropTop = 0; cropRight = 1; cropBottom = 1
         turns = 0; flipped = false; strokes = []; activeStroke = []
         history = []
@@ -85,15 +87,13 @@ AppDialog {
         refresh()
     }
     // A room or thread switch swaps the tray out; the row would then name another room's entry.
-    Connections {
-        target: root.queue
-        function onModelAboutToBeReset() {
-            if (root.row >= 0) root.queue.cancelImageEdit(root.row)
-            root.row = -1
-            root.close()
-        }
+    function trayReset() {
+        if (queue && row >= 0) queue.cancelImageEdit(row)
+        row = -1
+        close()
     }
     onClosed: {
+        if (queue) queue.modelAboutToBeReset.disconnect(trayReset)
         if (queue && row >= 0) queue.cancelImageEdit(row)
         previewUrl = ""
         queue = null
