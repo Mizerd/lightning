@@ -117,6 +117,17 @@ release or a fast shrink makes a genuine trim report `released=false`.
 `await_event_cache_shrink` has NO automated coverage at any layer (no
 mock-room harness in `rust/`).
 
+*Idle live-edge trim (2026-11-12, "idle memory grows").* The far
+jump-to-latest was the ONLY trim, so a room left open at the live edge kept
+every message it received as a delegate: measured ~0.5 MB per row (heaptrack:
+~40 Loaders, ~110 Components and ~470 bindings per row), 66 -> 1713 rows and
+RSS 721 -> 1510 MB in 34 min of steady traffic. A single-shot timer, armed
+when the loaded rows pass `historyTrimRowThreshold()`, calls the same
+`trimHistoryAndJumpToLive()` from C++ once the reader is following the live
+edge (`readReceipts.nearBottom`) and has given no input for two minutes, then
+asks `IdleTrim` to return the freed arenas. The QML call site stays the one
+the contract test pins. Not done while the reader is scrolled up or active.
+
 *Shipped 5 — the row window (`b74b518`, made live by `7092eab`).*
 `ReverseListProxyModel` carries a window: `windowSkip` (how many of the
 NEWEST source rows are excluded) plus the exposed count, every
