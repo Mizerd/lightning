@@ -147,8 +147,9 @@ private Q_SLOTS:
                                                    area->height() / 2)).toPoint());
         QCOMPARE(asked.count(), 1);
 
-        card->setProperty("inviterUserId", QString());
-        QVERIFY(!area->isEnabled());
+        QVERIFY(area->property("enabled").toBool());
+        card->setProperty("inviterUserId", QStringLiteral(""));
+        QVERIFY(!area->property("enabled").toBool());
         card->setProperty("commonRoomsText", QString());
         QVERIFY(!hint->isVisible());
 

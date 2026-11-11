@@ -185,17 +185,10 @@ QtObject {
     property QtObject discovery: QtObject { function cancelKnock(id) {} }
     property QtObject roomInfo: QtObject {
         property int mutualSummaryRevision: 0
-        property var mutualRooms: []
         function mutualRoomHint(id) {
             return id === "@bk010:x" ? "2 room(s) in common" : ""
         }
-        function requestMutualRooms(id) {}
     }
-    property QtObject moderation: QtObject {
-        property bool supported: false
-        property bool busy: false
-    }
-    property QtObject conversations: QtObject { property bool supported: false }
     function textFontWithEmoji(f) { return f }
 }
 )").arg(fxBadges ? QStringLiteral("true") : QStringLiteral("false"), fxCompact ? QStringLiteral("true") : QStringLiteral("false")).toUtf8(),
@@ -991,16 +984,19 @@ true));
         auto *area = h.row->findChild<QQuickItem *>(
             QStringLiteral("roomInviterProfileArea"));
         QVERIFY2(area, "the inviter cannot be opened from the invitation row");
-        QVERIFY(area->isEnabled() && area->width() > 0);
+        QVERIFY(area->property("enabled").toBool() && area->width() > 0);
+        QSignalSpy asked(h.row, SIGNAL(inviterProfileRequested(QVariant,QQuickItem*)));
+        QVERIFY(asked.isValid());
         const QPoint at = area->mapToScene(
             QPointF(area->width() / 2, area->height() / 2)).toPoint();
         QTest::mouseClick(h.window.get(), Qt::LeftButton, {}, at);
-        QObject *card = nullptr;
-        QTRY_VERIFY((card = h.rootOwner->findChild<QObject *>(
-                         QStringLiteral("inviterProfilePopover"))) != nullptr);
-        QTRY_VERIFY(card->property("opened").toBool());
-        QCOMPARE(card->property("userId").toString(), QStringLiteral("@bk010:x"));
-        QCOMPARE(card->property("roomScoped").toBool(), false);
+        QCOMPARE(asked.count(), 1);
+        const QVariantMap member = asked.at(0).at(0).toMap();
+        QCOMPARE(member.value(QStringLiteral("userId")).toString(),
+                 QStringLiteral("@bk010:x"));
+        QCOMPARE(member.value(QStringLiteral("displayName")).toString(),
+                 QStringLiteral("bk010"));
+        QCOMPARE(member.value(QStringLiteral("roomScoped")).toBool(), false);
     }
 
     void aBridgeChipNeverHidesTheRoomName()

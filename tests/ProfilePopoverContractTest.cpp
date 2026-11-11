@@ -27,12 +27,26 @@ private Q_SLOTS:
             QStringLiteral("TimelinePane.qml"),
             QStringLiteral("ThreadPanel.qml"),
             QStringLiteral("RoomInfoPanel.qml"),
+            QStringLiteral("RoomsPanel.qml"),
         };
         for (const QString &view : views) {
             const QString src = read(qmlPath(view));
             QVERIFY2(!src.isEmpty(), qUtf8Printable("could not read " + view));
             QCOMPARE(src.count(QStringLiteral("MemberProfilePopover {")), 1);
         }
+    }
+
+    void theRoomListOpensAnInvitersCardWithNoRoomContext()
+    {
+        const QString panel = read(qmlPath(QStringLiteral("RoomsPanel.qml")));
+        QVERIFY(panel.contains(
+            QStringLiteral("inviterProfilePopover.openFor(member, anchor)")));
+        const QString presenter =
+            read(qmlPath(QStringLiteral("RoomListClassicPresenter.qml")));
+        QVERIFY(presenter.contains(
+            QStringLiteral("root.inviterProfileRequested(member, anchor)")));
+        const QString row = read(qmlPath(QStringLiteral("RoomDelegate.qml")));
+        QVERIFY(row.contains(QStringLiteral("roomScoped: false")));
     }
 
     void zeroInstancesInAnyDelegate()

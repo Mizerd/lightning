@@ -68,6 +68,7 @@ Item {
     signal leaveRoomRequested(string roomId, string roomName)
     signal chatBackgroundRequested(string roomId, string roomName)
     signal inviteRequested(string roomId)
+    signal inviterProfileRequested(var member, Item anchor)
     signal inviteRejectRequested(string roomId, string roomName)
 
     ListView {
@@ -250,6 +251,8 @@ Item {
             onChatBackgroundRequested: root.chatBackgroundRequested(model.roomId, model.name)
             onInviteRequested: root.inviteRequested(model.roomId)
             onSelectRoomRequested: root.selectAt(index, model.roomId, 0)
+            onInviterProfileRequested: (member, anchor) =>
+                root.inviterProfileRequested(member, anchor)
         }
     }
 

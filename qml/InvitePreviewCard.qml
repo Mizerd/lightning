@@ -115,7 +115,7 @@ Rectangle {
                 id: inviterMouse
                 objectName: "invitePreviewInviterProfileArea"
                 anchors.fill: parent
-                enabled: card.inviterUserId !== ""
+                enabled: card.inviterUserId.length > 0
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 Accessible.role: Accessible.Button

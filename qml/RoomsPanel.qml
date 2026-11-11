@@ -700,6 +700,11 @@ Rectangle {
         }
 
         ActivityCenterPanel { id: activityPanel }
+        MemberProfilePopover {
+            id: inviterProfilePopover
+            objectName: "inviterProfilePopover"
+            parent: Overlay.overlay
+        }
         InvitePeopleDialog {
             id: roomInviteDialog
             objectName: "roomListInviteDialog"
@@ -979,6 +984,8 @@ Rectangle {
                         roomChatBackgroundDialog.openForRoom(roomId, roomName)
                     onInviteRequested: (roomId) =>
                         roomInviteDialog.openFor(roomId)
+                    onInviterProfileRequested: (member, anchor) =>
+                        inviterProfilePopover.openFor(member, anchor)
                 }
             }
 

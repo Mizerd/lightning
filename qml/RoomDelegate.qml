@@ -45,6 +45,7 @@ Item {
     signal chatBackgroundRequested()
     signal inviteRequested()
     signal selectRoomRequested()
+    signal inviterProfileRequested(var member, Item anchor)
 
     readonly property color metaInk: selected ? AppTheme.selectedText
                                               : AppTheme.textMuted
@@ -512,9 +513,8 @@ Item {
     function openInviterProfile(anchor) {
         if (root.inviterUserId === "")
             return
-        inviterProfileLoader.active = true
         const name = String(model.inviter || "")
-        inviterProfileLoader.item.openFor({
+        root.inviterProfileRequested({
             userId: root.inviterUserId,
             displayName: name !== root.inviterUserId ? name : "",
             avatarUrl: "",
@@ -522,14 +522,6 @@ Item {
             withholdMedia: !(app.accountPrefs
                              && app.accountPrefs.inviteAvatarsAllowed)
         }, anchor)
-    }
-    Loader {
-        id: inviterProfileLoader
-        active: false
-        sourceComponent: MemberProfilePopover {
-            objectName: "inviterProfilePopover"
-            parent: Overlay.overlay
-        }
     }
     Loader {
         id: inviteMenuLoader
