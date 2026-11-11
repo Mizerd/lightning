@@ -997,6 +997,39 @@ true));
         QCOMPARE(member.value(QStringLiteral("displayName")).toString(),
                  QStringLiteral("bk010"));
         QCOMPARE(member.value(QStringLiteral("roomScoped")).toBool(), false);
+
+        auto *label = h.row->findChild<QQuickItem *>(
+            QStringLiteral("roomInviteLabel"));
+        QVERIFY(label && area->width() < label->width() - 20);
+        QSignalSpy rowClicked(h.row, SIGNAL(clicked()));
+        QTest::mouseClick(h.window.get(), Qt::LeftButton, {},
+                          label->mapToScene(QPointF(label->width() - 4,
+                                                    label->height() / 2)).toPoint());
+        QCOMPARE(asked.count(), 1);
+        QCOMPARE(rowClicked.count(), 1);
+
+        h.row->forceActiveFocus();
+        QTest::keyClick(h.window.get(), Qt::Key_Menu);
+        QObject *menu = nullptr;
+        QTRY_VERIFY((menu = h.row->findChild<QObject *>(
+                         QStringLiteral("inviteContextMenu"))) != nullptr);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        auto *view = menu->findChild<QObject *>(
+            QStringLiteral("inviteViewInviterItem"));
+        QVERIFY(view && view->property("visible").toBool());
+        QMetaObject::invokeMethod(view, "triggered");
+        QCOMPARE(asked.count(), 2);
+    }
+
+    void anInvitationWithNoInviterNameOpensNoCard()
+    {
+        ClassicRow h;
+        QVERIFY(buildClassicRow(h, 0, 0, 0, QStringLiteral("invited"), true,
+                                QString()));
+        auto *area = h.row->findChild<QQuickItem *>(
+            QStringLiteral("roomInviterProfileArea"));
+        QVERIFY(area);
+        QVERIFY(!area->property("enabled").toBool());
     }
 
     void aBridgeChipNeverHidesTheRoomName()

@@ -28,19 +28,21 @@ constexpr qlonglong kCreatorPowerLevel = qlonglong(1) << 53;
 RoomInfoController::RoomInfoController(QObject *parent)
     : QObject(parent)
 {
-    // Coalesces member-event bursts into one rescan per cached user.
+    m_mutualSummaryClock.start();
+    // Coalesces member-event bursts into one rescan per recently shown hint;
+    // hints nobody asked for within the window are dropped instead.
     m_mutualSummaryRefresh.setSingleShot(true);
     m_mutualSummaryRefresh.setInterval(2000);
     connect(&m_mutualSummaryRefresh, &QTimer::timeout, this, [this] {
-        if (!m_client)
-            return;
-        for (auto it = m_mutualSummaries.cbegin();
-             it != m_mutualSummaries.cend(); ++it) {
-            if (std::find(m_mutualSummaryOps.cbegin(), m_mutualSummaryOps.cend(),
-                          it.key()) != m_mutualSummaryOps.cend())
+        const qint64 now = m_mutualSummaryClock.elapsed();
+        const QStringList users = m_mutualSummaryAsked.keys();
+        for (const QString &user : users) {
+            if (now - m_mutualSummaryAsked.value(user) > m_mutualHintWindowMs) {
+                m_mutualSummaryAsked.remove(user);
+                m_mutualSummaries.remove(user);
                 continue;
-            if (const quint64 op = m_client->fetchMutualRooms(it.key()))
-                m_mutualSummaryOps.insert(op, it.key());
+            }
+            startMutualSummaryScan(user);
         }
     });
 }
@@ -98,10 +100,13 @@ void RoomInfoController::setClient(MatrixClient *client)
                 [this](quint64 opId, const QString &userId,
                        const QVariantList &rooms, bool complete) {
             const QString summaryUser = m_mutualSummaryOps.take(opId);
-            if (opId != 0 && (summaryUser == userId
-                              || (opId == m_mutualRoomsOp
-                                  && userId == m_mutualRoomsUser)))
+            if (!m_mutualSummaryStarting.isEmpty()
+                && userId == m_mutualSummaryStarting) {
+                m_mutualSummaryStartAnswered = true;
                 storeMutualSummary(userId, rooms, complete);
+            } else if (opId != 0 && summaryUser == userId) {
+                storeMutualSummary(userId, rooms, complete);
+            }
             // Match op and user, so a late answer for a closed card never
             // populates the next one.
             if (opId == 0 || opId != m_mutualRoomsOp
@@ -114,7 +119,7 @@ void RoomInfoController::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::roomMemberEventSeen,
                 this, &RoomInfoController::onMembersChanged);
         connect(m_client, &MatrixClient::roomMemberEventSeen, this, [this] {
-            if (!m_mutualSummaries.isEmpty()
+            if (!m_mutualSummaryAsked.isEmpty()
                 && !m_mutualSummaryRefresh.isActive())
                 m_mutualSummaryRefresh.start();
         });
@@ -1067,15 +1072,12 @@ QString RoomInfoController::mutualRoomHint(const QString &userId)
 {
     if (userId.isEmpty() || !m_client)
         return {};
+    m_mutualSummaryAsked.insert(userId, m_mutualSummaryClock.elapsed());
+    if (!m_mutualSummaries.contains(userId))
+        startMutualSummaryScan(userId);
     const auto it = m_mutualSummaries.constFind(userId);
-    if (it == m_mutualSummaries.cend()) {
-        if (std::find(m_mutualSummaryOps.cbegin(), m_mutualSummaryOps.cend(),
-                      userId) == m_mutualSummaryOps.cend()) {
-            if (const quint64 op = m_client->fetchMutualRooms(userId))
-                m_mutualSummaryOps.insert(op, userId);
-        }
+    if (it == m_mutualSummaries.cend())
         return {};
-    }
     const int count = it->value(QStringLiteral("count")).toInt();
     // Incomplete: some member lists are not loaded, so there may be more.
     if (it->value(QStringLiteral("complete")).toBool())
@@ -1083,6 +1085,22 @@ QString RoomInfoController::mutualRoomHint(const QString &userId)
                           : tr("%n room(s) in common", "", count);
     return count == 0 ? tr("No known rooms in common")
                       : tr("At least %n room(s) in common", "", count);
+}
+
+void RoomInfoController::startMutualSummaryScan(const QString &userId)
+{
+    if (!m_client
+        || std::find(m_mutualSummaryOps.cbegin(), m_mutualSummaryOps.cend(),
+                     userId) != m_mutualSummaryOps.cend())
+        return;
+    // The op id is only known once the call returns, so a reply delivered
+    // inside the call is matched by user instead.
+    m_mutualSummaryStarting = userId;
+    m_mutualSummaryStartAnswered = false;
+    const quint64 op = m_client->fetchMutualRooms(userId);
+    m_mutualSummaryStarting.clear();
+    if (op && !m_mutualSummaryStartAnswered)
+        m_mutualSummaryOps.insert(op, userId);
 }
 
 void RoomInfoController::storeMutualSummary(const QString &userId,
@@ -1104,6 +1122,7 @@ void RoomInfoController::clearMutualSummaries()
 {
     m_mutualSummaryRefresh.stop();
     m_mutualSummaryOps.clear();
+    m_mutualSummaryAsked.clear();
     if (m_mutualSummaries.isEmpty())
         return;
     m_mutualSummaries.clear();

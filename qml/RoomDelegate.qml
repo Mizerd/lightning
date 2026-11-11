@@ -386,13 +386,19 @@ Item {
                     MouseArea {
                         id: inviterMouse
                         objectName: "roomInviterProfileArea"
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        // Only the drawn text: the rest of the line still selects the row.
+                        width: Math.min(parent.contentWidth, parent.width)
                         enabled: root.inviterUserId !== ""
+                                 && parent.inviterName !== ""
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("View %1's profile")
                             .arg(parent.inviterName || root.inviterUserId)
+                        Accessible.onPressAction: root.openInviterProfile(parent)
                         onClicked: root.openInviterProfile(parent)
                     }
                 }
@@ -571,7 +577,7 @@ Item {
         onLongPressed: root.openRowMenu()
     }
     Keys.onPressed: (event) => {
-        if (model.membership === "joined"
+        if ((model.membership === "joined" || root.isInviteRow)
             && (event.key === Qt.Key_Menu
                 || (event.key === Qt.Key_F10
                     && (event.modifiers & Qt.ShiftModifier)))) {

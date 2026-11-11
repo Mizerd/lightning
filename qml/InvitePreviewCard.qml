@@ -95,6 +95,7 @@ Rectangle {
             elide: Label.ElideRight
         }
         Label {
+            id: inviterLabel
             objectName: "invitePreviewInviter"
             Layout.alignment: Qt.AlignHCenter
             Layout.maximumWidth: parent.width
@@ -111,7 +112,11 @@ Rectangle {
             color: AppTheme.textMuted
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-            font.underline: inviterMouse.containsMouse
+            font.underline: inviterMouse.containsMouse || activeFocus
+            activeFocusOnTab: inviterMouse.enabled
+            Keys.onReturnPressed: card.inviterProfileRequested(inviterLabel)
+            Keys.onEnterPressed: card.inviterProfileRequested(inviterLabel)
+            Keys.onSpacePressed: card.inviterProfileRequested(inviterLabel)
             MouseArea {
                 id: inviterMouse
                 objectName: "invitePreviewInviterProfileArea"
@@ -122,6 +127,7 @@ Rectangle {
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("View %1's profile")
                     .arg(card.inviter || card.inviterUserId)
+                Accessible.onPressAction: card.inviterProfileRequested(parent)
                 onClicked: card.inviterProfileRequested(parent)
             }
         }

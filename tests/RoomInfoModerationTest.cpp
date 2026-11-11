@@ -124,8 +124,11 @@ public:
         mutualCalls << userId;
         lastOpId = nextOp++;
         mutualOpFor.insert(userId, lastOpId);
+        if (replyInline)
+            Q_EMIT mutualRoomsReceived(lastOpId, userId, {}, true);
         return lastOpId;
     }
+    bool replyInline = false;
     QStringList mutualCalls;
     QHash<QString, quint64> mutualOpFor;
     int leaveCalls = 0;
@@ -755,6 +758,57 @@ false);
 
         Q_EMIT client.loggedOut();
         QCOMPARE(controller.mutualRoomHint(inviter), QString());
+    }
+
+    void aHintAnsweredInsideTheCallIsKept()
+    {
+        FakeClient client;
+        client.replyInline = true;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        const QString inviter = QStringLiteral("@stranger:evil.example");
+        controller.mutualRoomHint(inviter);
+        QCOMPARE(controller.mutualRoomHint(inviter),
+                 QStringLiteral("No rooms in common"));
+        QCOMPARE(client.mutualCalls.size(), 1);
+    }
+
+    void theProfileCardsOwnListDoesNotFillTheHintCache()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        const QString member = QStringLiteral("@member:example.org");
+        controller.requestMutualRooms(member);
+        Q_EMIT client.mutualRoomsReceived(client.lastOpId, member, {}, true);
+        QCOMPARE(controller.mutualRooms().size(), 0);
+        Q_EMIT client.roomMemberEventSeen(QStringLiteral("!a:x"));
+        QTest::qWait(2300);
+        QCOMPARE(client.mutualCalls, QStringList{member});
+        QCOMPARE(controller.mutualRoomHint(member), QString());
+        QCOMPARE(client.mutualCalls.size(), 2);
+    }
+
+    void onlyRecentlyShownHintsAreRescannedAndTheRestDropped()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        controller.setMutualHintWindowMs(3000);
+        const QString old = QStringLiteral("@old:evil.example");
+        const QString fresh = QStringLiteral("@fresh:evil.example");
+        controller.mutualRoomHint(old);
+        Q_EMIT client.mutualRoomsReceived(client.lastOpId, old, {}, true);
+        QTest::qWait(3500);
+        controller.mutualRoomHint(fresh);
+        Q_EMIT client.mutualRoomsReceived(client.lastOpId, fresh, {}, true);
+        client.mutualCalls.clear();
+        Q_EMIT client.roomMemberEventSeen(QStringLiteral("!a:x"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.mutualCalls, QStringList{fresh}, 5000);
+        QTest::qWait(300);
+        QCOMPARE(client.mutualCalls, QStringList{fresh});
+        QCOMPARE(controller.mutualRoomHint(old), QString());
+        QCOMPARE(client.mutualCalls, (QStringList{fresh, old}));
     }
 };
 

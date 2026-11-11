@@ -1,5 +1,9 @@
 
 #include <QFile>
+#include <memory>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QQmlApplicationEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -147,6 +151,20 @@ private Q_SLOTS:
                                                    area->height() / 2)).toPoint());
         QCOMPARE(asked.count(), 1);
 
+        auto *inviterLine = card->findChild<QQuickItem *>(
+            QStringLiteral("invitePreviewInviter"));
+        QVERIFY(inviterLine);
+        card->forceActiveFocus();
+        QTest::keyClick(&window, Qt::Key_Tab);
+        QVERIFY2(inviterLine->hasActiveFocus(),
+                 "the inviter is not in the keyboard tab chain");
+        QTest::keyClick(&window, Qt::Key_Return);
+        QTest::keyClick(&window, Qt::Key_Space);
+        QCOMPARE(asked.count(), 3);
+        QTest::keyClick(&window, Qt::Key_Tab);
+        QVERIFY(card->findChild<QQuickItem *>(
+            QStringLiteral("invitePreviewAccept"))->hasActiveFocus());
+
         QVERIFY(area->property("enabled").toBool());
         card->setProperty("inviterUserId", QStringLiteral(""));
         QVERIFY(!area->property("enabled").toBool());
@@ -163,6 +181,78 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("senderProfilePopover.openFor(")));
         QVERIFY(block.contains(QStringLiteral("roomScoped: false")));
         delete card;
+    }
+
+    void aWithheldInvitersCardLoadsNoPictureOrBanner()
+    {
+        for (const bool withhold : {false, true}) {
+            QQmlEngine engine;
+            QQmlComponent stubComponent(&engine);
+            stubComponent.setData(QByteArrayLiteral(R"(
+import QtQuick
+QtObject {
+    property string currentRoomId: ""
+    property QtObject banners: QtObject {
+        property int revision: 0
+        property int requests: 0
+        function request(id) { requests += 1 }
+        function bannerFor(id) { return "mxc://evil.example/banner" }
+    }
+    property QtObject mediaBridge: QtObject { property bool supported: false }
+    property QtObject moderation: QtObject {
+        property bool supported: false
+        property bool busy: false
+    }
+    property QtObject conversations: QtObject { property bool supported: false }
+    function textFontWithEmoji(f) { return f }
+}
+)"),
+                                  QUrl(QStringLiteral("qrc:/withheld-appstub.qml")));
+            std::unique_ptr<QObject> stub(stubComponent.create());
+            QVERIFY2(stub, qPrintable(stubComponent.errorString()));
+            engine.rootContext()->setContextProperty(QStringLiteral("app"), stub.get());
+            QQmlComponent scene(&engine);
+            scene.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+ApplicationWindow {
+    width: 500
+    height: 600
+    visible: true
+    MemberProfilePopover { objectName: "popover"; parent: Overlay.overlay }
+}
+)"),
+                          QUrl(QStringLiteral("qrc:/withheld-scene.qml")));
+            std::unique_ptr<QObject> root(scene.create());
+            QVERIFY2(root, qPrintable(scene.errorString()));
+            auto *popover = root->findChild<QObject *>(QStringLiteral("popover"));
+            QVERIFY(popover);
+            QVariantMap member{
+                {QStringLiteral("userId"), QStringLiteral("@stranger:evil.example")},
+                {QStringLiteral("displayName"), QStringLiteral("Stranger")},
+                {QStringLiteral("avatarUrl"), QStringLiteral("mxc://evil.example/face")},
+                {QStringLiteral("roomScoped"), false},
+                {QStringLiteral("withholdMedia"), withhold}};
+            QMetaObject::invokeMethod(popover, "openFor", Q_ARG(QVariant, member),
+                                      Q_ARG(QVariant, QVariant()));
+            QTRY_VERIFY(popover->property("opened").toBool());
+            auto *avatar = root->findChild<QObject *>(QStringLiteral("profileCardAvatar"));
+            auto *banner = root->findChild<QObject *>(QStringLiteral("profileBannerImage"));
+            QVERIFY(avatar && banner);
+            auto *banners = stub->property("banners").value<QObject *>();
+            if (withhold) {
+                QCOMPARE(avatar->property("mxc").toString(), QString());
+                QCOMPARE(banner->property("mxc").toString(), QString());
+                QCOMPARE(banners->property("requests").toInt(), 0);
+            } else {
+                QCOMPARE(avatar->property("mxc").toString(),
+                         QStringLiteral("mxc://evil.example/face"));
+                QCOMPARE(banner->property("mxc").toString(),
+                         QStringLiteral("mxc://evil.example/banner"));
+                QCOMPARE(banners->property("requests").toInt(), 1);
+            }
+        }
     }
 };
 QTEST_MAIN(InvitePreviewCardQmlTest)

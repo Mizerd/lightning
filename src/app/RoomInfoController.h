@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QSet>
 #include <QString>
@@ -176,6 +177,8 @@ public:
     Q_PROPERTY(int mutualSummaryRevision READ mutualSummaryRevision
                NOTIFY mutualSummariesChanged)
     int mutualSummaryRevision() const { return m_mutualSummaryRevision; }
+    // How long a hint counts as still shown, for rescans and eviction.
+    void setMutualHintWindowMs(qint64 ms) { m_mutualHintWindowMs = ms; }
 
     Q_INVOKABLE QVariantMap memberFor(const QString &userId) const;
     Q_INVOKABLE QVariantMap memberFor(const QString &userId,
@@ -290,6 +293,12 @@ private:
     QHash<quint64, QString> m_mutualSummaryOps;
     int m_mutualSummaryRevision = 0;
     QTimer m_mutualSummaryRefresh;
+    QHash<QString, qint64> m_mutualSummaryAsked;
+    QElapsedTimer m_mutualSummaryClock;
+    qint64 m_mutualHintWindowMs = 60000;
+    QString m_mutualSummaryStarting;
+    bool m_mutualSummaryStartAnswered = false;
+    void startMutualSummaryScan(const QString &userId);
     void storeMutualSummary(const QString &userId, const QVariantList &rooms,
                             bool complete);
     void clearMutualSummaries();
