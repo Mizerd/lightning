@@ -705,12 +705,12 @@ void MessageComposer::setRoomId(const QString &r)
     cancelReplyOrEdit();
     m_vim->enterInsert();
     m_threadVim->enterInsert();
+    parkAttachments();
     if (!m_threadTargetRootId.isEmpty()) {
         m_threadTargetRootId.clear();
         Q_EMIT threadStateChanged();
     }
     m_draftDebounce.stop();
-    parkAttachments();
     if (!m_roomId.isEmpty() && !m_emoticonRefs.isEmpty())
         m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
     m_emoticonRefs.clear();

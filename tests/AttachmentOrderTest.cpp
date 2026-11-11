@@ -408,6 +408,25 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 1);
     }
 
+    void leavingTheRoomFromAnInlineThreadKeepsTheTrayWithTheThread()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        const QString roomA = QStringLiteral("!a:example.org");
+        composer.setRoomId(roomA);
+        composer.setThreadTargetRootId(QStringLiteral("$root"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("thread.bin"), QByteArray(16, 'a'))));
+
+        composer.setRoomId(QString());
+        composer.setRoomId(roomA);
+        QCOMPARE(composer.attachments()->rowCount(), 0);
+        composer.setThreadTargetRootId(QStringLiteral("$root"));
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+    }
+
     void signingOutOrSwitchingAccountDropsEveryTray()
     {
         for (const bool viaLogout : {true, false}) {
