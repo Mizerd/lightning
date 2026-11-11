@@ -737,8 +737,12 @@ void StateActivityGroupingTest::readMarkerIntroducesOnlyALoadedUnreadRow()
     Q_EMIT m_client->eventRemovedAt(kRoom, 2);
     QCOMPARE(m_model->rowCount(), 2);
     QVERIFY(!introduces());
+    QVERIFY(!m_model->firstUnreadShown());
+    QCOMPARE(m_model->readMarkerRow(), 1);
 
+    QSignalSpy shown(m_model, &TimelineModel::firstUnreadShownChanged);
     m_model->setShowRoomActivity(false);
+    QCOMPARE(shown.count(), 1);
     const auto join = makeStateChange(QStringLiteral("$join"),
                                       QStringLiteral("joined"),
                                       QStringLiteral("membership"),
@@ -758,6 +762,7 @@ void StateActivityGroupingTest::readMarkerIntroducesOnlyALoadedUnreadRow()
     m_client->mirror.append(fresh);
     Q_EMIT m_client->eventAppended(kRoom, fresh);
     QVERIFY(introduces());
+    QVERIFY(m_model->firstUnreadShown());
     bool announced = false;
     for (const QList<QVariant> &emitted : changed) {
         if (emitted.at(0).value<QModelIndex>().row() <= 1

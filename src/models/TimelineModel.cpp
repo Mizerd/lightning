@@ -38,6 +38,10 @@ TimelineModel::TimelineModel(QObject *parent)
 {
     connect(this, &TimelineModel::countChanged,
             this, &TimelineModel::refreshLatestCallEvent);
+    connect(this, &TimelineModel::countChanged,
+            this, &TimelineModel::firstUnreadShownChanged);
+    connect(this, &QAbstractItemModel::modelReset,
+            this, &TimelineModel::firstUnreadShownChanged);
     connect(this, &TimelineModel::modelReset,
             this, &TimelineModel::refreshLatestCallEvent);
     const auto resync = [this] {
@@ -771,6 +775,12 @@ int TimelineModel::readMarkerRow() const
     return -1;
 }
 
+bool TimelineModel::firstUnreadShown() const
+{
+    const int row = readMarkerRow();
+    return row >= 0 && dividerIntroducesVisibleContent(row);
+}
+
 int TimelineModel::stateActivityRowCount() const
 {
     int count = 0;
@@ -1236,6 +1246,7 @@ void TimelineModel::refreshActivityPresentation()
     const int exposed = rowCount();
     if (exposed > 0)
         emitPresentationGroupingChanged(0, exposed - 1);
+    Q_EMIT firstUnreadShownChanged();
 }
 
 void TimelineModel::emitPresentationGroupingChanged(int first, int last)

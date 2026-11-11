@@ -2412,6 +2412,7 @@ Rectangle {
                 property int viewportOldestRow: -1
                 readonly property bool firstUnreadLoaded:
                     !!app.timeline && app.timeline.firstUnreadRow >= 0
+                    && app.timeline.firstUnreadShown
                 readonly property int firstUnreadViewRow:
                     firstUnreadLoaded
                     ? app.timeline.count - 1 - rowWindowSkip

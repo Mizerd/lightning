@@ -26,6 +26,8 @@ class TimelineModel : public QAbstractListModel
                NOTIFY latestCallEventIdChanged)
     Q_PROPERTY(int realCount READ realEventCount NOTIFY countChanged)
     Q_PROPERTY(int firstUnreadRow READ readMarkerRow NOTIFY countChanged)
+    Q_PROPERTY(bool firstUnreadShown READ firstUnreadShown
+               NOTIFY firstUnreadShownChanged)
     Q_PROPERTY(QString typingText READ typingText NOTIFY typingTextChanged)
     Q_PROPERTY(bool canPaginate READ canPaginate NOTIFY paginationChanged)
     Q_PROPERTY(bool paginating READ paginating NOTIFY paginationChanged)
@@ -277,6 +279,7 @@ public:
                                const QString &threadRootId = {},
                                int max = 50) const;
     Q_INVOKABLE int readMarkerRow() const;
+    bool firstUnreadShown() const;
     Q_INVOKABLE int stateActivityRowCount() const;
     Q_INVOKABLE int stateGroupCount() const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
@@ -320,6 +323,7 @@ Q_SIGNALS:
                              const QString &json, const QVariantMap &encryption);
     void roomIdChanged();
     void countChanged();
+    void firstUnreadShownChanged();
     void latestCallEventIdChanged();
     void typingTextChanged();
     void paginationChanged();
