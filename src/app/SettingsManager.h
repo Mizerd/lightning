@@ -961,8 +961,8 @@ public:
     bool secretsArePortable() const;
     QString secretBackendName() const;
 
-    // False when the access token did not reach the secret store; a locked
-    // keyring is found before anything is written.
+    // False when the access token did not reach the secret store; nothing is
+    // written then, so a saved account stays exactly as it was.
     bool saveSession(const QString &homeserverUrl,
                      const QString &userId,
                      const QString &deviceId,

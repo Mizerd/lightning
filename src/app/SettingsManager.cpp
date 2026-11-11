@@ -5134,11 +5134,26 @@ bool SettingsManager::saveSession(const QString &homeserverUrl_,
         qCWarning(lcSettings) << "saveSession refused: the keyring is locked";
         return false;
     }
+    const QString slug = matrix::app_data::safeUserSlug(uidCanonical);
+    const QString holder =
+        slug.isEmpty() ? QString() : m_store->value(accountKey(slug, kAccountUserId)).toString();
+    if (slug.isEmpty() || (!holder.isEmpty() && holder != uidCanonical)) {
+        qCWarning(lcSettings) << "saveSession rejected: unsafe user id";
+        return false;
+    }
+    // The record follows the access token, so a refused store leaves a saved
+    // account exactly as it was.
+    if (m_secretStore
+        && !m_secretStore->storeSecret(uidCanonical, QLatin1String(kSecretAccessToken),
+                                       accessToken_)) {
+        qCWarning(lcSettings) << "failed to persist access token to SecretStore:"
+                              << m_secretStore->lastError();
+        return false;
+    }
     if (!upsertAccountRecord(uidCanonical, hsCanonical, deviceId_)) {
         qCWarning(lcSettings) << "saveSession rejected: unsafe user id";
         return false;
     }
-    const QString slug = matrix::app_data::safeUserSlug(uidCanonical);
     m_store->remove(accountKey(slug, kAccountSyncToken));
     clearPendingSignOut(uidCanonical);
     clearPendingSignIn(uidCanonical);
@@ -5151,16 +5166,8 @@ bool SettingsManager::saveSession(const QString &homeserverUrl_,
     m_store->setValue(accountKey(slug, kAccountAuthType), authType);
     markKeyringItems(slug, kKeyringItemsOwn);
 
-    bool saved = true;
     if (m_secretStore) {
-        if (!m_secretStore->storeSecret(uidCanonical, QLatin1String(kSecretAccessToken), accessToken_)) {
-            saved = false;
-            qCWarning(lcSettings)
-                << "failed to persist access token to SecretStore:"
-                << m_secretStore->lastError();
-        } else {
-            noteKeyringBackend(uidCanonical);
-        }
+        noteKeyringBackend(uidCanonical);
         // Rewritten on every save, even when empty, so a previous session's
         // refresh token cannot be replayed.
         if (!m_secretStore->storeSecret(uidCanonical,
@@ -5183,7 +5190,7 @@ bool SettingsManager::saveSession(const QString &homeserverUrl_,
     if (hsChanged)
         Q_EMIT homeserverUrlChanged();
     Q_EMIT sessionChanged();
-    return saved;
+    return true;
 }
 
 void SettingsManager::recordPendingSignOut(

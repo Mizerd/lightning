@@ -2445,9 +2445,14 @@ void RustSdkMatrixClient::adoptBrowserSession(
                                                    authType, clientId);
         m_persistedAccessDigest = accessTokenDigest(accessToken);
         if (!saved || !m_settings->hasSavedAccount(identity.userId)) {
-            rollBackFailedAttempt(std::exchange(m_freshLoginIdentity, {}),
-                                  hasSavedSession ? matrix::app_data::AccountIdentity{}
-                                                  : identity);
+            const auto fresh = std::exchange(m_freshLoginIdentity, {});
+            if (!fresh.isValid())
+                releaseRustHandle();
+            rollBackFailedAttempt(fresh, hasSavedSession ? matrix::app_data::AccountIdentity{}
+                                                         : identity);
+            m_userId.clear();
+            m_deviceId.clear();
+            m_openingIdentity = {};
             setState(Error);
             Q_EMIT loginFailed(saved ? tr("You signed in, but Lightning could not save this "
                                           "account on this device, so it did not open it.")
@@ -5760,6 +5765,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             const QString current = takeRustString(mx_rust_final_session_tokens(m_rustHandle));
             currentAccess = custody::parseFinalSessionTokens(current).accessToken;
         }
+        // A locked keyring may prompt once per run of refused writes, not per retry.
+        if (!m_tokenWriteFailingFor.isValid() && m_settings && m_settings->secretStore())
+            m_settings->secretStore()->allowUnlockPrompt();
         SettingsTokenStore settingsStore(m_settings);
         QElapsedTimer writeTimer;
         writeTimer.start();
@@ -6072,6 +6080,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                                       record);
                 m_userId.clear();
                 m_deviceId.clear();
+                m_openingIdentity = {};
                 Q_EMIT loginFailed(keyringRefusedSignInText());
                 return;
             }

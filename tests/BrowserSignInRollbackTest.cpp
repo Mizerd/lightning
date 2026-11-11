@@ -31,10 +31,11 @@ class BrowserSignInRollbackTest : public QObject
     class RefusingSecretStore : public InMemorySecretStore
     {
     public:
-        bool locked = true;
-        bool storeSecret(const QString &, const QString &, const QString &) override
+        bool locked = false;
+        bool refusing = false;
+        bool storeSecret(const QString &u, const QString &k, const QString &v) override
         {
-            return false;
+            return !locked && !refusing && InMemorySecretStore::storeSecret(u, k, v);
         }
         bool unlockedForWriting() override { return !locked; }
     };
@@ -1158,10 +1159,14 @@ private slots:
     {
         QTest::addColumn<bool>("locked");
         QTest::addColumn<bool>("browser");
-        QTest::newRow("password, locked") << true << false;
-        QTest::newRow("password, refused") << false << false;
-        QTest::newRow("browser, locked") << true << true;
-        QTest::newRow("browser, refused") << false << true;
+        QTest::addColumn<bool>("known");
+        for (const bool known : {false, true}) {
+            const char *who = known ? "saved account" : "new account";
+            QTest::addRow("password, locked, %s", who) << true << false << known;
+            QTest::addRow("password, refused, %s", who) << false << false << known;
+            QTest::addRow("browser, locked, %s", who) << true << true << known;
+            QTest::addRow("browser, refused, %s", who) << false << true << known;
+        }
     }
 
     void aSignInTheKeyringDoesNotTakeIsNotKept()
@@ -1171,24 +1176,37 @@ private slots:
 #else
         QFETCH(bool, locked);
         QFETCH(bool, browser);
+        QFETCH(bool, known);
         RefusingSecretStore secrets;
-        secrets.locked = locked;
         SettingsManager settings;
         settings.setSecretStore(&secrets);
+        const QString kay = QStringLiteral("@kay:example.org");
+        const QString oldDevice = QStringLiteral("OLDDEVICE");
+        const QString oldToken = QStringLiteral("old-not-a-real-token");
+        QString keys;
+        if (known) {
+            QVERIFY(settings.saveSession(QString::fromLatin1(kServer), kay, oldDevice,
+                                         oldToken));
+            keys = seedStore(storeOf(kay));
+            QVERIFY(!keys.isEmpty());
+        }
+        secrets.locked = locked;
+        secrets.refusing = !locked;
         RustSdkMatrixClient client(&settings);
         QSignalSpy succeeded(&client, &MatrixClient::loginSucceeded);
         QSignalSpy failed(&client, &MatrixClient::loginFailed);
-        const QString kay = QStringLiteral("@kay:example.org");
 
+        // A browser sign-in may only continue the device its store belongs to.
+        const QString device = known && browser ? oldDevice : QStringLiteral("NEWDEVICE");
         Restore restore;
         if (browser) {
-            adopt(client, kay, QStringLiteral("NEWDEVICE"), restore);
+            adopt(client, kay, device, restore);
         } else {
             QJsonObject accepted;
             accepted.insert(QStringLiteral("type"), QStringLiteral("login_ok"));
             accepted.insert(QStringLiteral("homeserver"), QString::fromLatin1(kServer));
             accepted.insert(QStringLiteral("user_id"), kay);
-            accepted.insert(QStringLiteral("device_id"), QStringLiteral("NEWDEVICE"));
+            accepted.insert(QStringLiteral("device_id"), device);
             accepted.insert(QStringLiteral("access_token"), QStringLiteral("not-a-real-token"));
             client.handleRustEventForTest(accepted);
         }
@@ -1199,8 +1217,18 @@ private slots:
                  qPrintable(failed.last().at(0).toString()));
         QCOMPARE(restore.calls, 0);
         QVERIFY(!client.isLoggedIn());
-        QVERIFY(!settings.hasSavedAccount(kay));
-        QVERIFY(settings.activeAccountUserId().isEmpty());
+        QVERIFY(client.currentUserId().isEmpty());
+        if (!known) {
+            QVERIFY(!settings.hasSavedAccount(kay));
+            QVERIFY(settings.activeAccountUserId().isEmpty());
+            return;
+        }
+        QVERIFY(settings.hasSavedAccount(kay));
+        QCOMPARE(settings.accountRecord(kay).value(QStringLiteral("deviceId")).toString(),
+                 oldDevice);
+        QCOMPARE(settings.activeAccountUserId(), kay);
+        QVERIFY(QFileInfo::exists(keys));
+        QCOMPARE(settings.accessTokenFor(kay), oldToken);
 #endif
     }
 

@@ -103,6 +103,8 @@ public:
         return true;
     }
     QString lastError() const override { return {}; }
+    void allowUnlockPrompt() override { ++unlockPromptsAllowed; }
+    std::atomic<int> unlockPromptsAllowed{0};
 
 private:
     mutable QMutex m_mutex;
@@ -539,6 +541,33 @@ private Q_SLOTS:
         QVERIFY(client->m_tokenWriteRetry.isActive());
         session.secrets.failWritesOf(QStringLiteral("refreshToken"), false);
         session.secrets.failWritesOf(QStringLiteral("accessToken"), false);
+        QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 5000);
+    }
+
+    void aRefusedRotationMayAskForTheKeyringOncePerRunOfRefusals()
+    {
+        RotatedSession session;
+        QVERIFY2(session.start(), "the fixture session did not reach a refresh");
+        auto *client = session.client.get();
+        client->m_tokenWriteRetryMs = 100;
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), true);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), true);
+        const auto latest = session.server->latest();
+        const QJsonObject rotation{
+            {QStringLiteral("type"), QStringLiteral("session_tokens_refreshed")},
+            {QStringLiteral("access_token"), latest.first},
+            {QStringLiteral("refresh_token"), latest.second},
+        };
+        const int before = session.secrets.unlockPromptsAllowed;
+        client->handleRustEventForTest(rotation);
+        const int first = session.secrets.unlockPromptsAllowed;
+        QTRY_VERIFY_WITH_TIMEOUT(client->m_tokenWriteAttempts > 1, 5000);
+        client->handleRustEventForTest(rotation);
+        const int later = session.secrets.unlockPromptsAllowed;
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), false);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), false);
+        QCOMPARE(first, before + 1);
+        QCOMPARE(later, first);
         QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 5000);
     }
 
