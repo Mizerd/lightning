@@ -112,6 +112,57 @@ private Q_SLOTS:
         QVERIFY(src.mid(header, 400).contains(QStringLiteral("mxc: root.inviteAvatarWithheld")));
         delete card;
     }
+
+    void theInviterOpensTheirProfileAndSharedRoomsAreShown()
+    {
+        QQuickWindow window;
+        window.resize(640, 520);
+        QQmlApplicationEngine engine;
+        QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("InvitePreviewCard"));
+        QVERIFY(created.count() > 0 || created.wait(5000));
+        auto *card = qobject_cast<QQuickItem *>(created.at(0).at(0).value<QObject *>());
+        QVERIFY(card);
+        card->setParentItem(window.contentItem());
+        card->setSize(QSizeF(600, 500));
+        card->setProperty("roomId", QStringLiteral("!r:test"));
+        card->setProperty("inviter", QStringLiteral("Stranger"));
+        card->setProperty("inviterUserId", QStringLiteral("@stranger:evil.example"));
+        card->setProperty("commonRoomsText", QStringLiteral("No rooms in common"));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, 2000));
+
+        auto *hint = card->findChild<QQuickItem *>(QStringLiteral("invitePreviewCommonRooms"));
+        QVERIFY2(hint, "the invite preview says nothing about shared rooms");
+        QVERIFY(hint->isVisible());
+        QCOMPARE(hint->property("text").toString(), QStringLiteral("No rooms in common"));
+        auto *area = card->findChild<QQuickItem *>(
+            QStringLiteral("invitePreviewInviterProfileArea"));
+        QVERIFY2(area, "the inviter cannot be opened from the invite preview");
+        QSignalSpy asked(card, SIGNAL(inviterProfileRequested(QQuickItem*)));
+        QVERIFY(asked.isValid());
+        QTest::mouseClick(&window, Qt::LeftButton, {},
+                          area->mapToScene(QPointF(area->width() / 2,
+                                                   area->height() / 2)).toPoint());
+        QCOMPARE(asked.count(), 1);
+
+        card->setProperty("inviterUserId", QString());
+        QVERIFY(!area->isEnabled());
+        card->setProperty("commonRoomsText", QString());
+        QVERIFY(!hint->isVisible());
+
+        QFile pane(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/TimelinePane.qml"));
+        QVERIFY(pane.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(pane.readAll());
+        const int at = src.indexOf(QStringLiteral("id: invitePreviewCard"));
+        QVERIFY(at > 0);
+        const QString block = src.mid(at, 3000);
+        QVERIFY(block.contains(QStringLiteral("app.roomInfo.mutualRoomHint(inviterUserId)")));
+        QVERIFY(block.contains(QStringLiteral("senderProfilePopover.openFor(")));
+        QVERIFY(block.contains(QStringLiteral("roomScoped: false")));
+        delete card;
+    }
 };
 QTEST_MAIN(InvitePreviewCardQmlTest)
 #include "InvitePreviewCardQmlTest.moc"

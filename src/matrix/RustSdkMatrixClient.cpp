@@ -13230,7 +13230,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             rooms.append(row);
         }
         Q_EMIT mutualRoomsReceived(
-            opId(), event.value(QStringLiteral("user_id")).toString(), rooms);
+            opId(), event.value(QStringLiteral("user_id")).toString(), rooms,
+            event.value(QStringLiteral("complete")).toBool(false));
         return true;
     }
 

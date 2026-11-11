@@ -12,6 +12,8 @@ Rectangle {
     property string roomName: ""
     property string topic: ""
     property string inviter: ""
+    property string inviterUserId: ""
+    property string commonRoomsText: ""
     property string avatarUrl: ""
     // MSC4278 invite_avatars for this account (the host passes
     // app.accountPrefs.inviteAvatarsAllowed). Off: the letter tile stands in
@@ -25,6 +27,7 @@ Rectangle {
 
     signal acceptRequested()
     signal declineRequested()
+    signal inviterProfileRequested(Item anchor)
 
     activeFocusOnTab: true
     function _focusInsideOrLost() {
@@ -107,6 +110,30 @@ Rectangle {
             color: AppTheme.textMuted
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+            font.underline: inviterMouse.containsMouse
+            MouseArea {
+                id: inviterMouse
+                objectName: "invitePreviewInviterProfileArea"
+                anchors.fill: parent
+                enabled: card.inviterUserId !== ""
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("View %1's profile")
+                    .arg(card.inviter || card.inviterUserId)
+                onClicked: card.inviterProfileRequested(parent)
+            }
+        }
+        Label {
+            objectName: "invitePreviewCommonRooms"
+            Layout.fillWidth: true
+            visible: card.commonRoomsText.length > 0
+            horizontalAlignment: Text.AlignHCenter
+            textFormat: Text.PlainText
+            text: card.commonRoomsText
+            color: AppTheme.textMuted
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
         }
         Label {
             Layout.fillWidth: true

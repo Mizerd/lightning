@@ -118,6 +118,16 @@ public:
         return leaveRefused ? 0 : nextOp++;
     }
     bool leaveRefused = false;
+
+    quint64 fetchMutualRooms(const QString &userId) override
+    {
+        mutualCalls << userId;
+        lastOpId = nextOp++;
+        mutualOpFor.insert(userId, lastOpId);
+        return lastOpId;
+    }
+    QStringList mutualCalls;
+    QHash<QString, quint64> mutualOpFor;
     int leaveCalls = 0;
     QString lastLeaveRoom;
 };
@@ -700,6 +710,51 @@ false);
         QVERIFY(controller.canSendMessages());
         QVERIFY(controller.canKick());
         QCOMPARE(controller.ownMembership(), QStringLiteral("joined"));
+    }
+
+    void anInvitersRoomsInCommonAreCountedOnceAndHonestly()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        const QString inviter = QStringLiteral("@stranger:evil.example");
+        QSignalSpy changed(&controller,
+                           &RoomInfoController::mutualSummariesChanged);
+
+        QCOMPARE(controller.mutualRoomHint(inviter), QString());
+        QCOMPARE(controller.mutualRoomHint(inviter), QString());
+        QCOMPARE(client.mutualCalls, QStringList{inviter});
+        const quint64 op = client.lastOpId;
+
+        const QVariantList two{
+            QVariantMap{{QStringLiteral("roomId"), QStringLiteral("!a:x")}},
+            QVariantMap{{QStringLiteral("roomId"), QStringLiteral("!b:x")}}};
+        Q_EMIT client.mutualRoomsReceived(op + 100, inviter, two, true);
+        QCOMPARE(controller.mutualRoomHint(inviter), QString());
+        Q_EMIT client.mutualRoomsReceived(op, inviter, two, true);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(controller.mutualRoomHint(inviter),
+                 QStringLiteral("2 room(s) in common"));
+        QCOMPARE(client.mutualCalls.size(), 1);
+
+        const QString other = QStringLiteral("@nobody:evil.example");
+        QCOMPARE(controller.mutualRoomHint(other), QString());
+        Q_EMIT client.mutualRoomsReceived(client.lastOpId, other, {}, false);
+        QCOMPARE(controller.mutualRoomHint(other),
+                 QStringLiteral("No known rooms in common"));
+        Q_EMIT client.roomMemberEventSeen(QStringLiteral("!a:x"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.mutualCalls.size(), 4, 5000);
+        Q_EMIT client.mutualRoomsReceived(client.mutualOpFor.value(inviter),
+                                          inviter, {}, true);
+        Q_EMIT client.mutualRoomsReceived(client.mutualOpFor.value(other),
+                                          other, {}, true);
+        QCOMPARE(controller.mutualRoomHint(inviter),
+                 QStringLiteral("No rooms in common"));
+        QCOMPARE(controller.mutualRoomHint(other),
+                 QStringLiteral("No rooms in common"));
+
+        Q_EMIT client.loggedOut();
+        QCOMPARE(controller.mutualRoomHint(inviter), QString());
     }
 };
 

@@ -80,6 +80,12 @@ ApplicationWindow {
         })
     }
 
+    // What an invite row or the invite preview hands over: no room context.
+    function openForInviter(userId, withhold) {
+        popover.openFor({ userId: userId, displayName: "", avatarUrl: "",
+                          roomScoped: false, withholdMedia: withhold })
+    }
+
     // EXACTLY what qml/MessageDelegate.qml's `mention:` branch hands over:
     // a user id and two empty strings. Keep it byte-identical in shape — the
     // whole point of the case below is that this caller knows nothing else.
@@ -163,6 +169,38 @@ private slots:
                  "another room, so every admin control on the card refuses "
                  "itself: an admin who reached the card from an avatar or a "
                  "mention sees no Kick, no Ban and no Set role at all");
+    }
+
+    void anInvitersCardBorrowsNothingFromTheCurrentRoom()
+    {
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        const QString room = QStringLiteral("!general:mock.local");
+        const QString bob = QStringLiteral("@bob:mock.local");
+        MemberInfo member;
+        member.userId = bob;
+        member.displayName = QStringLiteral("Bob Mockworth");
+        member.avatarMxcUrl = QStringLiteral("mxc://mock.local/bob-face");
+        mock->setRoomMemberForTest(room, member);
+        m_controller->setCurrentRoomId(room);
+        m_controller->roomInfo()->setRoomId(QString{});
+
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        QMetaObject::invokeMethod(m_root, "openForInviter",
+                                  Q_ARG(QVariant, bob), Q_ARG(QVariant, true));
+        QTRY_VERIFY(popover->property("opened").toBool());
+        QVERIFY2(m_controller->roomInfo()->roomId().isEmpty(),
+                 "an inviter's card re-scoped Room Information to whatever "
+                 "room is open, offering its Kick, Ban and roles");
+        QCOMPARE(popover->property("roleLabel").toString(), QString());
+        QVERIFY(!popover->property("showKick").toBool());
+        auto *avatar = find(QStringLiteral("profileCardAvatar"));
+        QVERIFY(avatar);
+        QCOMPARE(avatar->property("mxc").toString(), QString());
+        QVERIFY(find(QStringLiteral("profileOverflowButton")));
+        QMetaObject::invokeMethod(popover, "close");
+        QTRY_VERIFY(!popover->property("visible").toBool());
     }
 
     void popoverIsFixed340WideAndNonModal()

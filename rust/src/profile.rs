@@ -404,8 +404,12 @@ pub(crate) fn mutual_rooms(
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
         let mut rooms: Vec<serde_json::Value> = Vec::new();
+        // False when a room's member list is not fully loaded or the cap was hit:
+        // the target may share rooms the local store cannot show yet.
+        let mut complete = true;
         for room in client.joined_rooms() {
             if rooms.len() >= MAX_MUTUAL_ROOMS {
+                complete = false;
                 break;
             }
             let joined = matches!(
@@ -415,6 +419,9 @@ pub(crate) fn mutual_rooms(
                         == &matrix_sdk::ruma::events::room::member::MembershipState::Join
             );
             if !joined {
+                if !room.are_members_synced() {
+                    complete = false;
+                }
                 continue;
             }
             rooms.push(json!({
@@ -438,6 +445,7 @@ pub(crate) fn mutual_rooms(
                 "lifecycle": lifecycle,
                 "user_id": user_id,
                 "rooms": rooms,
+                "complete": complete,
             }),
         );
     });

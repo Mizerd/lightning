@@ -1460,7 +1460,7 @@ Q_SIGNALS:
     void ownDisplayNameChanged(quint64 opId, bool ok, const QString &error);
     void ownAvatarChanged(quint64 opId, bool ok, const QString &error);
     void mutualRoomsReceived(quint64 opId, const QString &userId,
-                             const QVariantList &rooms);
+                             const QVariantList &rooms, bool complete);
     void urlPreviewFinished(quint64 opId, bool ok, const QVariantMap &fields,
                             const QString &category, int httpStatus = 0,
                             int redirectCount = 0);

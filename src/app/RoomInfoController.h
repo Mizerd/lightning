@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -168,6 +170,12 @@ public:
     Q_PROPERTY(QVariantList mutualRooms READ mutualRooms
                NOTIFY mutualRoomsChanged)
     QVariantList mutualRooms() const { return m_mutualRooms; }
+    // One line on how many joined rooms the local store shows `userId` in, or
+    // "" until the first answer; asking starts that local scan (no request).
+    Q_INVOKABLE QString mutualRoomHint(const QString &userId);
+    Q_PROPERTY(int mutualSummaryRevision READ mutualSummaryRevision
+               NOTIFY mutualSummariesChanged)
+    int mutualSummaryRevision() const { return m_mutualSummaryRevision; }
 
     Q_INVOKABLE QVariantMap memberFor(const QString &userId) const;
     Q_INVOKABLE QVariantMap memberFor(const QString &userId,
@@ -229,6 +237,7 @@ public:
 
 Q_SIGNALS:
     void mutualRoomsChanged();
+    void mutualSummariesChanged();
     void roomIdChanged();
     void membersChanged();
     void directoryVisibilityChanged();
@@ -277,6 +286,13 @@ private:
     QVariantList m_mutualRooms;
     QString m_mutualRoomsUser;
     quint64 m_mutualRoomsOp = 0;
+    QHash<QString, QVariantMap> m_mutualSummaries;
+    QHash<quint64, QString> m_mutualSummaryOps;
+    int m_mutualSummaryRevision = 0;
+    QTimer m_mutualSummaryRefresh;
+    void storeMutualSummary(const QString &userId, const QVariantList &rooms,
+                            bool complete);
+    void clearMutualSummaries();
     void clearSnapshot();
     void clearPermissions();
     void moderate(const QString &userId, const QString &reason,

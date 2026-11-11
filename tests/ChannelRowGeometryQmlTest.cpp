@@ -183,6 +183,19 @@ QtObject {
         function roomNotificationMode(id) { return 0 }
     }
     property QtObject discovery: QtObject { function cancelKnock(id) {} }
+    property QtObject roomInfo: QtObject {
+        property int mutualSummaryRevision: 0
+        property var mutualRooms: []
+        function mutualRoomHint(id) {
+            return id === "@bk010:x" ? "2 room(s) in common" : ""
+        }
+        function requestMutualRooms(id) {}
+    }
+    property QtObject moderation: QtObject {
+        property bool supported: false
+        property bool busy: false
+    }
+    property QtObject conversations: QtObject { property bool supported: false }
     function textFontWithEmoji(f) { return f }
 }
 )").arg(fxBadges ? QStringLiteral("true") : QStringLiteral("false"), fxCompact ? QStringLiteral("true") : QStringLiteral("false")).toUtf8(),
@@ -212,6 +225,7 @@ Item {
                           lastMessagePreview: "hello"; lastActivity: 0
                           avatarUrl: ""; encrypted: false; isSpace: false
                           invitePending: false; inviter: "%6"; isFavourite: false
+                          inviterUserId: "@bk010:x"
                           identityColorKey: "!r:x"; network: ""; networkLabel: "%8"
                           category: "conversation"; memberCount: 3 }
         }
@@ -961,6 +975,32 @@ true));
             for (const QString &w : h.warnings)
                 QVERIFY2(!w.contains(QStringLiteral("ReferenceError")), qPrintable(w));
         }
+    }
+
+    void anInvitationRowShowsTheInviterAndTheirRoomsInCommon()
+    {
+        ClassicRow h;
+        QVERIFY(buildClassicRow(h, 0, 0, 0, QStringLiteral("invited"), true,
+                                QStringLiteral("bk010")));
+        auto *hint = h.row->findChild<QQuickItem *>(
+            QStringLiteral("roomInviteCommonRooms"));
+        QVERIFY2(hint, "the invitation row says nothing about shared rooms");
+        QTRY_VERIFY(hint->isVisible());
+        QCOMPARE(hint->property("text").toString(),
+                 QStringLiteral("2 room(s) in common"));
+        auto *area = h.row->findChild<QQuickItem *>(
+            QStringLiteral("roomInviterProfileArea"));
+        QVERIFY2(area, "the inviter cannot be opened from the invitation row");
+        QVERIFY(area->isEnabled() && area->width() > 0);
+        const QPoint at = area->mapToScene(
+            QPointF(area->width() / 2, area->height() / 2)).toPoint();
+        QTest::mouseClick(h.window.get(), Qt::LeftButton, {}, at);
+        QObject *card = nullptr;
+        QTRY_VERIFY((card = h.rootOwner->findChild<QObject *>(
+                         QStringLiteral("inviterProfilePopover"))) != nullptr);
+        QTRY_VERIFY(card->property("opened").toBool());
+        QCOMPARE(card->property("userId").toString(), QStringLiteral("@bk010:x"));
+        QCOMPARE(card->property("roomScoped").toBool(), false);
     }
 
     void aBridgeChipNeverHidesTheRoomName()

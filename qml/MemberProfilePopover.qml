@@ -71,6 +71,11 @@ Popup {
     property string role: ""
     property string avatarMxc: ""
     property bool isOwn: false
+    // False when opened outside a joined room (an invite's inviter): no
+    // roster, role or moderation for whichever room happens to be current.
+    property bool roomScoped: true
+    // MSC4278 invite_avatars off: a stranger's picture and banner stay unloaded.
+    property bool withholdMedia: false
 
     property string modAction: ""
     property string modError: ""
@@ -86,7 +91,7 @@ Popup {
     readonly property string badgeRole: liveRole.length > 0 ? liveRole : role
 
     function _refreshModeration() {
-        var scoped = app.roomInfo
+        var scoped = root.roomScoped && app.roomInfo
                      && app.roomInfo.roomId === app.currentRoomId
                      && userId.length > 0
         showKick = scoped ? app.roomInfo.canModerate(userId, "kick") : false
@@ -202,7 +207,10 @@ Popup {
         liveRole = ""
         avatarMxc = member.avatarUrl || ""
         isOwn = member.isOwn === true
-        _fillFromRoster()
+        roomScoped = member.roomScoped !== false
+        withholdMedia = member.withholdMedia === true
+        if (roomScoped)
+            _fillFromRoster()
         _fillFromServer()
         modAction = ""
         modError = ""
@@ -212,7 +220,7 @@ Popup {
         inviteBackChecked = true
         policyReason = ""
         policyMatched = false
-        if (app.roomInfo && app.currentRoomId.length > 0
+        if (roomScoped && app.roomInfo && app.currentRoomId.length > 0
             && app.roomInfo.roomId !== app.currentRoomId)
             app.roomInfo.roomId = app.currentRoomId
         _refreshModeration()
@@ -416,7 +424,7 @@ Popup {
             contentItem.forceActiveFocus()
         if (!opened || userId.length === 0)
             return
-        if (app.banners)
+        if (app.banners && !withholdMedia)
             app.banners.request(userId)
         if (app.bio)
             app.bio.request(userId)
@@ -527,7 +535,7 @@ Popup {
                     visible: status === Image.Ready
                     opacity: bannerMotion.shown ? 0 : 1
                     readonly property string mxc: {
-                        if (!root.opened || !app.banners)
+                        if (!root.opened || !app.banners || root.withholdMedia)
                             return ""
                         var _dep = app.banners.revision
                         return app.banners.bannerFor(root.userId)
@@ -597,7 +605,7 @@ Popup {
                     objectName: "profileCardAvatar"
                     anchors.centerIn: parent
                     size: 56
-                    mxc: root.avatarMxc
+                    mxc: root.withholdMedia ? "" : root.avatarMxc
                     name: root.visibleName
                     colorKey: root.userId
                     prominent: true

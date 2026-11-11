@@ -380,6 +380,35 @@ Item {
                                               : qsTr("Room invitation")))
                     color: root.metaInk
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    font.underline: inviterMouse.containsMouse
+                    elide: Label.ElideRight
+                    MouseArea {
+                        id: inviterMouse
+                        objectName: "roomInviterProfileArea"
+                        anchors.fill: parent
+                        enabled: root.inviterUserId !== ""
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("View %1's profile")
+                            .arg(parent.inviterName || root.inviterUserId)
+                        onClicked: root.openInviterProfile(parent)
+                    }
+                }
+                Label {
+                    objectName: "roomInviteCommonRooms"
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: {
+                        if (!root.isInviteRow || root.inviterUserId === ""
+                                || !app.roomInfo || !app.roomInfo.mutualRoomHint)
+                            return ""
+                        var _rev = app.roomInfo.mutualSummaryRevision
+                        return app.roomInfo.mutualRoomHint(root.inviterUserId)
+                    }
+                    visible: text.length > 0
+                    color: root.metaInk
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
                 }
                 RowLayout {
@@ -480,6 +509,28 @@ Item {
         if (host.item)
             host.item.popup()
     }
+    function openInviterProfile(anchor) {
+        if (root.inviterUserId === "")
+            return
+        inviterProfileLoader.active = true
+        const name = String(model.inviter || "")
+        inviterProfileLoader.item.openFor({
+            userId: root.inviterUserId,
+            displayName: name !== root.inviterUserId ? name : "",
+            avatarUrl: "",
+            roomScoped: false,
+            withholdMedia: !(app.accountPrefs
+                             && app.accountPrefs.inviteAvatarsAllowed)
+        }, anchor)
+    }
+    Loader {
+        id: inviterProfileLoader
+        active: false
+        sourceComponent: MemberProfilePopover {
+            objectName: "inviterProfilePopover"
+            parent: Overlay.overlay
+        }
+    }
     Loader {
         id: inviteMenuLoader
         active: false
@@ -497,6 +548,14 @@ Item {
                 text: qsTr("Reject invitation")
                 danger: true
                 onTriggered: root.rejectInvite()
+            }
+            AppMenuItem {
+                objectName: "inviteViewInviterItem"
+                visible: root.inviterUserId !== ""
+                enabled: visible
+                iconName: "person"
+                text: qsTr("View inviter's profile")
+                onTriggered: root.openInviterProfile(null)
             }
             AppMenuItem {
                 objectName: "inviteIgnoreUserItem"

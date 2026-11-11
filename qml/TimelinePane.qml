@@ -5410,6 +5410,13 @@ Rectangle {
                 roomName: root.currentRoom.name || ""
                 topic: root.currentRoom.topic || ""
                 inviter: root.currentRoom.inviter || ""
+                inviterUserId: root.currentRoom.inviterUserId || ""
+                commonRoomsText: {
+                    if (!visible || inviterUserId === "" || !app.roomInfo)
+                        return ""
+                    var _rev = app.roomInfo.mutualSummaryRevision
+                    return app.roomInfo.mutualRoomHint(inviterUserId)
+                }
                 avatarUrl: root.currentRoom.avatarUrl || ""
                 showAvatar: !!app.accountPrefs
                             && app.accountPrefs.inviteAvatarsAllowed
@@ -5420,6 +5427,16 @@ Rectangle {
                 errorText: root.currentRoom.inviteError || ""
                 onAcceptRequested: app.roomList.acceptInvite(app.currentRoomId)
                 onDeclineRequested: app.roomList.rejectInvite(app.currentRoomId)
+                onInviterProfileRequested: (anchor) => {
+                    var name = root.currentRoom.inviter || ""
+                    senderProfilePopover.openFor({
+                        userId: inviterUserId,
+                        displayName: name !== inviterUserId ? name : "",
+                        avatarUrl: "",
+                        roomScoped: false,
+                        withholdMedia: root.inviteAvatarWithheld
+                    }, anchor)
+                }
             }
 
             ContextView {
