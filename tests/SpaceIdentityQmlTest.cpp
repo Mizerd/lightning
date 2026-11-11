@@ -13,6 +13,7 @@
 #include "app/AppController.h"
 #include "app/RoomInfoController.h"
 #include "matrix/MatrixClient.h"
+#include "media/MediaBridge.h"
 #include "spaces/SpaceManager.h"
 
 namespace {
@@ -26,6 +27,15 @@ public:
     QList<RoomInfo> roomList;
 
     void announce() { Q_EMIT roomsChanged(); }
+
+    // Fetches are recorded and never answered, so a picture stays "loading".
+    QList<QPair<QString, int>> mxcFetches;
+    bool supportsMediaBridge() const override { return true; }
+    quint64 fetchMxcThumbnail(const QString &mxc, int width, int) override
+    {
+        mxcFetches.append({ mxc, width });
+        return quint64(mxcFetches.size());
+    }
 
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
@@ -209,6 +219,7 @@ private slots:
         // hierarchy this suite can change; everything else in the controller
         // keeps the mock backend it was built with.
         m_controller->spaces()->setClient(m_fake);
+        m_controller->mediaBridge()->setClient(m_fake);
         resetRooms();
         QCOMPARE(m_controller->spaces()->spaceCount(), 2);
 
@@ -476,6 +487,9 @@ private slots:
         QTRY_VERIFY((viewer = openViewer()) != nullptr);
         QCOMPARE(viewer->property("currentMxc").toString(),
                  QStringLiteral("mxc://example.org/parent"));
+        // Full size (width 0) through the bridge, not the avatar thumbnail.
+        QVERIFY(m_fake->mxcFetches.contains(
+            qMakePair(QStringLiteral("mxc://example.org/parent"), 0)));
         QVERIFY(QMetaObject::invokeMethod(viewer, "close"));
         QTRY_VERIFY(!openViewer());
 
