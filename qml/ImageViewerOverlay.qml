@@ -988,7 +988,7 @@ Popup {
                     color: AppTheme.scrimBorder
                     Layout.leftMargin: 4
                     Layout.rightMargin: 4
-                    visible: viewer.usesBridge
+                    visible: viewer.usesBridge && viewer.currentMxc.length === 0
                 }
                 IconButton {
                     objectName: "viewerOpenInBrowserButton"
