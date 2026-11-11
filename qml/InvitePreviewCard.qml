@@ -96,7 +96,8 @@ Rectangle {
         }
         Label {
             objectName: "invitePreviewInviter"
-            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignHCenter
+            Layout.maximumWidth: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
