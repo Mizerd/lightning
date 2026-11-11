@@ -1013,7 +1013,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7115"/>
+        <location filename="../src/app/AppController.cpp" line="+7122"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -1134,12 +1134,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आने वाली कॉल</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5496"/>
+        <location filename="../src/app/AppController.cpp" line="-5503"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>खाता बदलने के कारण साइन-आउट रद्द कर दिया गया। कुछ भी रीसेट नहीं हुआ।</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+85"/>
         <source>Missed call</source>
         <translation>छूटी हुई कॉल</translation>
     </message>
@@ -1290,13 +1290,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD प्रारूप में वास्तविक तिथियाँ दें, जहाँ “से” तिथि “तक” तिथि के बाद की न हो।</translation>
     </message>
     <message>
-        <location line="-4722"/>
-        <location line="+2688"/>
+        <location line="-4729"/>
+        <location line="+2695"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2687"/>
+        <location line="-2694"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>यह एक टेस्ट सूचना है। यदि आप इसे पढ़ पा रहे हैं, तो डेस्कटॉप सूचनाएँ काम कर रही हैं।</translation>
     </message>
@@ -1311,7 +1311,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>कॉल शुरू हुई</translation>
     </message>
     <message>
-        <location line="+930"/>
+        <location line="+937"/>
         <source>Joined the space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2063,7 +2063,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AuthManager</name>
     <message>
-        <location filename="../src/auth/AuthManager.cpp" line="+402"/>
+        <location filename="../src/auth/AuthManager.cpp" line="+404"/>
         <source>This build cannot perform browser sign-in.</source>
         <translation>यह बिल्ड ब्राउज़र से साइन इन नहीं कर सकता।</translation>
     </message>
@@ -2101,6 +2101,11 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+45"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>Lightning इस सर्वर का खाता इस डिवाइस पर नहीं रख सकता, इसलिए उसने आपका ब्राउज़र नहीं खोला।</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Your system keyring is locked, and Lightning keeps your sign-in there. Unlock it when asked, then try again.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+8"/>
@@ -19615,21 +19620,21 @@ Signing out and signing in again is the only fix.</source>
         <translation>इस खाते की स्थानीय स्टोरेज का नाम इस डिवाइस पर पहले से सहेजे गए किसी दूसरे खाते से टकरा रहा है। इसी खाते से साइन इन करना है तो पहले वह खाता हटाएँ।</translation>
     </message>
     <message>
-        <location line="+233"/>
+        <location line="+249"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>इस खाते के अनुपयोगी स्थानीय स्टोर को अलग नहीं किया जा सका। फ़ाइल सिस्टम की अनुमतियाँ जाँचें और फिर कोशिश करें।</translation>
     </message>
     <message>
-        <location line="-1063"/>
+        <location line="-1079"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+917"/>
+        <location line="+933"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Rust SDK बैकएंड शुरू नहीं किया जा सका।</translation>
     </message>
     <message>
-        <location line="-1160"/>
+        <location line="-1176"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>होमसर्वर ज़रूरी है।</translation>
@@ -19758,12 +19763,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>आप साइन इन हो गए, लेकिन Lightning इस डिवाइस पर इस खाते का स्टोरेज नहीं खोल सका। यहाँ कुछ भी सहेजा नहीं गया।</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+38"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>आप साइन इन हो गए, लेकिन Lightning इस डिवाइस पर यह खाता सहेज नहीं सका, इसलिए उसने इसे नहीं खोला।</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+109"/>
+        <source>You signed in, but your system keyring is locked or did not accept the sign-in, so Lightning did not keep it. Unlock the keyring and sign in again. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>This account&apos;s old local data could not be moved aside because it is still in use. Close any other Lightning window (check the system tray) or program using it, wait a moment, and try again.</source>
         <translation>इस खाते का पुराना स्थानीय डेटा अलग नहीं रखा जा सका क्योंकि वह अब भी उपयोग में है। कोई अन्य Lightning विंडो (सिस्टम ट्रे देखें) या प्रोग्राम जो इसे इस्तेमाल कर रहा हो, उसे बंद करें, थोड़ा रुकें और फिर कोशिश करें।</translation>
     </message>
@@ -19804,7 +19814,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4516"/>
+        <location line="+4541"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19813,15 +19823,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-4895"/>
+        <location line="-4920"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4702"/>
+        <location line="+4727"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-4897"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19829,13 +19839,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+731"/>
-        <location line="+2586"/>
+        <location line="+2611"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>स्टीकर नहीं भेजा जा सका.</translation>
     </message>
     <message>
-        <location line="-1327"/>
+        <location line="-1352"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning अभी वह भेज नहीं सकता।</translation>
     </message>
@@ -19850,7 +19860,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्थानीय Lightning सेशन रीसेट कर दिया गया। आप दोबारा साइन इन कर सकते हैं।</translation>
     </message>
     <message>
-        <location line="+298"/>
+        <location line="+301"/>
         <source>%1 is already on this device, so this sign-in was not kept and the saved account was not changed. Switch to it from the account menu, or sign in with the full Matrix ID %1. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
         <translation>%1 इस डिवाइस पर पहले से मौजूद है, इसलिए यह साइन इन सहेजा नहीं गया और सहेजे गए खाते में कोई बदलाव नहीं हुआ। खाता मेन्यू से उस खाते पर जाएँ या पूरी Matrix ID %1 से साइन इन करें। इस प्रयास से बना एक अप्रयुक्त सेशन अब सर्वर की सूची में है; आप सेशन अनुभाग से इसे साइन आउट कर सकते हैं।</translation>
     </message>
@@ -19860,7 +19870,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>सर्वर ने आपको %1 के रूप में साइन इन कराया, लेकिन इस डिवाइस पर इस साइन इन के लिए तय जगह में दूसरे खाते का डेटा रखा है। इसलिए यह साइन इन सहेजा नहीं गया और किसी भी सहेजे गए खाते में बदलाव नहीं हुआ। पूरी Matrix ID %1 से साइन इन करें। इस प्रयास से बना एक अप्रयुक्त सेशन अब सर्वर की सूची में है; %1 से साइन इन करने के बाद आप सेशन अनुभाग से इसे साइन आउट कर सकते हैं।</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+85"/>
         <source>Rust SDK login response did not include a user id.</source>
         <translation>Rust SDK के लॉगिन जवाब में यूज़र आईडी नहीं थी।</translation>
     </message>
@@ -19927,7 +19937,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>पोल की कार्रवाई पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="-6432"/>
+        <location line="-6473"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>इस खाते का डेटा अभी किसी बैकग्राउंड सेशन में उपयोग में है। थोड़ी देर रुककर दोबारा कोशिश करें।</translation>
     </message>
@@ -19957,7 +19967,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>अपना पासवर्ड दर्ज करें।</translation>
     </message>
     <message>
-        <location line="+5566"/>
+        <location line="+5607"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>संदेश भेजा नहीं जा सका। आप संदेश के “फिर कोशिश करें” विकल्प से दोबारा भेज सकते हैं।</translation>
     </message>

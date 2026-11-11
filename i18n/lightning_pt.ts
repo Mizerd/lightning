@@ -1013,7 +1013,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7115"/>
+        <location filename="../src/app/AppController.cpp" line="+7122"/>
         <source>Room invitation</source>
         <translation>Convite para a sala</translation>
     </message>
@@ -1134,12 +1134,12 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Chamada recebida</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5496"/>
+        <location filename="../src/app/AppController.cpp" line="-5503"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>O fim da sessão foi cancelado porque a conta mudou. Nada foi reposto.</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+85"/>
         <source>Missed call</source>
         <translation>Chamada perdida</translation>
     </message>
@@ -1290,13 +1290,13 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Use datas reais no formato YYYY-MM-DD, com «De» não posterior a «Até».</translation>
     </message>
     <message>
-        <location line="-4722"/>
-        <location line="+2688"/>
+        <location line="-4729"/>
+        <location line="+2695"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2687"/>
+        <location line="-2694"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Esta é uma notificação de teste. Se a conseguir ler, as notificações do ambiente de trabalho funcionam.</translation>
     </message>
@@ -1311,7 +1311,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Chamada iniciada</translation>
     </message>
     <message>
-        <location line="+930"/>
+        <location line="+937"/>
         <source>Joined the space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2063,7 +2063,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>AuthManager</name>
     <message>
-        <location filename="../src/auth/AuthManager.cpp" line="+402"/>
+        <location filename="../src/auth/AuthManager.cpp" line="+404"/>
         <source>This build cannot perform browser sign-in.</source>
         <translation>Esta compilação não consegue efetuar o início de sessão pelo navegador.</translation>
     </message>
@@ -2101,6 +2101,11 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <location line="+45"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>O Lightning não consegue manter uma conta para este servidor neste dispositivo, por isso não abriu o seu navegador.</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Your system keyring is locked, and Lightning keeps your sign-in there. Unlock it when asked, then try again.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+8"/>
@@ -19615,21 +19620,21 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>O nome de armazenamento local desta conta colide com o de outra conta já guardada neste dispositivo. Remova essa conta primeiro se quiser iniciar sessão com esta.</translation>
     </message>
     <message>
-        <location line="+233"/>
+        <location line="+249"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>Não foi possível pôr de lado um armazenamento local inutilizável desta conta. Verifique as permissões do sistema de ficheiros e tente novamente.</translation>
     </message>
     <message>
-        <location line="-1063"/>
+        <location line="-1079"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+917"/>
+        <location line="+933"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Não foi possível inicializar o backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1160"/>
+        <location line="-1176"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>É necessário um servidor.</translation>
@@ -19758,12 +19763,17 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Iniciou sessão, mas o Lightning não conseguiu abrir o armazenamento desta conta neste dispositivo. Nada foi guardado aqui.</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+38"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>Iniciou sessão, mas o Lightning não conseguiu guardar esta conta neste dispositivo, por isso não a abriu.</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+109"/>
+        <source>You signed in, but your system keyring is locked or did not accept the sign-in, so Lightning did not keep it. Unlock the keyring and sign in again. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>This account&apos;s old local data could not be moved aside because it is still in use. Close any other Lightning window (check the system tray) or program using it, wait a moment, and try again.</source>
         <translation>Os dados locais antigos desta conta não puderam ser postos de lado porque ainda estão em uso. Feche qualquer outra janela do Lightning (verifique a bandeja do sistema) ou programa que os esteja a usar, aguarde um momento e tente novamente.</translation>
     </message>
@@ -19804,7 +19814,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4516"/>
+        <location line="+4541"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19813,15 +19823,15 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-4895"/>
+        <location line="-4920"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4702"/>
+        <location line="+4727"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconhecida: %1</translation>
     </message>
     <message>
-        <location line="-4897"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19829,13 +19839,13 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+731"/>
-        <location line="+2586"/>
+        <location line="+2611"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>Não foi possível enviar o adesivo.</translation>
     </message>
     <message>
-        <location line="-1327"/>
+        <location line="-1352"/>
         <source>Lightning cannot send that yet.</source>
         <translation>O Lightning ainda não consegue enviar isso.</translation>
     </message>
@@ -19850,7 +19860,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Sessão local do Lightning reposta. Pode iniciar sessão novamente.</translation>
     </message>
     <message>
-        <location line="+298"/>
+        <location line="+301"/>
         <source>%1 is already on this device, so this sign-in was not kept and the saved account was not changed. Switch to it from the account menu, or sign in with the full Matrix ID %1. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
         <translation>%1 já está neste dispositivo, pelo que este início de sessão não foi guardado e a conta guardada não foi alterada. Mude para essa conta no menu de contas ou inicie sessão com o ID Matrix completo %1. O servidor apresenta agora uma sessão não utilizada resultante desta tentativa; pode terminá-la em Sessões.</translation>
     </message>
@@ -19860,7 +19870,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>O servidor iniciou a sua sessão como %1, mas este dispositivo guarda os dados de outra conta no local destinado a este início de sessão. Por isso, este não foi guardado e nenhuma conta guardada foi alterada. Inicie sessão com o ID Matrix completo %1. O servidor apresenta agora uma sessão não utilizada resultante desta tentativa; pode terminá-la em Sessões depois de iniciar sessão com %1.</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+85"/>
         <source>Rust SDK login response did not include a user id.</source>
         <translation>A resposta de início de sessão do Rust SDK não incluía um ID de utilizador.</translation>
     </message>
@@ -19927,7 +19937,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Não foi possível concluir a ação da sondagem.</translation>
     </message>
     <message>
-        <location line="-6432"/>
+        <location line="-6473"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Os dados desta conta ainda estão em uso por uma sessão em segundo plano. Aguarde um momento e tente novamente.</translation>
     </message>
@@ -19957,7 +19967,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Introduza a sua palavra-passe.</translation>
     </message>
     <message>
-        <location line="+5566"/>
+        <location line="+5607"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Não foi possível enviar a mensagem. Pode tentar de novo a partir da ação Tentar novamente da mensagem.</translation>
     </message>

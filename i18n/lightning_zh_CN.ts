@@ -1003,7 +1003,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7115"/>
+        <location filename="../src/app/AppController.cpp" line="+7122"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -1123,12 +1123,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>来电</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5496"/>
+        <location filename="../src/app/AppController.cpp" line="-5503"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>因账号已变更，退出登录已取消。未重置任何内容。</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+85"/>
         <source>Missed call</source>
         <translation>未接来电</translation>
     </message>
@@ -1279,13 +1279,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>请使用真实日期，格式为 YYYY-MM-DD，且“从”不能晚于“到”。</translation>
     </message>
     <message>
-        <location line="-4722"/>
-        <location line="+2688"/>
+        <location line="-4729"/>
+        <location line="+2695"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2687"/>
+        <location line="-2694"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>这是一条测试通知。如果你能看到它，说明桌面通知可以正常工作。</translation>
     </message>
@@ -1300,7 +1300,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>通话已开始</translation>
     </message>
     <message>
-        <location line="+930"/>
+        <location line="+937"/>
         <source>Joined the space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2052,7 +2052,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AuthManager</name>
     <message>
-        <location filename="../src/auth/AuthManager.cpp" line="+402"/>
+        <location filename="../src/auth/AuthManager.cpp" line="+404"/>
         <source>This build cannot perform browser sign-in.</source>
         <translation>此版本无法使用浏览器登录。</translation>
     </message>
@@ -2090,6 +2090,11 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+45"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>Lightning 无法为此服务器在本设备上保存账号，因此没有打开你的浏览器。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Your system keyring is locked, and Lightning keeps your sign-in there. Unlock it when asked, then try again.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+8"/>
@@ -19544,21 +19549,21 @@ Signing out and signing in again is the only fix.</source>
         <translation>此账号的本地存储名称与本设备上已保存的另一个账号冲突。如果要用此账号登录，请先移除那个账号。</translation>
     </message>
     <message>
-        <location line="+233"/>
+        <location line="+249"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>无法移开此账号中不可用的本地存储。请检查文件系统权限后重试。</translation>
     </message>
     <message>
-        <location line="-1063"/>
+        <location line="-1079"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+917"/>
+        <location line="+933"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>无法初始化 Rust SDK 后端。</translation>
     </message>
     <message>
-        <location line="-1160"/>
+        <location line="-1176"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>必须填写主服务器。</translation>
@@ -19687,12 +19692,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>你已登录，但 Lightning 无法在此设备上打开该账号的存储。此处未保存任何内容。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+38"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>你已登录，但 Lightning 无法在此设备上保存该账号，因此没有打开它。</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+109"/>
+        <source>You signed in, but your system keyring is locked or did not accept the sign-in, so Lightning did not keep it. Unlock the keyring and sign in again. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>This account&apos;s old local data could not be moved aside because it is still in use. Close any other Lightning window (check the system tray) or program using it, wait a moment, and try again.</source>
         <translation>该账号的旧本地数据无法移开，因为它仍在使用中。请关闭其他 Lightning 窗口（请检查系统托盘）或正在使用它的程序，稍等片刻后重试。</translation>
     </message>
@@ -19733,7 +19743,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4516"/>
+        <location line="+4541"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19742,15 +19752,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>未登录。</translation>
     </message>
     <message>
-        <location line="-4895"/>
+        <location line="-4920"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4702"/>
+        <location line="+4727"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
     </message>
     <message>
-        <location line="-4897"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19758,13 +19768,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+731"/>
-        <location line="+2586"/>
+        <location line="+2611"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>无法发送贴纸。</translation>
     </message>
     <message>
-        <location line="-1327"/>
+        <location line="-1352"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning 目前无法发送该内容。</translation>
     </message>
@@ -19779,7 +19789,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>本地 Lightning 会话已重置。你可以重新登录。</translation>
     </message>
     <message>
-        <location line="+298"/>
+        <location line="+301"/>
         <source>%1 is already on this device, so this sign-in was not kept and the saved account was not changed. Switch to it from the account menu, or sign in with the full Matrix ID %1. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
         <translation>此设备上已有 %1，因此本次登录未被保留，已保存的账号也未更改。请从账号菜单切换到该账号，或使用完整的 Matrix ID %1 登录。本次尝试在服务器上留下了一个未使用的会话；你可以在“会话”中将其退出登录。</translation>
     </message>
@@ -19789,7 +19799,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>服务器已将你登录为 %1，但此设备在原本用于保存本次登录的位置存有另一个账号的数据，因此本次登录未被保留，任何已保存的账号也均未更改。请使用完整的 Matrix ID %1 登录。本次尝试在服务器上留下了一个未使用的会话；使用 %1 登录后，你可以在“会话”中将其退出登录。</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+85"/>
         <source>Rust SDK login response did not include a user id.</source>
         <translation>Rust SDK 的登录响应中不包含用户 ID。</translation>
     </message>
@@ -19856,7 +19866,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法完成投票操作。</translation>
     </message>
     <message>
-        <location line="-6432"/>
+        <location line="-6473"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>此账号的数据仍被后台会话使用。请稍候再试。</translation>
     </message>
@@ -19886,7 +19896,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>请输入你的密码。</translation>
     </message>
     <message>
-        <location line="+5566"/>
+        <location line="+5607"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>消息发送失败。你可以通过该消息的“重试”操作再次发送。</translation>
     </message>

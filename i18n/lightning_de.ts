@@ -1014,19 +1014,19 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6180"/>
+        <location filename="../src/app/AppController.cpp" line="+6187"/>
         <location line="+1013"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6620"/>
-        <location line="+2688"/>
+        <location filename="../src/app/AppController.cpp" line="-6627"/>
+        <location line="+2695"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2687"/>
+        <location line="-2694"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
@@ -1046,7 +1046,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Die Abmeldung wurde abgebrochen, weil sich das Konto geändert hat. Es wurde nichts zurückgesetzt.</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+85"/>
         <source>Missed call</source>
         <translation>Verpasster Anruf</translation>
     </message>
@@ -2063,7 +2063,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>AuthManager</name>
     <message>
-        <location filename="../src/auth/AuthManager.cpp" line="+402"/>
+        <location filename="../src/auth/AuthManager.cpp" line="+404"/>
         <source>This build cannot perform browser sign-in.</source>
         <translation>Diese Version kann keine Browser-Anmeldung durchführen.</translation>
     </message>
@@ -2101,6 +2101,11 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <location line="+45"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>Lightning kann auf diesem Gerät kein Konto für diesen Server behalten, daher wurde dein Browser nicht geöffnet.</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Your system keyring is locked, and Lightning keeps your sign-in there. Unlock it when asked, then try again.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+8"/>
@@ -19703,13 +19708,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-830"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+917"/>
+        <location line="+933"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Das Rust-SDK-Backend konnte nicht initialisiert werden.</translation>
     </message>
     <message>
-        <location line="-1160"/>
+        <location line="-1176"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>Ein Homeserver ist erforderlich.</translation>
@@ -19783,12 +19788,17 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Du hast dich angemeldet, aber Lightning konnte den Speicher dieses Kontos auf diesem Gerät nicht öffnen. Hier wurde nichts gespeichert.</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+38"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
         <translation>Du hast dich angemeldet, aber Lightning konnte dieses Konto nicht auf diesem Gerät speichern und hat es daher nicht geöffnet.</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+109"/>
+        <source>You signed in, but your system keyring is locked or did not accept the sign-in, so Lightning did not keep it. Unlock the keyring and sign in again. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>This account&apos;s old local data could not be moved aside because it is still in use. Close any other Lightning window (check the system tray) or program using it, wait a moment, and try again.</source>
         <translation>Die alten lokalen Daten dieses Kontos konnten nicht beiseitegelegt werden, weil sie noch verwendet werden. Schließe jedes andere Lightning-Fenster (prüfe die Systemleiste) oder Programm, das sie verwendet, warte einen Moment und versuche es erneut.</translation>
     </message>
@@ -19834,7 +19844,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4516"/>
+        <location line="+4541"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19843,15 +19853,15 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4895"/>
+        <location line="-4920"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4702"/>
+        <location line="+4727"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
     </message>
     <message>
-        <location line="-4897"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19859,13 +19869,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+731"/>
-        <location line="+2586"/>
+        <location line="+2611"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>Der Sticker konnte nicht gesendet werden.</translation>
     </message>
     <message>
-        <location line="-1327"/>
+        <location line="-1352"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning kann das noch nicht senden.</translation>
     </message>
@@ -19880,7 +19890,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Lokale Lightning-Sitzung zurückgesetzt. Du kannst dich erneut anmelden.</translation>
     </message>
     <message>
-        <location line="+298"/>
+        <location line="+301"/>
         <source>%1 is already on this device, so this sign-in was not kept and the saved account was not changed. Switch to it from the account menu, or sign in with the full Matrix ID %1. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
         <translation>%1 ist bereits auf diesem Gerät, daher wurde diese Anmeldung nicht behalten und das gespeicherte Konto nicht verändert. Wechsle über das Kontomenü dorthin oder melde dich mit der vollständigen Matrix-ID %1 an. Der Server listet jetzt eine ungenutzte Sitzung dieses Versuchs auf; du kannst sie unter „Sitzungen“ abmelden.</translation>
     </message>
@@ -19890,7 +19900,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Der Server hat dich als %1 angemeldet, aber dieses Gerät hält dort, wohin diese Anmeldung gehen sollte, die Daten eines anderen Kontos, daher wurde sie nicht behalten und kein gespeichertes Konto verändert. Melde dich mit der vollständigen Matrix-ID %1 an. Der Server listet jetzt eine ungenutzte Sitzung dieses Versuchs auf; du kannst sie unter „Sitzungen“ abmelden, nachdem du dich mit %1 angemeldet hast.</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+85"/>
         <source>Rust SDK login response did not include a user id.</source>
         <translation>Die Anmeldeantwort des Rust-SDK enthielt keine Benutzer-ID.</translation>
     </message>
