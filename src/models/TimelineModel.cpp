@@ -1172,8 +1172,6 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
             return false;
         if (e.isVirtual())
             continue;
-        if (readMarker && !m_selfUserId.isEmpty() && e.sender == m_selfUserId)
-            continue;
         if (isCallEventRow(e))
             return true;
         if (e.type != TimelineEvent::StateChange)
@@ -1266,10 +1264,6 @@ void TimelineModel::emitPresentationGroupingChanged(int first, int last)
                          BeginsSenderGroupRole, ContinuesSenderGroupRole,
                          EndsSenderGroupRole, ShowSenderIdentityRole,
                          DividerIntroducesVisibleContentRole });
-    const int marker = readMarkerRow();
-    if (marker >= 0 && marker < first)
-        Q_EMIT dataChanged(index(marker), index(marker),
-                           { DividerIntroducesVisibleContentRole });
 }
 
 void TimelineModel::rebuildThreadReplyIndex()

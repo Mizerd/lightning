@@ -717,8 +717,6 @@ void StateActivityGroupingTest::hiddenRoutineActivityLeavesItsDividerWithNothing
 
 void StateActivityGroupingTest::readMarkerIntroducesOnlyALoadedUnreadRow()
 {
-    auto mine = makeMessage(QStringLiteral("$mine"), QStringLiteral("sent here"));
-    mine.sender = QStringLiteral("@me:example.org");
     auto reply = makeMessage(QStringLiteral("$utd"), QStringLiteral("utd"));
     reply.undecryptable = true;
     reply.threadRootId = QStringLiteral("$root");
@@ -738,10 +736,6 @@ void StateActivityGroupingTest::readMarkerIntroducesOnlyALoadedUnreadRow()
     m_client->mirror.removeLast();
     Q_EMIT m_client->eventRemovedAt(kRoom, 2);
     QCOMPARE(m_model->rowCount(), 2);
-    QVERIFY(!introduces());
-
-    m_client->mirror.append(mine);
-    Q_EMIT m_client->eventAppended(kRoom, mine);
     QVERIFY(!introduces());
 
     m_model->setShowRoomActivity(false);
