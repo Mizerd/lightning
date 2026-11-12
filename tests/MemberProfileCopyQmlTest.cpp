@@ -249,13 +249,23 @@ private slots:
         QTRY_VERIFY(m_dialog->property("y").toReal()
                         + m_dialog->property("height").toReal()
                     <= m_window->height());
-        const auto inside = [card](QQuickItem *child) {
-            const QRectF r = child->mapRectToItem(card, child->boundingRect());
+        const auto rectIn = [card](QQuickItem *child) {
+            return child->mapRectToItem(card, child->boundingRect());
+        };
+        const auto inside = [card, rectIn](QQuickItem *child) {
+            const QRectF r = rectIn(child);
             return r.top() >= 0 && r.bottom() <= card->height() + 0.5
                 && r.left() >= 0 && r.right() <= card->width() + 0.5;
         };
-        QVERIFY(inside(box));
-        QVERIFY(inside(actions));
+        const auto describe = [card, rectIn](QQuickItem *child) {
+            const QRectF r = rectIn(child);
+            return QStringLiteral("%1,%2 %3x%4 in card %5x%6")
+                .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height())
+                .arg(card->width()).arg(card->height());
+        };
+        // The layout settles in a later polish pass than the bio's arrival.
+        QTRY_VERIFY2(inside(box), qPrintable(describe(box)));
+        QTRY_VERIFY2(inside(actions), qPrintable(describe(actions)));
         QVERIFY(actions->height() > 0);
         const QRectF fr = flick->mapRectToItem(box, flick->boundingRect());
         QVERIFY(fr.top() >= 0 && fr.bottom() <= box->height());
