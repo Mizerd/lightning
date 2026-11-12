@@ -288,6 +288,24 @@ pub(crate) fn across_ignore_change(
         .then(|| Remembered::Message(preview.to_owned(), ts))
 }
 
+/// Rooms refreshed for each user on an ignore-list change. The member store is
+/// lazy-loaded and a blanked room has no sender, so on the way back these are
+/// the only record of which rooms that user's events are in.
+#[derive(Default)]
+pub(crate) struct IgnoreTouched(HashMap<String, HashSet<OwnedRoomId>>);
+
+impl IgnoreTouched {
+    pub(crate) fn record(&mut self, users: &[String], room: &RoomId) {
+        for user in users {
+            self.0.entry(user.clone()).or_default().insert(room.to_owned());
+        }
+    }
+
+    pub(crate) fn touches(&self, users: &[String], room: &RoomId) -> bool {
+        users.iter().any(|user| self.0.get(user).is_some_and(|rooms| rooms.contains(room)))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum UndecryptableNow {
     Unknown,
@@ -536,6 +554,17 @@ mod tests {
         backfill.forget(&room);
         assert_eq!(backfill.pick([room.clone()], 0, 0), vec![room],
                    "a room the change touches is looked at again");
+    }
+
+    #[test]
+    fn a_room_refreshed_when_a_user_was_ignored_is_refreshed_again_when_they_are_unignored() {
+        let mut touched = IgnoreTouched::default();
+        let all = rooms(2);
+        let eve = vec!["@eve:hs".to_owned()];
+        touched.record(&eve, &all[0]);
+        assert!(touched.touches(&eve, &all[0]));
+        assert!(!touched.touches(&eve, &all[1]));
+        assert!(!touched.touches(&["@bob:hs".to_owned()], &all[0]));
     }
 
     #[test]

@@ -12099,6 +12099,7 @@ async fn run_modern_sync(
 
     let mut auth_budget = AuthRetryBudget::default();
     let mut preview_backfill = previewbackfill::Backfill::default();
+    let mut ignore_touched = previewbackfill::IgnoreTouched::default();
     let backfill_results = client
         .user_id()
         .filter(|_| background.is_none())
@@ -12322,7 +12323,8 @@ async fn run_modern_sync(
                         ignored_before = users.clone();
                         let carried = match &backfill_results {
                             Some(results) => carry_previews_across_ignore_change(
-                                &client, results, &mut preview_backfill, &delta,
+                                &client, results, &mut preview_backfill,
+                                &mut ignore_touched, &delta,
                             ).await,
                             None => (0, 0, 0),
                         };
@@ -13476,10 +13478,12 @@ async fn carry_previews_across_ignore_change(
     client: &Client,
     results: &previewbackfill::RunGuard,
     backfill: &mut previewbackfill::Backfill,
+    touched: &mut previewbackfill::IgnoreTouched,
     changed: &[String],
 ) -> (usize, usize, usize) {
     use matrix_sdk_base::latest_event::LatestEventValue;
     let Some(own) = client.user_id() else { return (0, 0, 0) };
+    let names = changed;
     let changed: Vec<OwnedUserId> =
         changed.iter().filter_map(|user| UserId::parse(user.as_str()).ok()).collect();
     let (mut kept, mut refreshed, mut blank) = (0usize, 0usize, 0usize);
@@ -13491,7 +13495,9 @@ async fn carry_previews_across_ignore_change(
             }
             _ => None,
         };
-        let mut involved = sender.is_some_and(|sender| changed.contains(&sender));
+        let mut involved = sender.is_some_and(|sender| changed.contains(&sender))
+            || touched.touches(names, room.room_id())
+            || room.direct_targets().iter().any(|target| names.iter().any(|u| target.as_str() == u));
         for user in &changed {
             if involved {
                 break;
@@ -13523,6 +13529,7 @@ async fn carry_previews_across_ignore_change(
                     previewbackfill::replace_remembered(own, room.room_id(), &was, None);
                 }
                 backfill.forget(room.room_id());
+                touched.record(names, room.room_id());
             }
             None => blank += 1,
         }
