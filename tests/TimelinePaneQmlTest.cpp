@@ -2373,34 +2373,30 @@ false, rows, threshold));
                                                   12, threshold));
     }
 
-    static bool idleTrimDue(bool following, qint64 idle, bool active,
-                            bool blocked, bool switching)
-    {
-        return AppController::idleLiveTrimDue(following, idle, active, blocked,
-                                              switching);
-    }
-    static constexpr qint64 kQuiet = AppController::kIdleLiveTrimQuietMs;
-
     void idleLiveTrimRunsForAQuietUnfocusedReaderAtTheLiveEdge()
     {
-        QVERIFY(idleTrimDue(true, kQuiet, false, false, false));
-        QVERIFY(!idleTrimDue(true, kQuiet - 1, false, false, false));
-        QVERIFY(!idleTrimDue(false, kQuiet * 10, false, false, false));
+        const qint64 q = AppController::kIdleLiveTrimQuietMs;
+        QVERIFY(AppController::idleLiveTrimDue(true, q, false, false, false));
+        QVERIFY(!AppController::idleLiveTrimDue(true, q - 1, false, false, false));
+        QVERIFY(!AppController::idleLiveTrimDue(false, q * 10, false, false, false));
     }
 
     void idleLiveTrimIsRefusedWhileTheWindowIsActive()
     {
-        QVERIFY(!idleTrimDue(true, kQuiet * 10, true, false, false));
+        const qint64 q = AppController::kIdleLiveTrimQuietMs;
+        QVERIFY(!AppController::idleLiveTrimDue(true, q * 10, true, false, false));
     }
 
     void idleLiveTrimIsRefusedWhileAResetWouldDestroySomething()
     {
-        QVERIFY(!idleTrimDue(true, kQuiet * 10, false, true, false));
+        const qint64 q = AppController::kIdleLiveTrimQuietMs;
+        QVERIFY(!AppController::idleLiveTrimDue(true, q * 10, false, true, false));
     }
 
     void idleLiveTrimIsRefusedDuringAnAccountSwitch()
     {
-        QVERIFY(!idleTrimDue(true, kQuiet * 10, false, false, true));
+        const qint64 q = AppController::kIdleLiveTrimQuietMs;
+        QVERIFY(!AppController::idleLiveTrimDue(true, q * 10, false, false, true));
     }
 
     void jumpToLiveTrimIsRefusedByABackendWithNoEventCacheAndIsThenANoOp()
