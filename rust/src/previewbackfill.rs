@@ -277,13 +277,14 @@ pub(crate) fn ignore_list_delta(before: &[String], after: &[String]) -> Vec<Stri
 
 /// matrix-sdk empties every room's event cache on an ignore-list change, so
 /// `latest_event` goes blank everywhere: a room no changed user is a member of,
-/// or wrote the preview of, keeps the preview it had instead of fetching it.
+/// or wrote the preview of, keeps the preview and stamp it had instead of
+/// fetching them.
 pub(crate) fn across_ignore_change(
     preview: &str,
     ts: u64,
     changed_user_involved: bool,
 ) -> Option<Remembered> {
-    (!changed_user_involved && !preview.is_empty())
+    (!changed_user_involved && (!preview.is_empty() || ts > 0))
         .then(|| Remembered::Message(preview.to_owned(), ts))
 }
 
@@ -523,7 +524,9 @@ mod tests {
         assert_eq!(merge_remembered(String::new(), 0, kept), ("hello".into(), 40, false),
                    "the blank the cache clear leaves is filled with the old preview and stamp");
         assert_eq!(across_ignore_change("hello", 40, true), None);
-        assert_eq!(across_ignore_change("", 40, false), None);
+        assert_eq!(across_ignore_change("", 40, false), Some(Remembered::Message(String::new(), 40)),
+                   "a room whose newest event has no preview line still keeps its place");
+        assert_eq!(across_ignore_change("", 0, false), None);
 
         let mut backfill = Backfill::default();
         let room = rooms(1).remove(0);
