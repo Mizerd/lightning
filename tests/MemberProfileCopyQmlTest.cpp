@@ -325,7 +325,7 @@ private slots:
         QString longStatus;
         for (int i = 0; i < 9; ++i)
             longStatus += QStringLiteral("a status that keeps going on and on ");
-        longStatus = longStatus.simplified().left(200);
+        longStatus = longStatus.left(200).trimmed();
         presence->setOwnStatus(QString(), longStatus, 0);
         openSelf();
         auto *status = item("profileStatusMessage");
