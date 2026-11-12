@@ -23,6 +23,7 @@
 #include "app/AppController.h"
 #include "app/ConversationController.h"
 #include "auth/AuthManager.h"
+#include "presence/PresenceManager.h"
 #include "matrix/MockMatrixClient.h"
 #include "profile/ProfileBioManager.h"
 
@@ -293,6 +294,55 @@ private slots:
         QTRY_COMPARE(flick->property("contentY").toReal(),
                      flick->property("contentHeight").toReal() - flick->height());
         QVERIFY(m_dialog->property("visible").toBool());
+    }
+    void anElidedStatusShowsItsFullTextOnHover()
+    {
+        auto *presence = m_controller->presence();
+        const QString self = QStringLiteral("@alice:mock.local");
+        const auto restore = qScopeGuard([presence] { presence->clearOwnStatus(); });
+
+        const auto openSelf = [this, self] {
+            QVERIFY(QMetaObject::invokeMethod(m_dialog, "close"));
+            QTRY_VERIFY(!m_dialog->property("visible").toBool());
+            QVariantMap member;
+            member.insert(QStringLiteral("userId"), self);
+            member.insert(QStringLiteral("isOwn"), true);
+            QVERIFY(QMetaObject::invokeMethod(m_dialog, "openFor",
+                                              Q_ARG(QVariant, QVariant(member)),
+                                              Q_ARG(QVariant, QVariant())));
+            QTRY_VERIFY(m_dialog->property("opened").toBool());
+        };
+        const auto hoverStatus = [this](QQuickItem *status) {
+            QTest::mouseMove(m_window, QPoint(0, 0));
+            const QPointF c = status->mapToScene(
+                QPointF(status->width() / 2, status->height() / 2));
+            QTest::mouseMove(m_window, c.toPoint());
+        };
+        const auto tip = [](QQuickItem *status, const char *name) {
+            return QQmlProperty(status, QLatin1String(name), qmlContext(status)).read();
+        };
+
+        QString longStatus;
+        for (int i = 0; i < 9; ++i)
+            longStatus += QStringLiteral("a status that keeps going on and on ");
+        longStatus = longStatus.simplified().left(200);
+        presence->setOwnStatus(QString(), longStatus, 0);
+        openSelf();
+        auto *status = item("profileStatusMessage");
+        QVERIFY(status);
+        QTRY_VERIFY(status->isVisible() && status->width() > 0);
+        QTRY_VERIFY(status->property("truncated").toBool());
+        hoverStatus(status);
+        QTRY_VERIFY(tip(status, "ToolTip.visible").toBool());
+        QCOMPARE(tip(status, "ToolTip.text").toString(), longStatus);
+
+        presence->setOwnStatus(QString(), QStringLiteral("short"), 0);
+        openSelf();
+        QTRY_COMPARE(status->property("text").toString(), QStringLiteral("short"));
+        QTRY_VERIFY(!status->property("truncated").toBool());
+        hoverStatus(status);
+        QTest::qWait(700);
+        QVERIFY(!tip(status, "ToolTip.visible").toBool());
     }
 };
 

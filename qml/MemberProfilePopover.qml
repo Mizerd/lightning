@@ -692,6 +692,10 @@ Popup {
                 elide: Text.ElideRight
                 color: AppTheme.stormTextSecondary
                 font: app.textFontWithEmoji(AppTheme.uiFont, AppTheme.scaled(13))
+                HoverHandler { id: statusHover }
+                ToolTip.text: statusMsg
+                ToolTip.visible: statusHover.hovered && truncated
+                ToolTip.delay: 500
             }
 
             RowLayout {
