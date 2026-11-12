@@ -19,7 +19,7 @@ pub(crate) const UNDECRYPTABLE_RELOOKS: u8 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Outcome {
-    Found(String, u64),
+    Found(String, u64, Option<OwnedUserId>),
     Undecryptable(u64, Option<OwnedEventId>),
     Nothing,
     Failed,
@@ -34,6 +34,8 @@ pub(crate) struct Backfill {
     in_flight: HashSet<OwnedRoomId>,
     failures: HashMap<OwnedRoomId, u8>,
     relook: HashMap<OwnedRoomId, (u64, u8)>,
+    generation: u64,
+    stale_before: HashMap<OwnedRoomId, u64>,
 }
 
 impl Default for Backfill {
@@ -44,6 +46,8 @@ impl Default for Backfill {
             in_flight: HashSet::new(),
             failures: HashMap::new(),
             relook: HashMap::new(),
+            generation: 0,
+            stale_before: HashMap::new(),
         }
     }
 }
@@ -103,11 +107,27 @@ impl Backfill {
         self.done.contains(room)
     }
 
-    /// Makes a room lookable again, as if it had never been looked at.
+    /// The generation a look spawned now carries; see [`Self::accepts`].
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) fn begin_ignore_change(&mut self) {
+        self.generation += 1;
+    }
+
+    /// Makes a room lookable again, and refuses a look already in flight for
+    /// it, whose answer predates the change that made it stale.
     pub(crate) fn forget(&mut self, room: &RoomId) {
         self.done.remove(room);
         self.failures.remove(room);
         self.relook.remove(room);
+        self.in_flight.remove(room);
+        self.stale_before.insert(room.to_owned(), self.generation);
+    }
+
+    pub(crate) fn accepts(&self, room: &RoomId, spawned_in: u64) -> bool {
+        spawned_in >= self.stale_before.get(room).copied().unwrap_or(0)
     }
 
     pub(crate) fn is_eligible(&self, room: &OwnedRoomId, now_ms: u64) -> bool {
@@ -127,7 +147,8 @@ pub(crate) fn pick_preview(newest_first: &[TimelineEvent]) -> Option<Outcome> {
         return Some(Outcome::Undecryptable(ts, event.event_id()));
     }
     let text = crate::raw_event_preview_line(raw);
-    if text.is_empty() { None } else { Some(Outcome::Found(text, ts)) }
+    let sender = raw.get_field::<OwnedUserId>("sender").ok().flatten();
+    if text.is_empty() { None } else { Some(Outcome::Found(text, ts, sender)) }
 }
 
 pub(crate) fn conversation_filter() -> RoomEventFilter {
@@ -178,7 +199,8 @@ pub(crate) fn is_own_join(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Remembered {
-    Message(String, u64),
+    /// Preview line, stamp, and its sender when known.
+    Message(String, u64, Option<OwnedUserId>),
     Undecryptable(u64, Option<OwnedEventId>),
 }
 
@@ -217,6 +239,19 @@ impl RunGuard {
         if st.current.get(&self.user) == Some(&self.generation) {
             st.entries.insert((self.user.clone(), room.to_owned()), what);
         }
+    }
+
+    /// Never replaces an undecryptable marker or an equal-or-newer message.
+    pub(crate) fn remember_if_newer(&self, room: &RoomId, what: Remembered) {
+        let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
+        if st.current.get(&self.user) != Some(&self.generation) {
+            return;
+        }
+        let key = (self.user.clone(), room.to_owned());
+        if !may_replace(st.entries.get(&key), &what) {
+            return;
+        }
+        st.entries.insert(key, what);
     }
 }
 
@@ -275,17 +310,56 @@ pub(crate) fn ignore_list_delta(before: &[String], after: &[String]) -> Vec<Stri
     changed
 }
 
+fn may_replace(existing: Option<&Remembered>, new: &Remembered) -> bool {
+    match (existing, new) {
+        (Some(Remembered::Undecryptable(..)), _) => false,
+        (Some(Remembered::Message(_, old, _)), Remembered::Message(_, ts, _)) => ts > old,
+        _ => true,
+    }
+}
+
+/// A room's newest event as read before matrix-sdk's own ignore-list task
+/// clears it; the two are not ordered, so this is best-effort.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LatestSnapshot {
+    pub preview: String,
+    pub ts: u64,
+    pub sender: Option<OwnedUserId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AcrossIgnore {
+    Keep(Remembered),
+    Refresh,
+    Leave,
+}
+
 /// matrix-sdk empties every room's event cache on an ignore-list change, so
-/// `latest_event` goes blank everywhere: a room no changed user is a member of,
-/// or wrote the preview of, keeps the preview and stamp it had instead of
-/// fetching them.
+/// `latest_event` goes blank everywhere. A room no changed user is linked to
+/// (member, DM, refreshed for them before) and whose shown preview no changed
+/// or unknown user wrote keeps it; any other room is fetched again.
 pub(crate) fn across_ignore_change(
-    preview: &str,
-    ts: u64,
-    changed_user_involved: bool,
-) -> Option<Remembered> {
-    (!changed_user_involved && (!preview.is_empty() || ts > 0))
-        .then(|| Remembered::Message(preview.to_owned(), ts))
+    changed: &[OwnedUserId],
+    latest: Option<&LatestSnapshot>,
+    remembered: Option<&Remembered>,
+    linked: bool,
+) -> AcrossIgnore {
+    let latest_shown = latest.filter(|l| !l.preview.is_empty());
+    let shown_sender_changed = match (latest_shown, remembered) {
+        (Some(l), _) => l.sender.as_ref().is_some_and(|s| changed.contains(s)),
+        (None, Some(Remembered::Message(_, _, sender))) => {
+            sender.as_ref().map_or(true, |s| changed.contains(s))
+        }
+        (None, _) => latest.and_then(|l| l.sender.as_ref()).is_some_and(|s| changed.contains(s)),
+    };
+    if linked || shown_sender_changed {
+        return AcrossIgnore::Refresh;
+    }
+    let Some(l) = latest.filter(|l| !l.preview.is_empty() || l.ts > 0) else {
+        return AcrossIgnore::Leave;
+    };
+    let keep = Remembered::Message(l.preview.clone(), l.ts, l.sender.clone());
+    if may_replace(remembered, &keep) { AcrossIgnore::Keep(keep) } else { AcrossIgnore::Leave }
 }
 
 /// Rooms refreshed for each user on an ignore-list change. The member store is
@@ -325,7 +399,7 @@ pub(crate) fn settle(
             }
             match now {
                 UndecryptableNow::Decrypted(text) if text.is_empty() => None,
-                UndecryptableNow::Decrypted(text) => Some(Remembered::Message(text, ts)),
+                UndecryptableNow::Decrypted(text) => Some(Remembered::Message(text, ts, None)),
                 UndecryptableNow::Unknown | UndecryptableNow::StillUndecryptable => {
                     Some(Remembered::Undecryptable(ts, Some(id)))
                 }
@@ -341,7 +415,7 @@ pub(crate) fn merge_remembered(
     remembered: Option<Remembered>,
 ) -> (String, u64, bool) {
     match remembered {
-        Some(Remembered::Message(preview, ts)) if own_preview.is_empty() => {
+        Some(Remembered::Message(preview, ts, _)) if own_preview.is_empty() => {
             (preview, own_activity.max(ts), false)
         }
         Some(Remembered::Undecryptable(ts, _)) if own_preview.is_empty() => {
@@ -412,7 +486,7 @@ mod tests {
         assert_eq!(first, all[..4].to_vec());
         assert!(backfill.pick(all.clone(), 4, 0).is_empty());
         backfill.finish(&all[0], &Outcome::Nothing, 0);
-        backfill.finish(&all[1], &Outcome::Found("x".into(), 1), 0);
+        backfill.finish(&all[1], &Outcome::Found("x".into(), 1, None), 0);
         assert_eq!(backfill.pick(all.clone(), 2, 0), all[4..6].to_vec());
     }
 
@@ -476,7 +550,7 @@ mod tests {
         backfill.pick([room.clone()], 0, 0);
         backfill.finish(&room, &Outcome::Undecryptable(5, None), 0);
         backfill.pick([room.clone()], 0, UNDECRYPTABLE_RELOOK_MS);
-        backfill.finish(&room, &Outcome::Found("now readable".into(), 5), UNDECRYPTABLE_RELOOK_MS);
+        backfill.finish(&room, &Outcome::Found("now readable".into(), 5, None), UNDECRYPTABLE_RELOOK_MS);
         assert!(backfill.is_done(&room));
     }
 
@@ -484,7 +558,7 @@ mod tests {
     fn the_preview_is_the_first_conversation_event_not_the_churn_above_it() {
         let page = vec![raw(churn(40)), raw(churn(30)), raw(message(20, "last words")),
                         raw(message(10, "older"))];
-        assert_eq!(pick_preview(&page), Some(Outcome::Found("last words".to_owned(), 20)));
+        assert_eq!(pick_preview(&page), Some(Outcome::Found("last words".to_owned(), 20, Some(uid("@a:x")))));
     }
 
     #[test]
@@ -503,7 +577,7 @@ mod tests {
         let lookalike = vec![raw(message(31, "Unable to decrypt"))];
         assert_eq!(
             pick_preview(&lookalike),
-            Some(Outcome::Found("Unable to decrypt".to_owned(), 31))
+            Some(Outcome::Found("Unable to decrypt".to_owned(), 31, Some(uid("@a:x"))))
         );
     }
 
@@ -535,25 +609,84 @@ mod tests {
         assert!(ignore_list_delta(&v(&["@a:hs"]), &v(&["@a:hs"])).is_empty());
     }
 
+    fn uid(id: &str) -> OwnedUserId {
+        OwnedUserId::try_from(id).unwrap()
+    }
+
+    fn snap(preview: &str, ts: u64, sender: &str) -> LatestSnapshot {
+        LatestSnapshot { preview: preview.into(), ts, sender: Some(uid(sender)) }
+    }
+
     #[test]
     fn across_an_ignore_change_only_a_room_the_user_is_not_in_keeps_its_preview_unfetched() {
-        let kept = across_ignore_change("hello", 40, false);
-        assert_eq!(kept, Some(Remembered::Message("hello".into(), 40)));
-        assert_eq!(merge_remembered(String::new(), 0, kept), ("hello".into(), 40, false),
+        let mallory = [uid("@mallory:hs")];
+        let eve = snap("hello", 40, "@eve:hs");
+        let kept = across_ignore_change(&mallory, Some(&eve), None, false);
+        let AcrossIgnore::Keep(what) = kept else { panic!("{kept:?}") };
+        assert_eq!(what, Remembered::Message("hello".into(), 40, Some(uid("@eve:hs"))));
+        assert_eq!(merge_remembered(String::new(), 0, Some(what)), ("hello".into(), 40, false),
                    "the blank the cache clear leaves is filled with the old preview and stamp");
-        assert_eq!(across_ignore_change("hello", 40, true), None);
-        assert_eq!(across_ignore_change("", 40, false), Some(Remembered::Message(String::new(), 40)),
+        assert_eq!(across_ignore_change(&mallory, Some(&eve), None, true), AcrossIgnore::Refresh);
+        assert_eq!(across_ignore_change(&mallory, Some(&snap("hi", 9, "@mallory:hs")), None, false),
+                   AcrossIgnore::Refresh);
+        assert_eq!(across_ignore_change(&mallory, Some(&snap("", 40, "@eve:hs")), None, false),
+                   AcrossIgnore::Keep(Remembered::Message(String::new(), 40, Some(uid("@eve:hs")))),
                    "a room whose newest event has no preview line still keeps its place");
-        assert_eq!(across_ignore_change("", 0, false), None);
+        assert_eq!(across_ignore_change(&mallory, None, None, false), AcrossIgnore::Leave);
 
         let mut backfill = Backfill::default();
         let room = rooms(1).remove(0);
         backfill.pick([room.clone()], 0, 0);
-        backfill.finish(&room, &Outcome::Found("old".into(), 1), 0);
+        backfill.finish(&room, &Outcome::Found("old".into(), 1, None), 0);
         assert!(!backfill.is_eligible(&room, 0));
         backfill.forget(&room);
         assert_eq!(backfill.pick([room.clone()], 0, 0), vec![room],
                    "a room the change touches is looked at again");
+    }
+
+    #[test]
+    fn a_kept_preview_is_dropped_when_its_own_sender_is_ignored_next() {
+        let first = across_ignore_change(&[uid("@mallory:hs")], Some(&snap("eve's secret", 40, "@eve:hs")),
+                                         None, false);
+        let AcrossIgnore::Keep(kept) = first else { panic!("{first:?}") };
+        assert_eq!(across_ignore_change(&[uid("@eve:hs")], None, Some(&kept), false),
+                   AcrossIgnore::Refresh, "the room is blank now; only the kept entry knows Eve wrote it");
+        assert_eq!(across_ignore_change(&[uid("@bob:hs")], None, Some(&kept), false), AcrossIgnore::Leave);
+        let unknown = Remembered::Message("decrypted later".into(), 7, None);
+        assert_eq!(across_ignore_change(&[uid("@bob:hs")], None, Some(&unknown), false),
+                   AcrossIgnore::Refresh, "a preview of unknown authorship is not kept on trust");
+    }
+
+    #[test]
+    fn a_carry_never_overwrites_an_undecryptable_marker_or_a_newer_preview() {
+        let bob = [uid("@bob:hs")];
+        let latest = snap("older text", 40, "@eve:hs");
+        let utd = Remembered::Undecryptable(50, None);
+        assert_eq!(across_ignore_change(&bob, Some(&latest), Some(&utd), false), AcrossIgnore::Leave);
+        let newer = Remembered::Message("newer".into(), 60, Some(uid("@eve:hs")));
+        assert_eq!(across_ignore_change(&bob, Some(&latest), Some(&newer), false), AcrossIgnore::Leave);
+        let older = Remembered::Message("older".into(), 30, Some(uid("@eve:hs")));
+        assert!(matches!(across_ignore_change(&bob, Some(&latest), Some(&older), false),
+                         AcrossIgnore::Keep(_)));
+
+        let user = uid("@me:hs");
+        let room = matrix_sdk::ruma::room_id!("!carry:hs");
+        let run = RunGuard::new(user.clone());
+        run.remember(room, utd.clone());
+        run.remember_if_newer(room, Remembered::Message("x".into(), 99, None));
+        assert_eq!(remembered(&user, room), Some(utd));
+    }
+
+    #[test]
+    fn a_look_spawned_before_an_ignore_change_is_refused_for_a_refreshed_room() {
+        let mut backfill = Backfill::default();
+        let all = rooms(2);
+        let spawned = backfill.generation();
+        backfill.begin_ignore_change();
+        backfill.forget(&all[0]);
+        assert!(!backfill.accepts(&all[0], spawned));
+        assert!(backfill.accepts(&all[0], backfill.generation()));
+        assert!(backfill.accepts(&all[1], spawned), "an untouched room keeps its answer");
     }
 
     #[test]
@@ -569,7 +702,7 @@ mod tests {
 
     #[test]
     fn a_remembered_look_fills_only_a_blank_payload_and_takes_the_later_stamp() {
-        let found = Some(Remembered::Message("last words".into(), 20));
+        let found = Some(Remembered::Message("last words".into(), 20, None));
         assert_eq!(merge_remembered(String::new(), 0, found.clone()), ("last words".into(), 20, false));
         assert_eq!(merge_remembered(String::new(), 50, found.clone()), ("last words".into(), 50, false));
         assert_eq!(merge_remembered("own".into(), 5, found), ("own".into(), 5, false));
@@ -605,7 +738,7 @@ mod tests {
         assert_eq!(merge_remembered("older".into(), 500, settled), ("older".into(), 500, false));
 
         let settled = settle(utd.clone(), None, UndecryptableNow::Decrypted("hello".into()));
-        assert_eq!(settled, Some(Remembered::Message("hello".into(), 1_000)));
+        assert_eq!(settled, Some(Remembered::Message("hello".into(), 1_000, None)));
         assert_eq!(merge_remembered(String::new(), 0, settled), ("hello".into(), 1_000, false));
 
         let anonymous = Some(Remembered::Undecryptable(1_000, None));
@@ -613,7 +746,7 @@ mod tests {
             settle(anonymous.clone(), Some(&id), UndecryptableNow::Decrypted("x".into())),
             anonymous
         );
-        let message = Some(Remembered::Message("m".into(), 1));
+        let message = Some(Remembered::Message("m".into(), 1, None));
         assert_eq!(settle(message.clone(), Some(&id), UndecryptableNow::Unknown), message);
     }
 
@@ -625,13 +758,13 @@ mod tests {
         let id = OwnedEventId::try_from("$s:x").unwrap();
         let utd = Remembered::Undecryptable(7, Some(id));
         run.remember(room, utd.clone());
-        run.remember(room, Remembered::Message("newer".into(), 9));
+        run.remember(room, Remembered::Message("newer".into(), 9, None));
         replace_remembered(&user, room, &utd, None);
-        assert_eq!(remembered(&user, room), Some(Remembered::Message("newer".into(), 9)));
+        assert_eq!(remembered(&user, room), Some(Remembered::Message("newer".into(), 9, None)));
         run.remember(room, utd.clone());
-        replace_remembered(&user, room, &utd, Some(Remembered::Message("hello".into(), 7)));
-        assert_eq!(remembered(&user, room), Some(Remembered::Message("hello".into(), 7)));
-        replace_remembered(&user, room, &Remembered::Message("hello".into(), 7), None);
+        replace_remembered(&user, room, &utd, Some(Remembered::Message("hello".into(), 7, None)));
+        assert_eq!(remembered(&user, room), Some(Remembered::Message("hello".into(), 7, None)));
+        replace_remembered(&user, room, &Remembered::Message("hello".into(), 7, None), None);
         assert_eq!(remembered(&user, room), None);
     }
 
@@ -642,22 +775,22 @@ mod tests {
         let room = room_id!("!shared:x");
 
         let old = RunGuard::new(alice.clone());
-        old.remember(room, Remembered::Message("old secret".into(), 1));
+        old.remember(room, Remembered::Message("old secret".into(), 1, None));
         assert!(remembered(&alice, room).is_some());
 
         let new = RunGuard::new(alice.clone());
         assert_eq!(remembered(&alice, room), None, "a new run starts empty");
-        new.remember(room, Remembered::Message("fresh".into(), 2));
+        new.remember(room, Remembered::Message("fresh".into(), 2, None));
 
-        old.remember(room, Remembered::Message("late old".into(), 3));
-        assert_eq!(remembered(&alice, room), Some(Remembered::Message("fresh".into(), 2)));
+        old.remember(room, Remembered::Message("late old".into(), 3, None));
+        assert_eq!(remembered(&alice, room), Some(Remembered::Message("fresh".into(), 2, None)));
         drop(old);
-        assert_eq!(remembered(&alice, room), Some(Remembered::Message("fresh".into(), 2)));
+        assert_eq!(remembered(&alice, room), Some(Remembered::Message("fresh".into(), 2, None)));
 
         assert_eq!(remembered(&bob, room), None);
         let other = RunGuard::new(bob.clone());
         other.remember(room, Remembered::Undecryptable(4, None));
-        assert_eq!(remembered(&alice, room), Some(Remembered::Message("fresh".into(), 2)));
+        assert_eq!(remembered(&alice, room), Some(Remembered::Message("fresh".into(), 2, None)));
         assert_eq!(remembered(&bob, room), Some(Remembered::Undecryptable(4, None)));
 
         drop(new);
@@ -697,7 +830,7 @@ mod tests {
 
         assert_eq!(
             look(&room).await,
-            Outcome::Found("three under thirty".to_owned(), 20)
+            Outcome::Found("three under thirty".to_owned(), 20, Some(uid("@a:x")))
         );
 
         let requests = server.server().received_requests().await.unwrap();
@@ -727,14 +860,14 @@ mod tests {
         let dave: OwnedUserId = "@dave:x".try_into().unwrap();
         let room = room_id!("!forget:x");
         let run = RunGuard::new(carol.clone());
-        run.remember(room, Remembered::Message("carol's plaintext".into(), 1));
+        run.remember(room, Remembered::Message("carol's plaintext".into(), 1, None));
         let other = RunGuard::new(dave.clone());
-        other.remember(room, Remembered::Message("dave's".into(), 2));
+        other.remember(room, Remembered::Message("dave's".into(), 2, None));
 
         forget_user(&carol);
         assert_eq!(remembered(&carol, room), None);
-        assert_eq!(remembered(&dave, room), Some(Remembered::Message("dave's".into(), 2)));
-        run.remember(room, Remembered::Message("late".into(), 3));
+        assert_eq!(remembered(&dave, room), Some(Remembered::Message("dave's".into(), 2, None)));
+        run.remember(room, Remembered::Message("late".into(), 3, None));
         assert_eq!(remembered(&carol, room), None);
         drop(run);
         drop(other);

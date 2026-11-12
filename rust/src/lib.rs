@@ -12165,7 +12165,7 @@ async fn run_modern_sync(
         let mut list_state = room_list_service.state();
         let mut list_running = false;
         let mut ignore_list_sub = client.subscribe_to_ignore_user_list_changes();
-        let mut ignored_before = ignore_list_sub.get();
+        let mut ignored_before = crate::ignore::stored_ignored_users(&client).await;
         let latest_events = client.latest_events().await;
         let mut watched_latest: BTreeSet<OwnedRoomId> = BTreeSet::new();
         let mut room_updates_sub = client.subscribe_to_all_room_updates();
@@ -12193,7 +12193,7 @@ async fn run_modern_sync(
         enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
         service.start().await;
         let mut first_sync = true;
-        let mut backfill_tasks: tokio::task::JoinSet<(OwnedRoomId, previewbackfill::Outcome)> =
+        let mut backfill_tasks: tokio::task::JoinSet<(OwnedRoomId, u64, previewbackfill::Outcome)> =
             tokio::task::JoinSet::new();
         let mut last_backfill_scan: Option<std::time::Instant> = None;
         loop {
@@ -12218,10 +12218,14 @@ async fn run_modern_sync(
                     enqueue_spaces(&events, &space_service, &client).await;
                     let now_ms = preview_backfill.now_ms();
                     while let Some(done) = backfill_tasks.try_join_next() {
-                        if let Ok((room_id, outcome)) = done {
+                        if let Ok((room_id, spawned_in, outcome)) = done {
+                            if !preview_backfill.accepts(&room_id, spawned_in) {
+                                continue;
+                            }
                             let remembered = match &outcome {
-                                previewbackfill::Outcome::Found(preview, ts) => {
-                                    Some(previewbackfill::Remembered::Message(preview.clone(), *ts))
+                                previewbackfill::Outcome::Found(preview, ts, sender) => {
+                                    Some(previewbackfill::Remembered::Message(
+                                        preview.clone(), *ts, sender.clone()))
                                 }
                                 previewbackfill::Outcome::Undecryptable(ts, id) => {
                                     Some(previewbackfill::Remembered::Undecryptable(*ts, id.clone()))
@@ -12230,7 +12234,7 @@ async fn run_modern_sync(
                             };
                             if let (Some(what), Some(results)) = (remembered, &backfill_results) {
                                 let (preview, ts, utd) = match &what {
-                                    previewbackfill::Remembered::Message(p, t) => (p.clone(), *t, false),
+                                    previewbackfill::Remembered::Message(p, t, _) => (p.clone(), *t, false),
                                     previewbackfill::Remembered::Undecryptable(t, _) => (String::new(), *t, true),
                                 };
                                 results.remember(&room_id, what);
@@ -12277,9 +12281,10 @@ async fn run_modern_sync(
                                 preview_backfill.finish(&room_id, &previewbackfill::Outcome::Failed, now_ms);
                                 continue;
                             };
+                            let spawned_in = preview_backfill.generation();
                             backfill_tasks.spawn(async move {
                                 let outcome = previewbackfill::look(&room).await;
-                                (room_id, outcome)
+                                (room_id, spawned_in, outcome)
                             });
                         }
                     }
@@ -12326,7 +12331,7 @@ async fn run_modern_sync(
                                 &client, results, &mut preview_backfill,
                                 &mut ignore_touched, &delta,
                             ).await,
-                            None => (0, 0, 0),
+                            None => (0, 0, 0, 0),
                         };
                         enqueue(&events, json!({
                             "type": "ignored_users_changed",
@@ -12334,6 +12339,7 @@ async fn run_modern_sync(
                             "previews_kept": carried.0,
                             "previews_refreshed": carried.1,
                             "previews_blank": carried.2,
+                            "previews_ms": carried.3,
                         }));
                     }
                 }
@@ -13472,69 +13478,92 @@ fn replaced_event_id(
     EventId::parse(relation.get("event_id")?.as_str()?).ok()
 }
 
-/// Runs before matrix-sdk's own ignore-list task gets to blank every room's
-/// latest event, so only rooms a changed user touches go back to the server.
+/// Best-effort: matrix-sdk's own ignore-list task clears the event cache
+/// unordered with this, so the snapshot of each room's newest event is taken
+/// before any await; only rooms a changed user touches go back to the server.
 async fn carry_previews_across_ignore_change(
     client: &Client,
     results: &previewbackfill::RunGuard,
     backfill: &mut previewbackfill::Backfill,
     touched: &mut previewbackfill::IgnoreTouched,
     changed: &[String],
-) -> (usize, usize, usize) {
+) -> (usize, usize, usize, u64) {
     use matrix_sdk_base::latest_event::LatestEventValue;
-    let Some(own) = client.user_id() else { return (0, 0, 0) };
+    use previewbackfill::{AcrossIgnore, LatestSnapshot};
+    let started = std::time::Instant::now();
+    let Some(own) = client.user_id().map(ToOwned::to_owned) else { return (0, 0, 0, 0) };
+    backfill.begin_ignore_change();
     let names = changed;
     let changed: Vec<OwnedUserId> =
         changed.iter().filter_map(|user| UserId::parse(user.as_str()).ok()).collect();
+    let snapshots: Vec<(Room, Option<LatestSnapshot>, Option<OwnedEventId>)> = client
+        .joined_rooms()
+        .into_iter()
+        .map(|room| {
+            let latest = room.latest_event();
+            let (snapshot, original) = match &latest {
+                LatestEventValue::Remote(event) => (
+                    Some(LatestSnapshot {
+                        preview: latest_event_preview_line(&latest),
+                        ts: latest.timestamp().map_or(0, |ts| u64::from(ts.get())),
+                        sender: event.raw().get_field::<OwnedUserId>("sender").ok().flatten(),
+                    }),
+                    replaced_event_id(event.raw()),
+                ),
+                _ => (None, None),
+            };
+            (room, snapshot, original)
+        })
+        .collect();
+    let decided: Vec<(OwnedRoomId, AcrossIgnore)> =
+        futures_util::stream::iter(snapshots.into_iter().map(|(room, mut snapshot, original)| {
+            let (changed, own, touched) = (&changed, &own, &*touched);
+            async move {
+                if let (Some(snapshot), Some(original)) = (snapshot.as_mut(), original) {
+                    if let Some(ts) = edited_event_timestamp_ms(&room, &original).await {
+                        snapshot.ts = ts;
+                    }
+                }
+                let mut linked = touched.touches(names, room.room_id())
+                    || room.direct_targets().iter()
+                        .any(|target| names.iter().any(|u| target.as_str() == u));
+                for user in changed {
+                    if linked {
+                        break;
+                    }
+                    linked = matches!(room.get_member_no_sync(user).await, Ok(Some(_)));
+                }
+                let kept = previewbackfill::remembered(own, room.room_id());
+                let decision = previewbackfill::across_ignore_change(
+                    changed, snapshot.as_ref(), kept.as_ref(), linked,
+                );
+                (room.room_id().to_owned(), decision)
+            }
+        }))
+        .buffer_unordered(16)
+        .collect()
+        .await;
     let (mut kept, mut refreshed, mut blank) = (0usize, 0usize, 0usize);
-    for room in client.joined_rooms() {
-        let latest = room.latest_event();
-        let sender = match &latest {
-            LatestEventValue::Remote(event) => {
-                event.raw().get_field::<OwnedUserId>("sender").ok().flatten()
-            }
-            _ => None,
-        };
-        let mut involved = sender.is_some_and(|sender| changed.contains(&sender))
-            || touched.touches(names, room.room_id())
-            || room.direct_targets().iter().any(|target| names.iter().any(|u| target.as_str() == u));
-        for user in &changed {
-            if involved {
-                break;
-            }
-            involved = matches!(room.get_member_no_sync(user).await, Ok(Some(_)));
-        }
-        let edited_ts = match &latest {
-            LatestEventValue::Remote(event) => match replaced_event_id(event.raw()) {
-                Some(original) => edited_event_timestamp_ms(&room, &original).await,
-                None => None,
-            },
-            _ => None,
-        };
-        let carried = previewbackfill::across_ignore_change(
-            &latest_event_preview_line(&latest),
-            room_ordering_timestamp_ms(&latest, edited_ts),
-            involved,
-        );
-        match carried {
-            Some(what) => {
+    for (room_id, decision) in decided {
+        match decision {
+            AcrossIgnore::Keep(what) => {
                 kept += 1;
-                results.remember(room.room_id(), what);
+                results.remember_if_newer(&room_id, what);
             }
-            None if involved => {
+            AcrossIgnore::Refresh => {
                 refreshed += 1;
                 if let Some(was @ previewbackfill::Remembered::Message(..)) =
-                    previewbackfill::remembered(own, room.room_id())
+                    previewbackfill::remembered(&own, &room_id)
                 {
-                    previewbackfill::replace_remembered(own, room.room_id(), &was, None);
+                    previewbackfill::replace_remembered(&own, &room_id, &was, None);
                 }
-                backfill.forget(room.room_id());
-                touched.record(names, room.room_id());
+                backfill.forget(&room_id);
+                touched.record(names, &room_id);
             }
-            None => blank += 1,
+            AcrossIgnore::Leave => blank += 1,
         }
     }
-    (kept, refreshed, blank)
+    (kept, refreshed, blank, started.elapsed().as_millis() as u64)
 }
 
 async fn edited_event_timestamp_ms(room: &Room, event_id: &EventId) -> Option<u64> {
@@ -19840,14 +19869,14 @@ mod labs_tests {
         let old = super::RustClient::new(std::env::temp_dir().join("lightning-labs-forget-once"))
             .expect("bridge");
         let old_run = RunGuard::new(user.clone());
-        old_run.remember(room, Remembered::Message("old session".into(), 1));
+        old_run.remember(room, Remembered::Message("old session".into(), 1, None));
         assert!(old.forget_account_state_once(identity.clone()), "the first teardown clears");
         assert_eq!(remembered(&user, room), None);
         drop(old_run);
         let new_run = RunGuard::new(user.clone());
-        new_run.remember(room, Remembered::Message("new session".into(), 2));
+        new_run.remember(room, Remembered::Message("new session".into(), 2, None));
         assert!(!old.forget_account_state_once(identity));
-        assert_eq!(remembered(&user, room), Some(Remembered::Message("new session".into(), 2)));
+        assert_eq!(remembered(&user, room), Some(Remembered::Message("new session".into(), 2, None)));
         drop(new_run);
         drop(old);
     }

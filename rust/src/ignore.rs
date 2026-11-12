@@ -53,6 +53,19 @@ pub(crate) fn set_user_ignored(
     Ok(())
 }
 
+/// The ignore list as stored, without a request.
+pub(crate) async fn stored_ignored_users(client: &matrix_sdk::Client) -> Vec<String> {
+    client
+        .account()
+        .account_data::<IgnoredUserListEventContent>()
+        .await
+        .ok()
+        .flatten()
+        .and_then(|raw| raw.deserialize().ok())
+        .map(|content| content.ignored_users.keys().map(ToString::to_string).collect())
+        .unwrap_or_default()
+}
+
 pub(crate) fn list_ignored_users(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);

@@ -13450,7 +13450,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                        << "refreshed="
                        << event.value(QStringLiteral("previews_refreshed")).toInt()
                        << "blank="
-                       << event.value(QStringLiteral("previews_blank")).toInt();
+                       << event.value(QStringLiteral("previews_blank")).toInt()
+                       << "ms=" << event.value(QStringLiteral("previews_ms")).toInt();
         Q_EMIT ignoredUsersChanged(users);
         return true;
     }
