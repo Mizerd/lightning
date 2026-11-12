@@ -13452,6 +13452,16 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                        << "blank="
                        << event.value(QStringLiteral("previews_blank")).toInt()
                        << "ms=" << event.value(QStringLiteral("previews_ms")).toInt();
+        // Their shown preview may be the changed user's; the backfill refills it.
+        const QJsonArray refreshed =
+            event.value(QStringLiteral("previews_refreshed_rooms")).toArray();
+        for (const QJsonValue &value : refreshed) {
+            auto it = m_rooms.find(value.toString());
+            if (it == m_rooms.end() || it->lastMessagePreview.isEmpty())
+                continue;
+            it->setPreviewText(QString());
+            Q_EMIT roomUpdated(it.key());
+        }
         Q_EMIT ignoredUsersChanged(users);
         return true;
     }

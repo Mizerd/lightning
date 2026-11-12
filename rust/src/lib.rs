@@ -12331,13 +12331,14 @@ async fn run_modern_sync(
                                 &client, results, &mut preview_backfill,
                                 &mut ignore_touched, &delta,
                             ).await,
-                            None => (0, 0, 0, 0),
+                            None => (0, Vec::new(), 0, 0),
                         };
                         enqueue(&events, json!({
                             "type": "ignored_users_changed",
                             "users": users,
                             "previews_kept": carried.0,
-                            "previews_refreshed": carried.1,
+                            "previews_refreshed": carried.1.len(),
+                            "previews_refreshed_rooms": carried.1,
                             "previews_blank": carried.2,
                             "previews_ms": carried.3,
                         }));
@@ -13487,11 +13488,11 @@ async fn carry_previews_across_ignore_change(
     backfill: &mut previewbackfill::Backfill,
     touched: &mut previewbackfill::IgnoreTouched,
     changed: &[String],
-) -> (usize, usize, usize, u64) {
+) -> (usize, Vec<String>, usize, u64) {
     use matrix_sdk_base::latest_event::LatestEventValue;
     use previewbackfill::{AcrossIgnore, LatestSnapshot};
     let started = std::time::Instant::now();
-    let Some(own) = client.user_id().map(ToOwned::to_owned) else { return (0, 0, 0, 0) };
+    let Some(own) = client.user_id().map(ToOwned::to_owned) else { return (0, Vec::new(), 0, 0) };
     backfill.begin_ignore_change();
     let names = changed;
     let changed: Vec<OwnedUserId> =
@@ -13543,7 +13544,7 @@ async fn carry_previews_across_ignore_change(
         .buffer_unordered(16)
         .collect()
         .await;
-    let (mut kept, mut refreshed, mut blank) = (0usize, 0usize, 0usize);
+    let (mut kept, mut refreshed, mut blank) = (0usize, Vec::new(), 0usize);
     for (room_id, decision) in decided {
         match decision {
             AcrossIgnore::Keep(what) => {
@@ -13551,7 +13552,7 @@ async fn carry_previews_across_ignore_change(
                 results.remember_if_newer(&room_id, what);
             }
             AcrossIgnore::Refresh => {
-                refreshed += 1;
+                refreshed.push(room_id.to_string());
                 if let Some(was @ previewbackfill::Remembered::Message(..)) =
                     previewbackfill::remembered(&own, &room_id)
                 {

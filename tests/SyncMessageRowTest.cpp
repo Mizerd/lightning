@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
+#include <QTimeZone>
 #include <QtTest>
 
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -361,6 +362,51 @@ private slots:
             QStringLiteral("text"), QStringLiteral("fresh"), QString(),
             QStringLiteral("$fresh")));
         QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("fresh"));
+#endif
+    }
+
+    void anIgnoreChangeBlanksOnlyTheRefreshedRoomsUntilTheBackfillRefillsThem()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        const QString touched = QStringLiteral("!touched:example.org");
+        const QString other = QStringLiteral("!other:example.org");
+        QJsonArray rooms;
+        for (const QString &id : { touched, other }) {
+            QJsonObject listed;
+            listed.insert(QStringLiteral("id"), id);
+            listed.insert(QStringLiteral("name"), id);
+            listed.insert(QStringLiteral("last_message_preview"), QStringLiteral("from bob"));
+            listed.insert(QStringLiteral("last_activity_ms"), 1700000000000.0);
+            rooms.append(listed);
+        }
+        QJsonObject snapshot;
+        snapshot.insert(QStringLiteral("type"), QStringLiteral("room_snapshot"));
+        snapshot.insert(QStringLiteral("rooms"), rooms);
+        client.handleRustEventForTest(snapshot);
+        QCOMPARE(client.roomInfo(touched).lastMessagePreview, QStringLiteral("from bob"));
+
+        QJsonObject changed;
+        changed.insert(QStringLiteral("type"), QStringLiteral("ignored_users_changed"));
+        changed.insert(QStringLiteral("users"), QJsonArray{ QStringLiteral("@bob:example.org") });
+        changed.insert(QStringLiteral("previews_refreshed_rooms"), QJsonArray{ touched });
+        client.handleRustEventForTest(changed);
+        QVERIFY2(client.roomInfo(touched).lastMessagePreview.isEmpty(),
+                 "an ignored user's text stayed on a refreshed room");
+        QCOMPARE(client.roomInfo(other).lastMessagePreview, QStringLiteral("from bob"));
+        QCOMPARE(client.roomInfo(touched).lastActivity,
+                 QDateTime::fromMSecsSinceEpoch(1700000000000, QTimeZone::UTC));
+
+        QJsonObject backfill;
+        backfill.insert(QStringLiteral("type"), QStringLiteral("room_preview_backfill"));
+        backfill.insert(QStringLiteral("room_id"), touched);
+        backfill.insert(QStringLiteral("preview"), QStringLiteral("from alice"));
+        backfill.insert(QStringLiteral("last_activity_ms"), 1690000000000.0);
+        client.handleRustEventForTest(backfill);
+        QCOMPARE(client.roomInfo(touched).lastMessagePreview, QStringLiteral("from alice"));
 #endif
     }
 
