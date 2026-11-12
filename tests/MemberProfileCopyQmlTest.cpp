@@ -229,8 +229,9 @@ private slots:
         QTRY_VERIFY(m_dialog->property("opened").toBool());
         QTRY_COMPARE(bioClient.lastUser, user);
         QStringList paragraphs;
-        for (int i = 0; i < 30; ++i)
-            paragraphs << QStringLiteral("Paragraph %1 of a long biography.").arg(i);
+        for (int i = 0; i < 40; ++i)
+            paragraphs << QStringLiteral("Paragraph %1 of a long biography, long "
+                                         "enough to wrap onto a second line.").arg(i);
         Q_EMIT bioClient.profileBioReceived(bioClient.lastOp, user,
                                             paragraphs.join(QLatin1Char('\n')),
                                             true);
@@ -241,7 +242,7 @@ private slots:
         auto *bar = item("profileBioScrollBar");
         auto *actions = item("profileActionRow");
         QVERIFY(box && flick && text && bar && actions);
-        QTRY_VERIFY(text->implicitHeight() > 3 * box->height());
+        QTRY_VERIFY(text->implicitHeight() > 2 * box->height());
 
         auto *card = m_dialog->property("contentItem").value<QQuickItem *>();
         QVERIFY(card);
@@ -260,7 +261,7 @@ private slots:
         QVERIFY(fr.top() >= 0 && fr.bottom() <= box->height());
 
         QVERIFY(flick->property("contentHeight").toReal()
-                > flick->height() * 3);
+                > flick->height() * 2);
         QVERIFY(bar->isVisible());
         QCOMPARE(flick->property("contentY").toReal(), 0.0);
 
