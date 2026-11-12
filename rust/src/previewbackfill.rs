@@ -103,6 +103,13 @@ impl Backfill {
         self.done.contains(room)
     }
 
+    /// Makes a room lookable again, as if it had never been looked at.
+    pub(crate) fn forget(&mut self, room: &RoomId) {
+        self.done.remove(room);
+        self.failures.remove(room);
+        self.relook.remove(room);
+    }
+
     pub(crate) fn is_eligible(&self, room: &OwnedRoomId, now_ms: u64) -> bool {
         !self.done.contains(room)
             && !self.in_flight.contains(room)
@@ -253,6 +260,31 @@ pub(crate) fn replace_remembered(
             st.entries.remove(&key);
         }
     }
+}
+
+/// Users added to or removed from the ignore list between two of its values.
+pub(crate) fn ignore_list_delta(before: &[String], after: &[String]) -> Vec<String> {
+    let mut changed: Vec<String> = before
+        .iter()
+        .filter(|user| !after.contains(user))
+        .chain(after.iter().filter(|user| !before.contains(user)))
+        .cloned()
+        .collect();
+    changed.sort();
+    changed.dedup();
+    changed
+}
+
+/// matrix-sdk empties every room's event cache on an ignore-list change, so
+/// `latest_event` goes blank everywhere: a room no changed user is a member of,
+/// or wrote the preview of, keeps the preview it had instead of fetching it.
+pub(crate) fn across_ignore_change(
+    preview: &str,
+    ts: u64,
+    changed_user_involved: bool,
+) -> Option<Remembered> {
+    (!changed_user_involved && !preview.is_empty())
+        .then(|| Remembered::Message(preview.to_owned(), ts))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -473,6 +505,34 @@ mod tests {
         }));
         assert_eq!(pick_preview(&[edit, topic, raw(churn(1))]), None);
         assert_eq!(pick_preview(&[]), None);
+    }
+
+    #[test]
+    fn an_ignore_list_change_names_both_who_was_ignored_and_who_was_unignored() {
+        let v = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        assert_eq!(ignore_list_delta(&v(&["@a:hs"]), &v(&["@a:hs", "@b:hs"])), v(&["@b:hs"]));
+        assert_eq!(ignore_list_delta(&v(&["@a:hs", "@b:hs"]), &v(&["@b:hs"])), v(&["@a:hs"]));
+        assert_eq!(ignore_list_delta(&v(&["@a:hs"]), &v(&["@c:hs"])), v(&["@a:hs", "@c:hs"]));
+        assert!(ignore_list_delta(&v(&["@a:hs"]), &v(&["@a:hs"])).is_empty());
+    }
+
+    #[test]
+    fn across_an_ignore_change_only_a_room_the_user_is_not_in_keeps_its_preview_unfetched() {
+        let kept = across_ignore_change("hello", 40, false);
+        assert_eq!(kept, Some(Remembered::Message("hello".into(), 40)));
+        assert_eq!(merge_remembered(String::new(), 0, kept), ("hello".into(), 40, false),
+                   "the blank the cache clear leaves is filled with the old preview and stamp");
+        assert_eq!(across_ignore_change("hello", 40, true), None);
+        assert_eq!(across_ignore_change("", 40, false), None);
+
+        let mut backfill = Backfill::default();
+        let room = rooms(1).remove(0);
+        backfill.pick([room.clone()], 0, 0);
+        backfill.finish(&room, &Outcome::Found("old".into(), 1), 0);
+        assert!(!backfill.is_eligible(&room, 0));
+        backfill.forget(&room);
+        assert_eq!(backfill.pick([room.clone()], 0, 0), vec![room],
+                   "a room the change touches is looked at again");
     }
 
     #[test]

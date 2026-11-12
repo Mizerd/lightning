@@ -12164,6 +12164,7 @@ async fn run_modern_sync(
         let mut list_state = room_list_service.state();
         let mut list_running = false;
         let mut ignore_list_sub = client.subscribe_to_ignore_user_list_changes();
+        let mut ignored_before = ignore_list_sub.get();
         let latest_events = client.latest_events().await;
         let mut watched_latest: BTreeSet<OwnedRoomId> = BTreeSet::new();
         let mut room_updates_sub = client.subscribe_to_all_room_updates();
@@ -12317,9 +12318,20 @@ async fn run_modern_sync(
                 }
                 changed = ignore_list_sub.next() => {
                     if let Some(users) = changed {
+                        let delta = previewbackfill::ignore_list_delta(&ignored_before, &users);
+                        ignored_before = users.clone();
+                        let carried = match &backfill_results {
+                            Some(results) => carry_previews_across_ignore_change(
+                                &client, results, &mut preview_backfill, &delta,
+                            ).await,
+                            None => (0, 0, 0),
+                        };
                         enqueue(&events, json!({
                             "type": "ignored_users_changed",
                             "users": users,
+                            "previews_kept": carried.0,
+                            "previews_refreshed": carried.1,
+                            "previews_blank": carried.2,
                         }));
                     }
                 }
@@ -13456,6 +13468,66 @@ fn replaced_event_id(
         return None;
     }
     EventId::parse(relation.get("event_id")?.as_str()?).ok()
+}
+
+/// Runs before matrix-sdk's own ignore-list task gets to blank every room's
+/// latest event, so only rooms a changed user touches go back to the server.
+async fn carry_previews_across_ignore_change(
+    client: &Client,
+    results: &previewbackfill::RunGuard,
+    backfill: &mut previewbackfill::Backfill,
+    changed: &[String],
+) -> (usize, usize, usize) {
+    use matrix_sdk_base::latest_event::LatestEventValue;
+    let Some(own) = client.user_id() else { return (0, 0, 0) };
+    let changed: Vec<OwnedUserId> =
+        changed.iter().filter_map(|user| UserId::parse(user.as_str()).ok()).collect();
+    let (mut kept, mut refreshed, mut blank) = (0usize, 0usize, 0usize);
+    for room in client.joined_rooms() {
+        let latest = room.latest_event();
+        let sender = match &latest {
+            LatestEventValue::Remote(event) => {
+                event.raw().get_field::<OwnedUserId>("sender").ok().flatten()
+            }
+            _ => None,
+        };
+        let mut involved = sender.is_some_and(|sender| changed.contains(&sender));
+        for user in &changed {
+            if involved {
+                break;
+            }
+            involved = matches!(room.get_member_no_sync(user).await, Ok(Some(_)));
+        }
+        let edited_ts = match &latest {
+            LatestEventValue::Remote(event) => match replaced_event_id(event.raw()) {
+                Some(original) => edited_event_timestamp_ms(&room, &original).await,
+                None => None,
+            },
+            _ => None,
+        };
+        let carried = previewbackfill::across_ignore_change(
+            &latest_event_preview_line(&latest),
+            room_ordering_timestamp_ms(&latest, edited_ts),
+            involved,
+        );
+        match carried {
+            Some(what) => {
+                kept += 1;
+                results.remember(room.room_id(), what);
+            }
+            None if involved => {
+                refreshed += 1;
+                if let Some(was @ previewbackfill::Remembered::Message(..)) =
+                    previewbackfill::remembered(own, room.room_id())
+                {
+                    previewbackfill::replace_remembered(own, room.room_id(), &was, None);
+                }
+                backfill.forget(room.room_id());
+            }
+            None => blank += 1,
+        }
+    }
+    (kept, refreshed, blank)
 }
 
 async fn edited_event_timestamp_ms(room: &Room, event_id: &EventId) -> Option<u64> {

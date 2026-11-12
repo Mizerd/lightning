@@ -13445,6 +13445,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             if (!id.isEmpty())
                 users.append(id);
         }
+        qCInfo(lcRust) << "ignore-list change: room previews kept="
+                       << event.value(QStringLiteral("previews_kept")).toInt()
+                       << "refreshed="
+                       << event.value(QStringLiteral("previews_refreshed")).toInt()
+                       << "blank="
+                       << event.value(QStringLiteral("previews_blank")).toInt();
         Q_EMIT ignoredUsersChanged(users);
         return true;
     }
