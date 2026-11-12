@@ -16,16 +16,32 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
 #include "app/ConversationController.h"
 #include "auth/AuthManager.h"
+#include "matrix/MockMatrixClient.h"
+#include "profile/ProfileBioManager.h"
 
 namespace {
 
 constexpr int kSignalTimeoutMs = 5000;
+
+class FakeBioClient : public MockMatrixClient
+{
+public:
+    bool supportsProfileBios() const override { return true; }
+    void fetchProfileBio(const QString &userId, quint64 opId) override
+    {
+        lastUser = userId;
+        lastOp = opId;
+    }
+    QString lastUser;
+    quint64 lastOp = 0;
+};
 
 const char *kScene = R"QML(
 import QtQuick
@@ -193,6 +209,79 @@ private slots:
         QVERIFY(notice->isVisible());
         QCOMPARE(notice->property("text").toString(),
                  QStringLiteral("Matrix ID copied"));
+    }
+    void aLongBioScrollsInsideACappedBoxAndKeepsTheActionsOnTheCard()
+    {
+        FakeBioClient bioClient;
+        m_controller->bio()->setClient(&bioClient);
+        const auto restore = qScopeGuard([this] {
+            m_controller->bio()->setClient(nullptr);
+        });
+
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "close"));
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+        const QString user = QStringLiteral("@longbio:mock.local");
+        QVariantMap member;
+        member.insert(QStringLiteral("userId"), user);
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "openFor",
+                                          Q_ARG(QVariant, QVariant(member)),
+                                          Q_ARG(QVariant, QVariant())));
+        QTRY_VERIFY(m_dialog->property("opened").toBool());
+        QTRY_COMPARE(bioClient.lastUser, user);
+        QStringList paragraphs;
+        for (int i = 0; i < 30; ++i)
+            paragraphs << QStringLiteral("Paragraph %1 of a long biography.").arg(i);
+        Q_EMIT bioClient.profileBioReceived(bioClient.lastOp, user,
+                                            paragraphs.join(QLatin1Char('\n')),
+                                            true);
+
+        auto *box = item("profileBioBox");
+        auto *flick = item("profileBioFlick");
+        auto *text = item("profileBioText");
+        auto *bar = item("profileBioScrollBar");
+        auto *actions = item("profileActionRow");
+        QVERIFY(box && flick && text && bar && actions);
+        QTRY_VERIFY(text->implicitHeight() > 3 * box->height());
+
+        auto *card = m_dialog->property("contentItem").value<QQuickItem *>();
+        QVERIFY(card);
+        QTRY_VERIFY(m_dialog->property("y").toReal()
+                        + m_dialog->property("height").toReal()
+                    <= m_window->height());
+        const auto inside = [card](QQuickItem *child) {
+            const QRectF r = child->mapRectToItem(card, child->boundingRect());
+            return r.top() >= 0 && r.bottom() <= card->height() + 0.5
+                && r.left() >= 0 && r.right() <= card->width() + 0.5;
+        };
+        QVERIFY(inside(box));
+        QVERIFY(inside(actions));
+        QVERIFY(actions->height() > 0);
+        const QRectF fr = flick->mapRectToItem(box, flick->boundingRect());
+        QVERIFY(fr.top() >= 0 && fr.bottom() <= box->height());
+
+        QVERIFY(flick->property("contentHeight").toReal()
+                > flick->height() * 3);
+        QVERIFY(bar->isVisible());
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+
+        const QPointF local(flick->width() / 2, flick->height() / 2);
+        const QPointF scenePos = flick->mapToScene(local);
+        QWheelEvent wheel(scenePos, m_window->mapToGlobal(scenePos), QPoint(),
+                          QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QGuiApplication::sendEvent(m_window, &wheel);
+        QTRY_VERIFY(flick->property("contentY").toReal() > 0);
+        QVERIFY(m_dialog->property("visible").toBool());
+
+        text->forceActiveFocus();
+        QTRY_VERIFY(text->hasActiveFocus());
+        const qreal beforePage = flick->property("contentY").toReal();
+        QTest::keyClick(m_window, Qt::Key_PageDown);
+        QTRY_VERIFY(flick->property("contentY").toReal() > beforePage);
+        QTest::keyClick(m_window, Qt::Key_End);
+        QTRY_COMPARE(flick->property("contentY").toReal(),
+                     flick->property("contentHeight").toReal() - flick->height());
+        QVERIFY(m_dialog->property("visible").toBool());
     }
 };
 

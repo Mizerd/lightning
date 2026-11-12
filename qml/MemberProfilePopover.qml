@@ -849,38 +849,87 @@ Popup {
                 active: root.bioText.length > 0
                 visible: active
                 sourceComponent: Rectangle {
+                    objectName: "profileBioBox"
                     implicitHeight: Math.min(bioLabel.implicitHeight,
                                              bioMetrics.lineSpacing * 12)
                                     + 2 * AppTheme.spacing12
                     radius: AppTheme.radiusMd
                     color: AppTheme.stormInset
                     border.width: 1
-                    border.color: AppTheme.stormBorder
+                    border.color: bioLabel.activeFocus ? AppTheme.focusRing
+                                                       : AppTheme.stormBorder
                     clip: true
                     FontMetrics {
                         id: bioMetrics
                         font: bioLabel.font
                     }
-                    TextEdit {
-                        id: bioLabel
-                        objectName: "profileBioText"
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
+                    Flickable {
+                        id: bioFlick
+                        objectName: "profileBioFlick"
+                        anchors.fill: parent
                         anchors.topMargin: AppTheme.spacing12
+                        anchors.bottomMargin: AppTheme.spacing12
                         anchors.leftMargin: AppTheme.spacing12
-                        anchors.rightMargin: AppTheme.spacing12
-                        text: root.bioText
-                        textFormat: Text.PlainText
-                        readOnly: true
-                        selectByMouse: true
-                        selectByKeyboard: true
-                        selectionColor: AppTheme.textSelection
-                        selectedTextColor: AppTheme.selectedText
-                        wrapMode: TextEdit.Wrap
-                        color: AppTheme.stormTextSecondary
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textBody
+                        anchors.rightMargin: AppTheme.spacing4
+                        clip: true
+                        contentWidth: width
+                        contentHeight: bioLabel.implicitHeight
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollBar.vertical: AppScrollBar {
+                            objectName: "profileBioScrollBar"
+                            thin: true
+                            policy: bioFlick.contentHeight > bioFlick.height
+                                    ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                        }
+                        function scrollBy(dy) {
+                            contentY = Math.max(0, Math.min(contentY + dy,
+                                                            contentHeight - height))
+                        }
+                        TextEdit {
+                            id: bioLabel
+                            objectName: "profileBioText"
+                            width: bioFlick.width
+                            rightPadding: AppTheme.spacing8
+                            text: root.bioText
+                            textFormat: Text.PlainText
+                            readOnly: true
+                            activeFocusOnTab: true
+                            selectByMouse: true
+                            selectByKeyboard: true
+                            selectionColor: AppTheme.textSelection
+                            selectedTextColor: AppTheme.selectedText
+                            wrapMode: TextEdit.Wrap
+                            color: AppTheme.stormTextSecondary
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textBody
+                            // The caret of a read-only edit is invisible, so
+                            // unmodified paging keys scroll the view instead.
+                            Keys.onPressed: (event) => {
+                                if (event.modifiers !== Qt.NoModifier)
+                                    return
+                                var line = bioMetrics.lineSpacing
+                                var page = bioFlick.height - line
+                                var dy = event.key === Qt.Key_Down ? line
+                                       : event.key === Qt.Key_Up ? -line
+                                       : event.key === Qt.Key_PageDown ? page
+                                       : event.key === Qt.Key_PageUp ? -page
+                                       : event.key === Qt.Key_End ? bioFlick.contentHeight
+                                       : event.key === Qt.Key_Home ? -bioFlick.contentHeight
+                                       : 0
+                                if (dy === 0)
+                                    return
+                                bioFlick.scrollBy(dy)
+                                event.accepted = true
+                            }
+                            onCursorRectangleChanged: {
+                                var r = cursorRectangle
+                                if (r.y < bioFlick.contentY)
+                                    bioFlick.contentY = r.y
+                                else if (r.y + r.height
+                                         > bioFlick.contentY + bioFlick.height)
+                                    bioFlick.contentY = r.y + r.height - bioFlick.height
+                            }
+                        }
                     }
                     Accessible.role: Accessible.StaticText
                     Accessible.name: qsTr("Bio")
@@ -894,6 +943,7 @@ Popup {
 
             Flow {
                 id: profileChipRow
+                objectName: "profileActionRow"
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
                 readonly property int uniformHeight: AppTheme.chipHeight + 6
