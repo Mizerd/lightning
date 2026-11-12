@@ -112,8 +112,13 @@ impl Backfill {
         self.generation
     }
 
+    /// Every look in flight predates the change and may carry an ignored
+    /// user's text, whether or not its room is refreshed.
     pub(crate) fn begin_ignore_change(&mut self) {
         self.generation += 1;
+        for room in std::mem::take(&mut self.in_flight) {
+            self.stale_before.insert(room, self.generation);
+        }
     }
 
     /// Makes a room lookable again, and refuses a look already in flight for
@@ -344,14 +349,13 @@ pub(crate) fn across_ignore_change(
     remembered: Option<&Remembered>,
     linked: bool,
 ) -> AcrossIgnore {
-    let latest_shown = latest.filter(|l| !l.preview.is_empty());
-    let shown_sender_changed = match (latest_shown, remembered) {
-        (Some(l), _) => l.sender.as_ref().is_some_and(|s| changed.contains(s)),
-        (None, Some(Remembered::Message(_, _, sender))) => {
-            sender.as_ref().map_or(true, |s| changed.contains(s))
-        }
-        (None, _) => latest.and_then(|l| l.sender.as_ref()).is_some_and(|s| changed.contains(s)),
-    };
+    // A kept message can be newer than `latest` and surfaces once the SDK clears
+    // it, so its sender counts too; an unknown sender counts as changed.
+    let shown_sender_changed = latest
+        .and_then(|l| l.sender.as_ref())
+        .is_some_and(|s| changed.contains(s))
+        || matches!(remembered, Some(Remembered::Message(_, _, sender))
+            if sender.as_ref().map_or(true, |s| changed.contains(s)));
     if linked || shown_sender_changed {
         return AcrossIgnore::Refresh;
     }
@@ -384,7 +388,7 @@ impl IgnoreTouched {
 pub(crate) enum UndecryptableNow {
     Unknown,
     StillUndecryptable,
-    Decrypted(String),
+    Decrypted(String, Option<OwnedUserId>),
 }
 
 pub(crate) fn settle(
@@ -398,8 +402,10 @@ pub(crate) fn settle(
                 return None;
             }
             match now {
-                UndecryptableNow::Decrypted(text) if text.is_empty() => None,
-                UndecryptableNow::Decrypted(text) => Some(Remembered::Message(text, ts, None)),
+                UndecryptableNow::Decrypted(text, _) if text.is_empty() => None,
+                UndecryptableNow::Decrypted(text, sender) => {
+                    Some(Remembered::Message(text, ts, sender))
+                }
                 UndecryptableNow::Unknown | UndecryptableNow::StillUndecryptable => {
                     Some(Remembered::Undecryptable(ts, Some(id)))
                 }
@@ -658,6 +664,20 @@ mod tests {
     }
 
     #[test]
+    fn a_newer_kept_message_of_unknown_or_changed_authorship_is_refreshed_beside_a_live_latest() {
+        let latest = snap("from bob", 40, "@bob:hs");
+        let decrypted = Remembered::Message("decrypted".into(), 50, None);
+        assert_eq!(across_ignore_change(&[uid("@eve:hs")], Some(&latest), Some(&decrypted), false),
+                   AcrossIgnore::Refresh);
+        let eves = Remembered::Message("eve's".into(), 50, Some(uid("@eve:hs")));
+        assert_eq!(across_ignore_change(&[uid("@eve:hs")], Some(&latest), Some(&eves), false),
+                   AcrossIgnore::Refresh);
+        let carols = Remembered::Message("carol's".into(), 50, Some(uid("@carol:hs")));
+        assert_eq!(across_ignore_change(&[uid("@eve:hs")], Some(&latest), Some(&carols), false),
+                   AcrossIgnore::Leave);
+    }
+
+    #[test]
     fn a_carry_never_overwrites_an_undecryptable_marker_or_a_newer_preview() {
         let bob = [uid("@bob:hs")];
         let latest = snap("older text", 40, "@eve:hs");
@@ -687,6 +707,18 @@ mod tests {
         assert!(!backfill.accepts(&all[0], spawned));
         assert!(backfill.accepts(&all[0], backfill.generation()));
         assert!(backfill.accepts(&all[1], spawned), "an untouched room keeps its answer");
+    }
+
+    #[test]
+    fn a_look_in_flight_across_an_ignore_change_is_refused_even_for_a_room_left_alone() {
+        let mut backfill = Backfill::default();
+        let room = rooms(1).remove(0);
+        let spawned = backfill.generation();
+        assert_eq!(backfill.pick([room.clone()], 0, 0), vec![room.clone()]);
+        backfill.begin_ignore_change();
+        assert!(!backfill.accepts(&room, spawned), "its page may hold the ignored user's text");
+        assert_eq!(backfill.pick([room.clone()], 0, 0), vec![room.clone()], "and it is looked at again");
+        assert!(backfill.accepts(&room, backfill.generation()));
     }
 
     #[test]
@@ -733,17 +765,17 @@ mod tests {
             assert_eq!(merge_remembered("older".into(), 500, settled), (String::new(), 1_000, true));
         }
 
-        let settled = settle(utd.clone(), Some(&other), UndecryptableNow::Decrypted(String::new()));
+        let settled = settle(utd.clone(), Some(&other), UndecryptableNow::Decrypted(String::new(), None));
         assert_eq!(settled, None);
         assert_eq!(merge_remembered("older".into(), 500, settled), ("older".into(), 500, false));
 
-        let settled = settle(utd.clone(), None, UndecryptableNow::Decrypted("hello".into()));
+        let settled = settle(utd.clone(), None, UndecryptableNow::Decrypted("hello".into(), None));
         assert_eq!(settled, Some(Remembered::Message("hello".into(), 1_000, None)));
         assert_eq!(merge_remembered(String::new(), 0, settled), ("hello".into(), 1_000, false));
 
         let anonymous = Some(Remembered::Undecryptable(1_000, None));
         assert_eq!(
-            settle(anonymous.clone(), Some(&id), UndecryptableNow::Decrypted("x".into())),
+            settle(anonymous.clone(), Some(&id), UndecryptableNow::Decrypted("x".into(), None)),
             anonymous
         );
         let message = Some(Remembered::Message("m".into(), 1, None));

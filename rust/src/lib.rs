@@ -13670,7 +13670,10 @@ async fn undecryptable_now(room: &Room, event_id: &EventId) -> previewbackfill::
     };
     match cache.find_event(event_id).await {
         Ok(Some(event)) if event.kind.is_utd() => UndecryptableNow::StillUndecryptable,
-        Ok(Some(event)) => UndecryptableNow::Decrypted(raw_event_preview_line(event.raw())),
+        Ok(Some(event)) => UndecryptableNow::Decrypted(
+            raw_event_preview_line(event.raw()),
+            event.raw().get_field::<OwnedUserId>("sender").ok().flatten(),
+        ),
         _ => UndecryptableNow::Unknown,
     }
 }
