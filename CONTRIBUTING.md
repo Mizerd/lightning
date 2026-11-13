@@ -117,8 +117,8 @@ twice.
 
 ## AI-assisted contributions
 
-Any use of AI tools is welcome; Lightning itself is developed with heavy AI
-assistance. A change is judged by what it does, not how it was written: it must
+Any use of AI tools is welcome. A change is judged by what it does, not how it
+was written: it must
 meet everything on this page, pass the tests and review, and you must understand
 and stand behind what you send.
 
