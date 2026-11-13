@@ -22,6 +22,10 @@ application startup/build/runtime network dependency.
 
 ## Enter the dev shell
 
+For a host-aligned NixOS shell and a configure-once, incremental
+workflow, see [the NixOS development guide](nixos.md#develop-and-rebuild-a-local-clone).
+It also explains when to use installed debug packages instead.
+
 ```bash
 nix develop            # or `nix-shell` (see shell.nix)
 ```
