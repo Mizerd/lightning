@@ -685,7 +685,7 @@ public:
     static constexpr int kRailDepthClassic = 1;
     static constexpr int kMaxSpacesRailDepthStyle = kRailDepthClassic;
     static constexpr int kSidePanelMinWidth = 240;
-    static constexpr int kSidePanelMaxWidth = 640;
+    static constexpr int kSidePanelMaxWidth = 3840;
     static constexpr int roomListMinWidth() { return kRoomListMinWidth; }
     static constexpr int roomListExpandedMinWidth() { return kRoomListExpandedMinWidth; }
     static constexpr int roomListSnapThreshold() { return kRoomListSnapThreshold; }

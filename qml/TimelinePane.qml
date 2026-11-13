@@ -5743,7 +5743,7 @@ Rectangle {
             property int startWidth: 0
             onActiveChanged: {
                 if (active)
-                    startWidth = app.settings.sidePanelWidth
+                    startWidth = sideSurface.infoWidth
             }
             onTranslationChanged: {
                 if (!active)

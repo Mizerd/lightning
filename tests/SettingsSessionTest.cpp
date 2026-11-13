@@ -132,6 +132,7 @@ private Q_SLOTS:
     void textRenderingRoundTripsAndUnknownValuesFallBack();
     void mainAppliesTextRenderingBeforeAnyWindow();
     void spacesRailWidthDefaultsToTheOldFixedWidthAndClamps();
+    void sidePanelWidthIsNotCappedBelowAWideMonitor();
     void spacesRailDepthStyleDefaultsToRegionsAndClamps();
     void appearanceIsPerAccountWithGlobalFallback();
     void oneAccountsAppearanceNeverRestylesAnother();
@@ -785,6 +786,15 @@ void SettingsSessionTest::spacesRailDepthStyleDefaultsToRegionsAndClamps()
     QCOMPARE(fresh.spacesRailDepthStyle(),
              SettingsManager::kRailDepthRegions);
     QCOMPARE(spy.count(), 2);
+}
+
+void SettingsSessionTest::sidePanelWidthIsNotCappedBelowAWideMonitor()
+{
+    SettingsManager settings;
+    settings.setSidePanelWidth(1400);
+    QCOMPARE(settings.sidePanelWidth(), 1400);
+    settings.setSidePanelWidth(100);
+    QCOMPARE(settings.sidePanelWidth(), 240);
 }
 
 void SettingsSessionTest::spacesRailWidthDefaultsToTheOldFixedWidthAndClamps()
