@@ -500,6 +500,92 @@ private Q_SLOTS:
         }
     }
 
+    void theThreadRootGrowsToItsCapThenScrollsAndIsNeverElided_data()
+    {
+        QTest::addColumn<int>("lineCount");
+        QTest::addColumn<bool>("scrolls");
+        QTest::newRow("short root fits") << 2 << false;
+        QTest::newRow("long root scrolls") << 60 << true;
+    }
+
+    void theThreadRootGrowsToItsCapThenScrollsAndIsNeverElided()
+    {
+        QFETCH(int, lineCount);
+        QFETCH(bool, scrolls);
+        QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        const auto events = mock->timeline(kGeneral);
+        int rootIndex = -1;
+        for (int i = 0; i < events.size(); ++i) {
+            if (events.at(i).eventId == rootId) {
+                rootIndex = i;
+                break;
+            }
+        }
+        QVERIFY2(rootIndex >= 0, "the thread root is not in the room timeline");
+        TimelineEvent rootEvent = events.at(rootIndex);
+        QStringList lines;
+        for (int i = 1; i <= lineCount; ++i)
+            lines << QStringLiteral("%1. option %1, which the reply has to see").arg(i);
+        rootEvent.body = lines.join(QLatin1Char('\n'));
+        mock->changeEventAtForTest(kGeneral, rootIndex, rootEvent);
+
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(340, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, kSignalTimeoutMs));
+
+        auto *scroll = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootBodyScroll"));
+        auto *body = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootBody"));
+        QVERIFY2(scroll && body, "the thread root card has no scrolling body");
+        QTRY_VERIFY(body->isVisible());
+        QTRY_COMPARE(body->property("text").toString(), rootEvent.body);
+        QVERIFY2(!body->property("truncated").toBool(),
+                 "the thread root is elided, so part of it cannot be read");
+
+        const qreal cap = root->property("rootBodyMaxHeight").toReal();
+        QVERIFY(cap > 0);
+        QVERIFY2(scroll->height() <= cap + 0.5,
+                 qPrintable(QStringLiteral("the root body is %1 px, over its %2 px cap")
+                                .arg(scroll->height()).arg(cap)));
+        QCOMPARE(scroll->property("interactive").toBool(), scrolls);
+        if (!scrolls) {
+            QCOMPARE(qRound(scroll->height()), qRound(body->implicitHeight()));
+            return;
+        }
+        QCOMPARE(qRound(scroll->height()), qRound(cap));
+        const qreal lastY = scroll->property("contentHeight").toReal()
+                            - scroll->height();
+        QVERIFY(lastY > 0);
+        scroll->setProperty("contentY", lastY);
+        QCOMPARE(scroll->property("contentY").toReal(), lastY);
+    }
+
     void theThreadRootCollapsesToOneLineAndRemembersIt()
     {
         QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
