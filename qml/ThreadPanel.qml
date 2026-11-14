@@ -920,6 +920,7 @@ Rectangle {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: app.thread.active
 
             Column {
                 anchors.centerIn: parent
