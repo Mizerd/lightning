@@ -18,8 +18,12 @@ Item {
     property string ownerDisplayName: ""
     property string trackKey: ""
     property bool local: false
-    property string unsupportedCodec: root.local || root.trackKey.length === 0
-        ? "" : app.groupCall.unsupportedVideoCodec(root.trackKey)
+    property string unsupportedCodec: {
+        // Read so a backup codec published later re-evaluates this.
+        app.groupCall.participantCount
+        return root.local || root.trackKey.length === 0
+            ? "" : app.groupCall.unsupportedVideoCodec(root.trackKey)
+    }
 
     property bool compact: false
     property bool focused: false
