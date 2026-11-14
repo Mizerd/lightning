@@ -1376,8 +1376,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible: root.rowSelected || root.inMessageRange
-        color: AppTheme.messageHighlight
-        opacity: 0.55
+        color: root.inMessageRange ? AppTheme.accent : AppTheme.messageHighlight
+        opacity: root.inMessageRange ? 0.16 : 0.55
         z: -1
     }
     Loader {
