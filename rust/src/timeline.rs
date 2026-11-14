@@ -54,7 +54,7 @@ use matrix_sdk_ui::{
     eyeball_im::{Vector, VectorDiff},
     timeline::{
         default_event_filter,
-        thread_list_service::{ThreadListItem, ThreadListService},
+        thread_list_service::{ThreadListItem, ThreadListItemEvent, ThreadListService},
         AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
         EventTimelineItem, MsgLikeKind, PollResult, Timeline, TimelineBuilder,
         TimelineDetails, TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus, TimelineItem,
@@ -397,8 +397,64 @@ struct ActiveThreadList {
     room_id: String,
     list_gen: u64,
     service: Option<Arc<ThreadListService>>,
+    tally: Arc<Mutex<ThreadTally>>,
     task: Option<tokio::task::JoinHandle<()>>,
     pagination_busy: Arc<AtomicBool>,
+}
+
+struct ThreadTallyEntry {
+    base: u32,
+    since_ms: u64,
+    counted: HashSet<OwnedEventId>,
+    latest: Option<ThreadListItemEvent>,
+}
+
+/// The SDK's thread list adds one reply and replaces the latest event for
+/// every thread event the room cache emits, including paginated history and
+/// re-emitted events. This keeps the server's count and adds only new replies.
+// shortcut: "new" is judged against the local clock, so a reply inside the
+// client/server clock skew is missed; upgrade if the SDK exposes the diff origin.
+#[derive(Default)]
+struct ThreadTally {
+    threads: HashMap<OwnedEventId, ThreadTallyEntry>,
+}
+
+impl ThreadTally {
+    fn observe(&mut self, item: &ThreadListItem, now_ms: u64) {
+        let entry = self
+            .threads
+            .entry(item.root_event.event_id.clone())
+            .or_insert_with(|| ThreadTallyEntry {
+                base: item.num_replies,
+                since_ms: now_ms,
+                counted: HashSet::new(),
+                latest: None,
+            });
+        let Some(latest) = &item.latest_event else { return };
+        if u64::from(latest.timestamp.get()) >= entry.since_ms {
+            entry.counted.insert(latest.event_id.clone());
+        }
+        if entry.latest.as_ref().map_or(true, |known| latest.timestamp >= known.timestamp) {
+            entry.latest = Some(latest.clone());
+        }
+    }
+
+    fn corrected(&self, item: &ThreadListItem) -> ThreadListItem {
+        let mut out = item.clone();
+        if let Some(entry) = self.threads.get(&item.root_event.event_id) {
+            let extra = u32::try_from(entry.counted.len()).unwrap_or(u32::MAX);
+            out.num_replies = entry.base.saturating_add(extra);
+            out.latest_event = entry.latest.clone();
+        }
+        out
+    }
+}
+
+fn thread_list_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub(crate) struct StartCheckClaim<'a> {
@@ -1128,6 +1184,7 @@ impl TimelineRegistry {
                 room_id: room_id.clone(),
                 list_gen,
                 service: None,
+                tally: Arc::default(),
                 task: None,
                 pagination_busy: Arc::clone(&pagination_busy),
             });
@@ -1158,7 +1215,7 @@ impl TimelineRegistry {
         runtime: &tokio::runtime::Runtime,
         room_id: String,
     ) -> Result<(), String> {
-        let (service, list_gen, lifecycle, busy) = {
+        let (service, tally, list_gen, lifecycle, busy) = {
             let guard = self
                 .active_thread_list
                 .lock()
@@ -1170,6 +1227,7 @@ impl TimelineRegistry {
             let service = list.service.clone().ok_or("thread list not ready")?;
             (
                 service,
+                Arc::clone(&list.tally),
                 list.list_gen,
                 self.lifecycle_gen.load(Ordering::SeqCst),
                 Arc::clone(&list.pagination_busy),
@@ -1190,7 +1248,7 @@ impl TimelineRegistry {
                 return;
             }
             emit_thread_list_snapshot(
-                &events, &room_id, list_gen, lifecycle, &service,
+                &events, &room_id, list_gen, lifecycle, &service, &tally,
                 result.is_err(),
             );
         });
@@ -3581,15 +3639,16 @@ async fn open_thread_list_task(
     };
 
     let service = Arc::new(ThreadListService::new(room));
-    {
+    let tally = {
         let Ok(mut guard) = registry.active_thread_list.lock() else { return };
         match guard.as_mut() {
             Some(list) if list.list_gen == list_gen => {
                 list.service = Some(Arc::clone(&service));
+                Arc::clone(&list.tally)
             }
             _ => return,
         }
-    }
+    };
 
     let (_initial, mut stream) = service.subscribe_to_items_updates();
 
@@ -3598,14 +3657,31 @@ async fn open_thread_list_task(
         return;
     }
     emit_thread_list_snapshot(
-        &events, &room_id, list_gen, lifecycle, &service, first_page_failed,
+        &events, &room_id, list_gen, lifecycle, &service, &tally, first_page_failed,
     );
 
-    while let Some(_diffs) = stream.next().await {
+    while let Some(diffs) = stream.next().await {
         if !registry.thread_list_current(list_gen, lifecycle) {
             break;
         }
-        emit_thread_list_snapshot(&events, &room_id, list_gen, lifecycle, &service, false);
+        if let Ok(mut tally) = tally.lock() {
+            let now = thread_list_now_ms();
+            for diff in &diffs {
+                match diff {
+                    VectorDiff::Append { values } | VectorDiff::Reset { values } => {
+                        values.iter().for_each(|item| tally.observe(item, now));
+                    }
+                    VectorDiff::PushFront { value }
+                    | VectorDiff::PushBack { value }
+                    | VectorDiff::Insert { value, .. }
+                    | VectorDiff::Set { value, .. } => tally.observe(value, now),
+                    _ => {}
+                }
+            }
+        }
+        emit_thread_list_snapshot(
+            &events, &room_id, list_gen, lifecycle, &service, &tally, false,
+        );
     }
 }
 
@@ -3615,11 +3691,21 @@ fn emit_thread_list_snapshot(
     list_gen: u64,
     lifecycle: u64,
     service: &ThreadListService,
+    tally: &Mutex<ThreadTally>,
     failed: bool,
 ) {
     use matrix_sdk_ui::timeline::thread_list_service::ThreadListPaginationState;
-    let items: Vec<serde_json::Value> =
-        service.items().iter().map(thread_list_item_to_json).collect();
+    let now = thread_list_now_ms();
+    let mut tally = tally.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let items: Vec<serde_json::Value> = service
+        .items()
+        .iter()
+        .map(|item| {
+            tally.observe(item, now);
+            thread_list_item_to_json(&tally.corrected(item))
+        })
+        .collect();
+    drop(tally);
     let end_reached = matches!(
         service.pagination_state(),
         ThreadListPaginationState::Idle { end_reached: true }
@@ -3654,6 +3740,9 @@ fn thread_list_item_to_json(item: &ThreadListItem) -> serde_json::Value {
     if let TimelineDetails::Ready(profile) = &item.root_event.sender_profile {
         if let Some(name) = &profile.display_name {
             out["root_sender_name"] = name.clone().into();
+        }
+        if let Some(avatar) = &profile.avatar_url {
+            out["root_sender_avatar_url"] = avatar.to_string().into();
         }
     }
     if let Some(latest) = &item.latest_event {
@@ -9266,5 +9355,76 @@ mod start_check_claim_tests {
         let held = registry.start_checks.lock().unwrap().clone();
         assert_eq!(held.len(), 1, "{held:?}");
         assert!(held.contains(&(2, "!a:x".to_owned())));
+    }
+}
+
+#[cfg(test)]
+mod thread_list_tally_tests {
+    use super::{thread_list_item_to_json, ThreadTally};
+    use matrix_sdk::ruma::{
+        owned_mxc_uri, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
+    };
+    use matrix_sdk_ui::timeline::{
+        thread_list_service::{ThreadListItem, ThreadListItemEvent},
+        Profile, TimelineDetails,
+    };
+
+    fn event(id: &str, ts: u32) -> ThreadListItemEvent {
+        ThreadListItemEvent {
+            event_id: EventId::parse(id).unwrap(),
+            timestamp: MilliSecondsSinceUnixEpoch(ts.into()),
+            sender: UserId::parse("@b:example.org").unwrap(),
+            is_own: false,
+            sender_profile: TimelineDetails::Ready(Profile {
+                display_name: Some("Bo".to_owned()),
+                display_name_ambiguous: false,
+                avatar_url: Some(owned_mxc_uri!("mxc://example.org/bo")),
+            }),
+            content: None,
+        }
+    }
+
+    fn item(replies: u32, latest: Option<ThreadListItemEvent>) -> ThreadListItem {
+        ThreadListItem {
+            root_event: event("$root:example.org", 1_000),
+            latest_event: latest,
+            num_replies: replies,
+        }
+    }
+
+    fn latest_id(item: &ThreadListItem) -> Option<OwnedEventId> {
+        item.latest_event.as_ref().map(|event| event.event_id.clone())
+    }
+
+    #[test]
+    fn paginated_history_does_not_inflate_the_reply_count() {
+        let mut tally = ThreadTally::default();
+        tally.observe(&item(2, None), 5_000);
+        // What the SDK reports after two old replies came through the cache.
+        let old_newer = item(3, Some(event("$r2:example.org", 1_200)));
+        let old_older = item(4, Some(event("$r1:example.org", 1_100)));
+        tally.observe(&old_newer, 6_000);
+        tally.observe(&old_older, 6_000);
+        let shown = tally.corrected(&old_older);
+        assert_eq!(shown.num_replies, 2);
+        assert_eq!(latest_id(&shown), latest_id(&old_newer));
+    }
+
+    #[test]
+    fn a_new_reply_counts_once_however_often_it_is_emitted() {
+        let mut tally = ThreadTally::default();
+        tally.observe(&item(2, None), 5_000);
+        let fresh = item(3, Some(event("$r3:example.org", 7_000)));
+        tally.observe(&fresh, 7_100);
+        tally.observe(&item(4, Some(event("$r3:example.org", 7_000))), 7_200);
+        let shown = tally.corrected(&fresh);
+        assert_eq!(shown.num_replies, 3);
+        assert_eq!(latest_id(&shown), latest_id(&fresh));
+    }
+
+    #[test]
+    fn the_root_senders_avatar_is_reported() {
+        let json = thread_list_item_to_json(&item(0, None));
+        assert_eq!(json["root_sender_avatar_url"], "mxc://example.org/bo");
     }
 }

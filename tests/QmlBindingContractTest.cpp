@@ -786,6 +786,13 @@ private Q_SLOTS:
             "replyCount > 0 ? qsTr(\"%n reply(s)\", \"\", replyCount)")));
     }
 
+    void threadListRowsShowTheSendersAvatar()
+    {
+        const QString panel = read(QStringLiteral("ThreadPanel.qml"));
+        QVERIFY(panel.contains(QStringLiteral(
+            "mxc: modelData.rootSenderAvatarMxc || \"\"")));
+    }
+
     void stateActivityUsesNeutralGroupedPresentation()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

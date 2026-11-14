@@ -552,6 +552,7 @@ Rectangle {
                         Avatar {
                             Layout.alignment: Qt.AlignTop
                             size: 30
+                            mxc: modelData.rootSenderAvatarMxc || ""
                             name: threadRow.rowSender
                             colorKey: threadRow.rowSenderId
                         }

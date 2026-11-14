@@ -262,25 +262,46 @@ void ThreadController::setClient(MatrixClient *client)
                        bool endReached, bool failed) {
                     if (!m_listOpen || roomId != m_listRoomId)
                         return;
-                    QVariantList sorted = threads;
-                    std::sort(sorted.begin(), sorted.end(),
-                              [this](const QVariant &a, const QVariant &b) {
-                        const QVariantMap ma = a.toMap();
-                        const QVariantMap mb = b.toMap();
-                        const bool ua = threadUnreadHint(
-                            ma.value(QStringLiteral("rootEventId")).toString());
-                        const bool ub = threadUnreadHint(
-                            mb.value(QStringLiteral("rootEventId")).toString());
-                        if (ua != ub)
-                            return ua;
-                        const QDateTime ta =
-                            ma.value(QStringLiteral("latestTimestamp"))
+                    // Servers that bundle no latest reply leave latestTimestamp
+                    // null, so activity falls back to the root and ties are broken.
+                    struct Key {
+                        bool unread;
+                        qint64 activity;
+                        qint64 root;
+                        QString id;
+                        QVariant entry;
+                    };
+                    QList<Key> keys;
+                    keys.reserve(threads.size());
+                    for (const QVariant &entry : threads) {
+                        const QVariantMap map = entry.toMap();
+                        const QString id =
+                            map.value(QStringLiteral("rootEventId")).toString();
+                        const qint64 root =
+                            map.value(QStringLiteral("rootTimestamp"))
+                                .toDateTime().toMSecsSinceEpoch();
+                        const QDateTime latest =
+                            map.value(QStringLiteral("latestTimestamp"))
                                 .toDateTime();
-                        const QDateTime tb =
-                            mb.value(QStringLiteral("latestTimestamp"))
-                                .toDateTime();
-                        return ta > tb;
+                        keys.append({ threadUnreadHint(id),
+                                      latest.isValid()
+                                          ? latest.toMSecsSinceEpoch() : root,
+                                      root, id, entry });
+                    }
+                    std::stable_sort(keys.begin(), keys.end(),
+                                     [](const Key &a, const Key &b) {
+                        if (a.unread != b.unread)
+                            return a.unread;
+                        if (a.activity != b.activity)
+                            return a.activity > b.activity;
+                        if (a.root != b.root)
+                            return a.root > b.root;
+                        return a.id < b.id;
                     });
+                    QVariantList sorted;
+                    sorted.reserve(keys.size());
+                    for (const Key &key : std::as_const(keys))
+                        sorted.append(key.entry);
                     for (auto &entry : sorted) {
                         QVariantMap map = entry.toMap();
                         map.insert(QStringLiteral("unread"),

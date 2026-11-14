@@ -5095,6 +5095,8 @@ void RustSdkMatrixClient::handleThreadListReset(const QJsonObject &event)
                                 matrix::user_lookup::localpartOrUserId(
                                     obj.value(QStringLiteral("root_sender"))
                                         .toString())));
+        entry.insert(QStringLiteral("rootSenderAvatarMxc"),
+                     obj.value(QStringLiteral("root_sender_avatar_url")).toString());
         entry.insert(QStringLiteral("rootPreview"),
                      obj.value(QStringLiteral("root_preview")).toString());
         entry.insert(QStringLiteral("rootTimestamp"),

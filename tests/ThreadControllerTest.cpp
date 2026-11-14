@@ -21,6 +21,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <QTimeZone>
 #include <QTimer>
 #include <QUrl>
 #include <QtTest/QtTest>
@@ -1932,6 +1933,52 @@ private Q_SLOTS:
             kSignalTimeoutMs);
         QVERIFY(rootSpy.count() >= 1);
         QVERIFY(!controller.rootInfo().value(QStringLiteral("loaded")).toBool());
+    }
+
+    void theThreadListKeepsNewestActivityFirstAcrossPages()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.openList(kGeneral);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.listLoading(), false,
+                                  kSignalTimeoutMs);
+
+        const QDateTime base = QDateTime::fromMSecsSinceEpoch(
+            1'700'000'000'000, QTimeZone::UTC);
+        const auto thread = [&base](const QString &id, int rootSecs,
+                                    int latestSecs = -1) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("rootEventId"), id);
+            entry.insert(QStringLiteral("rootTimestamp"),
+                         base.addSecs(rootSecs));
+            entry.insert(QStringLiteral("latestTimestamp"),
+                         latestSecs < 0 ? QDateTime()
+                                        : base.addSecs(latestSecs));
+            return QVariant(entry);
+        };
+        // Two pages from a server that bundles no latest reply, newest root
+        // first; one old thread has a known newer reply and two roots tie.
+        QVariantList threads;
+        QStringList expected;
+        for (int i = 40; i > 2; --i) {
+            const QString id = QStringLiteral("$root%1").arg(i, 2, 10, QLatin1Char('0'));
+            threads.append(thread(id, i * 10));
+            expected.append(id);
+        }
+        threads.append(thread(QStringLiteral("$tieB"), 20));
+        threads.append(thread(QStringLiteral("$tieA"), 20));
+        threads.append(thread(QStringLiteral("$active"), 5, 1000));
+        expected.prepend(QStringLiteral("$active"));
+        expected.append(QStringLiteral("$tieA"));
+        expected.append(QStringLiteral("$tieB"));
+
+        Q_EMIT client.threadListUpdated(kGeneral, threads, true, false);
+        QStringList shown;
+        for (const QVariant &entry : controller.threadList())
+            shown.append(entry.toMap().value(QStringLiteral("rootEventId")).toString());
+        QCOMPARE(shown, expected);
     }
 
     void theThreadListNamesARootTheTimelinesHaveNotReached()
