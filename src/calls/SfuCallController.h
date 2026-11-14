@@ -93,6 +93,10 @@ class SfuCallController : public QObject
                    NOTIFY microphoneLevelChanged)
     Q_PROPERTY(int participantCount READ participantCount
                    NOTIFY participantCountChanged)
+    /// Moves on every participant or track update, including one that
+    /// leaves the count alone.
+    Q_PROPERTY(int participantsRevision READ participantsRevision
+                   NOTIFY participantsChanged)
     Q_PROPERTY(CallParticipantModel *participantModel READ participantModel
                    CONSTANT)
     Q_PROPERTY(CallShareModel *shareModel READ shareModel CONSTANT)
@@ -226,6 +230,7 @@ public:
     /// track is published in, else empty.
     Q_INVOKABLE QString unsupportedVideoCodec(const QString &trackKey) const;
     int participantCount() const;
+    int participantsRevision() const { return m_participantsRevision; }
     CallParticipantModel *participantModel() const
     {
         return m_participantModel;
@@ -851,6 +856,7 @@ private:
     bool m_mediaEncrypted = false;
     QSet<QString> m_blockedStreams;
     QSet<QString> m_unsupportedCodecLogged;
+    int m_participantsRevision = 0;
     struct RemoteTrackMute {
         bool muted = false;
         int changes = 0;

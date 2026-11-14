@@ -35,7 +35,7 @@ Item {
     readonly property string activeTrackKey: root.mediaKind === "screen" ? root.screenTrackKey : root.cameraTrackKey
     property string unsupportedCodec: {
         // Read so a backup codec published later re-evaluates this.
-        app.groupCall.participantCount
+        app.groupCall.participantsRevision
         return root.local || root.activeTrackKey.length === 0
             ? "" : app.groupCall.unsupportedVideoCodec(root.activeTrackKey)
     }

@@ -161,6 +161,8 @@ bool containsFocusUrl(const QStringList &urls, const QString &url)
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
 {
+    connect(this, &SfuCallController::participantsChanged, this,
+            [this] { ++m_participantsRevision; });
     connect(this, &SfuCallController::stateChanged, this, [this] {
         if (!active()) setStreamInfoVisible(false);
     });
@@ -3486,9 +3488,12 @@ QString SfuCallController::unsupportedVideoCodec(const QString &trackKey) const
                     != QLatin1String("video"))
                 return {};
             QStringList receivable;
-            for (const auto &codec : SfuMediaEngine::receivableVideoCodecs())
+            for (const auto &codec :
+                 SfuMediaEngine::receivableVideoCodecs(m_roomEncrypted))
                 receivable << codec.encoding;
-            return lightning::calls::unsupportedVideoCodec(mimes, receivable);
+            return receivable.isEmpty()
+                ? QString()
+                : lightning::calls::unsupportedVideoCodec(mimes, receivable);
         }
     }
 #else

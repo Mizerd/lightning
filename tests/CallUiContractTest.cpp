@@ -5010,6 +5010,78 @@ Item {
         QVERIFY(badge("plainCamera") == nullptr);
     }
 
+    void aLateBackupCodecClearsTheNoticeAtTheSameParticipantCount()
+    {
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("the group-call media engine is not built in");
+#else
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+
+        QVariantMap track;
+        track.insert(QStringLiteral("source"), QStringLiteral("screen_share"));
+        track.insert(QStringLiteral("kind"), QStringLiteral("video"));
+        track.insert(QStringLiteral("sid"), QStringLiteral("TR_av1"));
+        track.insert(QStringLiteral("muted"), false);
+        track.insert(QStringLiteral("codecs"), QStringList{QStringLiteral("video/AV1")});
+        QVariantMap sharer;
+        sharer.insert(QStringLiteral("identity"), QStringLiteral("bob"));
+        sharer.insert(QStringLiteral("sid"), QStringLiteral("PA_bob"));
+        sharer.insert(QStringLiteral("tracks"), QVariantList{track});
+        call->ingestParticipantsForTest({sharer});
+        QCOMPARE(call->unsupportedVideoCodec(QStringLiteral("TR_av1")),
+                 QStringLiteral("AV1"));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400; height: 200
+    CallShareTile {
+        objectName: "share"
+        width: 240; height: 168
+        shareId: "TR_av1"; trackKey: "TR_av1"; ownerDisplayName: "Bob"
+    }
+    CallParticipantTile {
+        objectName: "camera"
+        x: 250; width: 140; height: 88
+        displayName: "Bob"; mediaKind: "screen"; screenTrackKey: "TR_av1"
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callcodecbindingtest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        auto *share = owner->findChild<QQuickItem *>(QStringLiteral("share"));
+        auto *camera = owner->findChild<QQuickItem *>(QStringLiteral("camera"));
+        QVERIFY(share && camera);
+        QCOMPARE(share->property("unsupportedCodec").toString(),
+                 QStringLiteral("AV1"));
+        QCOMPARE(camera->property("unsupportedCodec").toString(),
+                 QStringLiteral("AV1"));
+
+        const int count = call->participantCount();
+        track.insert(QStringLiteral("codecs"),
+                     QStringList{QStringLiteral("video/AV1"),
+                                 QStringLiteral("video/VP8")});
+        sharer.insert(QStringLiteral("tracks"), QVariantList{track});
+        call->ingestParticipantsForTest({sharer});
+        QCOMPARE(call->participantCount(), count);
+        QCOMPARE(share->property("unsupportedCodec").toString(), QString());
+        QCOMPARE(camera->property("unsupportedCodec").toString(), QString());
+#endif
+    }
+
     void aVideoCallPanelKeepsEnoughHeightToShowAPicture()
     {
         QQmlEngine engine;

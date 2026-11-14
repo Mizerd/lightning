@@ -1,5 +1,23 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-11-14 — NOT TESTED: VP9 receive on an encrypted call (GitHub #72)
+
+No VP9 sender has been run against it live; the evidence is CTest
+(`docs/voice-calls.md`, "Receiving VP9"). Two follow-ups from its review:
+
+* **An upper spatial layer of a key picture reads as a keyframe.** Once the
+  picture is split at each layer's E bit, a layer above the base has P=0 in its
+  VP9 descriptor, so `rtpvp9depay` does not flag it as a delta and the decrypt
+  probe's keyframe hold and the Stream Info keyframe counter both take it for
+  one. If the base layer of that picture was lost or undecryptable, the hold
+  is released on a frame that cannot be decoded alone. Needs a real SVC
+  sender (a VP9 camera, `L3T3_KEY`) to measure; screen shares are `L1T3`.
+* **Safari's first frames.** The review noted that a Safari sender's first
+  frames need checking against the whole-frame decrypt path. Not reproduced
+  and not characterised here; check livekit-client's Safari handling before
+  reading a short burst of `decrypt failed` at a Safari VP9 stream's start as
+  a key fault.
+
 
 
 ## 2026-11-08 — ACCEPTED FOLLOW-UP: the search index keeps the rows of rooms the user left

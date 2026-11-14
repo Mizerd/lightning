@@ -26,24 +26,23 @@ private Q_SLOTS:
                  (QStringList{"VP8", "VP9"}));
         QCOMPARE(encodings(base + QList<QByteArray>{"rtpvp9depay", "avdec_vp9"}),
                  (QStringList{"VP8", "VP9"}));
-        QCOMPARE(encodings(base + QList<QByteArray>{"rtpav1depay", "dav1ddec"}),
-                 (QStringList{"VP8", "AV1"}));
-        QCOMPARE(encodings(base + QList<QByteArray>{"rtpav1depay", "av1dec"}),
-                 (QStringList{"VP8", "AV1"}));
         QCOMPARE(encodings(base + QList<QByteArray>{"rtph264depay", "h264parse",
                                                     "openh264dec", "rtpvp9depay",
-                                                    "vp9dec", "rtpav1depay",
-                                                    "av1dec"}),
-                 (QStringList{"VP8", "H264", "VP9", "AV1"}));
+                                                    "vp9dec"}),
+                 (QStringList{"VP8", "H264", "VP9"}));
 
-        QCOMPARE(encodings(base + QList<QByteArray>{"vp9dec", "av1dec",
-                                                    "dav1ddec"}),
-                 QStringList{"VP8"});
-        QCOMPARE(encodings(base + QList<QByteArray>{"rtpvp9depay",
-                                                    "rtpav1depay"}),
+        QCOMPARE(encodings(base + QList<QByteArray>{"vp9dec"}), QStringList{"VP8"});
+        QCOMPARE(encodings(base + QList<QByteArray>{"rtpvp9depay"}),
                  QStringList{"VP8"});
         QCOMPARE(encodings(base + QList<QByteArray>{"rtph264depay",
                                                     "avdec_h264"}),
+                 QStringList{"VP8"});
+    }
+
+    void av1IsNeverOfferedEvenWithAWholeChain()
+    {
+        QCOMPARE(encodings({"rtpvp8depay", "vp8dec", "rtpav1depay", "dav1ddec",
+                            "av1dec", "avdec_av1", "av1parse"}),
                  QStringList{"VP8"});
     }
 
@@ -51,10 +50,9 @@ private Q_SLOTS:
     {
         const auto codecs = receivableVideoCodecs([](const QByteArray &name) {
             return name == "rtpvp8depay" || name == "vp8dec"
-                || name == "rtpvp9depay" || name == "avdec_vp9"
-                || name == "rtpav1depay" || name == "av1dec";
+                || name == "rtpvp9depay" || name == "avdec_vp9";
         });
-        QCOMPARE(codecs.size(), 3);
+        QCOMPARE(codecs.size(), 2);
         for (const ReceiveVideoCodec &codec : codecs)
             QVERIFY2(codec.chain.startsWith(QLatin1String("rtp"))
                          && codec.chain.section(QLatin1Char(' '), 0, 0)
@@ -68,9 +66,6 @@ private Q_SLOTS:
                  QStringLiteral("rtpvp9depay name=recvdepay request-keyframe=true "
                                 "wait-for-keyframe=true ! avdec_vp9 name=videodec "));
         QVERIFY(codecs[1].encryptedWhole);
-        QCOMPARE(codecs[2].chain,
-                 QStringLiteral("rtpav1depay name=recvdepay ! av1dec name=videodec "));
-        QVERIFY(codecs[2].encryptedWhole);
     }
 
     void aTrackIsUnsupportedOnlyWhenNoneOfItsCodecsCanBeReceived()

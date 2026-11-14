@@ -117,7 +117,6 @@ public:
                                      int maxHeight, int fps, int bitrateCapKbps);
     static VideoCodecChain h264CodecChain(const ShareEncoderCandidate &candidate,
                                           bool zeroCopy);
-    static QString h264DecoderElement();
     QString shareEncoderInUse() const { return m_shareEncoderInUse; }
     static QString captureEntryFilter(bool gpu);
     /// System memory, any format: the CPU entry, and the GPU entry's other half.
@@ -324,9 +323,13 @@ public:
                                        const OutputSink *speaker = nullptr,
                                        bool echoProbe = false,
                                        const QString &videoCodec = QString());
-    /// What this runtime can decode, VP8 first; `encoding` empty or unknown
-    /// in receivableVideoCodec() means VP8.
-    static QList<lightning::calls::ReceiveVideoCodec> receivableVideoCodecs();
+    /// What this runtime can decode, VP8 first. VP9 is answered only on an
+    /// encrypted call: livekit-client publishes a VP8 backup whenever it does
+    /// not encrypt, and that backup is what an unencrypted call should get.
+    /// `encoding` empty or unknown in receivableVideoCodec() means VP8.
+    static QList<lightning::calls::ReceiveVideoCodec> receivableVideoCodecs(
+        bool encrypted = true);
+    static void splitVp9SpatialLayers(GstPad *depaySink);
     static lightning::calls::ReceiveVideoCodec receivableVideoCodec(
         const QString &encoding);
     void refreshSpeakerSink(bool applyLive = false);
@@ -729,7 +732,7 @@ private:
     bool publishShareBackup(const QString &cid, GstElement *primary, bool glMemory);
     static QString offerForSfu(const QString &sdp, bool multiCodec);
     static QString offerIdentity(const QString &sdp);
-    static QString receivableVideoCaps();
+    static QString receivableVideoCaps(bool encrypted);
     static void installKeyframeRequestGate(
         GstPad *depaySink, std::shared_ptr<lightning::calls::StreamInfoStats> stats);
     static void enableVideoRetransmission(GstWebRTCRTPTransceiver *transceiver);

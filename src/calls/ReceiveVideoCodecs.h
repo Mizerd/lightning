@@ -14,12 +14,13 @@ struct ReceiveVideoCodec {
     /// Depayloader (named recvdepay) through decoder (named videodec).
     QString chain;
     /// VP8 and H.264 leave a codec header in the clear; livekit-client
-    /// encrypts a VP9 or AV1 frame whole.
+    /// encrypts a VP9 frame whole.
     bool encryptedWhole = false;
 };
 
 /// The video codecs this runtime can receive, by SDP encoding name. `has`
-/// answers whether an element factory exists.
+/// answers whether an element factory exists. No AV1: livekit-client will not
+/// encrypt it, and an unencrypted publisher always has a VP8 backup.
 inline QList<ReceiveVideoCodec> receivableVideoCodecs(
     const std::function<bool(const QByteArray &)> &has)
 {
@@ -41,7 +42,6 @@ inline QList<ReceiveVideoCodec> receivableVideoCodecs(
          "! video/x-h264,stream-format=byte-stream,alignment=au ! h264parse ",
          {"h264parse"}, {"avdec_h264", "openh264dec"}, false},
         {"VP9", "rtpvp9depay", "", {}, {"vp9dec", "avdec_vp9"}, true},
-        {"AV1", "rtpav1depay", "", {}, {"dav1ddec", "av1dec"}, true},
     };
     QList<ReceiveVideoCodec> out;
     for (const Spec &spec : specs) {
@@ -55,13 +55,10 @@ inline QList<ReceiveVideoCodec> receivableVideoCodecs(
         }
         if (!usable || decoder.isEmpty())
             continue;
-        // rtpav1depay's keyframe properties vary by plugin release; the
-        // engine sets them where they exist.
-        const bool av1 = qstrcmp(spec.encoding, "AV1") == 0;
         out.append({QLatin1String(spec.encoding),
                     QStringLiteral("%1 name=recvdepay %2%3! %4 name=videodec ")
                         .arg(QLatin1String(spec.depay),
-                             QLatin1String(av1 ? "" : recovery),
+                             QLatin1String(recovery),
                              QLatin1String(spec.parse),
                              QLatin1String(decoder)),
                     spec.encryptedWhole});

@@ -6984,30 +6984,119 @@ true);
         }
     }
 
+    void aVp9PictureIsSplitAtEachLayerOnlyOnAnEncryptedCall_data()
+    {
+        QTest::addColumn<bool>("encrypted");
+        QTest::newRow("encrypted") << true;
+        QTest::newRow("unencrypted") << false;
+    }
+    void aVp9PictureIsSplitAtEachLayerOnlyOnAnEncryptedCall()
+    {
+        QFETCH(bool, encrypted);
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        if (SfuMediaEngine::receivableVideoCodec(QStringLiteral("VP9")).encoding
+            != QLatin1String("VP9"))
+            QSKIP("no VP9 here");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setEncryptionRequired(encrypted);
+        GstElement *pipeline = gst_pipeline_new(nullptr);
+        GstElement *src = gst_element_factory_make("appsrc", nullptr);
+        QVERIFY(pipeline && src);
+        GstCaps *caps = gst_caps_from_string(
+            "application/x-rtp,media=video,encoding-name=VP9,clock-rate=90000,"
+            "payload=98");
+        g_object_set(src, "format", GST_FORMAT_TIME, "caps", caps, nullptr);
+        gst_caps_unref(caps);
+        QVERIFY(gst_bin_add(GST_BIN(pipeline), src));
+        GstElement *bin = nullptr;
+        QString why;
+        QVERIFY2(engine.prepareReceiveChain(
+                     pipeline, QStringLiteral("PA_svc"), QStringLiteral("TR_svc"),
+                     QStringLiteral("video"), &bin, &why, QString(),
+                     QStringLiteral("VP9")),
+                 qPrintable(why));
+        QVERIFY(gst_element_link(src, bin));
+
+        struct Seen {
+            QMutex mutex;
+            QList<bool> markers;
+        } seen;
+        GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay");
+        QVERIFY(depay);
+        GstPad *depayIn = gst_element_get_static_pad(depay, "sink");
+        gst_pad_add_probe(depayIn, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+                auto *s = static_cast<Seen *>(data);
+                GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+                if (gst_rtp_buffer_map(GST_PAD_PROBE_INFO_BUFFER(info),
+                                       GST_MAP_READ, &rtp)) {
+                    QMutexLocker lock(&s->mutex);
+                    s->markers.append(gst_rtp_buffer_get_marker(&rtp));
+                    gst_rtp_buffer_unmap(&rtp);
+                }
+                return GST_PAD_PROBE_OK;
+            }, &seen, nullptr);
+        gst_object_unref(depayIn);
+        gst_object_unref(depay);
+
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        // One picture, two spatial layers: each packet ends its layer's frame
+        // (E), only the second ends the picture (marker).
+        for (int i = 0; i < 2; ++i) {
+            GstBuffer *packet = gst_rtp_buffer_new_allocate(8, 0, 0);
+            GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+            QVERIFY(gst_rtp_buffer_map(packet, GST_MAP_WRITE, &rtp));
+            gst_rtp_buffer_set_payload_type(&rtp, 98);
+            gst_rtp_buffer_set_seq(&rtp, static_cast<guint16>(100 + i));
+            gst_rtp_buffer_set_timestamp(&rtp, 9000);
+            gst_rtp_buffer_set_ssrc(&rtp, 0x1234);
+            gst_rtp_buffer_set_marker(&rtp, i == 1);
+            auto *payload = static_cast<guint8 *>(gst_rtp_buffer_get_payload(&rtp));
+            memset(payload, 0, 8);
+            payload[0] = 0x08 | 0x04;
+            gst_rtp_buffer_unmap(&rtp);
+            GST_BUFFER_PTS(packet) = 0;
+            gst_app_src_push_buffer(GST_APP_SRC(src), packet);
+        }
+        const bool arrived = QTest::qWaitFor([&] {
+            QMutexLocker lock(&seen.mutex);
+            return seen.markers.size() == 2;
+        }, 5000);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+        QVERIFY2(arrived, "the packets never reached the depayloader");
+        QCOMPARE(seen.markers, (QList<bool>{encrypted, true}));
+    }
+
     void anAnswerAdmitsOnlyWhatThisBuildDecodes_data()
     {
         QTest::addColumn<bool>("vp8Only");
-        QTest::newRow("as built") << false;
-        QTest::newRow("forced VP8") << true;
+        QTest::addColumn<bool>("encrypted");
+        QTest::newRow("encrypted room") << false << true;
+        QTest::newRow("unencrypted room") << false << false;
+        QTest::newRow("forced VP8") << true << true;
     }
     void anAnswerAdmitsOnlyWhatThisBuildDecodes()
     {
         QFETCH(bool, vp8Only);
+        QFETCH(bool, encrypted);
         if (!gst_init_check(nullptr, nullptr, nullptr))
             QSKIP("no GStreamer");
         const auto have = [](const QList<QByteArray> &names) {
             return SfuMediaEngine::firstMissingElement(names).isEmpty();
         };
-        const bool h264 = !vp8Only && !SfuMediaEngine::h264DecoderElement().isEmpty()
+        const bool h264 = !vp8Only
+            && (have({QByteArrayLiteral("avdec_h264")})
+                || have({QByteArrayLiteral("openh264dec")}))
             && have({QByteArrayLiteral("rtph264depay"),
                      QByteArrayLiteral("h264parse")});
-        const bool vp9 = !vp8Only && have({QByteArrayLiteral("rtpvp9depay")})
+        const bool vp9Here = have({QByteArrayLiteral("rtpvp9depay")})
             && (have({QByteArrayLiteral("vp9dec")})
                 || have({QByteArrayLiteral("avdec_vp9")}));
-        const bool av1 = !vp8Only && have({QByteArrayLiteral("rtpav1depay")})
-            && (have({QByteArrayLiteral("dav1ddec")})
-                || have({QByteArrayLiteral("av1dec")}));
-        if (!vp8Only && !h264 && !vp9)
+        const bool vp9 = !vp8Only && encrypted && vp9Here;
+        if (!vp8Only && !h264 && !vp9Here)
             QSKIP("this environment decodes nothing but VP8");
         const auto restore = qScopeGuard(
             [] { qunsetenv("LIGHTNING_RECEIVE_VIDEO_CODEC"); });
@@ -7017,12 +7106,11 @@ true);
             qunsetenv("LIGHTNING_RECEIVE_VIDEO_CODEC");
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
+        engine.setEncryptionRequired(encrypted);
         engine.start();
         QStringList wanted{QStringLiteral("VP8")};
         if (vp9)
             wanted << QStringLiteral("VP9");
-        if (av1)
-            wanted << QStringLiteral("AV1");
         if (h264)
             wanted << QStringLiteral("H264");
         const QList<int> all{96, 98, 45, 125};

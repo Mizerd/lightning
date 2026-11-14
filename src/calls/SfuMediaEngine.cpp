@@ -481,10 +481,12 @@ void instrumentKeyframeRequests(GstPad *pad, const StreamInfoPtr &stats,
         [](gpointer data) { delete static_cast<Context *>(data); });
 }
 
+}
+
 // rtpvp9depay joins a picture's spatial layers into one buffer, but a sender
 // encrypts each layer's frame on its own; ending the picture at every layer
 // hands the decrypt probe one frame at a time.
-void splitVp9SpatialLayers(GstPad *depaySink)
+void SfuMediaEngine::splitVp9SpatialLayers(GstPad *depaySink)
 {
     if (!depaySink)
         return;
@@ -511,6 +513,8 @@ void splitVp9SpatialLayers(GstPad *depaySink)
             return GST_PAD_PROBE_OK;
         }, nullptr, nullptr);
 }
+
+namespace {
 
 enum class CryptoDropCause { None, NoKey, Undecryptable };
 
@@ -1656,17 +1660,19 @@ bool SfuMediaEngine::ensurePeer(Target target)
                  nullptr);
     if (target == Target::Subscriber) {
         g_signal_connect(webrtc, "on-new-transceiver", G_CALLBACK(+[](
-            GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer) {
+            GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer self) {
             GstWebRTCKind kind = GST_WEBRTC_KIND_UNKNOWN;
             g_object_get(transceiver, "kind", &kind, nullptr);
             if (kind != GST_WEBRTC_KIND_VIDEO)
                 return;
             enableVideoRetransmission(transceiver);
             GstCaps *caps = gst_caps_from_string(
-                receivableVideoCaps().toUtf8().constData());
+                receivableVideoCaps(static_cast<SfuMediaEngine *>(self)
+                                        ->m_encryptionRequired.load())
+                    .toUtf8().constData());
             g_object_set(transceiver, "codec-preferences", caps, nullptr);
             gst_caps_unref(caps);
-        }), nullptr);
+        }), this);
         // Pinned OFF: a source must never be removed on timeout. A muted
         // LiveKit track sends nothing, so rtpbin times it out ~40 s into the
         // mute; with autoremove the source goes, webrtcbin keeps its src pad
@@ -4907,15 +4913,6 @@ void SfuMediaEngine::clearShareHardwareEncoderFailedForTest()
     g_shareHardwareEncoderFailed.store(false);
 }
 
-QString SfuMediaEngine::h264DecoderElement()
-{
-    for (const char *name : {"avdec_h264", "openh264dec"}) {
-        if (firstMissingElement({QByteArray(name)}).isEmpty())
-            return QLatin1String(name);
-    }
-    return {};
-}
-
 QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps,
                                           int bitrateCapKbps)
 {
@@ -6130,18 +6127,21 @@ void SfuMediaEngine::enablePublishRetransmission(GstPad *webrtcSinkPad)
     gst_object_unref(transceiver);
 }
 
-QList<lightning::calls::ReceiveVideoCodec> SfuMediaEngine::receivableVideoCodecs()
+QList<lightning::calls::ReceiveVideoCodec> SfuMediaEngine::receivableVideoCodecs(
+    bool encrypted)
 {
+    if (!lightning::gst::ensureInitialised())
+        return {};
     auto codecs = lightning::calls::receivableVideoCodecs(
         [](const QByteArray &name) {
             return firstMissingElement({name}).isEmpty();
         });
-    if (qEnvironmentVariable("LIGHTNING_RECEIVE_VIDEO_CODEC")
-        == QLatin1String("vp8")) {
-        codecs.removeIf([](const lightning::calls::ReceiveVideoCodec &codec) {
-            return codec.encoding != QLatin1String("VP8");
-        });
-    }
+    const bool vp8Only = qEnvironmentVariable("LIGHTNING_RECEIVE_VIDEO_CODEC")
+        == QLatin1String("vp8");
+    codecs.removeIf([&](const lightning::calls::ReceiveVideoCodec &codec) {
+        return (vp8Only && codec.encoding != QLatin1String("VP8"))
+            || (!encrypted && codec.encoding == QLatin1String("VP9"));
+    });
     return codecs;
 }
 
@@ -6160,10 +6160,10 @@ lightning::calls::ReceiveVideoCodec SfuMediaEngine::receivableVideoCodec(
                             false});
 }
 
-QString SfuMediaEngine::receivableVideoCaps()
+QString SfuMediaEngine::receivableVideoCaps(bool encrypted)
 {
     QStringList caps;
-    for (const auto &codec : receivableVideoCodecs())
+    for (const auto &codec : receivableVideoCodecs(encrypted))
         caps << QStringLiteral("application/x-rtp,media=video,encoding-name=%1,"
                                "clock-rate=90000").arg(codec.encoding);
     return caps.join(QLatin1Char(';'));
@@ -10136,13 +10136,9 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     bool decryptProbeInstalled = false;
     if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
         if (video) {
-            for (const char *property : {"request-keyframe", "wait-for-keyframe"}) {
-                if (g_object_class_find_property(G_OBJECT_GET_CLASS(depay), property))
-                    g_object_set(depay, property, TRUE, nullptr);
-            }
             GstPad *rtpIn = gst_element_get_static_pad(depay, "sink");
             installKeyframeRequestGate(rtpIn, streamInfo);
-            if (videoCodec == QLatin1String("VP9"))
+            if (videoCodec == QLatin1String("VP9") && m_encryptionRequired.load())
                 splitVp9SpatialLayers(rtpIn);
             if (rtpIn) gst_object_unref(rtpIn);
         }

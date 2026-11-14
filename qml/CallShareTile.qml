@@ -20,7 +20,7 @@ Item {
     property bool local: false
     property string unsupportedCodec: {
         // Read so a backup codec published later re-evaluates this.
-        app.groupCall.participantCount
+        app.groupCall.participantsRevision
         return root.local || root.trackKey.length === 0
             ? "" : app.groupCall.unsupportedVideoCodec(root.trackKey)
     }
