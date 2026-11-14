@@ -4526,8 +4526,12 @@ true,2147483,
                              "bound: '%2'")
                                         .arg(QString::fromUtf8(lane.path),
                                              props.trimmed())));
+                // The video receive queue feeds a depayloader chain from
+                // ReceiveVideoCodecs.h.
                 if (next.contains(QStringLiteral("rtpvp8depay"))
-                    || next.contains(QStringLiteral("rtp%1depay")))
+                    || (next.trimmed() == QLatin1String("%1")
+                        && code.mid(m.capturedStart(), 320).contains(QStringLiteral(
+                               "receivableVideoCodec(videoCodec).chain"))))
                     continue;
                 QVERIFY2(props.contains(QStringLiteral("leaky=downstream")),
                          qPrintable(QStringLiteral(
