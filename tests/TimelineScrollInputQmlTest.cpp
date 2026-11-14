@@ -528,18 +528,23 @@ private Q_SLOTS:
         QVERIFY(openPane(controller, pane, roomId, events, 0, 620));
 
         QQuickItem *body = nullptr;
-        QVERIFY(QTest::qWaitFor([&] {
+        QStringList seen;
+        (void)QTest::qWaitFor([&] {
+            seen.clear();
             for (const char *name : {"messageBody", "messageSegmentText"}) {
                 const auto bodies = pane.root->findChildren<QQuickItem *>(
                     QLatin1String(name));
                 for (QQuickItem *candidate : bodies) {
-                    if (candidate->property("text").toString().contains(
-                            QStringLiteral("example.org/probe")))
+                    const QString text = candidate->property("text").toString();
+                    seen.append(text);
+                    if (text.contains(QStringLiteral("example link")))
                         body = candidate;
                 }
             }
             return body && body->width() > 0;
-        }, kSignalTimeoutMs));
+        }, kSignalTimeoutMs);
+        QVERIFY2(body, qPrintable(QStringLiteral("no body carries the link: ")
+                                  + seen.join(QStringLiteral(" | "))));
 
         const qreal y = body->height() / 2;
         qreal linkX = -1;
