@@ -1194,6 +1194,11 @@ ApplicationWindow {
         QTest::qWait(300);
         auto *list = item("threadReplyList");
         QVERIFY(list);
+        // The view gives its focus to its current row, as it does to the
+        // newest reply once older ones load above it.
+        QVERIFY(list->setProperty("currentIndex", model->rowCount() - 1));
+        auto *current = list->property("currentItem").value<QQuickItem *>();
+        QVERIFY(current && current->hasFocus());
         QVariant entered;
         QVERIFY(QMetaObject::invokeMethod(list, "enterMessageSelection",
                                           Q_RETURN_ARG(QVariant, entered),
