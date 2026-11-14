@@ -52,6 +52,7 @@ TextField {
         objectName: "textFieldContextArea"
         anchors.fill: parent
         acceptedButtons: Qt.RightButton
+        cursorShape: Qt.IBeamCursor
         onClicked: (mouse) => {
             root.forceActiveFocus(Qt.PopupFocusReason)
             textFieldEditMenuLoader.active = true
