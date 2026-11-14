@@ -355,7 +355,7 @@ Item {
                 }
             }
             Loader {
-                active: root.unsupportedCodec.length > 0
+                active: false
                 visible: active
                 sourceComponent: CallTileBadge {
                     objectName: "callTileUnsupportedCodec"

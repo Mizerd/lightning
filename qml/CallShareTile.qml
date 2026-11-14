@@ -153,7 +153,7 @@ Item {
                 sourceComponent: Text {
                     objectName: "callShareStatus"
                     textFormat: Text.PlainText
-                    text: root.unsupportedCodec.length === 0
+                    text: true
                           ? qsTr("Waiting for the picture…")
                           : (root.compact
                              ? qsTr("%1 isn't supported by this build").arg(root.unsupportedCodec)

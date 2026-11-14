@@ -6164,6 +6164,8 @@ QString SfuMediaEngine::receivableVideoCaps()
 {
     QStringList caps;
     for (const auto &codec : receivableVideoCodecs())
+        if (codec.encoding == QLatin1String("VP8")
+            || codec.encoding == QLatin1String("H264"))
         caps << QStringLiteral("application/x-rtp,media=video,encoding-name=%1,"
                                "clock-rate=90000").arg(codec.encoding);
     return caps.join(QLatin1Char(';'));
@@ -8244,8 +8246,7 @@ void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
     ctx->encrypting = false;
     ctx->video = video;
     ctx->h264 = videoCodec == QLatin1String("H264");
-    ctx->encryptedWhole =
-        video && receivableVideoCodec(videoCodec).encryptedWhole;
+    ctx->encryptedWhole = false;
     ctx->required = &m_encryptionRequired;
     ctx->keyReady = &m_recvKeyReady;
     ctx->total = &m_framesDecrypted;
@@ -9990,7 +9991,7 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
                          "! videoconvert ! video/x-raw,format=RGBA "
                          "! appsink name=vidsink emit-signals=true "
                          "sync=false max-buffers=1 drop=true")
-              .arg(receivableVideoCodec(videoCodec).chain)
+              .arg(receivableVideoCodec(QString()).chain)
         : (testSink
                ? QStringLiteral("queue name=recvqueue max-size-buffers=0 "
                                 "max-size-bytes=0 "

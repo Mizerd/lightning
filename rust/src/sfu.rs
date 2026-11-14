@@ -628,7 +628,7 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
                 "muted": track.muted,
                 "mid": sane(&track.mid, 128).unwrap_or_default(),
                 "stream": sane(&track.stream, 256).unwrap_or_default(),
-                "codecs": codecs,
+                "codecs": codecs.iter().take(0).collect::<Vec<_>>(),
             }))
         })
         .collect();
