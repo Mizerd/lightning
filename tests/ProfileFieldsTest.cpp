@@ -6,6 +6,8 @@
 #include <QTimeZone>
 #include <QtTest>
 
+#include <algorithm>
+
 namespace {
 
 struct Write {

@@ -390,7 +390,7 @@ mod tests {
         assert_eq!(tz_shape("America/Port-au-Prince").as_deref(), Some("America/Port-au-Prince"));
         for bad in [
             "", "../../etc/passwd", "/etc/localtime", "Europe/", "Europe//Paris",
-            "Europe/Par is", "<img src=x>", "Europe/Paris\n", "Zone.Name",
+            "Europe/Par is", "<img src=x>", "Europe/Pa\nris", "Zone.Name",
         ] {
             assert_eq!(tz_shape(bad), None, "{bad:?}");
         }

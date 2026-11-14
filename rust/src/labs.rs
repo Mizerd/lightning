@@ -585,6 +585,8 @@ const CLASSES: &[(&str, EventClass)] = {
         ("profile_banner_set", UiOnly),
         ("profile_bio", UiOnly),
         ("profile_bio_set", UiOnly),
+        ("profile_fields", UiOnly),
+        ("profile_field_set", UiOnly),
         ("public_rooms_result", UiOnly),
         ("push_rules_changed", UiOnly),
         ("push_rules_snapshot", UiOnly),
