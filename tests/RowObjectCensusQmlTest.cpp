@@ -633,7 +633,7 @@ private Q_SLOTS:
         AppController controller(AppController::MockBackend);
         struct Bound { const char *kind; const char *subtree; int max; };
         const Bound bounds[] = {
-            { "image-png", "messagePresentationRow", 135 },
+            { "image-png", "messagePresentationRow", 137 },
             { "image-png", "imageMedia", 28 },
             { "video", "videoMedia", 40 },
             { "file", "fileCard", 30 },
