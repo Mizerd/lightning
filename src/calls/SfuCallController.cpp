@@ -4333,6 +4333,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_participants.clear();
     m_publisherParticipants.clear();
     m_remoteTrackMuted.clear();
+    m_unsupportedCodecLogged.clear();
     if (!m_blockedStreams.isEmpty()) {
         m_blockedStreams.clear();
         Q_EMIT remoteMediaBlockedChanged();
