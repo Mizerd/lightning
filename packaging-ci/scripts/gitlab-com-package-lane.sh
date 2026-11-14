@@ -11,14 +11,16 @@
 #   GITLAB_COM_PIPELINE_ID    optional: adopt this pipeline instead of
 #                             triggering one
 #   GITLAB_COM_COLLECT        comma list of linux-amd64, linux-arm64, windows,
-#                             or none (default: all three)
+#                             macos, or none (default: all four)
 #
 # Only https://gitlab.com/api/v4 and project 88402223 are accepted, unless
 # GITLAB_COM_FAKE_API_FOR_TESTS=1 (tests/test-gitlab-com-lane.sh).
 #
 # linux-amd64 and windows are required: each of their packages must have
 # validated. linux-arm64 is optional: whatever validated is collected, and a
-# red arm64 job neither fails the lane nor this script.
+# red arm64 job neither fails the lane nor this script. macos is required in a
+# release or when BUILD_MACOS_PACKAGES=true, and optional when only
+# PACKAGE_FORMATS names it.
 #
 # Writes dist/gitlab-com-lane.env (GITLAB_COM_LANE_PIPELINE=<id>) and, per
 # collected group, dist/gitlab-com-lane-<group>.json.
@@ -39,7 +41,7 @@ ROOT="$(project_dir)"
 # Above the lane's critical path: resolve 15m, build 3h, snap 1h, its validator
 # 1h, plus queueing.
 : "${GITLAB_COM_TIMEOUT_S:=25200}"
-: "${GITLAB_COM_COLLECT:=linux-amd64,linux-arm64,windows}"
+: "${GITLAB_COM_COLLECT:=linux-amd64,linux-arm64,windows,macos}"
 require_var GITLAB_COM_READ_TOKEN
 require_var SOURCE_REF
 [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]] || die "SOURCE_REF must be a full commit SHA"
@@ -58,7 +60,7 @@ declare -A collect=()
 IFS=',' read -r -a _groups <<<"$GITLAB_COM_COLLECT"
 for group in "${_groups[@]}"; do
     case "$group" in
-        linux-amd64|linux-arm64|windows) collect[$group]=1 ;;
+        linux-amd64|linux-arm64|windows|macos) collect[$group]=1 ;;
         none) ;;
         *) die "GITLAB_COM_COLLECT: unknown group '$group'" ;;
     esac
@@ -110,6 +112,7 @@ if [[ -z "$pipeline" ]]; then
         --data-urlencode "variables[RUN_TESTS]=0" \
         --data-urlencode "variables[SOURCE_REF]=$SOURCE_REF" \
         --data-urlencode "variables[PUBLISH_PACKAGES]=${PUBLISH_PACKAGES:-false}" \
+        --data-urlencode "variables[BUILD_MACOS_PACKAGES]=${BUILD_MACOS_PACKAGES:-false}" \
         --data-urlencode "variables[RELEASE_ACTION]=${RELEASE_ACTION:-}" \
         --data-urlencode "variables[RELEASE_VERSION]=${RELEASE_VERSION:-}" \
         "$API/trigger/pipeline" | jq -er .id)"
@@ -126,6 +129,9 @@ var() { jq -r --arg k "$1" '[.[] | select(.key == $k) | .value][0] // ""' "$WORK
 [[ "$(var PUBLISH_PACKAGES)" == "${PUBLISH_PACKAGES:-false}" || \
    ( -z "$(var PUBLISH_PACKAGES)" && "${PUBLISH_PACKAGES:-false}" == false ) ]] || \
     die "pipeline $pipeline ran with PUBLISH_PACKAGES=$(var PUBLISH_PACKAGES)"
+[[ "$(var BUILD_MACOS_PACKAGES)" == "${BUILD_MACOS_PACKAGES:-false}" || \
+   ( -z "$(var BUILD_MACOS_PACKAGES)" && "${BUILD_MACOS_PACKAGES:-false}" == false ) ]] || \
+    die "pipeline $pipeline ran with BUILD_MACOS_PACKAGES=$(var BUILD_MACOS_PACKAGES)"
 [[ "$(var RELEASE_VERSION)" == "${RELEASE_VERSION:-}" ]] || \
     die "pipeline $pipeline ran with RELEASE_VERSION=$(var RELEASE_VERSION)"
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
@@ -170,9 +176,16 @@ curl -fsS --retry 5 --retry-all-errors --max-time 120 -K "$WORK/auth" -D "$WORK/
 total="$(tr -d '\r' <"$WORK/jobs.headers" | awk -F': ' 'tolower($1) == "x-total" { print $2 }')"
 [[ "$total" =~ ^[0-9]+$ ]] && (( total <= 100 )) || die "pipeline $pipeline lists '$total' jobs; expected at most one page"
 (( $(jq length "$WORK/jobs.json") == total )) || die "pipeline $pipeline's job list is incomplete"
-# The arm64 lane is optional, so only an arm64 job may have failed the pipeline.
+# Only the arm64 lane, and an unrequested macOS build, may have failed the
+# pipeline.
+publishing=false
+[[ "${PUBLISH_PACKAGES:-false}" != true ]] || publishing=true
+# A release or an explicit BUILD_MACOS_PACKAGES request must get a green macOS build.
+macos_required=$publishing
+[[ "${BUILD_MACOS_PACKAGES:-false}" != true ]] || macos_required=true
 if [[ "$status" == failed ]]; then
-    red="$(jq -r '[.[] | select(.status == "failed" and .allow_failure != true and (.name | endswith("-arm64") | not)) | .name] | join(" ")' "$WORK/jobs.json")"
+    red="$(jq -r --argjson pub "$macos_required" '[.[] | select(.status == "failed" and .allow_failure != true
+        and (.name | endswith("-arm64") | not) and ($pub or .name != "build-macos")) | .name] | join(" ")' "$WORK/jobs.json")"
     [[ -z "$red" ]] || die "gitlab.com pipeline $pipeline failed outside the optional arm64 lane: $red"
 fi
 # A release may not pass with any job red, canaries included; arm64 excepted.
@@ -262,5 +275,21 @@ if [[ -n "${collect[windows]:-}" ]]; then
     done
     (( ${#taken[@]} == 3 )) || die "collected ${#taken[@]} of 3 Windows artifacts"
     record windows
+fi
+if [[ -n "${collect[macos]:-}" ]]; then
+    taken=() missing=()
+    if job="$(job_id build-macos)"; then
+        fetch_artifacts "$job"
+        mkdir -p "$ROOT/dist/macos"
+        mapfile -t hits < <(find "$WORK/unpack/dist/macos" -maxdepth 1 -type f -name '*-macos-arm64.zip')
+        (( ${#hits[@]} == 1 )) || die "build-macos left ${#hits[@]} macOS zips, expected one"
+        take "${hits[0]}" "$ROOT/dist/macos" build-macos with-sum
+        install -m 0644 "$WORK/unpack/dist/macos/build-info.json" "$ROOT/dist/macos/"
+    else
+        [[ "$macos_required" != true ]] || die "gitlab.com pipeline $pipeline has no successful build-macos"
+        printf 'optional: gitlab.com pipeline %s has no successful build-macos; no macOS bundle\n' "$pipeline" >&2
+        missing=(build-macos)
+    fi
+    record macos
 fi
 printf 'gitlab.com pipeline %s (%s) accepted\n' "$pipeline" "$pipeline_sha"

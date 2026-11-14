@@ -167,6 +167,17 @@ run_bounded() {
 #   $3  the command's exit status
 #   $4  optional: "soft" -- report and return 1 instead of dying, for a
 #       validator that accumulates failures and reports at the end
+# Builds gst-element-probe.c against the GStreamer framework at $1 into $2,
+# with that framework's lib directory as its only rpath.
+build_gst_element_probe() {
+    local prefix="$1" out="$2" src
+    src="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/gst-element-probe.c"
+    # shellcheck disable=SC2046
+    clang -arch arm64 -O1 -o "$out" "$src" \
+        $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags --libs gstreamer-1.0) \
+        -Wl,-rpath,"$prefix/lib"
+}
+
 assert_queue_selftest() {
     local label="$1" log="$2" status="$3" mode="${4:-hard}"
     local complain=die

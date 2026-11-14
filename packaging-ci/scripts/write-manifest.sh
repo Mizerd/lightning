@@ -87,12 +87,13 @@ done
 # macOS is a download-only asset (arm64, macOS 26+, ad-hoc signed,
 # un-notarized) and is never in the signed update manifest, since the client
 # cannot self-install it. Since 2026-10-07 a release cannot publish without it:
-# publish-packages needs a green macos-package-test and sets
+# publish-packages needs a green macOS build (gitlab-com-macos or, at home,
+# macos-package-test) and sets
 # LIGHTNING_REQUIRE_MACOS_ASSET=true, so a job that went green without leaving
 # its bundle behind is refused here, before anything is uploaded.
 macos_zip="$ROOT/dist/macos/Lightning-${PACKAGE_VERSION}-${short_sha}-macos-arm64.zip"
 if [[ ! -f "$macos_zip" && "${LIGHTNING_REQUIRE_MACOS_ASSET:-false}" == true ]]; then
-    die "NO macOS bundle at ${macos_zip#"$ROOT"/}, and a release may not publish without it (LIGHTNING_REQUIRE_MACOS_ASSET=true). Read the macos-package-test log."
+    die "NO macOS bundle at ${macos_zip#"$ROOT"/}, and a release may not publish without it (LIGHTNING_REQUIRE_MACOS_ASSET=true). Read the gitlab-com-macos or macos-package-test log."
 fi
 if [[ -f "$macos_zip" ]]; then
     formats+=(macos-arm64)

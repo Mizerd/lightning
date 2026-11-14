@@ -33,10 +33,10 @@ QT_LINKED_MODULES="QtCore QtGui QtQml QtQuick QtQuickControls2 QtNetwork QtSql Q
 require_var EXPECTED_SOURCE_SHA
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "macOS packaging requires a full source commit SHA"
 
-# The release never depends on this host (allow_failure plus an optional need)
-# and the bundle never enters the signed update manifest; both are asserted by
-# tests/test-pipeline-config.py. Publication happens on Linux from this job's
-# artifact.
+# A release requires this bundle, from whichever site PACKAGE_BUILD_SITE chose
+# (the Mac mini or gitlab.com's hosted Mac), and it never enters the signed
+# update manifest; both are asserted by tests/test-pipeline-config.py.
+# Publication happens on Linux from this job's artifact.
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
     printf 'Publishing pipeline: building the macOS bundle.\n'
     printf 'It is ad-hoc signed and un-notarized; it ships as a download that\n'
@@ -127,6 +127,8 @@ export MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET"
 
 RUST_VERSION="$(rustc --version)"
 CMAKE_VERSION="$(cmake --version | head -1)"
+NINJA_VERSION="$(ninja --version)"
+PKGCONF_VERSION="$(pkg-config --version)"
 MACOS_VERSION="$(sw_vers -productVersion)"
 
 # Record which developer toolchain (Xcode or Command Line Tools) was used.
@@ -233,7 +235,8 @@ BUILT_BINARY="$BUILD_DIR/lightning-matrix"
 [[ -x "$BUILT_BINARY" ]] || die "lightning-matrix was not produced at $BUILT_BINARY"
 
 # A macOS build that compiled the HTTP or mock backend is not the same app.
-build_info_text="$("$BUILT_BINARY" --build-info)"
+build_info_text="$(run_bounded 120 "$BUILT_BINARY" --build-info)" \
+    || die "lightning-matrix --build-info failed or did not finish in 120 s"
 printf '%s\n' "$build_info_text" | tee "$REPORT_DIR/build-info.txt"
 printf '%s\n' "$build_info_text" | grep -qx 'matrix_backend: rust' \
     || die "built binary is not Rust-only (matrix_backend != rust)"
@@ -402,6 +405,10 @@ jq -n \
     --arg qt "$QT_VERSION" \
     --arg rust "$RUST_VERSION" \
     --arg cmake "$CMAKE_VERSION" \
+    --arg ninja "$NINJA_VERSION" \
+    --arg pkgconf "$PKGCONF_VERSION" \
+    --arg openssl "$OPENSSL_VERSION" \
+    --arg runner_kind "${LIGHTNING_MACOS_RUNNER_KIND:-native-macos-shell}" \
     --arg xcode "$XCODE_VERSION" \
     --arg sdk "${SDK_VERSION:-unknown}" \
     --arg developer_dir "${DEVELOPER_DIR_ACTIVE:-unknown}" \
@@ -412,11 +419,12 @@ jq -n \
     '{version:$version, source_commit:$source_commit,
       packaging_commit:$packaging_commit, target:"aarch64-apple-darwin",
       bundle_identifier:$bundle_id, build_kind:"unsigned-test",
-      runner_kind:"native-macos-shell", architectures:["arm64"],
+      runner_kind:$runner_kind, architectures:["arm64"],
       universal_binary:false, signed:false, signature:"ad-hoc",
       notarized:false, gatekeeper_accepted:false,
       deployment_target:$deployment_target,
-      toolchain:{qt:$qt, rust:$rust, cmake:$cmake, xcode:$xcode,
+      toolchain:{qt:$qt, rust:$rust, cmake:$cmake, ninja:$ninja,
+                 pkgconf:$pkgconf, openssl:$openssl, xcode:$xcode,
                  macos_sdk:$sdk, developer_dir:$developer_dir, macos:$macos,
                  gstreamer:$gstreamer},
       call_media_engine:true, call_media_backend:"gstreamer",
@@ -496,7 +504,7 @@ cp "$CONTENTS/Resources/build-info.json" "$MACOS_DIST/build-info.json"
 
 # --- validate then package ---------------------------------------------------
 # Validate before zipping so a broken bundle never becomes an artifact. The
-# validator probes the bundled plugins with the SDK's gst-inspect-1.0.
+# validator probes the bundled plugins with gst-element-probe.c.
 export LIGHTNING_MACOS_GSTREAMER_PREFIX="$GSTREAMER_PREFIX"
 "$SCRIPT_DIR/validate-macos-artifacts.sh" "$MACOS_DIST"
 

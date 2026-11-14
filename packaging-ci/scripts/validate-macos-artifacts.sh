@@ -286,27 +286,26 @@ fi
 # Build a real registry through the symlink the application itself uses, and
 # ask for every element.
 #
-# The probe tool is a copy of the SDK's gst-inspect with its rpaths replaced by
-# one absolute rpath into the bundle's gstreamer-libs. Used as-is, its
-# @executable_path/../lib rpath would let the SDK satisfy anything the bundle
-# is missing.
+# The probe tool is gst-element-probe.c built against the SDK, with its rpaths
+# replaced by one absolute rpath into the bundle's gstreamer-libs, so the SDK
+# cannot satisfy anything the bundle is missing. Not gst-inspect-1.0, which
+# hangs on a headless Mac.
 #
 # The versioned GST_*_1_0 variables are cleared too because GStreamer reads
 # them first; a leftover one would point the scan at the SDK.
 #
 # A missing probe tool is a failure, not a skip.
 GST_SDK_PREFIX="${LIGHTNING_MACOS_GSTREAMER_PREFIX:-$HOME/opt/gstreamer/GStreamer.framework/Versions/1.0}"
-GST_INSPECT="$GST_SDK_PREFIX/bin/gst-inspect-1.0"
-if [[ ! -x "$GST_INSPECT" ]]; then
-    printf '  FAIL: gst-inspect-1.0 not found at %s — cannot prove the plugins load\n' \
-        "$GST_INSPECT" >&2
+probe_dir="$(mktemp -d)"
+probe="$probe_dir/gst-element-probe"
+if ! build_gst_element_probe "$GST_SDK_PREFIX" "$probe" >"$probe_dir/build.log" 2>&1; then
+    printf '  FAIL: could not build the element probe against %s — cannot prove the plugins load\n' \
+        "$GST_SDK_PREFIX" >&2
+    sed 's/^/        /' "$probe_dir/build.log" >&2 || true
     failures=$((failures + 1))
     gst_elements_state=unproven
+    rm -rf -- "$probe_dir"
 else
-    probe_dir="$(mktemp -d)"
-    probe="$probe_dir/gst-inspect-probe"
-    lipo -thin arm64 "$GST_INSPECT" -output "$probe" 2>/dev/null || cp "$GST_INSPECT" "$probe"
-    chmod 0755 "$probe"
     rpaths_of "$probe" >"$probe_dir/rpaths"
     while IFS= read -r rp; do
         [[ -n "$rp" ]] || continue
@@ -324,7 +323,7 @@ else
         GST_PLUGIN_PATH="$GST_PLUGIN_LINK" GST_PLUGIN_PATH_1_0="$GST_PLUGIN_LINK"
         GST_REGISTRY="$gst_registry" GST_REGISTRY_1_0="$gst_registry"
     )
-    if ! "${gst_probe_env[@]}" "$probe" --version >/dev/null 2>&1; then
+    if ! run_bounded 300 "${gst_probe_env[@]}" "$probe" >/dev/null 2>&1; then
         printf '  FAIL: the element probe tool could not run against the bundle\n' >&2
         printf '        (the bundled GStreamer core, glib or gobject did not load)\n' >&2
         failures=$((failures + 1))
@@ -348,14 +347,14 @@ else
             autovideosrc avfvideosrc osxaudiosrc osxaudiosink \
             sctpenc sctpdec
         do
-            if ! "${gst_probe_env[@]}" "$probe" "$element" >/dev/null 2>&1; then
+            if ! run_bounded 60 "${gst_probe_env[@]}" "$probe" "$element" >/dev/null 2>&1; then
                 printf '  missing element in the bundled plugins: %s\n' "$element" >&2
                 gst_missing=$((gst_missing + 1))
             fi
         done
         gst_degraded=0
         for element in webrtcdsp webrtcechoprobe compositor; do
-            if ! "${gst_probe_env[@]}" "$probe" "$element" >/dev/null 2>&1; then
+            if ! run_bounded 60 "${gst_probe_env[@]}" "$probe" "$element" >/dev/null 2>&1; then
                 printf '  note: optional element absent (%s) — the engine tolerates it\n' "$element"
                 gst_degraded=$((gst_degraded + 1))
             fi
@@ -380,7 +379,7 @@ else
         # helper is exec'd.
         scanner_registry="$probe_dir/registry-scanner.bin"
         scanner_log="$probe_dir/scanner.log"
-        env \
+        run_bounded 300 env \
             GST_PLUGIN_SYSTEM_PATH= GST_PLUGIN_SYSTEM_PATH_1_0= \
             GST_PLUGIN_PATH="$GST_PLUGIN_LINK" GST_PLUGIN_PATH_1_0="$GST_PLUGIN_LINK" \
             GST_REGISTRY="$scanner_registry" GST_REGISTRY_1_0="$scanner_registry" \
@@ -437,7 +436,7 @@ fi
 # --- launch smoke ------------------------------------------------------------
 # Headless CLI entry points only: this proves the binary and its frameworks
 # load, not that a window works.
-if "$CONTENTS/MacOS/$APP_NAME" --version >"$REPORT_DIR/version.txt" 2>&1; then
+if run_bounded 120 "$CONTENTS/MacOS/$APP_NAME" --version >"$REPORT_DIR/version.txt" 2>&1; then
     printf '  ok: bundled binary runs (--version): %s\n' "$(tr -d '\n' <"$REPORT_DIR/version.txt")"
 else
     printf '  FAIL: bundled binary could not execute --version\n' >&2
@@ -446,7 +445,7 @@ fi
 # The checks above prove the bundle's shape, not that the application finds
 # its plugins. --call-media-status probes through the same functions
 # AppController uses.
-if "$CONTENTS/MacOS/$APP_NAME" --call-media-status         >"$REPORT_DIR/call-media-status.txt" 2>&1; then
+if run_bounded 300 "$CONTENTS/MacOS/$APP_NAME" --call-media-status >"$REPORT_DIR/call-media-status.txt" 2>&1; then
     check "the bundled app can place calls"         grep -qF 'RESULT: calls can be placed and answered'             "$REPORT_DIR/call-media-status.txt"
     # Must be the bundle's own plugins: this runner has a system GStreamer that
     # users do not.
@@ -487,7 +486,7 @@ assert_call_sounds_status macOS "$REPORT_DIR/call-sounds-status.txt" \
 # Image decoders. macdeployqt ships Homebrew qtimageformats plus qmacheif. JPEG
 # XL is not required: no Qt JXL plugin exists for macOS, so it is reported as a
 # platform limit.
-if "$CONTENTS/MacOS/$APP_NAME" --image-format-status \
+if run_bounded 120 "$CONTENTS/MacOS/$APP_NAME" --image-format-status \
         >"$REPORT_DIR/image-format-status.txt" 2>&1; then
     check "the bundled app can decode every image format Lightning accepts" \
         grep -qx 'required image/webp: decodable' \
@@ -507,7 +506,7 @@ if ! ( assert_spell_selftest macOS "$REPORT_DIR/spell-selftest.txt" \
         "$spell_selftest_status" warn ); then
     failures=$((failures + 1))
 fi
-if "$CONTENTS/MacOS/$APP_NAME" --build-info >"$REPORT_DIR/bundle-build-info.txt" 2>&1; then
+if run_bounded 120 "$CONTENTS/MacOS/$APP_NAME" --build-info >"$REPORT_DIR/bundle-build-info.txt" 2>&1; then
     check "bundle reports the Rust backend" \
         grep -qx 'matrix_backend: rust' "$REPORT_DIR/bundle-build-info.txt"
     check "bundle excludes the HTTP backend" \

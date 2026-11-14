@@ -57,7 +57,7 @@ required_jobs = [
     "windows-package-test", "build-windows", "macos-package-test",
     "flathub-update-pr",
     "gitlab-com-lane", "gitlab-com-packages", "gitlab-com-packages-arm64",
-    "gitlab-com-windows",
+    "gitlab-com-windows", "gitlab-com-macos",
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
@@ -583,7 +583,8 @@ check(not evaluate(bw_gate, dict(_bw, PUBLISH_PACKAGES="true", PACKAGE_BUILD_SIT
       "build-windows is excluded when gitlab.com builds the packages")
 
 # --- macOS: native shell-executor test path on the physical Mac mini ---------
-# Same restrictive gate shape as the Windows test job.
+# Same restrictive gate shape as the Windows test job. Home site only:
+# PACKAGE_BUILD_SITE=gitlab.com builds macOS in the lane (gitlab-com-macos).
 macos = resolve_extends("macos-package-test")
 check(set(macos.get("tags", [])) == {"macos", "arm64"},
       "macOS job selects only the Apple Silicon runner tags")
@@ -609,6 +610,7 @@ check(macos.get("artifacts", {}).get("access") == "developer",
 
 macos_gate = macos["rules"]
 macos_vars = {
+    "PACKAGE_BUILD_SITE": "home",
     "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
     "CI_PIPELINE_SOURCE": "web", "BUILD_MACOS_PACKAGES": "true",
     "BUILD_WINDOWS_PACKAGES": "false",
@@ -620,7 +622,8 @@ check(evaluate(macos_gate, macos_vars),
 for key, value in (("CI_COMMIT_BRANCH", "feature"),
                    ("CI_PIPELINE_SOURCE", "merge_request_event"),
                    ("BUILD_MACOS_PACKAGES", "false"),
-                   ("SOURCE_REF", "main")):
+                   ("SOURCE_REF", "main"),
+                   ("PACKAGE_BUILD_SITE", "gitlab.com")):
     rejected = dict(macos_vars)
     rejected[key] = value
     check(not evaluate(macos_gate, rejected),
@@ -692,8 +695,8 @@ check(macos_group not in set(BUILD_GROUP.values()) and macos_group is not None,
 # macOS is published as a download-only asset. The invariants: the release
 # must not depend on the Mac, and the bundle must not enter the signed update
 # manifest.
-check("macos-package-test" in needs_names("publish-packages"),
-      "publish-packages consumes the macOS bundle")
+check({"macos-package-test", "gitlab-com-macos"} <= set(needs_names("publish-packages")),
+      "publish-packages consumes the macOS bundle from either site")
 # The mirror uploads the published bytes without rebuilding, so it needs every
 # artifact source publish-packages consumes; a missing `needs` fails only after
 # the release exists. Gates needed with `artifacts: false` are excluded.
@@ -713,13 +716,17 @@ check(_publish_inputs <= _mirror_inputs,
 _missing = sorted(_publish_inputs - _mirror_inputs)
 if _missing:
     print("     missing from mirror-release-to-github: %s" % ", ".join(_missing))
-# A release depends on the Mac (Rokas, 2026-10-07): the need is not optional.
+# A release depends on macOS (Rokas, 2026-10-07). Its needs are optional only
+# as site alternatives; the release matrix below proves each publishing
+# pipeline holds its site's macOS job, so neither can be silently absent.
 # A requested build-only macOS run blocks too (Rokas, 2026-10-15).
-for _consumer in ("publish-packages", "mirror-release-to-github"):
-    macos_need = next(n for n in doc[_consumer]["needs"]
-                      if isinstance(n, dict) and n["job"] == "macos-package-test")
-    check(not macos_need.get("optional", False),
-          f"{_consumer}'s macOS need is NOT optional: no release without macOS")
+for _consumer in ("publish-packages", "mirror-release-to-github", "mirror-release-to-gitlab-com"):
+    for _mac_job in ("macos-package-test", "gitlab-com-macos"):
+        macos_need = next((n for n in doc[_consumer]["needs"]
+                           if isinstance(n, dict) and n["job"] == _mac_job), {})
+        check(macos_need.get("artifacts", True) is True and macos_need.get("job") == _mac_job
+              and macos_need.get("optional") is True,
+              f"{_consumer} takes {_mac_job}'s bytes, optional only as a site alternative")
 check("allow_failure" not in doc["macos-package-test"],
       "the macOS job sets allow_failure per rule, never job-wide")
 check(all(rule.get("allow_failure", False) is False
@@ -2128,13 +2135,13 @@ def _stage(job):
 # The two package sources PACKAGE_BUILD_SITE chooses between. Exactly one set
 # is in any pipeline, so needs on them are the only `optional` needs allowed.
 GITLAB_COM_JOBS = {"gitlab-com-lane", "gitlab-com-packages",
-                   "gitlab-com-packages-arm64", "gitlab-com-windows"}
+                   "gitlab-com-packages-arm64", "gitlab-com-windows", "gitlab-com-macos"}
 HOME_PACKAGE_JOBS = {
     "build-deb", "build-deb-ubuntu", "build-rpm", "build-flatpak",
     "build-appimage", "build-snap", "build-windows", "copr-srpm",
     "build-rpm-opensuse", "validate-deb", "validate-deb-ubuntu", "validate-rpm",
     "validate-rpm-opensuse", "validate-rpm-leap", "validate-flatpak",
-    "validate-appimage", "validate-snap",
+    "validate-appimage", "validate-snap", "macos-package-test",
 }
 SITE_JOBS = {"gitlab.com": GITLAB_COM_JOBS, "home": HOME_PACKAGE_JOBS}
 # The optional arm64 assets (Rokas, 2026-11-04): the one job a release
@@ -2220,11 +2227,8 @@ check(not _untagged,
       f"finalize-release (the tag) transitively needs every earlier job (missing {sorted(_untagged)})")
 check(not _dangling,
       f"no release job needs a job its pipeline lacks, except the other site's through an optional need (found {sorted(_dangling)})")
-for _name in ("macos-package-test",):
-    check(all(_name in _pipeline(v) for v in _release_configs),
-          f"{_name} is in every release pipeline")
 for _name in ("copr-srpm", "build-rpm-opensuse", "validate-rpm-leap", "build-windows",
-              "validate-rpm-opensuse"):
+              "validate-rpm-opensuse", "macos-package-test"):
     check(all(_name in _pipeline(v) for v in _release_configs
               if v["PACKAGE_BUILD_SITE"] == "home"),
           f"{_name} is in every home-site release pipeline")
@@ -2253,7 +2257,7 @@ for _job in _JOBS:
 for _job in _SITE_CONSUMERS:
     _need_set = set(needs_names(_job))
     for _producer in ("gitlab-com-packages", "gitlab-com-packages-arm64", "gitlab-com-windows",
-                      "validate-deb", "validate-deb-ubuntu", "validate-rpm",
+                      "gitlab-com-macos", "macos-package-test", "validate-deb", "validate-deb-ubuntu", "validate-rpm",
                       "validate-flatpak", "validate-appimage", "validate-snap", "build-windows"):
         check(_producer in _need_set, f"{_job} takes {_producer}'s bytes")
 # Post-tag jobs: a failure must make the pipeline red, not yellow.
@@ -2301,13 +2305,14 @@ _LANE = {"config-tests", "resolve-source"} | GITLAB_COM_JOBS
 _lane_base = dict(_snap_base, PACKAGE_BUILD_SITE="gitlab.com")
 _snapshot_cases += [
     (dict(_lane_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="true", SOURCE_REF="c" * 40),
-     _LANE | {"macos-package-test"}, OPTIONAL_ASSET_JOBS),
+     _LANE, OPTIONAL_ASSET_JOBS),
     (dict(_lane_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main"),
      _LANE, OPTIONAL_ASSET_JOBS),
     (dict(_lane_base, BUILD_FORMATS="rpm", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main"),
      _LANE, OPTIONAL_ASSET_JOBS),
-    (dict(_lane_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="true", SOURCE_REF="d" * 40),
-     {"config-tests", "resolve-source", "macos-package-test"}, set()),
+    # macOS comes from the lane too, which cannot be narrowed.
+    (dict(_lane_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="true", SOURCE_REF="main"),
+     _LANE, OPTIONAL_ASSET_JOBS),
     (dict(_lane_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="false",
           BUILD_WINDOWS_PACKAGES="true", SOURCE_REF="e" * 40),
      _LANE, OPTIONAL_ASSET_JOBS),
@@ -2414,7 +2419,8 @@ check(_lane_windows_tags and set(_lane_windows_tags) == {WINDOWS_IMAGE.split(":"
 # pipeline it accepted and hand on one group each, under the 1 GiB artifact cap.
 _COLLECTORS = {"gitlab-com-packages": "linux-amd64",
                "gitlab-com-packages-arm64": "linux-arm64",
-               "gitlab-com-windows": "windows"}
+               "gitlab-com-windows": "windows",
+               "gitlab-com-macos": "macos"}
 _SOURCE_FROM_RESOLVE = 'SOURCE_REF="$(sed -n \'s/^SOURCE_SHA=//p\' dist/version.env)"'
 for _job in sorted(GITLAB_COM_JOBS):
     _j = resolve_extends(_job)
@@ -2509,7 +2515,7 @@ for _site in ("gitlab.com", "home"):
              "SOURCE_REF": "main", "RELEASE_VERSION": "", "RELEASE_NOTES_B64": ""}
     check(set(_pipeline(_bare)) == {"config-tests", "resolve-source"},
           f"a pipeline started with the defaults ({_site}) builds nothing")
-check(_groups == {"linux-amd64", "linux-arm64", "windows"},
+check(_groups == {"linux-amd64", "linux-arm64", "windows", "macos"},
       "the collectors cover each group exactly once")
 check(any(p.startswith("dist/windows/") for p in
           resolve_extends("gitlab-com-windows")["artifacts"]["paths"])
@@ -2523,7 +2529,7 @@ check([r.get("if") for r in _arm_rules] == [r.get("if") for r in _base_rules],
       "the arm64 collector runs exactly when the other collectors do")
 check(all(r.get("allow_failure") is True for r in _arm_rules if r.get("when") != "never"),
       "the arm64 collector is allow_failure on every rule that includes it")
-for _job in ("gitlab-com-lane", "gitlab-com-packages", "gitlab-com-windows"):
+for _job in ("gitlab-com-lane", "gitlab-com-packages", "gitlab-com-windows", "gitlab-com-macos"):
     check(all(not r.get("allow_failure", False) for r in resolve_extends(_job)["rules"]),
           f"{_job} is never allow_failure")
 for _tok in ("GITLAB_COM_TRIGGER_TOKEN", "GITLAB_COM_READ_TOKEN"):
@@ -2544,6 +2550,37 @@ for _list in ("AMD64_JOBS", "ARM64_JOBS"):
         check(_n in _lane_doc, f"{_n}, which the collector reads, is a lane job")
 check("build-windows-amd64" in _lane_doc and "build-windows-amd64" in _lane_src,
       "the collector reads the lane's Windows job")
+# Not -arm64: the collector tolerates a red -arm64 job, and a release needs macOS.
+_lane_mac = _lane_doc.get("build-macos", {})
+check("job_id build-macos" in _lane_src and not any(
+          j.endswith("-arm64") and "macos" in j for j in _lane_doc),
+      "the collector reads the lane's required build-macos job")
+check(_lane_mac.get("tags") == ["saas-macos-medium-m1"]
+      and _lane_mac.get("image") == "macos-26-xcode-26",
+      "build-macos runs on the hosted macOS 26 image, matching the bundle's macOS 26+ floor")
+check("macOS arm64 (unsigned, macOS 26+)" in _read("scripts", "write-manifest.sh"),
+      "the release asset still names the macOS 26 floor the hosted image builds for")
+_pkg_build_vars = _lane_doc[".pkg-build"]["variables"]
+check(all(_lane_mac.get("variables", {}).get(k) == _pkg_build_vars.get(k)
+          for k in ("RUST_TOOLCHAIN", "RUSTUP_VERSION")),
+      "build-macos installs the same Rust toolchain and rustup as the Linux lane")
+# At 6x the minutes: a release, an explicit opt-in or a named format only.
+for _vars, _want in ((dict(PACKAGE_FORMATS="all", PUBLISH_PACKAGES="false", BUILD_MACOS_PACKAGES="false"), False),
+                     (dict(PACKAGE_FORMATS="all", PUBLISH_PACKAGES="true", BUILD_MACOS_PACKAGES="false"), True),
+                     (dict(PACKAGE_FORMATS="all", PUBLISH_PACKAGES="false", BUILD_MACOS_PACKAGES="true"), True),
+                     (dict(PACKAGE_FORMATS="deb,macos", PUBLISH_PACKAGES="false", BUILD_MACOS_PACKAGES="false"), True),
+                     (dict(PACKAGE_FORMATS="macos-diag", PUBLISH_PACKAGES="false", BUILD_MACOS_PACKAGES="false"), False),
+                     (dict(PACKAGE_FORMATS="all", PUBLISH_PACKAGES="true", BUILD_MACOS_PACKAGES="false", PACKAGE_ARCH="amd64"), False)):
+    _v = dict(dict(PACKAGE_LANE="1", PACKAGE_ARCH="all"), **_vars)
+    check(evaluate(_lane_mac.get("rules", []), _v) is _want, f"build-macos runs={_want} for {_vars}")
+# gst-inspect-1.0 runs inside gst_macos_main and hangs on the hosted Mac.
+for _script in ("install-macos-gstreamer.sh", "validate-macos-artifacts.sh"):
+    _src = _strip_shell_comments(_read("scripts", _script))
+    check("gst-inspect-1.0" not in _src and "build_gst_element_probe" in _src,
+          f"{_script} probes elements with gst-element-probe.c, not gst-inspect-1.0")
+check("dist/macos/*.zip" in _lane_mac.get("artifacts", {}).get("paths", [])
+      and "./packaging-ci/scripts/build-macos.sh" in _lane_mac.get("script", []),
+      "build-macos runs the same build script and hands on the zip")
 
 # arm64 is published but never an update: the updater has no aarch64 strategy.
 check(_formats_decl is not None

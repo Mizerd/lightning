@@ -4,6 +4,11 @@ Covers `macos-package-test`, the native macOS arm64 build path added
 2026-08-13. Read this before changing anything under `scripts/build-macos.sh`,
 `scripts/validate-macos-artifacts.sh`, or `scripts/prepare-pinned-source-macos.sh`.
 
+Since 2026-11-13 a `PACKAGE_BUILD_SITE=gitlab.com` pipeline builds the bundle
+on gitlab.com's hosted Mac instead (`build-macos` in `.gitlab/packages.yml`,
+collected by `gitlab-com-macos`); see `docs/release-operations.md`. The Mac
+mini job below runs only with `PACKAGE_BUILD_SITE=home`.
+
 ## Why this target is different
 
 Every other target in this project builds inside a pinned Docker image. macOS

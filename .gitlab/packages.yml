@@ -1,15 +1,18 @@
 # The packaging lane on gitlab.com: deb, Ubuntu deb, rpm (with the COPR and
 # openSUSE canaries), AppImage, snap and, on amd64 only, the Flatpak bundle and
-# the Windows cross-build, each built natively on amd64 and arm64 runners and validated by the
-# release lane's own packaging-ci scripts. Included by remote-build.yml and
-# present only with PACKAGE_LANE=1. PACKAGE_ARCH (all|amd64|arm64) and
-# PACKAGE_FORMATS (all, or a comma list of deb,rpm,appimage,snap,flatpak,
-# windows; snap needs appimage) narrow a rerun. It publishes nothing: packages leave as job
+# the Windows cross-build, plus the macOS arm64 bundle on a hosted Mac, each
+# built natively and validated by the release lane's own packaging-ci scripts.
+# Included by remote-build.yml and present only with PACKAGE_LANE=1.
+# PACKAGE_ARCH (all|amd64|arm64) and PACKAGE_FORMATS (all, or a comma list of
+# deb,rpm,appimage,snap,flatpak,windows,macos; snap needs appimage) narrow a
+# rerun. macOS is built only in a release, with BUILD_MACOS_PACKAGES=true, or
+# when PACKAGE_FORMATS names it. It publishes nothing: packages leave as job
 # artifacts. Keep the package lists in step with .gitlab-ci.yml.
 
 variables:
   PACKAGE_ARCH: "all"
   PACKAGE_FORMATS: "all"
+  BUILD_MACOS_PACKAGES: "false"
   LIGHTNING_REPOSITORY: "https://gitlab.smetonis.net/Mizerd/lightning.git"
   SOURCE_REF: $CI_COMMIT_SHA
   # A shared runner's clone of this repository fails transiently and GitLab
@@ -743,3 +746,65 @@ build-windows-amd64:
       - dist/windows/signing-payload/*.sha256
       - dist/version.env
       - dist/source-info.json
+
+# Apple Silicon bundle on gitlab.com's hosted macOS VM, whose image matches the
+# bundle's macOS 26 floor. A fresh VM per job, so the toolchain is installed
+# here and recorded by build-macos.sh in build-info.json. Not -arm64 in name:
+# the collector treats -arm64 jobs as optional, and a release needs macOS.
+# At 6x the minutes it runs only in a release or when asked for.
+build-macos:
+  extends: .pkg-job
+  rules:
+    - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|arm64)$/ && $PUBLISH_PACKAGES == "true"'
+    - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|arm64)$/ && $BUILD_MACOS_PACKAGES == "true"'
+    - if: '$PACKAGE_LANE == "1" && $PACKAGE_ARCH =~ /^(all|arm64)$/ && $PACKAGE_FORMATS =~ /(^|,)macos(,|$)/'
+  stage: build
+  image: macos-26-xcode-26
+  tags: [saas-macos-medium-m1]
+  # The hosted runners' own ceiling.
+  timeout: 3h
+  variables:
+    BUILD_JOBS: "4"
+    LIGHTNING_MACOS_RUNNER_KIND: "gitlab-hosted-macos-vm"
+    HOMEBREW_NO_AUTO_UPDATE: "1"
+    HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    HOMEBREW_NO_ANALYTICS: "1"
+    RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    RUSTUP_INIT_SHA256: "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a"
+    CARGO_HOME: "$CI_PROJECT_DIR/.ci-macos/cargo"
+    CARGO_BIN: "$CI_PROJECT_DIR/.ci-macos/cargo/bin"
+    LIGHTNING_MACOS_GSTREAMER_PREFIX: "$CI_PROJECT_DIR/.ci-macos/gstreamer/GStreamer.framework/Versions/1.0"
+  # The GStreamer packages are re-checked against their pinned digests on
+  # every run; the cargo registry is dropped for an official build below.
+  cache:
+    key: pkg-macos
+    paths:
+      - .ci-macos/gstreamer/download/
+      - .ci-macos/cargo/registry/
+    when: always
+  before_script:
+    - if [ "$PUBLISH_PACKAGES" = true ]; then rm -rf .ci-macos/cargo; fi
+    - brew install qt openssl@3 cmake ninja pkgconf
+    - brew list --versions qt openssl@3 cmake ninja pkgconf
+    - >-
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/aarch64-apple-darwin/rustup-init"
+      --output "$TMPDIR/rustup-init"
+    - printf '%s  %s\n' "$RUSTUP_INIT_SHA256" "$TMPDIR/rustup-init" | shasum -a 256 -c -
+    - chmod +x "$TMPDIR/rustup-init"
+    - '"$TMPDIR/rustup-init" -y --no-modify-path --profile minimal --default-toolchain "$RUST_TOOLCHAIN"'
+    - ./packaging-ci/scripts/install-macos-gstreamer.sh
+  script:
+    - ./packaging-ci/scripts/prepare-pinned-source-macos.sh
+    - ./packaging-ci/scripts/build-macos.sh
+  artifacts:
+    name: "lightning-$CI_JOB_NAME-$CI_PIPELINE_ID"
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/macos/*.zip
+      - dist/macos/*.sha256
+      - dist/macos/build-info.json
+      - dist/macos/reports/

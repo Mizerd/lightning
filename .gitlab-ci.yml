@@ -44,11 +44,11 @@ variables:
   BUILD_MACOS_PACKAGES:
     value: "false"
     options: ["false", "true"]
-    description: "Safe default false. Enables the unsigned macOS arm64 .app bundle in a build-only pipeline on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set. A publishing pipeline (PUBLISH_PACKAGES=true) ALWAYS builds macOS, whatever this says, and cannot publish or tag without it: since 2026-10-07 a release must have every job green."
+    description: "Safe default false. Enables the unsigned macOS arm64 .app bundle in a build-only pipeline on the protected default branch. PACKAGE_BUILD_SITE=gitlab.com builds it on gitlab.com's hosted Mac inside the package lane (runs the whole lane; with it a red or missing macOS build fails the pipeline; without it the lane builds no macOS); home builds it on the Mac mini and needs a pinned 40-char SOURCE_REF. A publishing pipeline (PUBLISH_PACKAGES=true) ALWAYS builds macOS, whatever this says, and cannot publish or tag without it: since 2026-10-07 a release must have every job green."
   PACKAGE_BUILD_SITE:
     value: "gitlab.com"
     options: ["gitlab.com", "home"]
-    description: "Where the Linux and Windows packages are built. gitlab.com: the package lane of the gitlab.com mirror (.gitlab/packages.yml), triggered and collected by the gitlab-com-* jobs; it can only build the commit gitlab.com main points at. home: the local build-*/validate-* jobs and build-windows (the fallback, and the only way to attach-existing an older commit). macOS is always built on the Mac mini."
+    description: "Where the Linux and Windows packages are built. gitlab.com: the package lane of the gitlab.com mirror (.gitlab/packages.yml), triggered and collected by the gitlab-com-* jobs; it can only build the commit gitlab.com main points at. home: the local build-*/validate-* jobs and build-windows (the fallback, and the only way to attach-existing an older commit). macOS follows it: gitlab.com's hosted Mac (build-macos in the lane, collected by gitlab-com-macos) or the Mac mini (macos-package-test)."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
@@ -90,7 +90,8 @@ variables:
       when: on_success
     - when: never
 
-# Native macOS gate: protected default branch, manually created pipeline, and
+# Native macOS gate, home site only (gitlab.com builds macOS in its lane):
+# protected default branch, manually created pipeline, and
 # either a release or a fully pinned project-6 commit with an explicit opt-in.
 #
 # A publishing pipeline always builds macOS and it blocks publication (the
@@ -107,6 +108,8 @@ variables:
 # See docs/macos-packaging.md.
 .macos-test-rules:
   rules:
+    - if: '$PACKAGE_BUILD_SITE != "home"'
+      when: never
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $PUBLISH_PACKAGES == "true"'
       when: on_success
       allow_failure: false
@@ -875,6 +878,8 @@ macos-package-test:
       when: on_success
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true"'
       when: on_success
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true"'
+      when: on_success
     - when: never
 
 # GITLAB_COM_TRIGGER_TOKEN and GITLAB_COM_READ_TOKEN are protected project
@@ -967,6 +972,8 @@ gitlab-com-packages-arm64:
       allow_failure: true
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true"'
       allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true"'
+      allow_failure: true
     - when: never
   script:
     - grep -qx 'GITLAB_COM_LANE_PIPELINE=[0-9][0-9]*' dist/gitlab-com-lane.env
@@ -1002,6 +1009,26 @@ gitlab-com-windows:
       - dist/windows/*.msi
       - dist/windows/*-setup.exe
       - dist/gitlab-com-lane-windows.json
+
+# Required in a release, like macos-package-test at home.
+gitlab-com-macos:
+  extends: .gitlab-com-collector
+  script:
+    - grep -qx 'GITLAB_COM_LANE_PIPELINE=[0-9][0-9]*' dist/gitlab-com-lane.env
+    - >-
+      GITLAB_COM_API=https://gitlab.com/api/v4 GITLAB_COM_PROJECT_ID=88402223
+      GITLAB_COM_FAKE_API_FOR_TESTS= GITLAB_COM_REF=main GITLAB_COM_COLLECT=macos
+      GITLAB_COM_TRIGGER_TOKEN=
+      GITLAB_COM_PIPELINE_ID="$(sed -n 's/^GITLAB_COM_LANE_PIPELINE=//p' dist/gitlab-com-lane.env)"
+      SOURCE_REF="$(sed -n 's/^SOURCE_SHA=//p' dist/version.env)"
+      ./packaging-ci/scripts/gitlab-com-package-lane.sh
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - dist/macos/*.zip
+      - dist/macos/*.sha256
+      - dist/macos/build-info.json
+      - dist/gitlab-com-lane-macos.json
 
 validate-deb:
   # Build-only pipelines may select formats via BUILD_FORMATS;
@@ -1421,10 +1448,15 @@ publish-packages:
     - job: validate-rpm-leap
       artifacts: false
       optional: true
-    # Required, never optional: a release cannot publish without macOS
-    # (2026-10-07). .macos-test-rules puts it in every publishing pipeline.
+    # A release cannot publish without macOS (2026-10-07). Optional only as
+    # a site alternative: PACKAGE_BUILD_SITE puts exactly one of the two in
+    # every publishing pipeline, and write-manifest.sh refuses a missing zip.
     - job: macos-package-test
       artifacts: true
+      optional: true
+    - job: gitlab-com-macos
+      artifacts: true
+      optional: true
   before_script: [apk add --no-cache bash coreutils curl jq]
   script:
     # Set on the command line, where no trigger variable can override it:
@@ -1581,10 +1613,14 @@ mirror-release-to-github:
       artifacts: true
     - job: verify-published-packages
       artifacts: true
-    # Required as in publish-packages. This job needs every file the
-    # publication manifest names, including the macOS zip.
+    # As in publish-packages. This job needs every file the publication
+    # manifest names, including the macOS zip.
     - job: macos-package-test
       artifacts: true
+      optional: true
+    - job: gitlab-com-macos
+      artifacts: true
+      optional: true
     # Its mirror_url values are cross-checked before anything is uploaded.
     - job: sign-update-manifest
       artifacts: true
@@ -1760,6 +1796,10 @@ mirror-release-to-gitlab-com:
       artifacts: true
     - job: macos-package-test
       artifacts: true
+      optional: true
+    - job: gitlab-com-macos
+      artifacts: true
+      optional: true
     - job: sign-update-manifest
       artifacts: true
     # The promoted pair and its publication record.

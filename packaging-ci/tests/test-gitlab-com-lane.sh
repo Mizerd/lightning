@@ -66,6 +66,7 @@ ARM64=(deb:lightning_${VER}_arm64.deb deb-ubuntu:lightning_${VER}_ubuntu2604_arm
 WINDOWS=(Lightning-${VER}-${SHA:0:7}-windows-x86_64-portable.zip
          Lightning-${VER}-${SHA:0:7}-windows-x86_64.msi
          Lightning-${VER}-${SHA:0:7}-windows-x86_64-setup.exe)
+MACOS=Lightning-${VER}-${SHA:0:7}-macos-arm64.zip
 
 zipdir() {
     python3 -I -c 'import os, sys, zipfile
@@ -108,6 +109,13 @@ setup() {
     done
     zipdir "$FAKE_DIR/stage/$id" "$FAKE_DIR/artifacts/$id.zip"
     add_job "$id" build-windows-amd64
+    id=$((id + 1)); stage="$FAKE_DIR/stage/$id/dist/macos"; mkdir -p "$stage/reports"
+    printf '%s bytes\n' "$MACOS" >"$stage/$MACOS"
+    ( cd "$stage" && sha256sum "$MACOS" >"$MACOS.sha256" )
+    printf '{"platform": "macos"}\n' >"$stage/build-info.json"
+    printf 'log\n' >"$stage/reports/codesign.log"
+    zipdir "$FAKE_DIR/stage/$id" "$FAKE_DIR/artifacts/$id.zip"
+    add_job "$id" build-macos
     for name in resolve-source copr-srpm build-rpm-opensuse-amd64 validate-rpm-leap-amd64 validate-rpm-opensuse-amd64; do
         id=$((id + 1)); add_job "$id" "$name"
     done
@@ -146,12 +154,16 @@ if lane GITLAB_COM_PIPELINE_ID=777; then note "collects from a green lane"; else
 [[ "$(find "$(dist)" -maxdepth 1 -regextype posix-extended -regex '.*\.(deb|rpm|AppImage|snap|flatpak)$' | wc -l)" == 11 ]] \
     && note "eleven Linux packages in dist/" || bad "Linux package count"
 [[ "$(find "$(dist)/windows" -maxdepth 1 -type f | wc -l)" == 3 ]] && note "three Windows artifacts in dist/windows/" || bad "Windows artifact count"
+[[ "$(cd "$(dist)/macos" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" == "./$MACOS ./$MACOS.sha256 ./build-info.json " ]] \
+    && ( cd "$(dist)/macos" && sha256sum -c --quiet "$MACOS.sha256" ) \
+    && note "the macOS zip, its .sha256 and build-info.json in dist/macos/" || bad "macOS artifacts"
 ( cd "$(dist)" && sha256sum -c --quiet ./*.sha256 ) && note "each Linux package arrives with its own .sha256" || bad "Linux .sha256 files"
 [[ -z "$(find "$(dist)" -name '*.log')" ]] && note "validator logs stay behind" || bad "a validator log was collected"
 [[ "$(cat "$(dist)/gitlab-com-lane.env")" == GITLAB_COM_LANE_PIPELINE=777 ]] && note "the lane pipeline id is handed on" || bad "gitlab-com-lane.env"
 [[ "$(jq '.packages | length' "$(dist)/gitlab-com-lane-linux-amd64.json")" == 6 \
    && "$(jq '.packages | length' "$(dist)/gitlab-com-lane-linux-arm64.json")" == 5 \
-   && "$(jq '.packages | length' "$(dist)/gitlab-com-lane-windows.json")" == 3 ]] \
+   && "$(jq '.packages | length' "$(dist)/gitlab-com-lane-windows.json")" == 3 \
+   && "$(jq '.packages | length' "$(dist)/gitlab-com-lane-macos.json")" == 1 ]] \
     && note "one record per group, counting its packages" || bad "group records"
 no_leak && note "no token on a command line or in the log" || bad "a token leaked"
 
@@ -163,6 +175,9 @@ lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=windows || bad "windows-only 
 lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=linux-arm64 || bad "arm64-only collection failed"
 [[ "$(find "$(dist)" -maxdepth 1 -name '*.sha256' | wc -l)" == 5 ]] && ! ls "$(dist)" | grep -qE 'amd64|x86_64' \
     && note "linux-arm64 collects only arm64 packages" || bad "linux-arm64 collected the wrong files"
+lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=macos || bad "macos-only collection failed"
+[[ -z "$(find "$(dist)" -maxdepth 1 -name 'lightning*')" && ! -e "$(dist)/windows" && -f "$(dist)/macos/$MACOS" ]] \
+    && note "macos collects the macOS bundle and nothing else" || bad "macos collected the wrong files"
 lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=none || bad "none failed"
 [[ -z "$(find "$(dist)" -type f ! -name gitlab-com-lane.env)" ]] && note "none collects nothing" || bad "none collected files"
 if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=none,windows; then bad "none combined with a group accepted"; else note "none cannot be combined with a group"; fi
@@ -199,6 +214,49 @@ fi
 setup
 set_job build-windows-amd64 failed; set_pipeline '.status = "failed"'
 if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=windows; then bad "a failed Windows build was accepted"; else note "a failed Windows build fails the collection"; fi
+setup
+set_job build-macos failed; set_pipeline '.status = "failed"'
+lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=linux-amd64 \
+    && note "a red macOS build does not fail a build-only collection" || bad "build-only refused a red macOS build: $(tail -1 "$FAKE_DIR/out.log")"
+if lane GITLAB_COM_PIPELINE_ID=777 GITLAB_COM_COLLECT=macos; then
+    [[ ! -e "$(dist)/macos" && "$(jq -c '.missing_jobs' "$(dist)/gitlab-com-lane-macos.json")" == '["build-macos"]' ]] \
+        && note "a build-only macOS collection without a bundle records it missing" || bad "build-only macOS record"
+else bad "build-only macOS collection refused a red build-macos"; fi
+jq 'map(if .key == "PUBLISH_PACKAGES" then .value = "true" else . end) + [{key: "RELEASE_VERSION", value: "'$VER'"}, {key: "RELEASE_ACTION", value: "create"}]' \
+    "$FAKE_DIR/variables.json" >"$FAKE_DIR/v.tmp" && mv "$FAKE_DIR/v.tmp" "$FAKE_DIR/variables.json"
+if lane GITLAB_COM_PIPELINE_ID=777 PUBLISH_PACKAGES=true RELEASE_ACTION=create RELEASE_VERSION=$VER GITLAB_COM_COLLECT=macos; then
+    bad "a release accepted a red macOS build"
+else
+    grep -q 'failed outside the optional arm64 lane: build-macos' "$FAKE_DIR/out.log" \
+        && note "a release refuses a red macOS build" || bad "release refused a red macOS build for the wrong reason"
+fi
+jq 'map(select(.name != "build-macos"))' "$FAKE_DIR/jobs.json" >"$FAKE_DIR/jobs.tmp" && mv "$FAKE_DIR/jobs.tmp" "$FAKE_DIR/jobs.json"
+set_pipeline '.status = "success"'
+if lane GITLAB_COM_PIPELINE_ID=777 PUBLISH_PACKAGES=true RELEASE_ACTION=create RELEASE_VERSION=$VER GITLAB_COM_COLLECT=macos; then
+    bad "a release accepted a lane without build-macos"
+else
+    grep -q 'has no successful build-macos' "$FAKE_DIR/out.log" \
+        && note "a release refuses a lane without build-macos" || bad "missing build-macos refused for the wrong reason"
+fi
+setup; add_variable BUILD_MACOS_PACKAGES true
+if lane GITLAB_COM_PIPELINE_ID=777; then bad "a lane asked for macOS was adopted by a run that did not ask"; else note "BUILD_MACOS_PACKAGES must match the adopted lane"; fi
+lane GITLAB_COM_PIPELINE_ID=777 BUILD_MACOS_PACKAGES=true && note "a run that asked for macOS adopts that lane" || bad "matching BUILD_MACOS_PACKAGES refused"
+setup; add_variable BUILD_MACOS_PACKAGES true
+set_job build-macos failed; set_pipeline '.status = "failed"'
+if lane GITLAB_COM_PIPELINE_ID=777 BUILD_MACOS_PACKAGES=true GITLAB_COM_COLLECT=macos; then
+    bad "a build-only run that asked for macOS accepted a red build-macos"
+else
+    grep -q 'failed outside the optional arm64 lane: build-macos' "$FAKE_DIR/out.log" \
+        && note "a requested build-only macOS run refuses a red build" || bad "requested red macOS refused for the wrong reason"
+fi
+jq 'map(select(.name != "build-macos"))' "$FAKE_DIR/jobs.json" >"$FAKE_DIR/jobs.tmp" && mv "$FAKE_DIR/jobs.tmp" "$FAKE_DIR/jobs.json"
+set_pipeline '.status = "success"'
+if lane GITLAB_COM_PIPELINE_ID=777 BUILD_MACOS_PACKAGES=true GITLAB_COM_COLLECT=macos; then
+    bad "a build-only run that asked for macOS accepted a lane without build-macos"
+else
+    grep -q 'has no successful build-macos' "$FAKE_DIR/out.log" \
+        && note "a requested build-only run refuses a lane without build-macos" || bad "requested missing macOS refused for the wrong reason"
+fi
 setup
 set_job copr-srpm failed true
 lane GITLAB_COM_PIPELINE_ID=777 && note "a build-only lane tolerates a red canary" || bad "build-only refused a red canary"
@@ -300,7 +358,7 @@ printf '== triggering ==\n'
 setup
 lane GITLAB_COM_COLLECT=none || bad "triggered run failed: $(tail -1 "$FAKE_DIR/out.log")"
 grep -qx "token=$TRIGGER_TOKEN" "$FAKE_DIR/post.log" && note "the trigger token goes in the request body" || bad "trigger token not posted"
-for kv in ref=main "variables[PACKAGE_LANE]=1" "variables[SOURCE_REF]=$SHA" "variables[PUBLISH_PACKAGES]=false"; do
+for kv in ref=main "variables[PACKAGE_LANE]=1" "variables[SOURCE_REF]=$SHA" "variables[PUBLISH_PACKAGES]=false" "variables[BUILD_MACOS_PACKAGES]=false"; do
     grep -qxF "$kv" "$FAKE_DIR/post.log" && note "the trigger asks for $kv" || bad "trigger lacks $kv"
 done
 no_leak && note "neither token reaches a command line" || bad "a token leaked when triggering"

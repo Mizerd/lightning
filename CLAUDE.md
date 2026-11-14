@@ -950,13 +950,12 @@ remain immutable and unchanged.
 explicit decision. Apple Silicon only and macOS 26 or newer — both derived
 from the Qt build the bundle links, not chosen — ad-hoc signed and
 un-notarized, so the download page carries the Open Anyway walkthrough.
-Two invariants keep it safe and both are asserted in project 7's
-`tests/test-pipeline-config.py`: the release never DEPENDS on the Mac (the
-job is `allow_failure` and the `needs` entry `optional`, so one host being
-asleep publishes without the asset), and the bundle never enters the signed
-update manifest (the client has no macOS install strategy, so an entry
-would advertise an install the updater refuses). See
-lightning-deploy `docs/macos-packaging.md`.
+Since 2026-10-07 a release REQUIRES the bundle, built on the site
+`PACKAGE_BUILD_SITE` chose (gitlab.com's hosted Mac, or the Mac mini with
+`home`), and it never enters the signed update manifest (the client has no
+macOS install strategy); both are asserted in
+`packaging-ci/tests/test-pipeline-config.py`. See
+`packaging-ci/docs/macos-packaging.md` and `docs/release-operations.md`.
 
 One trigger note worth keeping: the pipeline's variables must be posted as a
 **JSON body** (`glab api --method POST projects/7/pipeline --input file.json`

@@ -156,8 +156,8 @@ validated there by the same validators. `home` keeps the local
 `build-*`/`validate-*` jobs, the COPR/openSUSE/Leap canaries and
 `build-windows`/`windows-package-test` as the fallback. Whatever the site, the
 home project keeps `config-tests`, `resolve-source` (the only holder of the
-signing key besides the signing job), `github-mirror-preflight`, macOS on the
-Mac mini, and everything from `publish-packages` on.
+signing key besides the signing job), `github-mirror-preflight` and
+everything from `publish-packages` on. macOS follows the site too (below).
 
 How a gitlab.com pipeline gets its packages:
 
@@ -209,6 +209,23 @@ release, the only such job, and collects whichever arm64 packages validated;
 `report-optional-assets` lists which reached the release and never fails on
 them. A release with all five has 16 package links, not 11 — the verification
 bar's expected count must follow.
+
+**macOS follows `PACKAGE_BUILD_SITE` (2026-11-13, Mac mini away).** With
+`gitlab.com` the lane's `build-macos` builds the bundle on gitlab.com's hosted
+Mac (`saas-macos-medium-m1`, image `macos-26-xcode-26`, so the macOS 26 floor
+is unchanged), running the same `build-macos.sh` after installing Homebrew Qt
+and openssl@3, the pinned GStreamer framework and the lane's Rust toolchain on
+the fresh VM; `build-info.json` records the versions. `gitlab-com-macos`
+collects the zip, its `.sha256` and `build-info.json` into `dist/macos/`, and
+is REQUIRED like `macos-package-test` was: `build-macos` is not an `-arm64`
+job, so a red one fails the collection. `macos-package-test` now runs only
+with `PACKAGE_BUILD_SITE=home`; the release consumers need both with
+`optional: true` as site alternatives, and `write-manifest.sh` still refuses a
+missing zip. With gitlab.com, `BUILD_MACOS_PACKAGES=true` in a build-only
+pipeline runs the whole lane (it cannot be narrowed); for macOS alone trigger
+the mirror directly with `PACKAGE_ARCH=arm64 PACKAGE_FORMATS=macos`. Hosted
+macOS minutes cost 6x (medium M1). To use the Mac mini again, run the release
+with `PACKAGE_BUILD_SITE=home`, which also moves Linux and Windows home.
 
 Constraints, all consequences of the lane building its own checkout:
 

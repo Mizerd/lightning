@@ -33,12 +33,12 @@ DOWNLOAD_DIR="$GST_ROOT/download"
 BASE_URL="https://gstreamer.freedesktop.org/data/pkg/osx/$GST_VERSION"
 
 [[ "$(uname -s)" == Darwin ]] || die "install-macos-gstreamer.sh must run on macOS"
-for tool in curl shasum pkgutil ditto otool; do
+for tool in curl shasum pkgutil ditto otool clang pkg-config; do
     command -v "$tool" >/dev/null 2>&1 || die "required tool not found: $tool"
 done
 
 if [[ -f "$PREFIX/lib/gstreamer-1.0/libgstwebrtc.dylib" && "${FORCE:-false}" != true ]]; then
-    have="$("$PREFIX/bin/gst-inspect-1.0" --version 2>/dev/null | head -1 || true)"
+    have="$(PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" pkg-config --modversion gstreamer-1.0 2>/dev/null || true)"
     printf 'GStreamer already installed at %s (%s)\n' "$PREFIX" "${have:-unknown}"
     printf 'Set FORCE=true to reinstall.\n'
     exit 0
@@ -68,14 +68,18 @@ for pkg in "gstreamer-1.0-$GST_VERSION-universal.pkg" \
         || die "no pinned SHA-256 for $pkg — add it before changing GST_VERSION"
     if [[ ! -f "$DOWNLOAD_DIR/$pkg" ]]; then
         printf 'downloading %s\n' "$pkg"
-        curl -fsSL -o "$DOWNLOAD_DIR/$pkg.part" "$BASE_URL/$pkg"
+        # A stalled transfer aborts instead of hanging the job until its timeout.
+        curl -fsSL --connect-timeout 30 --speed-limit 10240 --speed-time 120 \
+            -o "$DOWNLOAD_DIR/$pkg.part" "$BASE_URL/$pkg"
         mv "$DOWNLOAD_DIR/$pkg.part" "$DOWNLOAD_DIR/$pkg"
     fi
     got="$(shasum -a 256 "$DOWNLOAD_DIR/$pkg" | awk '{print $1}')"
-    [[ "$pinned" == "$got" ]] \
-        || die "$pkg does not match the pinned digest (want $pinned, got $got)"
+    if [[ "$pinned" != "$got" ]]; then
+        rm -f -- "$DOWNLOAD_DIR/$pkg"
+        die "$pkg does not match the pinned digest (want $pinned, got $got); removed it"
+    fi
     # Cross-check only: a disagreeing upstream digest means someone should look.
-    if curl -fsSL -o "$DOWNLOAD_DIR/$pkg.sha256sum" "$BASE_URL/$pkg.sha256sum" 2>/dev/null; then
+    if curl -fsSL --connect-timeout 30 --max-time 120 -o "$DOWNLOAD_DIR/$pkg.sha256sum" "$BASE_URL/$pkg.sha256sum" 2>/dev/null; then
         upstream="$(awk '{print $1}' "$DOWNLOAD_DIR/$pkg.sha256sum")"
         [[ "$upstream" == "$pinned" ]] \
             || die "upstream now publishes a different digest for $pkg ($upstream)"
@@ -92,7 +96,9 @@ for pkg in "gstreamer-1.0-$GST_VERSION-universal.pkg" \
     expand="$GST_ROOT/expand/${pkg%.pkg}"
     rm -rf -- "$expand"
     mkdir -p "$(dirname "$expand")"
-    pkgutil --expand-full "$DOWNLOAD_DIR/$pkg" "$expand"
+    printf 'expanding %s\n' "$pkg"
+    run_bounded 900 pkgutil --expand-full "$DOWNLOAD_DIR/$pkg" "$expand" \
+        || die "pkgutil --expand-full $pkg failed or did not finish in 900 s"
     installed=0
     for component in "$expand"/*.pkg; do
         [[ -d "$component/Payload" ]] || continue
@@ -122,6 +128,16 @@ export GST_PLUGIN_SYSTEM_PATH_1_0="$GST_PLUGIN_SYSTEM_PATH"
 export GST_PLUGIN_PATH=
 export GST_PLUGIN_PATH_1_0=
 rm -f "$GST_REGISTRY"
+PROBE="$GST_ROOT/gst-element-probe"
+build_gst_element_probe "$PREFIX" "$PROBE" || die "could not build the element probe against $PREFIX"
+# One bounded registry build first, so a scan that cannot finish fails once
+# instead of once per element.
+printf 'building the plugin registry\n'
+rc=0
+run_bounded 300 "$PROBE" || rc=$?
+(( rc != 124 )) || die "the GStreamer registry scan did not finish in 300 s"
+(( rc == 0 )) || die "the element probe failed while building the registry (rc $rc)"
+printf 'checking the required elements\n'
 missing=0
 for element in \
     webrtcbin nicesrc nicesink dtlssrtpenc dtlssrtpdec opusenc opusdec \
@@ -131,8 +147,12 @@ for element in \
     identity level appsink appsrc autovideosrc avfvideosrc osxaudiosrc \
     osxaudiosink tee funnel webrtcdsp webrtcechoprobe compositor
 do
-    if ! "$PREFIX/bin/gst-inspect-1.0" "$element" >/dev/null 2>&1; then
+    rc=0
+    run_bounded 60 "$PROBE" "$element" 2>"$GST_ROOT/inspect.err" || rc=$?
+    (( rc != 124 )) || die "the element probe for $element did not finish in 60 s"
+    if (( rc != 0 )); then
         printf '  MISSING element: %s\n' "$element" >&2
+        sed 's/^/    /' "$GST_ROOT/inspect.err" >&2
         missing=$((missing + 1))
     fi
 done
