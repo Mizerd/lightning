@@ -1,6 +1,7 @@
 #include <QtTest/QtTest>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -110,6 +111,40 @@ private:
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
         QTRY_VERIFY(m_controller->timeline()->realEventCount() > 2);
         QTest::qWait(300);
+    }
+
+    static QStringList rangeIds(QObject *view)
+    {
+        QVariant value = view->property("messageRangeIds");
+        if (value.userType() == qMetaTypeId<QJSValue>())
+            value = value.value<QJSValue>().toVariant();
+        return value.toStringList();
+    }
+
+    static QString expectedBlocks(TimelineModel *model, const QStringList &ids,
+                                  const QString &timeFormat)
+    {
+        QStringList blocks;
+        int lastRow = -1;
+        for (const QString &id : ids) {
+            int row = -1;
+            for (int r = 0; r < model->rowCount(); ++r)
+                if (model->eventIdAt(r) == id)
+                    row = r;
+            if (row < 0)
+                return {};
+            if (row <= lastRow)
+                return {};
+            lastRow = row;
+            const QModelIndex idx = model->index(row, 0);
+            blocks.append(
+                model->data(idx, TimelineModel::SenderDisplayNameRole).toString()
+                + QStringLiteral(", ")
+                + model->data(idx, TimelineModel::TimestampRole).toDateTime()
+                      .toLocalTime().toString(QStringLiteral("yyyy-MM-dd ") + timeFormat)
+                + QLatin1Char('\n') + model->visibleTextForEvent(id));
+        }
+        return blocks.join(QStringLiteral("\n\n"));
     }
 
 private slots:
@@ -1107,6 +1142,78 @@ ApplicationWindow {
         };
         QTRY_VERIFY(findDialog() != nullptr);
         QTRY_VERIFY(findDialog()->property("visible").toBool());
+    }
+
+    void aRangeOfMessagesCopiesInDisplayOrderWithSenderAndTime()
+    {
+        openJoinedRoom();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        auto *list = item("timelineListView");
+        QTRY_VERIFY(list->hasActiveFocus());
+        auto *pane = item("timelinePane");
+        const QString newest = pane->property("keyboardSelectedEventId").toString();
+        QVERIFY(!newest.isEmpty());
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ShiftModifier);
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ShiftModifier);
+        const QString oldest = pane->property("keyboardSelectedEventId").toString();
+        QVERIFY(oldest != newest);
+        const QStringList ids = rangeIds(list);
+        QVERIFY2(ids.size() >= 3, qPrintable(QString::number(ids.size())));
+        QCOMPARE(ids.first(), oldest);
+        QCOMPARE(ids.last(), newest);
+        const QString expected = expectedBlocks(
+            m_controller->timeline(), ids, m_controller->settings()->clockTimeFormat());
+        QCOMPARE(expected.count(QStringLiteral("\n\n")), ids.size() - 1);
+
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ShiftModifier);
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), expected);
+
+        QTest::keyClick(m_window, Qt::Key_J);
+        QTRY_VERIFY(rangeIds(list).isEmpty());
+    }
+
+    void aRangeOfThreadRepliesCopiesTheSameWay()
+    {
+        const QString room = QStringLiteral("!dev:lightning.example");
+        m_controller->openRoom(room);
+        QTRY_COMPARE(m_controller->currentRoomId(), room);
+        QTRY_VERIFY(m_controller->timeline()->realEventCount() > 2);
+        QString root;
+        for (const TimelineEvent &e : m_controller->timeline()->events()) {
+            if (e.isThreadRoot) {
+                root = e.eventId;
+                break;
+            }
+        }
+        QVERIFY(!root.isEmpty());
+        m_controller->thread()->openThread(room, root);
+        auto *model = m_controller->thread()->model();
+        QTRY_VERIFY(model->rowCount() > 2);
+        QTest::qWait(300);
+        auto *list = item("threadReplyList");
+        QVERIFY(list);
+        QVariant entered;
+        QVERIFY(QMetaObject::invokeMethod(list, "enterMessageSelection",
+                                          Q_RETURN_ARG(QVariant, entered),
+                                          Q_ARG(QVariant, true)));
+        QVERIFY(entered.toBool());
+        QTRY_VERIFY(list->hasActiveFocus());
+        const QString newest = list->property("selectedEventId").toString();
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ShiftModifier);
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ShiftModifier);
+        const QStringList ids = rangeIds(list);
+        QVERIFY2(ids.size() >= 3, qPrintable(QString::number(ids.size())));
+        QCOMPARE(ids.last(), newest);
+        const QString expected = expectedBlocks(
+            model, ids, m_controller->settings()->clockTimeFormat());
+        QVERIFY(!expected.isEmpty());
+
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ShiftModifier);
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), expected);
+        m_controller->thread()->close();
     }
 
     void selectedMessageSourceOpensFromTheKeyboard()

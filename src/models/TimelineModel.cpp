@@ -2637,6 +2637,42 @@ QString TimelineModel::visibleTextForEvent(const QString &eventId) const
     return event->body;
 }
 
+QStringList TimelineModel::messageIdsBetween(const QString &firstId,
+                                             const QString &secondId) const
+{
+    int from = rowForEventId(firstId);
+    int to = rowForEventId(secondId);
+    if (from < 0 || to < 0)
+        return {};
+    if (from > to)
+        std::swap(from, to);
+    QStringList ids;
+    for (int row = from; row <= to; ++row) {
+        const TimelineEvent &event = m_events.at(row);
+        if (!event.undecryptable && !visibleTextForEvent(event.eventId).isEmpty())
+            ids.append(event.eventId);
+    }
+    return ids;
+}
+
+QString TimelineModel::plainTextForMessages(const QStringList &eventIds,
+                                            const QString &timeFormat) const
+{
+    QStringList blocks;
+    for (const QString &id : eventIds) {
+        const QString text = visibleTextForEvent(id);
+        if (text.isEmpty())
+            continue;
+        const TimelineEvent *event = eventForId(id);
+        blocks.append(QStringLiteral("%1, %2\n%3")
+                          .arg(senderDisplayName(*event),
+                               event->timestamp.toLocalTime().toString(
+                                   QStringLiteral("yyyy-MM-dd ") + timeFormat),
+                               text));
+    }
+    return blocks.join(QStringLiteral("\n\n"));
+}
+
 QString TimelineModel::replyPreviewForEvent(const QString &eventId) const
 {
     const auto *event = eventForId(eventId);

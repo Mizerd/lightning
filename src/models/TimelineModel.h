@@ -248,6 +248,10 @@ public:
     Q_INVOKABLE QVariantMap layoutMetadataAt(int row) const;
 
     Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
+    Q_INVOKABLE QStringList messageIdsBetween(const QString &firstId,
+                                              const QString &secondId) const;
+    Q_INVOKABLE QString plainTextForMessages(const QStringList &eventIds,
+                                             const QString &timeFormat) const;
     Q_INVOKABLE QString replyPreviewForEvent(const QString &eventId) const;
     Q_INVOKABLE QString mediaKeyForEvent(const QString &eventId) const;
     void setInlineImageAspect(std::function<double(const QString &source)> aspect);
