@@ -62,6 +62,7 @@ constexpr auto kCameraResolution    = "calls/cameraResolution";
 constexpr auto kEchoCancellation    = "calls/echoCancellation";
 constexpr auto kAutoGainControl     = "calls/autoGainControl";
 constexpr auto kSharePresence = "presence/shareOwn";
+constexpr auto kPresenceDisplay = "presence/display";
 constexpr auto kBackgroundIndexing = "search/backgroundIndexing";
 constexpr auto kSpacesRailVisible = "shell/spacesRailVisible";
 constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
@@ -3370,6 +3371,22 @@ void SettingsManager::setSharePresence(bool v)
         return;
     m_store->setValue(kSharePresence, v);
     Q_EMIT sharePresenceChanged();
+}
+
+int SettingsManager::presenceDisplay() const
+{
+    const int mode = m_store->value(kPresenceDisplay, 0).toInt();
+    return (mode < 0 || mode > 2) ? 0 : mode;
+}
+
+void SettingsManager::setPresenceDisplay(int mode)
+{
+    if (mode < 0 || mode > 2)
+        mode = 0;
+    if (presenceDisplay() == mode)
+        return;
+    m_store->setValue(kPresenceDisplay, mode);
+    Q_EMIT presenceDisplayChanged();
 }
 
 bool SettingsManager::backgroundIndexing() const

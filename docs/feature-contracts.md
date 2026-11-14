@@ -549,6 +549,11 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
   the member profile popover, via bounded client polling — Sliding Sync has
   no presence extension. §16 carries the mechanism and honesty rules; live
   validation NOT TESTED
+- Presence DISPLAY is a setting separate from publishing
+  (`presenceDisplay`: 0 Automatic, 1 Always, 2 Never; default Automatic).
+  Automatic shows nothing until the server has answered one user, ourselves
+  included, with anything but a bare `offline`; a presence-disabled Synapse
+  (matrix.org) never does. Never sends no presence GET at all
 - **Member power levels** via `Room::update_power_levels`, which preserves
   every other user's value including arbitrary custom numbers. OFFER policy
   is `RoomInfoController::canSetPowerLevel` (§5), applying what the server

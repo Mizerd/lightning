@@ -292,7 +292,7 @@ Popup {
 
     readonly property bool presenceUnavailable:
         root.opened && root.userId !== "" && app.presence
-            ? app.presence.unavailable : false
+            ? app.presence.unavailable && app.presence.displayed : false
 
     readonly property string homeserver: {
         var i = root.userId.indexOf(":")

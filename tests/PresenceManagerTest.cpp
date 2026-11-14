@@ -139,6 +139,11 @@ private Q_SLOTS:
     void typingEvidenceExpiresAndTheDotComesBackOnItsOwn();
     void typingRepollsTheUserAndSignsOutWithTheSession();
 
+    void theDisplaySettingDefaultsToAutoPersistsAndFallsBack();
+    void neverHidesEveryIndicatorAndStopsAsking();
+    void autoHidesOnAFlatOfflineServerAndShowsOnceServed();
+    void autoStopsPeriodicPollingButStillAsksAboutNewUsers();
+
 private:
     void goSyncing(FakePresenceClient &client)
     {
@@ -1209,6 +1214,140 @@ void PresenceManagerTest::typingRepollsTheUserAndSignsOutWithTheSession()
     Q_EMIT client.presenceReceived(client.requests.last().opId,
                                    { okEntry(alice, QStringLiteral("offline")) });
     QCOMPARE(presence.stateFor(alice), QStringLiteral("offline"));
+}
+
+void PresenceManagerTest::theDisplaySettingDefaultsToAutoPersistsAndFallsBack()
+{
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.presenceDisplay(), 0);
+        QSignalSpy spy(&settings, &SettingsManager::presenceDisplayChanged);
+        settings.setPresenceDisplay(2);
+        settings.setPresenceDisplay(2);
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(settings.sharePresence());
+    }
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.presenceDisplay(), 2);
+        settings.setPresenceDisplay(7);
+        QCOMPARE(settings.presenceDisplay(), 0);
+    }
+}
+
+void PresenceManagerTest::neverHidesEveryIndicatorAndStopsAsking()
+{
+    const QString alice = QStringLiteral("@alice:example.org");
+    FakePresenceClient client;
+    SettingsManager settings;
+    settings.setPresenceDisplay(1);
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(alice);
+    QTRY_COMPARE(client.requests.size(), 1);
+    QVariantMap entry = okEntry(alice, QStringLiteral("online"));
+    entry.insert(QStringLiteral("statusMsg"), QStringLiteral("busy"));
+    Q_EMIT client.presenceReceived(client.requests.last().opId, { entry });
+    QCOMPARE(presence.stateFor(alice), QStringLiteral("online"));
+    QCOMPARE(presence.stateFor(client.self), QStringLiteral("online"));
+
+    QSignalSpy revisions(&presence, &PresenceManager::revisionChanged);
+    settings.setPresenceDisplay(2);
+    QVERIFY(!presence.displayed());
+    QCOMPARE(revisions.count(), 1);
+    QCOMPARE(presence.stateFor(alice), QString());
+    QVERIFY(presence.infoFor(alice).isEmpty());
+    QCOMPARE(presence.statusMessageFor(alice), QString());
+    QCOMPARE(presence.stateFor(client.self), QString());
+
+    const int before = client.requests.size();
+    presence.watch(QStringLiteral("@bob:example.org"));
+    presence.noteActivity(alice);
+    reconnect(client);
+    QTest::qWait(600);
+    QCOMPARE(client.requests.size(), before);
+    QVERIFY(settings.sharePresence());
+
+    settings.setPresenceDisplay(1);
+    QCOMPARE(presence.stateFor(alice), QStringLiteral("online"));
+    QTRY_VERIFY(client.requests.size() > before);
+}
+
+void PresenceManagerTest::autoHidesOnAFlatOfflineServerAndShowsOnceServed()
+{
+    const QString alice = QStringLiteral("@alice:example.org");
+    const QString bob = QStringLiteral("@bob:example.org");
+    FakePresenceClient client;
+    SettingsManager settings;
+    QCOMPARE(settings.presenceDisplay(), 0);
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(alice);
+    presence.watch(bob);
+    QTRY_COMPARE(client.requests.size(), 1);
+    QVERIFY(!presence.displayed());
+    QCOMPARE(presence.stateFor(client.self), QString());
+
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { okEntry(alice, QStringLiteral("offline"), false, -1),
+          okEntry(bob, QStringLiteral("offline"), false, -1) });
+    QVERIFY(!presence.displayed());
+    QCOMPARE(presence.stateFor(alice), QString());
+    QVERIFY(presence.infoFor(alice).isEmpty());
+
+    QSignalSpy shown(&presence, &PresenceManager::displayedChanged);
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { okEntry(alice, QStringLiteral("offline"), false, -1),
+          okEntry(bob, QStringLiteral("offline"), false, 90000) });
+    QCOMPARE(shown.count(), 1);
+    QVERIFY(presence.displayed());
+    QCOMPARE(presence.stateFor(alice), QStringLiteral("offline"));
+    QCOMPARE(presence.stateFor(bob), QStringLiteral("offline"));
+
+    Q_EMIT client.loggedOut();
+    QVERIFY(!presence.displayed());
+}
+
+void PresenceManagerTest::autoStopsPeriodicPollingButStillAsksAboutNewUsers()
+{
+    const QString alice = QStringLiteral("@alice:example.org");
+    const QString bob = QStringLiteral("@bob:example.org");
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    presence.setAutoGiveUpForTest(30);
+    goSyncing(client);
+    presence.watch(alice);
+    QTRY_COMPARE(client.requests.size(), 1);
+    const QVariantList flat{ okEntry(alice, QStringLiteral("offline"), false, -1) };
+    Q_EMIT client.presenceReceived(client.requests.last().opId, flat);
+    QTest::qWait(60);
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    Q_EMIT client.presenceReceived(client.requests.last().opId, flat);
+
+    presence.noteActivity(alice);
+    QTest::qWait(600);
+    QCOMPARE(client.requests.size(), 2);
+
+    presence.watch(bob);
+    QTRY_COMPARE(client.requests.size(), 3);
+    QCOMPARE(client.requests.last().userIds, (QStringList{ bob }));
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   { okEntry(bob, QStringLiteral("online")) });
+    QVERIFY(presence.displayed());
+    presence.noteActivity(alice);
+    QTRY_COMPARE(client.requests.size(), 4);
 }
 
 QTEST_MAIN(PresenceManagerTest)

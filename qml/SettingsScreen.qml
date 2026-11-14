@@ -588,6 +588,12 @@ Item {
           section: "privacy", breadcrumb: qsTr("Privacy & security · Presence"),
           anchor: "sharePresenceCheck" },
 
+        { title: qsTr("Show online status dots"),
+          keywords: QT_TR_NOOP("presence online idle offline status dot show hide "
+                         + "matrix.org"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Presence"),
+          anchor: "presenceDisplayCombo" },
+
         { title: qsTr("Ignored users"),
           keywords: QT_TR_NOOP("ignore ignored block user mute person hide"),
           section: "privacy",
@@ -5960,6 +5966,40 @@ Item {
                                                + "and stops updates; whether others' status is "
                                                + "visible to you is decided by their servers, "
                                                + "not by this switch.")
+                                }
+                                Label {
+                                    text: qsTr("Show online status dots")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                    font.weight: AppTheme.weightStrong
+                                    Layout.topMargin: AppTheme.spacing4
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    objectName: "presenceDisplayCombo"
+                                    Layout.fillWidth: true
+                                    model: [
+                                        qsTr("Automatic — only if my server provides it"),
+                                        qsTr("Always"),
+                                        qsTr("Never")
+                                    ]
+                                    currentIndex: app.settings.presenceDisplay
+                                    onActivated: (index) =>
+                                        app.settings.presenceDisplay = index
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Online, away and offline dots next to people. "
+                                               + "Some servers, such as matrix.org, never share "
+                                               + "anyone's status, so everyone would look "
+                                               + "offline; Automatic hides the dots there. "
+                                               + "Never also stops asking the server.")
                                 }
                             }
                         }

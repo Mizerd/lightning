@@ -24,6 +24,7 @@ class PresenceManager : public QObject
     Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
     Q_PROPERTY(int sessionEpoch READ sessionEpoch NOTIFY sessionEpochChanged)
     Q_PROPERTY(bool unavailable READ unavailable NOTIFY unavailableChanged)
+    Q_PROPERTY(bool displayed READ displayed NOTIFY displayedChanged)
     Q_PROPERTY(QString ownStatusText READ ownStatusText NOTIFY ownStatusChanged)
     Q_PROPERTY(QString ownStatusEmoji READ ownStatusEmoji NOTIFY ownStatusChanged)
     Q_PROPERTY(qint64 ownStatusExpiresAtMs READ ownStatusExpiresAtMs
@@ -38,6 +39,7 @@ public:
     bool supported() const;
     bool active() const;
     bool unavailable() const;
+    bool displayed() const;
     int revision() const { return m_revision; }
     int sessionEpoch() const { return m_sessionEpoch; }
 
@@ -84,11 +86,13 @@ public:
     int retryChainForTest() const { return m_retryChain; }
     static constexpr int maxRetryChain() { return kMaxRetryChain; }
     void setTypingEvidenceWindowForTest(qint64 ms) { m_typingWindowMs = ms; }
+    void setAutoGiveUpForTest(qint64 ms) { m_autoGiveUpMs = ms; }
 
 Q_SIGNALS:
     void supportedChanged();
     void activeChanged();
     void unavailableChanged();
+    void displayedChanged();
     void ownStatusChanged();
     void revisionChanged();
     void sessionEpochChanged();
@@ -140,7 +144,16 @@ private:
     static constexpr int kForbiddenLatchThreshold = 2;
     static constexpr int kForbiddenLatchMinBatch = 2;
     static constexpr qint64 kTypingEvidenceMs = 35000;
+    // Auto display: a server with presence disabled answers every user,
+    // ourselves included, with a bare "offline" (Synapse's presence off, as
+    // on matrix.org). After this long of nothing else, only newly shown
+    // users are still asked about.
+    static constexpr qint64 kAutoGiveUpMs = 5 * 60 * 1000;
 
+    int displayMode() const;
+    bool pollingWanted() const;
+    bool periodicPollingWanted() const;
+    void onDisplayModeChanged();
     void pollRound(const char *kind, const QStringList &userIds);
     void traceRound(const char *kind, const char *reason, int batch,
                     quint64 opId) const;
@@ -230,6 +243,10 @@ private:
     qint64 m_idleAfterMs = kIdleAfterMs;
     qint64 m_typingWindowMs = kTypingEvidenceMs;
     int m_lastPublished = -1;
+    bool m_servedEvidence = false;
+    bool m_autoGaveUp = false;
+    qint64 m_autoFirstAnswerAtMs = -1;
+    qint64 m_autoGiveUpMs = kAutoGiveUpMs;
     bool m_pendingFinalOffline = false;
     bool m_syncing = false;
 };
