@@ -52,6 +52,7 @@
     { QStringLiteral("readReceiptMode"), Kind::Int, 0, 2, 3, QStringLiteral("Privacy"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("sendTypingNotifications"), Kind::Bool, 0, 0, 3, QStringLiteral("Privacy"), 0, {  }, QVariant(true) },
     { QStringLiteral("sharePresence"), Kind::Bool, 0, 0, 3, QStringLiteral("Privacy"), 0, {  }, QVariant(true) },
+    { QStringLiteral("presenceDisplay"), Kind::Int, 0, 2, 3, QStringLiteral("Privacy"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("alwaysAskWhereToSave"), Kind::Bool, 0, 0, 3, QStringLiteral("Privacy"), 0, {  }, QVariant(false) },
     { QStringLiteral("strictDeviceTrust"), Kind::Bool, 0, 0, 1, QStringLiteral("Privacy"), 0, {  }, QVariant(false) },
     { QStringLiteral("keepMediaOnDevice"), Kind::Bool, 0, 0, 1, QStringLiteral("Privacy"), 0, {  }, QVariant(true) },

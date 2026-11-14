@@ -160,6 +160,9 @@ class SettingsManager : public QObject
                    NOTIFY shareQualityChanged)
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
+    // 0 auto (only when the server serves it), 1 always, 2 never.
+    Q_PROPERTY(int presenceDisplay READ presenceDisplay
+                   WRITE setPresenceDisplay NOTIFY presenceDisplayChanged)
     Q_PROPERTY(bool backgroundIndexing READ backgroundIndexing
                    WRITE setBackgroundIndexing NOTIFY backgroundIndexingChanged)
     Q_PROPERTY(bool gameActivityEnabled READ gameActivityEnabled
@@ -623,6 +626,7 @@ public:
     Q_INVOKABLE bool shareQualityDemandingAt(int maxHeight, int fps) const;
 
     bool sharePresence() const;
+    int presenceDisplay() const;
     bool backgroundIndexing() const;
     bool gameActivityEnabled() const;
     void setGameActivityEnabled(bool v);
@@ -699,6 +703,7 @@ public:
     QStringList dismissedSpaceBanners() const;
     Q_INVOKABLE void dismissSpaceBanner(const QString &spaceId);
     void setSharePresence(bool v);
+    void setPresenceDisplay(int mode);
     void setBackgroundIndexing(bool v);
     int gifAutoplay() const;
     void setGifAutoplay(int mode);
@@ -1049,6 +1054,7 @@ Q_SIGNALS:
     void animateGifPreviewsChanged();
     void showLinkMediaInlineChanged();
     void sharePresenceChanged();
+    void presenceDisplayChanged();
     void backgroundIndexingChanged();
     void gameActivityChanged();
     void musicActivityChanged();

@@ -133,6 +133,49 @@ void PresenceManager::setSettings(SettingsManager *settings)
                     m_lastPublished = 2;
                 }
             });
+    connect(m_settings, &SettingsManager::presenceDisplayChanged, this,
+            &PresenceManager::onDisplayModeChanged);
+    onDisplayModeChanged();
+}
+
+int PresenceManager::displayMode() const
+{
+    return m_settings ? m_settings->presenceDisplay() : 1;
+}
+
+bool PresenceManager::displayed() const
+{
+    switch (displayMode()) {
+    case 1:  return true;
+    case 2:  return false;
+    default: return m_servedEvidence;
+    }
+}
+
+bool PresenceManager::pollingWanted() const
+{
+    return displayMode() != 2;
+}
+
+bool PresenceManager::periodicPollingWanted() const
+{
+    const int mode = displayMode();
+    return mode == 1 || (mode == 0 && (m_servedEvidence || !m_autoGaveUp));
+}
+
+void PresenceManager::onDisplayModeChanged()
+{
+    if (!pollingWanted()) {
+        m_burstPending.clear();
+    } else if (active() && m_syncing) {
+        for (auto it = m_watched.constBegin(); it != m_watched.constEnd(); ++it)
+            m_burstPending.insert(it.key());
+        if (!m_burstPending.isEmpty())
+            m_burstTimer.start();
+    }
+    ++m_revision;
+    Q_EMIT displayedChanged();
+    Q_EMIT revisionChanged();
 }
 
 bool PresenceManager::supported() const
@@ -158,7 +201,7 @@ void PresenceManager::watch(const QString &userId)
     const auto cached = m_cache.constFind(userId);
     const bool stale = cached == m_cache.constEnd()
         || m_clock.elapsed() - cached->receivedAtMs >= kFreshWatchMs;
-    if (refs == 1 && stale && active()) {
+    if (refs == 1 && stale && active() && pollingWanted()) {
         m_burstPending.insert(userId);
         if (!m_burstTimer.isActive())
             m_burstTimer.start();
@@ -167,8 +210,8 @@ void PresenceManager::watch(const QString &userId)
 
 void PresenceManager::noteActivity(const QString &userId)
 {
-    if (userId.isEmpty() || !active() || !m_syncing
-        || !m_watched.contains(userId))
+    if (userId.isEmpty() || !active() || !periodicPollingWanted()
+        || !m_syncing || !m_watched.contains(userId))
         return;
     m_burstPending.insert(userId);
     m_burstTimer.start();
@@ -260,6 +303,8 @@ bool PresenceManager::isOwnUser(const QString &userId) const
 
 QString PresenceManager::stateFor(const QString &userId) const
 {
+    if (!displayed())
+        return {};
     if (isOwnUser(userId)) {
         const QString own = ownPublishedState();
         if (!own.isEmpty())
@@ -273,6 +318,8 @@ QString PresenceManager::stateFor(const QString &userId) const
 
 QVariantMap PresenceManager::infoFor(const QString &userId) const
 {
+    if (!displayed())
+        return {};
     if (isOwnUser(userId)) {
         const QString own = ownPublishedState();
         if (!own.isEmpty()) {
@@ -312,11 +359,13 @@ void PresenceManager::setApplicationActive(bool activeNow)
 
 void PresenceManager::scheduledPollRound()
 {
-    if (!active() || !m_syncing || m_watched.isEmpty()) {
+    if (!active() || !periodicPollingWanted() || !m_syncing
+        || m_watched.isEmpty()) {
         traceRound("scheduled",
                    !m_client ? "no_client"
                    : !m_client->supportsPresence() ? "unsupported"
                    : m_serverRefused ? "latched"
+                   : !periodicPollingWanted() ? "display_off"
                    : !m_syncing ? "not_syncing"
                    : "nothing_watched",
                    0, 0);
@@ -338,11 +387,13 @@ void PresenceManager::scheduledPollRound()
 
 void PresenceManager::burstRound()
 {
-    if (!active() || !m_syncing || m_burstPending.isEmpty()) {
+    if (!active() || !pollingWanted() || !m_syncing
+        || m_burstPending.isEmpty()) {
         traceRound("burst",
                    !m_client ? "no_client"
                    : !m_client->supportsPresence() ? "unsupported"
                    : m_serverRefused ? "latched"
+                   : !pollingWanted() ? "display_off"
                    : !m_syncing ? "not_syncing"
                    : "nothing_pending",
                    0, 0);
@@ -418,6 +469,7 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
     int unrenderableCount = 0;
     int erasedCount = 0;
     QSet<QString> distinctUsers;
+    bool sawServedPresence = false;
     bool allForbidden = !entries.isEmpty();
     for (const QVariant &value : entries) {
         const QVariantMap entry = value.toMap();
@@ -440,6 +492,12 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
                 changed = removed > 0 || changed;
                 continue;
             }
+            if (m_autoFirstAnswerAtMs < 0)
+                m_autoFirstAnswerAtMs = m_clock.elapsed();
+            if (state != QLatin1String("offline")
+                || entry.value(QStringLiteral("lastActiveAgoMs"), -1)
+                           .toLongLong() >= 0)
+                sawServedPresence = true;
             if (state == QLatin1String("online"))
                 ++onlineCount;
             else if (state == QLatin1String("unavailable"))
@@ -498,6 +556,19 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
         }
     } else if (!allForbidden) {
         m_forbiddenBatches = 0;
+    }
+    if (sawServedPresence && !m_servedEvidence) {
+        m_servedEvidence = true;
+        if (displayMode() == 0)
+            Q_EMIT displayedChanged();
+    } else if (!m_servedEvidence && !m_autoGaveUp
+               && m_autoFirstAnswerAtMs >= 0
+               && m_clock.elapsed() - m_autoFirstAnswerAtMs >= m_autoGiveUpMs) {
+        m_autoGaveUp = true;
+        if (displayMode() == 0) {
+            qCInfo(lcPresence) << "no presence served by this server; "
+                                  "auto display stops periodic polling";
+        }
     }
     if (changed) {
         ++m_revision;
@@ -698,6 +769,12 @@ void PresenceManager::clearSession()
     Q_EMIT sessionEpochChanged();
     const bool wasRefused = m_serverRefused;
     m_serverRefused = false;
+    const bool wasDisplayed = displayed();
+    m_servedEvidence = false;
+    m_autoGaveUp = false;
+    m_autoFirstAnswerAtMs = -1;
+    if (wasDisplayed != displayed())
+        Q_EMIT displayedChanged();
     ++m_revision;
     Q_EMIT revisionChanged();
     if (wasRefused) {
@@ -735,6 +812,8 @@ QString PresenceManager::statusMessageFor(const QString &userId) const
 {
     if (isOwnUser(userId))
         return effectiveStatusText();
+    if (!displayed())
+        return {};
     const auto it = m_cache.constFind(userId);
     return it == m_cache.constEnd() ? QString() : it->statusMsg;
 }
