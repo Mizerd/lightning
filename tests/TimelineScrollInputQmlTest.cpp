@@ -531,15 +531,19 @@ private Q_SLOTS:
         QStringList seen;
         (void)QTest::qWaitFor([&] {
             seen.clear();
-            for (const char *name : {"messageBody", "messageSegmentText"}) {
-                const auto bodies = pane.root->findChildren<QQuickItem *>(
-                    QLatin1String(name));
-                for (QQuickItem *candidate : bodies) {
-                    const QString text = candidate->property("text").toString();
-                    seen.append(text);
-                    if (text.contains(QStringLiteral("example link")))
-                        body = candidate;
-                }
+            // Loader and Repeater items are visual children only.
+            QList<QQuickItem *> pending{pane.root};
+            while (!pending.isEmpty()) {
+                QQuickItem *item = pending.takeLast();
+                pending.append(item->childItems());
+                const QString name = item->objectName();
+                if (name != QLatin1String("messageBody")
+                    && name != QLatin1String("messageSegmentText"))
+                    continue;
+                const QString text = item->property("text").toString();
+                seen.append(text);
+                if (text.contains(QStringLiteral("example link")))
+                    body = item;
             }
             return body && body->width() > 0;
         }, kSignalTimeoutMs);
