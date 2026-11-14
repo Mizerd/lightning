@@ -1051,7 +1051,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7122"/>
+        <location filename="../src/app/AppController.cpp" line="+7182"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -1176,7 +1176,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5503"/>
+        <location filename="../src/app/AppController.cpp" line="-5553"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>أُلغي تسجيل الخروج لأن الحساب تغيّر. لم يُعَد ضبط أي شيء.</translation>
     </message>
@@ -1228,13 +1228,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4099"/>
-        <location line="+802"/>
+        <location line="+4144"/>
+        <location line="+807"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-4942"/>
+        <location line="-4992"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1295,24 +1295,24 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2904"/>
+        <location line="+2949"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-2910"/>
+        <location line="-2955"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3875"/>
+        <location line="+3925"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3873"/>
+        <location line="-3923"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
@@ -1434,14 +1434,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1695"/>
+        <location line="+1740"/>
         <location line="+41"/>
         <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>هذه النسخة لا تتضمن خلفية Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1636"/>
+        <location line="-1681"/>
         <source>Choose a local image file.</source>
         <translation>اختر ملف صورة محلي.</translation>
     </message>
@@ -1501,7 +1501,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>اختر ملفًا على هذا الحاسوب.</translation>
     </message>
     <message>
-        <location line="+283"/>
+        <location line="+328"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>تعذّر تحميل الصورة (%1).</translation>
     </message>
@@ -1575,19 +1575,19 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+531"/>
-        <location line="+793"/>
+        <location line="+798"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>لم تكتمل الإزالة: بيانات الحساب ما زالت قيد الاستخدام. لم يُحذف شيء.</translation>
     </message>
     <message>
-        <location line="-1506"/>
+        <location line="-1511"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>لا يستطيع Lightning قراءة تسجيلات الدخول المحفوظة على هذا الجهاز الآن — حلقة مفاتيح النظام مقفلة أو غير متاحة. حساباتك الأخرى ما زالت على هذا الجهاز؛ افتح قفل حلقة المفاتيح وأعد تشغيل Lightning لمتابعة العمل بها.</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+161"/>
         <source>This backend cannot change your display name.</source>
         <translation>هذه الخلفية لا يمكنها تغيير اسمك الظاهر.</translation>
     </message>
@@ -1672,8 +1672,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2129"/>
-        <location line="+1013"/>
+        <location filename="../src/app/AppController.cpp" line="-2134"/>
+        <location line="+1018"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>لا يستطيع Lightning قراءة تسجيلات الدخول المحفوظة على هذا الجهاز الآن — حلقة مفاتيح النظام مقفلة أو غير متاحة. افتح قفلها وحاول مجددًا.</translation>
     </message>
@@ -1800,12 +1800,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>تعديل الصورة قبل إرسالها</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+29"/>
         <source>The image edit failed.</source>
         <translation>فشل تعديل الصورة.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+60"/>
         <source>Editing this animation sends one still PNG frame.</source>
         <translation>يؤدي تحرير هذه الرسوم المتحركة إلى إرسال إطار PNG ثابت.</translation>
     </message>
@@ -7370,19 +7370,19 @@ Size: %3</source>
 <context>
     <name>DiscoverJoinDialog</name>
     <message>
-        <location filename="../qml/DiscoverJoinDialog.qml" line="+126"/>
+        <location filename="../qml/DiscoverJoinDialog.qml" line="+138"/>
         <source>Public</source>
         <translation>عامة</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+354"/>
+        <location line="+377"/>
         <location line="+274"/>
         <source>Ask to join</source>
         <translation>طلب الانضمام</translation>
     </message>
     <message>
-        <location line="-627"/>
+        <location line="-650"/>
         <source>Restricted</source>
         <translation>مقيّدة</translation>
     </message>
@@ -7418,11 +7418,31 @@ Size: %3</source>
     </message>
     <message>
         <location line="+9"/>
+        <source>Your server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Other server…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Room directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Server (optional)</source>
         <translation>الخادوم (اختياري)</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+11"/>
+        <source>matrixrooms.info is a third-party directory: your homeserver sends it your search terms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+69"/>
         <source>Open %1</source>
         <translation>فتح %1</translation>
     </message>
@@ -12174,13 +12194,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+221"/>
-        <location line="+298"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>الحضور غير متاح</translation>
     </message>
     <message>
-        <location line="-665"/>
+        <location line="-719"/>
         <source>Invited</source>
         <translation>مدعو</translation>
     </message>
@@ -12200,12 +12220,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>تم نسخ رابط الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+543"/>
+        <location line="+596"/>
         <source>Bio</source>
         <translation>السيرة الذاتية</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+30"/>
         <source>Share</source>
         <translation>مشاركة</translation>
     </message>
@@ -12245,7 +12265,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>نسخ معرف المستخدم</translation>
     </message>
     <message>
-        <location line="-248"/>
+        <location line="-298"/>
         <source>Message</source>
         <translation>رسالة</translation>
     </message>
@@ -12260,7 +12280,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>بدء أو فتح محادثة مباشرة مع %1</translation>
     </message>
     <message>
-        <location line="+172"/>
+        <location line="+222"/>
         <source>Creator</source>
         <translation type="unfinished">المنشئ</translation>
     </message>
@@ -12431,7 +12451,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-1198"/>
+        <location line="-1252"/>
         <source>Matrix ID copied</source>
         <translation>نُسخ معرّف Matrix</translation>
     </message>
@@ -12538,22 +12558,23 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+78"/>
+        <location line="+80"/>
         <source>The voice message could not be sent.</source>
         <translation>تعذّر إرسال الرسالة الصوتية.</translation>
     </message>
     <message>
-        <location line="-101"/>
+        <location line="-103"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>الرسالة الصوتية أكبر من حد الرفع في الخادوم (%1).</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+121"/>
+        <location line="+54"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>فشل الرفع. أعد المحاولة أو أزله.</translation>
     </message>
     <message>
-        <location line="+311"/>
+        <location line="+312"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>هذه الرسالة أطول من أن تُرسل (%1 كيلوبايت؛ الحد نحو %2 كيلوبايت). اختصرها أو قسّمها إلى عدة رسائل.</translation>
     </message>
@@ -32309,7 +32330,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>المرفقات غير مدعومة على هذه الخلفية.</translation>
@@ -32356,12 +32377,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+389"/>
+        <location filename="../qml/ThreadPanel.qml" line="+392"/>
         <source>Mark this thread read</source>
         <translation>تعليم هذا الخيط كمقروء</translation>
     </message>
     <message>
-        <location line="+1126"/>
+        <location line="+1139"/>
         <source>Jump to the newest reply</source>
         <translation>الانتقال إلى أحدث رد</translation>
     </message>
@@ -32378,7 +32399,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1484"/>
+        <location line="-1500"/>
         <source>This room has been replaced.</source>
         <translation>تم استبدال هذه الغرفة.</translation>
     </message>
@@ -32388,7 +32409,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ليس لديك إذن بالنشر في هذه الغرفة.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+121"/>
         <source>Yesterday</source>
         <translation>أمس</translation>
     </message>
@@ -32485,13 +32506,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-89"/>
         <location line="+91"/>
-        <location line="+284"/>
+        <location line="+297"/>
         <location line="+71"/>
         <source>Replies</source>
         <translation>الردود</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-457"/>
         <source>Unread</source>
         <translation>غير مقروء</translation>
     </message>
@@ -32506,7 +32527,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تحميل مزيد من الخيوط</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+64"/>
         <location line="+48"/>
         <location line="+3"/>
         <location line="+1"/>
@@ -32514,7 +32535,7 @@ Note: importing keys does not verify this session.</source>
         <translation>فتح في الغرفة</translation>
     </message>
     <message>
-        <location line="-643"/>
+        <location line="-642"/>
         <source>Message deleted</source>
         <translation>حُذفت الرسالة</translation>
     </message>
@@ -32524,7 +32545,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر فك تعمية هذه الرسالة</translation>
     </message>
     <message>
-        <location line="+654"/>
+        <location line="+653"/>
         <location line="+1"/>
         <source>Collapse thread root</source>
         <translation type="unfinished"></translation>
@@ -32536,7 +32557,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+43"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33033,12 +33054,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5186"/>
+        <location line="+5204"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5185"/>
+        <location filename="../qml/TimelinePane.qml" line="-5203"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -33131,12 +33152,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3710"/>
+        <location line="+3728"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-3699"/>
+        <location line="-3717"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>المزيد من إجراءات الغرفة</translation>
@@ -33382,7 +33403,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
     <message>
-        <location line="+2603"/>
+        <location line="+2621"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33775,8 +33796,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6469"/>
-        <location line="+6646"/>
+        <location filename="../qml/TimelinePane.qml" line="-6487"/>
+        <location line="+6664"/>
         <source>Room</source>
         <translation>غرفة</translation>
     </message>
@@ -33867,13 +33888,13 @@ Note: importing keys does not verify this session.</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-5773"/>
+        <location line="-5791"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>عرض الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+5005"/>
+        <location line="+5023"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>الصور (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33949,7 +33970,7 @@ Note: importing keys does not verify this session.</source>
         <translation>أفلت الملفات لإرفاقها</translation>
     </message>
     <message>
-        <location line="-5245"/>
+        <location line="-5263"/>
         <source>Join space</source>
         <translation>انضم إلى المساحة</translation>
     </message>

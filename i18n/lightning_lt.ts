@@ -1023,7 +1023,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7122"/>
+        <location filename="../src/app/AppController.cpp" line="+7182"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1145,7 +1145,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Įeinantis skambutis</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5503"/>
+        <location filename="../src/app/AppController.cpp" line="-5553"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Atsijungimas atšauktas, nes paskyra pasikeitė. Nieko iš naujo nenustatyta.</translation>
     </message>
@@ -1197,13 +1197,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4099"/>
-        <location line="+802"/>
+        <location line="+4144"/>
+        <location line="+807"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-4942"/>
+        <location line="-4992"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -1264,24 +1264,24 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2904"/>
+        <location line="+2949"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-2910"/>
+        <location line="-2955"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3875"/>
+        <location line="+3925"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3873"/>
+        <location line="-3923"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
@@ -1403,14 +1403,14 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1695"/>
+        <location line="+1740"/>
         <location line="+41"/>
         <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Šioje versijoje nėra Rust SDK posistemės.</translation>
     </message>
     <message>
-        <location line="-1636"/>
+        <location line="-1681"/>
         <source>Choose a local image file.</source>
         <translation>Pasirinkite vietinį vaizdo failą.</translation>
     </message>
@@ -1470,7 +1470,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Pasirinkite failą šiame kompiuteryje.</translation>
     </message>
     <message>
-        <location line="+283"/>
+        <location line="+328"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Nepavyko įkelti vaizdo (%1).</translation>
     </message>
@@ -1544,19 +1544,19 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+531"/>
-        <location line="+793"/>
+        <location line="+798"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Šalinimas nebaigtas: paskyros duomenys vis dar naudojami. Nieko neištrinta.</translation>
     </message>
     <message>
-        <location line="-1506"/>
+        <location line="-1511"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>„Lightning“ šiuo metu negali nuskaityti šio įrenginio įrašytų prisijungimų – sistemos raktų saugykla užrakinta arba nepasiekiama. Kitos jūsų paskyros vis dar yra šiame įrenginyje; atrakinkite raktų saugyklą ir iš naujo paleiskite „Lightning“, kad galėtumėte jomis naudotis.</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+161"/>
         <source>This backend cannot change your display name.</source>
         <translation>Ši posistemė negali pakeisti rodomo vardo.</translation>
     </message>
@@ -1641,8 +1641,8 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2129"/>
-        <location line="+1013"/>
+        <location filename="../src/app/AppController.cpp" line="-2134"/>
+        <location line="+1018"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>„Lightning“ šiuo metu negali nuskaityti šio įrenginio įrašytų prisijungimų – sistemos raktų saugykla užrakinta arba nepasiekiama. Atrakinkite ją ir bandykite dar kartą.</translation>
     </message>
@@ -1769,12 +1769,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Prieš siųsdami redaguokite vaizdą</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+29"/>
         <source>The image edit failed.</source>
         <translation>Vaizdo redagavimas nepavyko.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+60"/>
         <source>Editing this animation sends one still PNG frame.</source>
         <translation>Redaguojant šią animaciją išsiunčiamas vienas nejudantis PNG kadras.</translation>
     </message>
@@ -7294,19 +7294,19 @@ Dydis: %3</translation>
 <context>
     <name>DiscoverJoinDialog</name>
     <message>
-        <location filename="../qml/DiscoverJoinDialog.qml" line="+126"/>
+        <location filename="../qml/DiscoverJoinDialog.qml" line="+138"/>
         <source>Public</source>
         <translation>Viešas</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+354"/>
+        <location line="+377"/>
         <location line="+274"/>
         <source>Ask to join</source>
         <translation>Paprašykite prisijungti</translation>
     </message>
     <message>
-        <location line="-627"/>
+        <location line="-650"/>
         <source>Restricted</source>
         <translation>Apribota</translation>
     </message>
@@ -7342,11 +7342,31 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+9"/>
+        <source>Your server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Other server…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Room directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Server (optional)</source>
         <translation>Serveris (neprivaloma)</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+11"/>
+        <source>matrixrooms.info is a third-party directory: your homeserver sends it your search terms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+69"/>
         <source>Open %1</source>
         <translation>Atidaryti %1</translation>
     </message>
@@ -12081,7 +12101,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>%1 profilis</translation>
     </message>
     <message>
-        <location line="+358"/>
+        <location line="+362"/>
         <source>Message</source>
         <translation>Žinutė</translation>
     </message>
@@ -12091,12 +12111,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Pradėti arba atidaryti tiesioginį pokalbį su %1</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+130"/>
         <source>Bio</source>
         <translation>Biografija</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+30"/>
         <source>Share</source>
         <translation>Dalintis</translation>
     </message>
@@ -12106,19 +12126,19 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Kopijuoti profilio nuorodą</translation>
     </message>
     <message>
-        <location line="-257"/>
-        <location line="+298"/>
+        <location line="-311"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Dalyvavimas nepasiekiamas</translation>
     </message>
     <message>
-        <location line="-182"/>
+        <location line="-232"/>
         <source>Double-click to copy</source>
         <translation>Dukart spustelėkite, kad nukopijuotumėte</translation>
     </message>
     <message>
-        <location line="+190"/>
+        <location line="+240"/>
         <source>Creator</source>
         <translation type="unfinished">Kūrėjas</translation>
     </message>
@@ -12421,22 +12441,23 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+78"/>
+        <location line="+80"/>
         <source>The voice message could not be sent.</source>
         <translation>Balso žinutės išsiųsti nepavyko.</translation>
     </message>
     <message>
-        <location line="-101"/>
+        <location line="-103"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>Balso žinutė yra didesnė nei serverio įkėlimo limitas (%1).</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+121"/>
+        <location line="+54"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
     <message>
-        <location line="+311"/>
+        <location line="+312"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Ši žinutė per ilga, kad ją būtų galima išsiųsti (%1 KB; riba – apie %2 KB). Sutrumpinkite ją arba padalykite į kelias žinutes.</translation>
     </message>
@@ -31904,7 +31925,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
@@ -31951,12 +31972,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+389"/>
+        <location filename="../qml/ThreadPanel.qml" line="+392"/>
         <source>Mark this thread read</source>
         <translation>Pažymėti šią giją kaip perskaitytą</translation>
     </message>
     <message>
-        <location line="+1126"/>
+        <location line="+1139"/>
         <source>Jump to the newest reply</source>
         <translation>Pereiti prie naujausio atsakymo</translation>
     </message>
@@ -31970,7 +31991,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         </translation>
     </message>
     <message>
-        <location line="-1484"/>
+        <location line="-1500"/>
         <source>This room has been replaced.</source>
         <translation>Šis kambarys buvo pakeistas.</translation>
     </message>
@@ -31980,7 +32001,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Neturite leidimo rašyti šiame kambaryje.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+121"/>
         <source>Yesterday</source>
         <translation>vakar</translation>
     </message>
@@ -32074,13 +32095,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-89"/>
         <location line="+91"/>
-        <location line="+284"/>
+        <location line="+297"/>
         <location line="+71"/>
         <source>Replies</source>
         <translation>Atsakymai</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-457"/>
         <source>Unread</source>
         <translation>Neskaityta</translation>
     </message>
@@ -32095,7 +32116,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Įkelti daugiau gijų</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+64"/>
         <location line="+48"/>
         <location line="+3"/>
         <location line="+1"/>
@@ -32103,7 +32124,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atidaryti kambaryje</translation>
     </message>
     <message>
-        <location line="-643"/>
+        <location line="-642"/>
         <source>Message deleted</source>
         <translation>Žinutė ištrinta</translation>
     </message>
@@ -32113,7 +32134,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Nepavyko iššifruoti šios žinutės</translation>
     </message>
     <message>
-        <location line="+654"/>
+        <location line="+653"/>
         <location line="+1"/>
         <source>Collapse thread root</source>
         <translation type="unfinished"></translation>
@@ -32125,7 +32146,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+43"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32610,12 +32631,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5186"/>
+        <location line="+5204"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5185"/>
+        <location filename="../qml/TimelinePane.qml" line="-5203"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -32708,12 +32729,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3710"/>
+        <location line="+3728"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-3699"/>
+        <location line="-3717"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Daugiau kambario veiksmų</translation>
@@ -32959,7 +32980,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
-        <location line="+2603"/>
+        <location line="+2621"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33340,8 +33361,8 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6469"/>
-        <location line="+6646"/>
+        <location filename="../qml/TimelinePane.qml" line="-6487"/>
+        <location line="+6664"/>
         <source>Room</source>
         <translation>Kambarys</translation>
     </message>
@@ -33420,13 +33441,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-5773"/>
+        <location line="-5791"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Peržiūrėti profilį</translation>
     </message>
     <message>
-        <location line="+5005"/>
+        <location line="+5023"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Paveikslėliai (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33502,7 +33523,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Numeskite failus, kuriuos norite pridėti</translation>
     </message>
     <message>
-        <location line="-5245"/>
+        <location line="-5263"/>
         <source>Join space</source>
         <translation>Prisijungti prie erdvės</translation>
     </message>

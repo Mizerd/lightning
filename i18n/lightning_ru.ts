@@ -1023,7 +1023,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7122"/>
+        <location filename="../src/app/AppController.cpp" line="+7182"/>
         <source>Room invitation</source>
         <translation>Приглашение в комнату</translation>
     </message>
@@ -1145,7 +1145,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Входящий вызов</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5503"/>
+        <location filename="../src/app/AppController.cpp" line="-5553"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Выход отменён, потому что учётная запись изменилась. Ничего не сброшено.</translation>
     </message>
@@ -1197,13 +1197,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4099"/>
-        <location line="+802"/>
+        <location line="+4144"/>
+        <location line="+807"/>
         <source>Not connected</source>
         <translation>Нет подключения</translation>
     </message>
     <message>
-        <location line="-4942"/>
+        <location line="-4992"/>
         <source>Connecting…</source>
         <translation>Подключение…</translation>
     </message>
@@ -1264,24 +1264,24 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2904"/>
+        <location line="+2949"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning не смог прочитать выбранный файл.</translation>
     </message>
     <message>
-        <location line="-2910"/>
+        <location line="-2955"/>
         <source>A room-key import is already in progress.</source>
         <translation>Импорт ключей комнат уже выполняется.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3875"/>
+        <location line="+3925"/>
         <source>Not signed in.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-3873"/>
+        <location line="-3923"/>
         <source>Room-key import failed.</source>
         <translation>Не удалось импортировать ключи комнат.</translation>
     </message>
@@ -1403,14 +1403,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1695"/>
+        <location line="+1740"/>
         <location line="+41"/>
         <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>В этой сборке нет бэкенда Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1636"/>
+        <location line="-1681"/>
         <source>Choose a local image file.</source>
         <translation>Выберите локальный файл изображения.</translation>
     </message>
@@ -1470,7 +1470,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Выберите файл на этом компьютере.</translation>
     </message>
     <message>
-        <location line="+283"/>
+        <location line="+328"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Не удалось загрузить изображение (%1).</translation>
     </message>
@@ -1544,19 +1544,19 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+531"/>
-        <location line="+793"/>
+        <location line="+798"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Удаление не завершено: данные учётной записи всё ещё используются. Ничего не удалено.</translation>
     </message>
     <message>
-        <location line="-1506"/>
+        <location line="-1511"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning сейчас не может прочитать сохранённые входы этого устройства: системная связка ключей заблокирована или недоступна. Ваши другие учётные записи по-прежнему на этом устройстве; разблокируйте связку ключей и перезапустите Lightning, чтобы продолжить с ними.</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+161"/>
         <source>This backend cannot change your display name.</source>
         <translation>Этот бэкенд не может изменить ваше отображаемое имя.</translation>
     </message>
@@ -1641,8 +1641,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2129"/>
-        <location line="+1013"/>
+        <location filename="../src/app/AppController.cpp" line="-2134"/>
+        <location line="+1018"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning сейчас не может прочитать сохранённые входы этого устройства: системная связка ключей заблокирована или недоступна. Разблокируйте её и повторите попытку.</translation>
     </message>
@@ -1769,12 +1769,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Редактировать изображение перед отправкой</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+29"/>
         <source>The image edit failed.</source>
         <translation>Не удалось ообсуждениеактировать изображение.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+60"/>
         <source>Editing this animation sends one still PNG frame.</source>
         <translation>При редактировании этой анимации отправляется один неподвижный кадр PNG.</translation>
     </message>
@@ -7294,19 +7294,19 @@ Size: %3</source>
 <context>
     <name>DiscoverJoinDialog</name>
     <message>
-        <location filename="../qml/DiscoverJoinDialog.qml" line="+126"/>
+        <location filename="../qml/DiscoverJoinDialog.qml" line="+138"/>
         <source>Public</source>
         <translation>Публичная</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+354"/>
+        <location line="+377"/>
         <location line="+274"/>
         <source>Ask to join</source>
         <translation>Запросить вступление</translation>
     </message>
     <message>
-        <location line="-627"/>
+        <location line="-650"/>
         <source>Restricted</source>
         <translation>Ограниченная</translation>
     </message>
@@ -7342,11 +7342,31 @@ Size: %3</source>
     </message>
     <message>
         <location line="+9"/>
+        <source>Your server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Other server…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Room directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Server (optional)</source>
         <translation>Сервер (необязательно)</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+11"/>
+        <source>matrixrooms.info is a third-party directory: your homeserver sends it your search terms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+69"/>
         <source>Open %1</source>
         <translation>Открыть %1</translation>
     </message>
@@ -12057,13 +12077,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+221"/>
-        <location line="+298"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Присутствие недоступно</translation>
     </message>
     <message>
-        <location line="-665"/>
+        <location line="-719"/>
         <source>Invited</source>
         <translation>Приглашён</translation>
     </message>
@@ -12083,12 +12103,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Ссылка на профиль скопирована.</translation>
     </message>
     <message>
-        <location line="+543"/>
+        <location line="+596"/>
         <source>Bio</source>
         <translation>Био</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+30"/>
         <source>Share</source>
         <translation>Поделиться</translation>
     </message>
@@ -12128,7 +12148,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Скопировать идентификатор пользователя</translation>
     </message>
     <message>
-        <location line="-248"/>
+        <location line="-298"/>
         <source>Message</source>
         <translation>Сообщение</translation>
     </message>
@@ -12143,7 +12163,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Начать или открыть личную переписку с %1</translation>
     </message>
     <message>
-        <location line="+172"/>
+        <location line="+222"/>
         <source>Creator</source>
         <translation type="unfinished">Создатель</translation>
     </message>
@@ -12314,7 +12334,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-1198"/>
+        <location line="-1252"/>
         <source>Matrix ID copied</source>
         <translation>Идентификатор Matrix скопирован</translation>
     </message>
@@ -12421,22 +12441,23 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <location line="+30"/>
-        <location line="+78"/>
+        <location line="+80"/>
         <source>The voice message could not be sent.</source>
         <translation>Не удалось отправить голосовое сообщение.</translation>
     </message>
     <message>
-        <location line="-101"/>
+        <location line="-103"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>Голосовое сообщение превышает ограничение сервера на загрузку (%1).</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+121"/>
+        <location line="+54"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Не удалось загрузить. Повторите или удалите.</translation>
     </message>
     <message>
-        <location line="+311"/>
+        <location line="+312"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Сообщение слишком длинное для отправки (%1 КБ; предел около %2 КБ). Сократите его или разделите на несколько сообщений.</translation>
     </message>
@@ -31904,7 +31925,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+649"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Вложения не поддерживаются этим бэкендом.</translation>
@@ -31951,12 +31972,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+389"/>
+        <location filename="../qml/ThreadPanel.qml" line="+392"/>
         <source>Mark this thread read</source>
         <translation>Отметить это обсуждение прочитанным</translation>
     </message>
     <message>
-        <location line="+1126"/>
+        <location line="+1139"/>
         <source>Jump to the newest reply</source>
         <translation>Перейти к последнему ответу</translation>
     </message>
@@ -31970,7 +31991,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1484"/>
+        <location line="-1500"/>
         <source>This room has been replaced.</source>
         <translation>Эта комната заменена.</translation>
     </message>
@@ -31980,7 +32001,7 @@ Note: importing keys does not verify this session.</source>
         <translation>У вас нет прав писать в этой комнате.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+121"/>
         <source>Yesterday</source>
         <translation>Вчера</translation>
     </message>
@@ -32074,13 +32095,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-89"/>
         <location line="+91"/>
-        <location line="+284"/>
+        <location line="+297"/>
         <location line="+71"/>
         <source>Replies</source>
         <translation>Ответы</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-457"/>
         <source>Unread</source>
         <translation>Непрочитано</translation>
     </message>
@@ -32095,7 +32116,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Загрузить больше обсуждений</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+64"/>
         <location line="+48"/>
         <location line="+3"/>
         <location line="+1"/>
@@ -32103,7 +32124,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Открыть в комнате</translation>
     </message>
     <message>
-        <location line="-643"/>
+        <location line="-642"/>
         <source>Message deleted</source>
         <translation>Сообщение удалено</translation>
     </message>
@@ -32113,7 +32134,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Не удаётся расшифровать это сообщение</translation>
     </message>
     <message>
-        <location line="+654"/>
+        <location line="+653"/>
         <location line="+1"/>
         <source>Collapse thread root</source>
         <translation type="unfinished"></translation>
@@ -32125,7 +32146,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+43"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32610,12 +32631,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5186"/>
+        <location line="+5204"/>
         <source>Space</source>
         <translation>Пространство</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5185"/>
+        <location filename="../qml/TimelinePane.qml" line="-5203"/>
         <source>Home</source>
         <translation>Главная</translation>
     </message>
@@ -32708,12 +32729,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3710"/>
+        <location line="+3728"/>
         <source>Room information</source>
         <translation>Сведения о комнате</translation>
     </message>
     <message>
-        <location line="-3699"/>
+        <location line="-3717"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Другие действия с комнатой</translation>
@@ -32959,7 +32980,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Не удалось выполнить поиск.</translation>
     </message>
     <message>
-        <location line="+2603"/>
+        <location line="+2621"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33340,8 +33361,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6469"/>
-        <location line="+6646"/>
+        <location filename="../qml/TimelinePane.qml" line="-6487"/>
+        <location line="+6664"/>
         <source>Room</source>
         <translation>Комната</translation>
     </message>
@@ -33420,13 +33441,13 @@ Note: importing keys does not verify this session.</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-5773"/>
+        <location line="-5791"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Посмотреть профиль</translation>
     </message>
     <message>
-        <location line="+5005"/>
+        <location line="+5023"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Изображения (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33502,7 +33523,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Перетащите файлы, чтобы прикрепить</translation>
     </message>
     <message>
-        <location line="-5245"/>
+        <location line="-5263"/>
         <source>Join space</source>
         <translation>Присоединиться к пространству</translation>
     </message>
