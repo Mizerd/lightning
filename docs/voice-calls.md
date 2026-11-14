@@ -1234,8 +1234,8 @@ Four things had to be right and every one of them failed silently:
   publication's first codec any answer admits, and an answer from webrtcbin with
   no preferences admits everything. The subscriber now answers VP8, plus H.264
   only with a whole receive chain, `rtph264depay`, `h264parse` and a decoder
-  (`receivableVideoCaps()`). `LIGHTNING_RECEIVE_VIDEO_CODEC=vp8` forces the
-  VP8-only case. A bundled build with no H.264 decoder answers VP8 alone, and
+  (`receivableVideoCaps()`), and VP9 and AV1 on the same terms (below).
+  `LIGHTNING_RECEIVE_VIDEO_CODEC=vp8` forces the VP8-only case. A bundled build with no H.264 decoder answers VP8 alone, and
   everything below about a VP8-only client is about it.
 
 **The last point is why a released client does not get the backup.** A build from
@@ -1392,3 +1392,32 @@ libnice only notices when its consent freshness checks go unanswered, about 30 s
 later. Until then the call is one-way; the failure then takes the full rejoin.
 An answer to a publisher offer that a post-resume renegotiation superseded is
 dropped by its id, so it cannot be applied to the newer offer.
+
+## Receiving VP9 and AV1 (GitHub #72, 2026-11-14)
+
+The subscriber answered VP8 and H.264 only, so the SFU never bound a VP9 or AV1
+publication with no backup codec to us: the section was accepted, no packet
+ever arrived, and the tile waited for ever. `src/calls/ReceiveVideoCodecs.h` is
+now the one table of receive chains, and a codec is answered only when its
+depayloader and a decoder are in the registry at runtime:
+
+| Codec | Chain | Where it exists |
+| --- | --- | --- |
+| VP9 | `rtpvp9depay` + `vp9dec` (else `avdec_vp9`) | every package: `libgstrtp` and `libgstvpx` are already required everywhere |
+| AV1 | `rtpav1depay` + `dav1ddec` (else `av1dec`) | NO bundled package (AppImage, snap, Windows, macOS stage neither `rsrtp` nor an AV1 decoder); deb, rpm and Flatpak only if the host or runtime has them |
+
+Nothing was added to a required-plugin list. `avdec_av1` is left out on purpose:
+it is FFmpeg's native decoder, which needs hardware acceleration.
+
+* **livekit-client encrypts a VP9 frame whole**, with no clear header bytes
+  (`FrameKind::VideoWhole`). VP8 keeps 3 or 10 and H.264 its NAL headers.
+* **`rtpvp9depay` joins a picture's spatial layers into one buffer, and each
+  layer was encrypted separately.** A probe before it ends the picture at each
+  layer's E bit. Screen shares are single-layer (`L1T3`) and never meet this;
+  an SVC camera does. NOT TESTED against a real SVC sender.
+* **AV1 under frame encryption is not expected to work**: `rtpav1depay`
+  rewrites the OBUs before the decrypt probe sees them, and livekit-client
+  refuses to encrypt AV1 at all.
+* A track whose codecs (LiveKit's `TrackInfo`, forwarded as `codecs`) include
+  nothing we decode shows "Can't play this stream: AV1 isn't supported by this
+  build" in its share tile, a badge on a camera tile, and one log line.

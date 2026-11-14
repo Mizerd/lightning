@@ -4908,6 +4908,108 @@ Item {
         check("fixtureShare", "callShareNameplate", "callShareNameplateRow");
     }
 
+    void anUndecodableCodecIsNamedInTheTileInsteadOfWaiting()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQuickWindow window;
+        window.resize(700, 400);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    width: 700
+    height: 400
+    CallShareTile {
+        objectName: "waiting"
+        width: 240; height: 168
+        shareId: "S1"; ownerDisplayName: "Bartholomew"
+    }
+    CallShareTile {
+        objectName: "wide"
+        x: 250; width: 240; height: 168
+        shareId: "S2"; ownerDisplayName: "Bartholomew"
+        unsupportedCodec: "AV1"
+    }
+    CallShareTile {
+        objectName: "compact"
+        y: 180; width: 148; height: 96
+        compact: true
+        shareId: "S3"; ownerDisplayName: "Bartholomew Featherstonehaugh III"
+        unsupportedCodec: "AV1"
+    }
+    CallParticipantTile {
+        objectName: "camera"
+        x: 250; y: 180; width: 140; height: 88
+        identity: "PA_one"; displayName: "Bartholomew"
+        unsupportedCodec: "AV1"
+    }
+    CallParticipantTile {
+        objectName: "plainCamera"
+        x: 400; y: 180; width: 140; height: 88
+        identity: "PA_two"; displayName: "Bartholomew"
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callcodectest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY2(outer != nullptr, "the fixture must instantiate");
+        outer->setParentItem(window.contentItem());
+        window.show();
+        settle();
+
+        const auto status = [&](const char *tile) {
+            auto *item = outer->findChild<QQuickItem *>(QLatin1String(tile));
+            return item ? item->findChild<QQuickItem *>(
+                              QStringLiteral("callShareStatus"))
+                        : nullptr;
+        };
+        QVERIFY(status("waiting"));
+        QVERIFY(!status("waiting")->property("text").toString().contains(
+            QLatin1String("AV1")));
+        for (const char *name : {"wide", "compact"}) {
+            QQuickItem *text = status(name);
+            QVERIFY2(text != nullptr, name);
+            const QString shown = text->property("text").toString();
+            QVERIFY2(shown.contains(QLatin1String("AV1 isn't supported")),
+                     qPrintable(shown));
+            QVERIFY2(!text->property("truncated").toBool(), name);
+            auto *tile = outer->findChild<QQuickItem *>(QLatin1String(name));
+            auto *plate = tile->findChild<QQuickItem *>(
+                QStringLiteral("callShareNameplate"));
+            QVERIFY(plate != nullptr);
+            QTRY_VERIFY(text->height() > 0.0 && plate->height() > 0.0);
+            const qreal bottom =
+                text->mapToItem(tile, QPointF(0, text->height())).y();
+            const qreal plateTop = plate->mapToItem(tile, QPointF(0, 0)).y();
+            QVERIFY2(bottom <= plateTop + 0.5,
+                     qPrintable(QStringLiteral("%1: the reason ends at %2, "
+                                               "under the nameplate at %3")
+                                    .arg(QLatin1String(name))
+                                    .arg(bottom).arg(plateTop)));
+        }
+
+        const auto badge = [&](const char *tile) {
+            return outer->findChild<QQuickItem *>(QLatin1String(tile))
+                ->findChild<QQuickItem *>(
+                    QStringLiteral("callTileUnsupportedCodec"));
+        };
+        QVERIFY(badge("camera") != nullptr);
+        QVERIFY(badge("camera")->property("tooltip").toString().contains(
+            QLatin1String("AV1 isn't supported")));
+        QVERIFY(badge("plainCamera") == nullptr);
+    }
+
     void aVideoCallPanelKeepsEnoughHeightToShowAPicture()
     {
         QQmlEngine engine;

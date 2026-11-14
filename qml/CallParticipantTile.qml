@@ -33,6 +33,8 @@ Item {
     property string cameraTrackKey: ""
     property string screenTrackKey: ""
     readonly property string activeTrackKey: root.mediaKind === "screen" ? root.screenTrackKey : root.cameraTrackKey
+    property string unsupportedCodec: root.local || root.activeTrackKey.length === 0
+        ? "" : app.groupCall.unsupportedVideoCodec(root.activeTrackKey)
     // Re-attach when the routing key arrives; an attach under an empty key
     // never receives a frame. Declared here rather than in a Connections inside
     // the Loader, because an `on…Changed` handler can't reach a property whose
@@ -346,6 +348,16 @@ Item {
                     iconName: "videocam_off"
                     tooltip: qsTr("Camera off")
                     tone: "muted"
+                }
+            }
+            Loader {
+                active: root.unsupportedCodec.length > 0
+                visible: active
+                sourceComponent: CallTileBadge {
+                    objectName: "callTileUnsupportedCodec"
+                    iconName: "videocam_off"
+                    tooltip: qsTr("Can't play this video: %1 isn't supported by this build").arg(root.unsupportedCodec)
+                    tone: "danger"
                 }
             }
         }

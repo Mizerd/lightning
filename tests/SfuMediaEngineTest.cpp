@@ -898,7 +898,7 @@ class DecryptProbeRig
 {
 public:
     DecryptProbeRig(SfuMediaEngine &engine, const QString &streamId,
-                    bool video = false)
+                    bool video = false, const QString &videoCodec = QString())
     {
         m_pipeline = gst_pipeline_new(nullptr);
         m_src = gst_element_factory_make("appsrc", nullptr);
@@ -911,7 +911,7 @@ public:
         if (!gst_element_link(m_src, sink))
             return;
         GstPad *srcPad = gst_element_get_static_pad(m_src, "src");
-        engine.installDecryptProbeForTest(srcPad, video, streamId);
+        engine.installDecryptProbeForTest(srcPad, video, streamId, videoCodec);
         GstPad *sinkPad = gst_element_get_static_pad(sink, "sink");
         m_passed = new std::atomic<int>(0);
         gst_pad_add_probe(
@@ -1077,6 +1077,8 @@ static QString subscriberOffer(const QList<QList<int>> &videos, int version)
             payloads << QString::number(pt);
             maps += pt == 96 ? QStringLiteral("a=rtpmap:96 VP8/90000\r\n")
                 : pt == 98   ? QStringLiteral("a=rtpmap:98 VP9/90000\r\n")
+                : pt == 45   ? QStringLiteral("a=rtpmap:45 AV1/90000\r\n")
+                : pt == 99   ? QStringLiteral("a=rtpmap:99 NOSUCH/90000\r\n")
                              : QStringLiteral(
                                  "a=rtpmap:125 H264/90000\r\n"
                                  "a=fmtp:125 packetization-mode=1;"
@@ -6896,6 +6898,88 @@ true);
                                            "missing reference").arg(frozen)));
     }
 
+    void aVp9StreamIsDepayloadedAndDecoded()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        if (!SfuMediaEngine::firstMissingElement(
+                 {QByteArrayLiteral("vp9enc"), QByteArrayLiteral("rtpvp9pay")})
+                 .isEmpty()
+            || SfuMediaEngine::receivableVideoCodec(QStringLiteral("VP9")).encoding
+                != QLatin1String("VP9"))
+            QSKIP("no VP9 here");
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            "videotestsrc is-live=true pattern=ball "
+            "! video/x-raw,width=320,height=240,framerate=30/1 "
+            "! vp9enc deadline=1 cpu-used=8 ! rtpvp9pay mtu=300 "
+            "! application/x-rtp,media=video,encoding-name=VP9,clock-rate=90000,payload=98 "
+            "! identity name=network",
+            &error);
+        QVERIFY2(pipeline && !error, error ? error->message : "no pipeline");
+        QString why;
+        GstElement *bin = SfuMediaEngine::buildReceiveBin(
+            true, QString(), true, &why, QString(), nullptr, false,
+            QStringLiteral("VP9"));
+        QVERIFY2(bin, qPrintable(why));
+        QVERIFY(gst_bin_add(GST_BIN(pipeline), bin));
+        GstElement *network = gst_bin_get_by_name(GST_BIN(pipeline), "network");
+        QVERIFY(gst_element_link(network, bin));
+        gst_object_unref(network);
+        GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay");
+        QVERIFY(depay);
+        QCOMPARE(QByteArray(GST_OBJECT_NAME(gst_element_get_factory(depay))),
+                 QByteArray("rtpvp9depay"));
+        gst_object_unref(depay);
+
+        std::atomic<int> decoded{0};
+        GstElement *sink = gst_bin_get_by_name(GST_BIN(bin), "vidsink");
+        GstPad *sinkPad = gst_element_get_static_pad(sink, "sink");
+        gst_pad_add_probe(sinkPad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            }, &decoded, nullptr);
+        gst_object_unref(sinkPad);
+        gst_object_unref(sink);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        const bool played = QTest::qWaitFor([&] { return decoded.load() > 15; },
+                                            10000);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+        QVERIFY2(played, "a VP9 stream decoded nothing");
+    }
+
+    void aVp9FrameIsDecryptedWholeAndAVp8OneKeepsItsHeader()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        if (SfuMediaEngine::receivableVideoCodec(QStringLiteral("VP9")).encoding
+            != QLatin1String("VP9"))
+            QSKIP("no VP9 here");
+        const QByteArray key(16, 'k');
+        CallFrameCryptor sender;
+        QVERIFY(sender.setKey(3, key));
+        sender.setCurrentKeyIndex(3);
+        const QByteArray frame(200, 'v');
+        const QByteArray whole = sender.encryptFrame(
+            frame, CallFrameCryptor::FrameKind::VideoWhole, 7, 1000);
+        QVERIFY(!whole.isEmpty());
+        QVERIFY(!whole.startsWith('v'));
+
+        for (const QString &codec : {QStringLiteral("VP9"), QStringLiteral("VP8")}) {
+            SfuMediaEngine engine;
+            const QString stream = QStringLiteral("PA_") + codec;
+            engine.setEncryptionRequired(true);
+            engine.setInboundKey(stream, 3, key);
+            DecryptProbeRig rig(engine, stream, true, codec);
+            QVERIFY(rig.ok());
+            rig.push(whole);
+            QVERIFY(rig.drain());
+            QCOMPARE(rig.passed(), codec == QLatin1String("VP9") ? 1 : 0);
+        }
+    }
+
     void anAnswerAdmitsOnlyWhatThisBuildDecodes_data()
     {
         QTest::addColumn<bool>("vp8Only");
@@ -6907,12 +6991,20 @@ true);
         QFETCH(bool, vp8Only);
         if (!gst_init_check(nullptr, nullptr, nullptr))
             QSKIP("no GStreamer");
+        const auto have = [](const QList<QByteArray> &names) {
+            return SfuMediaEngine::firstMissingElement(names).isEmpty();
+        };
         const bool h264 = !vp8Only && !SfuMediaEngine::h264DecoderElement().isEmpty()
-            && SfuMediaEngine::firstMissingElement(
-                   {QByteArrayLiteral("rtph264depay"),
-                    QByteArrayLiteral("h264parse")}).isEmpty();
-        if (!vp8Only && !h264)
-            QSKIP("this environment has no H.264 receive chain");
+            && have({QByteArrayLiteral("rtph264depay"),
+                     QByteArrayLiteral("h264parse")});
+        const bool vp9 = !vp8Only && have({QByteArrayLiteral("rtpvp9depay")})
+            && (have({QByteArrayLiteral("vp9dec")})
+                || have({QByteArrayLiteral("avdec_vp9")}));
+        const bool av1 = !vp8Only && have({QByteArrayLiteral("rtpav1depay")})
+            && (have({QByteArrayLiteral("dav1ddec")})
+                || have({QByteArrayLiteral("av1dec")}));
+        if (!vp8Only && !h264 && !vp9)
+            QSKIP("this environment decodes nothing but VP8");
         const auto restore = qScopeGuard(
             [] { qunsetenv("LIGHTNING_RECEIVE_VIDEO_CODEC"); });
         if (vp8Only)
@@ -6922,10 +7014,20 @@ true);
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         engine.start();
-        const QStringList wanted = h264
-            ? QStringList{QStringLiteral("VP8"), QStringLiteral("H264")}
-            : QStringList{QStringLiteral("VP8")};
-        const QList<int> all{96, 98, 125};
+        QStringList wanted{QStringLiteral("VP8")};
+        if (vp9)
+            wanted << QStringLiteral("VP9");
+        if (av1)
+            wanted << QStringLiteral("AV1");
+        if (h264)
+            wanted << QStringLiteral("H264");
+        const QList<int> all{96, 98, 45, 125};
+        const auto admitted = [](const QString &answer, int section) {
+            QStringList encodings = sdpEncodings(sdpSection(answer, section));
+            encodings.sort();
+            return encodings;
+        };
+        wanted.sort();
 
         const QString first = answerTo(engine, subscriberOffer({all}, 1));
         QVERIFY(!first.isEmpty());
@@ -6935,16 +7037,16 @@ true);
                      QLatin1String("audio 9 ")), qPrintable(first));
         QVERIFY(sdpEncodings(sdpSection(first, 1)).first()
                     .compare(QLatin1String("opus"), Qt::CaseInsensitive) == 0);
-        QCOMPARE(sdpEncodings(sdpSection(first, 2)), wanted);
+        QCOMPARE(admitted(first, 2), wanted);
 
         const QString second = answerTo(engine, subscriberOffer({all, all}, 2));
         QVERIFY(!second.isEmpty());
-        QCOMPARE(sdpEncodings(sdpSection(second, 2)), wanted);
-        QCOMPARE(sdpEncodings(sdpSection(second, 3)), wanted);
+        QCOMPARE(admitted(second, 2), wanted);
+        QCOMPARE(admitted(second, 3), wanted);
 
         QSignalSpy failed(&engine, &SfuMediaEngine::failed);
         const QString third = answerTo(
-            engine, subscriberOffer({all, all, QList<int>{98}}, 3));
+            engine, subscriberOffer({all, all, QList<int>{99}}, 3));
         QVERIFY2(third.isEmpty(), qPrintable(third));
         QCOMPARE(failed.count(), 1);
         QCOMPARE(failed.at(0).at(0).toString(),

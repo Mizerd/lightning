@@ -7576,6 +7576,12 @@ if(BUILD_TESTING)
     target_link_libraries(call-lane-policy-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME call-lane-policy COMMAND call-lane-policy-test)
 
+    qt_add_executable(receive-video-codecs-test
+        tests/ReceiveVideoCodecsTest.cpp src/calls/ReceiveVideoCodecs.h)
+    target_include_directories(receive-video-codecs-test PRIVATE src)
+    target_link_libraries(receive-video-codecs-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME receive-video-codecs COMMAND receive-video-codecs-test)
+
     # The camera choice handed to the media engine: a chosen camera that is
     # not connected must say so, not read as "system default".
     qt_add_executable(call-device-controller-test

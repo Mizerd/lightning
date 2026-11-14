@@ -222,6 +222,9 @@ public:
     double microphoneLevel() const { return m_microphoneLevel; }
     void noteMicrophoneLevelAt(double peakDb, qint64 nowMs);
     Q_INVOKABLE bool mediaBlockedFor(const QString &identity) const;
+    /// The codec to name when this build can decode none of the codecs the
+    /// track is published in, else empty.
+    Q_INVOKABLE QString unsupportedVideoCodec(const QString &trackKey) const;
     int participantCount() const;
     CallParticipantModel *participantModel() const
     {
@@ -847,6 +850,7 @@ private:
     qint64 m_lastReactionSentMs = 0;
     bool m_mediaEncrypted = false;
     QSet<QString> m_blockedStreams;
+    QSet<QString> m_unsupportedCodecLogged;
     struct RemoteTrackMute {
         bool muted = false;
         int changes = 0;

@@ -43,6 +43,8 @@ private Q_SLOTS:
                      CallFrameCryptor::FrameKind::VideoKey), 10);
         QCOMPARE(CallFrameCryptor::headerBytes(
                      CallFrameCryptor::FrameKind::VideoDelta), 3);
+        QCOMPARE(CallFrameCryptor::headerBytes(
+                     CallFrameCryptor::FrameKind::VideoWhole), 0);
     }
 
     void anH264FrameKeepsItsHeadersAndHidesItsSlice()

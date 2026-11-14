@@ -3468,6 +3468,35 @@ QString SfuCallController::trackKeyForSource(const QString &identity,
     return {};
 }
 
+QString SfuCallController::unsupportedVideoCodec(const QString &trackKey) const
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (trackKey.isEmpty())
+        return {};
+    for (const QVariant &row : m_participants) {
+        for (const QVariant &t :
+             row.toMap().value(QStringLiteral("tracks")).toList()) {
+            const QVariantMap track = t.toMap();
+            if (track.value(QStringLiteral("sid")).toString() != trackKey)
+                continue;
+            const QStringList mimes =
+                track.value(QStringLiteral("codecs")).toStringList();
+            if (mimes.isEmpty()
+                || track.value(QStringLiteral("kind")).toString()
+                    != QLatin1String("video"))
+                return {};
+            QStringList receivable;
+            for (const auto &codec : SfuMediaEngine::receivableVideoCodecs())
+                receivable << codec.encoding;
+            return lightning::calls::unsupportedVideoCodec(mimes, receivable);
+        }
+    }
+#else
+    Q_UNUSED(trackKey);
+#endif
+    return {};
+}
+
 bool SfuCallController::mediaBlockedFor(const QString &identity) const
 {
     if (identity.isEmpty() || m_blockedStreams.isEmpty())
@@ -5814,6 +5843,18 @@ void SfuCallController::rebuildModels()
             trackKeyForSource(identity, QStringLiteral("camera"));
         row.screenTrackKey =
             trackKeyForSource(identity, QStringLiteral("screen_share"));
+        if (!row.local) {
+            for (const QString &key : {row.cameraTrackKey, row.screenTrackKey}) {
+                const QString codec = unsupportedVideoCodec(key);
+                if (codec.isEmpty() || m_unsupportedCodecLogged.contains(key))
+                    continue;
+                m_unsupportedCodecLogged.insert(key);
+                qCWarning(lcSfuCall)
+                    << "call diagnosis: a video track is published only in"
+                    << codec << "which this build cannot decode; it will not"
+                    << "be shown. track=" << key;
+            }
+        }
 
         if (row.local) {
             sawLocal = true;
