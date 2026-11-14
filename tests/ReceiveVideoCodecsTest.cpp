@@ -55,6 +55,11 @@ private Q_SLOTS:
                 || name == "rtpav1depay" || name == "av1dec";
         });
         QCOMPARE(codecs.size(), 3);
+        for (const ReceiveVideoCodec &codec : codecs)
+            QVERIFY2(codec.chain.startsWith(QLatin1String("rtp"))
+                         && codec.chain.section(QLatin1Char(' '), 0, 0)
+                                .endsWith(QLatin1String("depay")),
+                     qPrintable(codec.chain));
         QCOMPARE(codecs[0].chain,
                  QStringLiteral("rtpvp8depay name=recvdepay request-keyframe=true "
                                 "wait-for-keyframe=true ! vp8dec name=videodec "));
