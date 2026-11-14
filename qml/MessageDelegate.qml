@@ -2133,6 +2133,9 @@ Item {
                                 document: bodyLabel.textDocument
                             }
 
+                            // Qt tracks link hover, and so shows the pointing hand,
+                            // only while linkHovered is connected.
+                            onLinkHovered: function(link) {}
                             onLinkActivated: function(link) {
                                 root.openMessageLink(link)
                             }
@@ -2238,6 +2241,7 @@ Item {
                                                                segmentRow.modelData.text || "")
                                             selectionColor: AppTheme.textSelection
                                             selectedTextColor: AppTheme.text
+                                            onLinkHovered: function(link) {}
                                             onLinkActivated: function(link) {
                                                 root.openMessageLink(link)
                                             }

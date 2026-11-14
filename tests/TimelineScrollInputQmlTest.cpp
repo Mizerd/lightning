@@ -513,6 +513,58 @@ private Q_SLOTS:
                                            "reader %1 px off the oldest row")
                                 .arg(after)));
     }
+
+    void aMessageBodyShowsTheIBeamAndItsLinkThePointingHand()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = login(controller);
+        QVERIFY(!roomId.isEmpty());
+        QList<TimelineEvent> events =
+            textEvents(roomId, 6, QStringLiteral("cur"));
+        events.last().body = QStringLiteral("plain words example link");
+        events.last().formattedBody = QStringLiteral(
+            "plain words <a href=\"https://example.org/probe\">example link</a>");
+        Pane pane;
+        QVERIFY(openPane(controller, pane, roomId, events, 0, 620));
+
+        QQuickItem *body = nullptr;
+        QVERIFY(QTest::qWaitFor([&] {
+            const auto bodies = pane.root->findChildren<QQuickItem *>(
+                QStringLiteral("messageBody"));
+            for (QQuickItem *candidate : bodies) {
+                if (candidate->property("text").toString().contains(
+                        QStringLiteral("example.org/probe")))
+                    body = candidate;
+            }
+            return body && body->width() > 0;
+        }, kSignalTimeoutMs));
+
+        const qreal y = body->height() / 2;
+        qreal linkX = -1;
+        for (qreal x = 2; x < body->width() && linkX < 0; x += 2) {
+            QString href;
+            QVERIFY(QMetaObject::invokeMethod(body, "linkAt",
+                                              Q_RETURN_ARG(QString, href),
+                                              Q_ARG(qreal, x), Q_ARG(qreal, y)));
+            if (!href.isEmpty())
+                linkX = x + 6;
+        }
+        QVERIFY2(linkX > 20, "premise: the body has no plain text before a link");
+        const QPoint plain = body->mapToScene(QPointF(6, y)).toPoint();
+        const QPoint link = body->mapToScene(QPointF(linkX, y)).toPoint();
+
+        QTest::mouseMove(&pane.window, plain + QPoint(0, -200));
+        QTest::mouseMove(&pane.window, plain);
+        QTRY_COMPARE_WITH_TIMEOUT(pane.window.cursor().shape(),
+                                  Qt::IBeamCursor, kSignalTimeoutMs);
+        QTest::mouseMove(&pane.window, link + QPoint(-1, 0));
+        QTest::mouseMove(&pane.window, link);
+        QTRY_COMPARE_WITH_TIMEOUT(pane.window.cursor().shape(),
+                                  Qt::PointingHandCursor, kSignalTimeoutMs);
+        QTest::mouseMove(&pane.window, plain);
+        QTRY_COMPARE_WITH_TIMEOUT(pane.window.cursor().shape(),
+                                  Qt::IBeamCursor, kSignalTimeoutMs);
+    }
 };
 
 int main(int argc, char *argv[])

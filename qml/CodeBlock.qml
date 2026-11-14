@@ -369,6 +369,8 @@ Rectangle {
                 objectName: "codeBlockWheelRouter"
                 anchors.fill: parent
                 acceptedButtons: Qt.NoButton
+                // Without this a MouseArea shows the arrow over the code's I-beam.
+                cursorShape: undefined
 
                 property real restSinceMs: -1
                 property real trainLastMs: 0
