@@ -2307,6 +2307,7 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.RightButton
+                                cursorShape: Qt.IBeamCursor
                                 onClicked: (mouse) => {
                                     root.focusEditor()
                                     root.prepareSpellMenu(mouse.x, mouse.y)
@@ -2683,6 +2684,7 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             acceptedButtons: Qt.RightButton
+                            cursorShape: Qt.IBeamCursor
                             onClicked: (mouse) => {
                                 root.focusEditor()
                                 root.prepareSpellMenu(mouse.x, mouse.y)

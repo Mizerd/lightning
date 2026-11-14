@@ -2034,6 +2034,7 @@ Rectangle {
                                 MouseArea {
                                     anchors.fill: parent
                                     acceptedButtons: Qt.RightButton
+                                    cursorShape: Qt.IBeamCursor
                                     onClicked: (mouse) => {
                                         threadRichInput.forceActiveFocus()
                                         panel.prepareThreadSpellMenu(mouse.x,
@@ -2261,6 +2262,7 @@ Rectangle {
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.RightButton
+                                cursorShape: Qt.IBeamCursor
                                 onClicked: (mouse) => {
                                     threadComposerInput.forceActiveFocus()
                                     panel.prepareThreadSpellMenu(mouse.x,
