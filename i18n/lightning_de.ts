@@ -3183,7 +3183,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+81"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+87"/>
         <source>You</source>
         <translation>Du</translation>
     </message>
@@ -3194,12 +3194,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+4"/>
-        <location line="+311"/>
+        <location line="+321"/>
         <source>Microphone muted</source>
         <translation>Mikrofon stummgeschaltet</translation>
     </message>
     <message>
-        <location line="-309"/>
+        <location line="-319"/>
         <location line="+217"/>
         <source>Sharing their screen</source>
         <translation>Gibt den Bildschirm frei</translation>
@@ -3230,6 +3230,11 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <location line="+27"/>
         <source>Camera off</source>
         <translation>Kamera aus</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Can&apos;t play this video: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+118"/>
@@ -3575,7 +3580,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+31"/>
+        <location filename="../qml/CallShareTile.qml" line="+37"/>
         <source>Your screen</source>
         <translation>Dein Bildschirm</translation>
     </message>
@@ -3591,17 +3596,27 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+7"/>
-        <location line="+281"/>
+        <location line="+292"/>
         <source>Screen share</source>
         <translation>Bildschirmfreigabe</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-182"/>
         <source>Waiting for the picture…</source>
         <translation>Warte auf das Bild …</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+2"/>
+        <source>%1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Can&apos;t play this stream: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+202"/>
         <source>Screen share volume</source>
         <translation>Lautstärke der Bildschirmfreigabe</translation>
     </message>
@@ -26544,7 +26559,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+631"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
         <location line="+110"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -26873,7 +26888,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Anruf-Audio gestoppt: Die Tonausgabe dieses Computers wurde getrennt. Es läuft weiter, sobald wieder eine Ausgabe verfügbar ist; falls nicht, verlasse den Anruf und tritt erneut bei.</translation>
     </message>
     <message>
-        <location line="+2044"/>
+        <location line="+2077"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Der Ton der Bildschirmfreigabe ist aus: Diesem Paket fehlen die nötigen Audioaufnahme-Plugins.</translation>
     </message>
@@ -26948,7 +26963,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Der Anruf wurde abgelehnt.</translation>
     </message>
     <message>
-        <location line="+487"/>
+        <location line="+499"/>
         <source>You</source>
         <translation type="unfinished">Du</translation>
     </message>

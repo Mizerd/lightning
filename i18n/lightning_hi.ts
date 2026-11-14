@@ -3183,7 +3183,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+81"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+87"/>
         <source>You</source>
         <translation>आप</translation>
     </message>
@@ -3194,12 +3194,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+311"/>
+        <location line="+321"/>
         <source>Microphone muted</source>
         <translation>माइक्रोफ़ोन म्यूट किया गया</translation>
     </message>
     <message>
-        <location line="-309"/>
+        <location line="-319"/>
         <location line="+217"/>
         <source>Sharing their screen</source>
         <translation>उनकी स्क्रीन साझा कर रहे हैं</translation>
@@ -3230,6 +3230,11 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+27"/>
         <source>Camera off</source>
         <translation>कैमरा बंद है</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Can&apos;t play this video: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+118"/>
@@ -3575,7 +3580,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+31"/>
+        <location filename="../qml/CallShareTile.qml" line="+37"/>
         <source>Your screen</source>
         <translation>आपकी स्क्रीन</translation>
     </message>
@@ -3591,17 +3596,27 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+7"/>
-        <location line="+281"/>
+        <location line="+292"/>
         <source>Screen share</source>
         <translation>स्क्रीन शेयर</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-182"/>
         <source>Waiting for the picture…</source>
         <translation>चित्र की प्रतीक्षा में...</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+2"/>
+        <source>%1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Can&apos;t play this stream: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+202"/>
         <source>Screen share volume</source>
         <translation>स्क्रीन शेयर वॉल्यूम</translation>
     </message>
@@ -26544,7 +26559,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+631"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
         <location line="+110"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -26858,7 +26873,7 @@ Note: importing keys does not verify this session.</source>
         <translation>कॉल का ऑडियो रुक गया: इस कंप्यूटर का साउंड आउटपुट डिस्कनेक्ट हो गया। आउटपुट दोबारा उपलब्ध होने पर यह फिर शुरू होता है; न हो तो कॉल छोड़कर फिर शामिल हों।</translation>
     </message>
     <message>
-        <location line="+2044"/>
+        <location line="+2077"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>स्क्रीन शेयर की ध्वनि बंद है: इस पैकेज में आवश्यक ऑडियो कैप्चर प्लगइन नहीं हैं।</translation>
     </message>
@@ -26933,7 +26948,7 @@ Note: importing keys does not verify this session.</source>
         <translation>कॉल अस्वीकार कर दी गई।</translation>
     </message>
     <message>
-        <location line="+487"/>
+        <location line="+499"/>
         <source>You</source>
         <translation type="unfinished">आप</translation>
     </message>
@@ -26943,7 +26958,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">प्रतिभागी</translation>
     </message>
     <message>
-        <location line="-4453"/>
+        <location line="-4498"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>यह रूम एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>

@@ -3199,7 +3199,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+81"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+87"/>
         <source>You</source>
         <translation>Jūs</translation>
     </message>
@@ -3210,12 +3210,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+4"/>
-        <location line="+311"/>
+        <location line="+321"/>
         <source>Microphone muted</source>
         <translation>Mikrofonas nutildytas</translation>
     </message>
     <message>
-        <location line="-309"/>
+        <location line="-319"/>
         <location line="+217"/>
         <source>Sharing their screen</source>
         <translation>Bendrina savo ekraną</translation>
@@ -3246,6 +3246,11 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <location line="+27"/>
         <source>Camera off</source>
         <translation>Kamera išjungta</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Can&apos;t play this video: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+118"/>
@@ -3592,7 +3597,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+31"/>
+        <location filename="../qml/CallShareTile.qml" line="+37"/>
         <source>Your screen</source>
         <translation>Jūsų ekranas</translation>
     </message>
@@ -3608,17 +3613,27 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+7"/>
-        <location line="+281"/>
+        <location line="+292"/>
         <source>Screen share</source>
         <translation>Ekrano bendrinimas</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-182"/>
         <source>Waiting for the picture…</source>
         <translation>Laukiam nuotraukos…</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+2"/>
+        <source>%1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Can&apos;t play this stream: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+202"/>
         <source>Screen share volume</source>
         <translation>Ekrano bendrinimo garsumas</translation>
     </message>
@@ -26636,7 +26651,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+631"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
         <location line="+110"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -26950,7 +26965,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Skambučio garsas sustojo: šio kompiuterio garso išvestis atsijungė. Jis tęsis, kai išvestis vėl bus prieinama; jei ne, išeikite iš skambučio ir prisijunkite iš naujo.</translation>
     </message>
     <message>
-        <location line="+2044"/>
+        <location line="+2077"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Bendrinant ekraną garsas išjungtas: šiame pakete nėra reikiamų garso fiksavimo papildinių.</translation>
     </message>
@@ -27025,7 +27040,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Skambutis atmestas.</translation>
     </message>
     <message>
-        <location line="+487"/>
+        <location line="+499"/>
         <source>You</source>
         <translation type="unfinished">Jūs</translation>
     </message>
@@ -27035,7 +27050,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished">Dalyvis</translation>
     </message>
     <message>
-        <location line="-4453"/>
+        <location line="-4498"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>

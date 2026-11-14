@@ -3167,7 +3167,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+81"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+87"/>
         <source>You</source>
         <translation>你</translation>
     </message>
@@ -3178,12 +3178,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+311"/>
+        <location line="+321"/>
         <source>Microphone muted</source>
         <translation>麦克风静音</translation>
     </message>
     <message>
-        <location line="-309"/>
+        <location line="-319"/>
         <location line="+217"/>
         <source>Sharing their screen</source>
         <translation>共享他们的屏幕</translation>
@@ -3214,6 +3214,11 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+27"/>
         <source>Camera off</source>
         <translation>摄像头已关闭</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Can&apos;t play this video: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+118"/>
@@ -3558,7 +3563,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+31"/>
+        <location filename="../qml/CallShareTile.qml" line="+37"/>
         <source>Your screen</source>
         <translation>你的屏幕</translation>
     </message>
@@ -3574,17 +3579,27 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+7"/>
-        <location line="+281"/>
+        <location line="+292"/>
         <source>Screen share</source>
         <translation>屏幕共享</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-182"/>
         <source>Waiting for the picture…</source>
         <translation>等待图片...</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+2"/>
+        <source>%1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Can&apos;t play this stream: %1 isn&apos;t supported by this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+202"/>
         <source>Screen share volume</source>
         <translation>屏幕共享量</translation>
     </message>
@@ -26452,7 +26467,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+631"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
         <location line="+110"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -26766,7 +26781,7 @@ Note: importing keys does not verify this session.</source>
         <translation>通话声音已停止：此电脑的声音输出已断开。当有可用输出时将恢复；如果没有恢复，请离开并重新加入通话。</translation>
     </message>
     <message>
-        <location line="+2044"/>
+        <location line="+2077"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>屏幕共享声音已关闭：此软件包缺少所需的音频捕获插件。</translation>
     </message>
@@ -26841,7 +26856,7 @@ Note: importing keys does not verify this session.</source>
         <translation>通话已被拒绝。</translation>
     </message>
     <message>
-        <location line="+487"/>
+        <location line="+499"/>
         <source>You</source>
         <translation type="unfinished">你</translation>
     </message>
@@ -26851,7 +26866,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">参加者</translation>
     </message>
     <message>
-        <location line="-4453"/>
+        <location line="-4498"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
