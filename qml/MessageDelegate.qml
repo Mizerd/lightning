@@ -1582,7 +1582,8 @@ Item {
                               parent.width - width - root.bubbleReceiptInset)
                    : root.avatarGutterWidth
                 width: root.bubbleMode
-                       ? Math.min(bubbleContent.implicitWidth + root.bubblePad * 2,
+                       ? Math.min(bubbleContent.implicitWidth + root.bubblePad * 2
+                                  + (mentionBarVisible ? 8 : 0),
                                   Math.max(60, parent.width
                                                - root.avatarGutterWidth - 40
                                                - root.bubbleReceiptInset))

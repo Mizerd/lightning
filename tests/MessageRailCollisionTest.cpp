@@ -287,6 +287,13 @@ private Q_SLOTS:
         QVERIFY2(body->mapToItem(bubbleLayout, QPointF(0, 0)).x()
                      >= bar->x() + bar->width() + 2,
                  "the mention bar touches the message text");
+        QQuickItem *content = nullptr;
+        for (QQuickItem *child : bubbleLayout->childItems())
+            if (child != bar && child->implicitWidth() > 3)
+                content = child;
+        QVERIFY(content);
+        QVERIFY2(bubbleLayout->width() >= content->implicitWidth() + 28 - 0.5,
+                 "the mention bar's inset ate the bubble's trailing padding");
     }
 
     void bubbleScopeDecidesWhichRoomsGetBubbles_data()
