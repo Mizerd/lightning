@@ -1067,6 +1067,7 @@ void PresenceManagerTest::ownPresenceComesFromWhatThisClientPublishes()
 {
     FakePresenceClient client;
     SettingsManager settings;
+    settings.setPresenceDisplay(1);
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
