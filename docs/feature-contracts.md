@@ -1803,6 +1803,32 @@ LIVE-VALIDATED against `matrix.smetonis.net`: picking a swatch wrote
 colour set on a SECOND account's profile rendered on that account's name in
 the first account's client, which is the cross-user claim.
 
+### Time zone, pronouns and other small profile fields
+
+Read with one `GET /profile/{userId}` per user (cached 12 hours, per MSC4175's
+advice) by `rust/src/profilefields.rs` and `ProfileFieldsManager`
+(`app.profileFields`).
+
+- **Time zone (MSC4175).** Read `m.tz`, then `us.cloke.msc4175.tz`; write both;
+  "Not set" deletes both. The profile card shows `Local time 14:32 (UTC+2)`,
+  refreshed while open, in the user's clock format. A name must have the shape
+  of an IANA zone (Rust) and be in Qt's zone list (C++) before it is used or
+  sent; anything else is treated as not set.
+- **Pronouns (MSC4247).** Read `m.pronouns`, then `io.fsky.nyx.pronouns`; write
+  the unstable key in Sable's shape (`[{summary, language}]`, summary at most
+  16 characters, at most four sets). The editor takes `she/her, de:sie/ihr`.
+- **Display only:** MSC4522 name colours (`eu.she-a.color`, and Sable's two
+  legacy keys) colour the name on the card when the user picked no Lightning
+  name colour, through the same legibility correction; the card colour
+  (`chat.commet.profile_color_scheme.color`) tints the banner strip, which
+  carries no text, so its `brightness` is not needed; animal identity
+  (`pet.plz.me`/`my`/`gib`) is one plain line. "Show profile colours from other
+  users" (Appearance, default on) turns both colours off.
+- Editing is offered when the `m.profile_fields` capability does not refuse
+  the key; a server without the capability is tried and a refusal closes the
+  editor. Everything is plain text, bounded, with control and bidi characters
+  removed. The editor says the fields are public.
+
 ### Mention pills and unknown users (2026-09-05)
 
 - A `matrix.to` user link renders as a pill whose label is, in order: the
