@@ -425,6 +425,17 @@ public:
     {
         Q_UNUSED(text); Q_UNUSED(opId);
     }
+    virtual bool supportsProfileFields() const { return false; }
+    virtual void fetchProfileFields(const QString &userId, quint64 opId)
+    {
+        Q_UNUSED(userId); Q_UNUSED(opId);
+    }
+    // name is "timezone" or "pronouns"; an empty value clears the field.
+    virtual void setProfileField(const QString &name, const QString &value,
+                                 quint64 opId)
+    {
+        Q_UNUSED(name); Q_UNUSED(value); Q_UNUSED(opId);
+    }
     virtual bool supportsRoomBanners() const { return false; }
     virtual void fetchRoomBanner(const QString &roomId, quint64 opId)
     {
@@ -1500,6 +1511,10 @@ Q_SIGNALS:
     void userProfileChanged(const QString &userId);
     void nameColorSet(quint64 opId, bool ok, const QString &color,
                       const QString &category);
+    void profileFieldsReceived(quint64 opId, const QString &userId, bool ok,
+                               const QVariantMap &fields);
+    void profileFieldSet(quint64 opId, bool ok, const QString &name,
+                         const QString &category);
     void profileBioReceived(quint64 opId, const QString &userId,
                             const QString &bio, bool supported);
     void profileBioSet(quint64 opId, bool ok, const QString &bio,

@@ -130,6 +130,7 @@ constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kConversationReturn  = "ui/conversationReturnMode";
 constexpr auto kShowSelectionReturn = "ui/showSelectionOnReturn";
 constexpr auto kDisableCursorBlink  = "ui/disableCursorBlink";
+constexpr auto kShowProfileColors   = "ui/showProfileColors";
 constexpr auto kShowBridgeBadges    = "ui/showBridgeBadges";
 constexpr auto kCompactRoomList     = "ui/compactRoomList";
 constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
@@ -4606,6 +4607,19 @@ void SettingsManager::setCompactRoomList(bool compact)
         return;
     m_store->setValue(kCompactRoomList, compact);
     Q_EMIT compactRoomListChanged();
+}
+
+bool SettingsManager::showProfileColors() const
+{
+    return m_store->value(kShowProfileColors, true).toBool();
+}
+
+void SettingsManager::setShowProfileColors(bool show)
+{
+    if (showProfileColors() == show)
+        return;
+    m_store->setValue(kShowProfileColors, show);
+    Q_EMIT showProfileColorsChanged();
 }
 
 bool SettingsManager::disableCursorBlink() const

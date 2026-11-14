@@ -256,6 +256,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_settingsSync->setCustomThemes(m_customTheme.get());
     m_nameColors = std::make_unique<NameColorManager>(this);
     m_bio = std::make_unique<ProfileBioManager>(this);
+    m_profileFields = std::make_unique<ProfileFieldsManager>(this);
     m_userProfiles = std::make_unique<UserProfileResolver>(this);
     m_badges = std::make_unique<ProfileBadges>(this);
     // The cropper previews through the in-memory staged-image store, so QML
@@ -2218,6 +2219,7 @@ true, ringSeconds, acceptOffered,
     });
     m_nameColors->setClient(m_client.get());
     m_bio->setClient(m_client.get());
+    m_profileFields->setClient(m_client.get());
     m_userProfiles->setClient(m_client.get());
     m_media->setClient(m_client.get());
     m_conversations->setClient(m_client.get());
@@ -3739,6 +3741,8 @@ NameColorManager *AppController::nameColors() const
 { return m_nameColors.get(); }
 ProfileBioManager *AppController::bio() const
 { return m_bio.get(); }
+ProfileFieldsManager *AppController::profileFields() const
+{ return m_profileFields.get(); }
 ProfileBadges *AppController::badges() const
 { return m_badges.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }

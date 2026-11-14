@@ -311,6 +311,8 @@ class SettingsManager : public QObject
                    WRITE setCompactRoomList NOTIFY compactRoomListChanged)
     Q_PROPERTY(bool disableCursorBlink READ disableCursorBlink
                    WRITE setDisableCursorBlink NOTIFY disableCursorBlinkChanged)
+    Q_PROPERTY(bool showProfileColors READ showProfileColors
+                   WRITE setShowProfileColors NOTIFY showProfileColorsChanged)
     Q_PROPERTY(QStringList hiddenComposerButtons READ hiddenComposerButtons
                    WRITE setHiddenComposerButtons
                    NOTIFY hiddenComposerButtonsChanged)
@@ -800,6 +802,10 @@ public:
     void setCompactRoomList(bool compact);
     bool disableCursorBlink() const;
     void setDisableCursorBlink(bool disabled);
+    // Colours other users put on their profile (card and name), as opposed
+    // to the theme's own.
+    bool showProfileColors() const;
+    void setShowProfileColors(bool show);
     QStringList hiddenComposerButtons() const;
     void setHiddenComposerButtons(const QStringList &keys);
     Q_INVOKABLE void setComposerButtonShown(const QString &key, bool shown);
@@ -1118,6 +1124,7 @@ Q_SIGNALS:
     void showBridgeBadgesChanged();
     void compactRoomListChanged();
     void disableCursorBlinkChanged();
+    void showProfileColorsChanged();
     void hiddenComposerButtonsChanged();
     void microphoneGainChanged();
     void callParticipantVolumeChanged(const QString &userId, int percent);

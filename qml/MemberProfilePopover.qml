@@ -313,6 +313,56 @@ Popup {
         return app.bio.bioFor(root.userId)
     }
 
+    readonly property var extraFields: {
+        if (!root.opened || root.userId === "" || !app.profileFields)
+            return ({})
+        var rev = app.profileFields.revision
+        return app.profileFields.fieldsFor(root.userId)
+    }
+    readonly property bool profileColors:
+        !app.settings || app.settings.showProfileColors
+    property int clockTick: 0
+    readonly property string localTime: {
+        var tick = root.clockTick
+        if (!root.extraFields.timezone)
+            return ""
+        return app.profileFields.localTimeFor(root.userId,
+                                              app.settings.clockTimeFormat)
+    }
+    // Sable's per-theme name colour, used only when the user picked none in
+    // Lightning and only as far as it stays readable on the card.
+    readonly property color nameInk: {
+        var own = app.nameColors && app.nameColors.available
+            ? app.nameColors.colorFor(root.userId) : ""
+        var theirs = !root.profileColors ? ""
+            : (AppTheme.stormPanel.hslLightness < 0.5
+               ? root.extraFields.name_color_dark
+               : root.extraFields.name_color_light) || ""
+        if (own.length > 0 || theirs.length === 0)
+            return AppTheme.userColor(root.userId)
+        return IdentityPalette.legibleChoice(theirs, [AppTheme.stormPanel],
+                                             AppTheme.nameColorMinContrast)
+    }
+    // A "%" in remote text would be read as a placeholder by the next arg().
+    function _noPercent(t) { return (t || "").replace(/%/g, "") }
+    readonly property string animalText: {
+        var isA = _noPercent(root.extraFields.animal_is)
+        var has = _noPercent(root.extraFields.animal_has)
+        var need = _noPercent(root.extraFields.animal_need)
+        var who = isA && has ? qsTr("%1 with %2").arg(isA).arg(has)
+            : isA ? qsTr("Is %1").arg(isA)
+            : has ? qsTr("Has %1").arg(has) : ""
+        return who.length > 0 && need
+            ? qsTr("%1, give %2!").arg(who).arg(need) : who
+    }
+
+    Timer {
+        interval: 5000
+        repeat: true
+        running: root.opened && root.localTime.length > 0
+        onTriggered: root.clockTick++
+    }
+
     readonly property string badgeLabel:
         app.badges && root.userId !== ""
             ? app.badges.labelFor(root.userId) : ""
@@ -428,6 +478,8 @@ Popup {
             app.banners.request(userId)
         if (app.bio)
             app.bio.request(userId)
+        if (app.profileFields)
+            app.profileFields.request(userId)
         if (app.policy && app.policy.available && !isOwn)
             app.policy.check("user", userId)
     }
@@ -452,7 +504,9 @@ Popup {
                 y: frame
                 width: parent.width - 2 * frame
                 height: Math.round(width / 3)
-                property color c1: AppTheme.stormSelection
+                property color c1: root.profileColors
+                                   && root.extraFields.card_color
+                                   || AppTheme.stormSelection
                 property color c2: AppTheme.stormPanel
                 property int cornerRadius: Math.max(0, AppTheme.radiusLg - frame)
                 // The corner mask is a MultiEffect over a layer, and the
@@ -715,7 +769,7 @@ Popup {
                             objectName: "profileDisplayName"
                             Layout.fillWidth: true
                             text: root.visibleName
-                            color: AppTheme.userColor(root.userId)
+                            color: root.nameInk
                             font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
@@ -724,6 +778,19 @@ Popup {
                             ToolTip.text: root.visibleName
                             ToolTip.visible: nameHover.hovered && truncated
                             ToolTip.delay: 500
+                        }
+
+                        Label {
+                            objectName: "profilePronouns"
+                            visible: text.length > 0
+                            Layout.maximumWidth: AppTheme.scaled(150)
+                            text: root.extraFields.pronouns || ""
+                            textFormat: Text.PlainText
+                            elide: Label.ElideRight
+                            color: AppTheme.stormTextMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            Accessible.name: qsTr("Pronouns: %1").arg(text)
                         }
 
                         Loader {
@@ -791,6 +858,32 @@ Popup {
                         ToolTip.text: qsTr("Double-click to copy")
                         ToolTip.visible: userIdHover.hovered
                         ToolTip.delay: 800
+                    }
+                    Label {
+                        objectName: "profileLocalTime"
+                        Layout.fillWidth: true
+                        visible: root.localTime.length > 0
+                        text: qsTr("Local time %1").arg(root.localTime)
+                        textFormat: Text.PlainText
+                        elide: Label.ElideRight
+                        color: AppTheme.stormTextSecondary
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        HoverHandler { id: localTimeHover }
+                        ToolTip.text: root.extraFields.timezone || ""
+                        ToolTip.visible: localTimeHover.hovered
+                        ToolTip.delay: 500
+                    }
+                    Label {
+                        objectName: "profileAnimalIdentity"
+                        Layout.fillWidth: true
+                        visible: root.animalText.length > 0
+                        text: root.animalText
+                        textFormat: Text.PlainText
+                        elide: Label.ElideRight
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
                     }
                 }
 

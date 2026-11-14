@@ -62,6 +62,7 @@
 #include "settings/SettingsSyncController.h"
 #include "profile/ProfileBadges.h"
 #include "profile/ProfileBioManager.h"
+#include "profile/ProfileFieldsManager.h"
 #include "profile/UserProfileResolver.h"
 #include "app/AccountAvatarStore.h"
 #include "media/MediaBridge.h"
@@ -281,6 +282,7 @@ class AppController : public QObject
     Q_PROPERTY(SettingsSyncController* settingsSync READ settingsSync CONSTANT)
     Q_PROPERTY(NameColorManager* nameColors READ nameColors CONSTANT)
     Q_PROPERTY(ProfileBioManager* bio READ bio CONSTANT)
+    Q_PROPERTY(ProfileFieldsManager* profileFields READ profileFields CONSTANT)
     Q_PROPERTY(UserProfileResolver* userProfiles READ userProfiles CONSTANT)
     Q_PROPERTY(ProfileBadges* badges READ badges CONSTANT)
     Q_PROPERTY(ImageCropper* imageCrop READ imageCrop CONSTANT)
@@ -530,6 +532,7 @@ public:
     SettingsSyncController *settingsSync() const { return m_settingsSync.get(); }
     NameColorManager *nameColors() const;
     ProfileBioManager *bio() const;
+    ProfileFieldsManager *profileFields() const;
     UserProfileResolver *userProfiles() const { return m_userProfiles.get(); }
     ProfileBadges *badges() const;
     ImageCropper *imageCrop() { return &m_imageCrop; }
@@ -1209,6 +1212,7 @@ private:
     std::unique_ptr<SettingsSyncController> m_settingsSync;
     std::unique_ptr<NameColorManager> m_nameColors;
     std::unique_ptr<ProfileBioManager> m_bio;
+    std::unique_ptr<ProfileFieldsManager> m_profileFields;
     std::unique_ptr<UserProfileResolver> m_userProfiles;
     std::unique_ptr<ProfileBadges> m_badges;
     bool m_shuttingDown = false;

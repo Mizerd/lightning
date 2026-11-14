@@ -283,6 +283,10 @@ public:
     bool supportsProfileBios() const override { return true; }
     void fetchProfileBio(const QString &userId, quint64 opId) override;
     void setProfileBio(const QString &text, quint64 opId) override;
+    bool supportsProfileFields() const override { return true; }
+    void fetchProfileFields(const QString &userId, quint64 opId) override;
+    void setProfileField(const QString &name, const QString &value,
+                         quint64 opId) override;
     bool supportsStickerPacks() const override { return true; }
     void fetchStickerPacks(const QString &roomId, quint64 opId,
                            bool deep) override;

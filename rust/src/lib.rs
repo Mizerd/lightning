@@ -73,6 +73,7 @@ mod bgsync;
 mod settingsync;
 mod banner;
 mod bio;
+mod profilefields;
 mod bridges;
 mod previewbackfill;
 mod calls;
@@ -6551,6 +6552,34 @@ pub unsafe extern "C" fn mx_rust_set_profile_bio(
         let bridge = unsafe { bridge(ptr)? };
         let text = unsafe { cstr_arg(text) }?;
         bio::set_own_profile_bio(bridge, op_id, text).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_fetch_profile_fields(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        profilefields::fetch_profile_fields(bridge, op_id, user_id).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_profile_field(
+    ptr: *mut c_void,
+    name: *const c_char,
+    value: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let name = unsafe { cstr_arg(name) }?;
+        let value = unsafe { cstr_arg(value) }?;
+        profilefields::set_own_profile_field(bridge, op_id, name, value).map(|_| String::new())
     })
 }
 

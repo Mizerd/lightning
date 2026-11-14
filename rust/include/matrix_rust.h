@@ -939,6 +939,32 @@ char *mx_rust_set_profile_bio(void *client,
                               const char *text,
                               unsigned long long op_id);
 /*
+ * Small extended profile fields, read with ONE whole-profile request: time
+ * zone (MSC4175, "m.tz" then "us.cloke.msc4175.tz"), pronouns (MSC4247,
+ * "m.pronouns" then "io.fsky.nyx.pronouns"), and the name colours, card colour
+ * and animal identity Sable writes. Answers as
+ *   {"type":"profile_fields","op_id",…,"user_id","ok":bool,"fields":{
+ *      "timezone","pronouns","pronouns_input","name_color_dark",
+ *      "name_color_light","card_color","animal_is","animal_has","animal_need"}}
+ * plus "can_edit_timezone"/"can_edit_pronouns" (the m.profile_fields
+ * capability) when user_id is this account. Every value is bounded plain
+ * text or "#rrggbb"; the zone is only SHAPE-checked, the caller decides
+ * whether it names a real zone.
+ */
+char *mx_rust_fetch_profile_fields(void *client,
+                                   const char *user_id,
+                                   unsigned long long op_id);
+/*
+ * Set one of this account's fields: name is "timezone" (an IANA name, written
+ * under both keys) or "pronouns" ("she/her, de:sie/ihr", written under
+ * "io.fsky.nyx.pronouns"). An EMPTY value deletes. Answers as
+ *   {"type":"profile_field_set","op_id",…,"ok","name","category"}.
+ */
+char *mx_rust_set_profile_field(void *client,
+                                const char *name,
+                                const char *value,
+                                unsigned long long op_id);
+/*
  * Read a room's (or Space's) banner and whether this account may change it.
  * Answers as
  *   {"type":"room_banner","op_id",…,"room_id","mxc","can_set":bool}

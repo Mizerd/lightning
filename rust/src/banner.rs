@@ -24,15 +24,20 @@ pub(crate) mod profile_field {
         pub body: String,
     }
 
-    fn endpoint(client: &Client, user_id: &str, field: &str) -> Result<String, String> {
+    fn client_url(client: &Client, tail: &[&str]) -> Result<String, String> {
         let mut url = client.homeserver();
         // Url::path_segments_mut percent-encodes, so a slash in a field name or
         // user id cannot escape the path.
         url.path_segments_mut()
             .map_err(|_| "homeserver url cannot carry a path".to_owned())?
             .pop_if_empty()
-            .extend(["_matrix", "client", "v3", "profile", user_id, field]);
+            .extend(["_matrix", "client", "v3"])
+            .extend(tail);
         Ok(url.to_string())
+    }
+
+    fn endpoint(client: &Client, user_id: &str, field: &str) -> Result<String, String> {
+        client_url(client, &["profile", user_id, field])
     }
 
     fn authorization(client: &Client) -> Result<String, String> {
@@ -63,6 +68,23 @@ pub(crate) mod profile_field {
         timeout: std::time::Duration,
     ) -> Result<Answer, String> {
         let url = endpoint(client, user_id, field)?;
+        run(client, client.http_client().get(url).timeout(timeout)).await
+    }
+
+    pub(crate) async fn get_all(
+        client: &Client,
+        user_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Answer, String> {
+        let url = client_url(client, &["profile", user_id])?;
+        run(client, client.http_client().get(url).timeout(timeout)).await
+    }
+
+    pub(crate) async fn capabilities(
+        client: &Client,
+        timeout: std::time::Duration,
+    ) -> Result<Answer, String> {
+        let url = client_url(client, &["capabilities"])?;
         run(client, client.http_client().get(url).timeout(timeout)).await
     }
 

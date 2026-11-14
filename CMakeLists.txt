@@ -904,6 +904,8 @@ set(APP_SOURCES
     src/profile/NameColorManager.cpp
     src/profile/ProfileBioManager.h
     src/profile/ProfileBioManager.cpp
+    src/profile/ProfileFieldsManager.h
+    src/profile/ProfileFieldsManager.cpp
     src/profile/UserProfileResolver.h
     src/profile/UserProfileResolver.cpp
     src/profile/ProfileBadges.h
@@ -6382,6 +6384,28 @@ if(BUILD_TESTING)
     target_link_libraries(profile-bio-badge-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME profile-bio-badge COMMAND profile-bio-badge-test)
+
+    # Time zone (MSC4175), pronouns and the other small profile fields: the
+    # DST-aware local time, zone validation, and what an edit writes.
+    qt_add_executable(profile-fields-test
+        tests/ProfileFieldsTest.cpp
+        src/profile/ProfileFieldsManager.h
+        src/profile/ProfileFieldsManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(profile-fields-test PRIVATE src)
+    target_link_libraries(profile-fields-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME profile-fields COMMAND profile-fields-test)
 
     # E2EE diagnostics redaction: never full ids, stable for correlation.
     qt_add_executable(e2ee-diagnostics-test

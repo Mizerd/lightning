@@ -276,6 +276,11 @@ Item {
           section: "appearance",
           breadcrumb: qsTr("Appearance · Accessibility"),
           anchor: "nameColorCorrectionControl" },
+        { title: qsTr("Show profile colours from other users"),
+          keywords: QT_TR_NOOP("profile card colour color background name sable theme"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Accessibility"),
+          anchor: "showProfileColorsCheck" },
         { title: qsTr("Disable cursor blinking"),
           keywords: QT_TR_NOOP("text cursor caret blink steady accessibility"),
           section: "appearance",
@@ -4026,6 +4031,20 @@ Item {
                                                + "they read against the background: Strong "
                                                + "aims for 4.5:1, Weak for 3:1, Off keeps the "
                                                + "colour exactly as chosen.")
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showProfileColorsCheck"
+                                    text: qsTr("Show profile colours from other users")
+                                    checked: app.settings.showProfileColors
+                                    onToggled: app.settings.showProfileColors = checked
+                                    Accessible.description: qsTr(
+                                        "Use the card and name colours people set on their profile")
+                                }
+                                SettingsHint {
+                                    text: qsTr("Some clients let people colour their profile "
+                                               + "card and name. When off, profiles use your "
+                                               + "theme only.")
                                 }
                             }
                         }
@@ -8482,6 +8501,138 @@ Item {
                                         lineHeightMode: Text.ProportionalHeight
                                         visible: !!(app.bio && app.bio.lastError.length > 0)
                                         text: app.bio ? app.bio.lastError : ""
+                                        color: AppTheme.stormDanger
+                                        font.pixelSize: AppTheme.settingsHintSize
+                                    }
+                                }
+                                ColumnLayout {
+                                    id: ownProfileFieldsSection
+                                    objectName: "ownProfileFieldsSection"
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    visible: !!(app.profileFields && app.profileFields.available)
+                                    onVisibleChanged: if (visible) app.profileFields.requestOwn()
+                                    Component.onCompleted: if (visible) app.profileFields.requestOwn()
+
+                                    Label {
+                                        text: qsTr("Time zone")
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.settingsOptionSize
+                                        font.weight: AppTheme.weightStrong
+                                    }
+                                    Label {
+                                        objectName: "ownProfileFieldsPublicNote"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
+                                        text: qsTr("Your profile shows your local time. Your time zone and pronouns are public: anyone can read them.")
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.settingsHintSize
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        AppComboBox {
+                                            id: ownTimezoneCombo
+                                            objectName: "ownTimezoneCombo"
+                                            storm: true
+                                            filterable: true
+                                            filterPlaceholder: qsTr("Search time zones")
+                                            Layout.fillWidth: true
+                                            readonly property string notSet: qsTr("Not set")
+                                            model: [notSet].concat(app.profileFields
+                                                ? app.profileFields.timezones : [])
+                                            restoreAfterModelReset: false
+                                            enabled: !!(app.profileFields
+                                                     && app.profileFields.canEditTimezone
+                                                     && !app.profileFields.busy)
+                                            Accessible.name: qsTr("Time zone")
+                                            function sync() {
+                                                var own = app.profileFields
+                                                    ? app.profileFields.ownTimezone : ""
+                                                syncToValue(own.length > 0 ? own : notSet)
+                                            }
+                                            // Never bind currentIndex (see AppComboBox).
+                                            Component.onCompleted: sync()
+                                            onModelChanged: sync()
+                                            Connections {
+                                                target: app.profileFields || null
+                                                function onRevisionChanged() { ownTimezoneCombo.sync() }
+                                                function onLastErrorChanged() { ownTimezoneCombo.sync() }
+                                            }
+                                            onActivated: app.profileFields.setOwnTimezone(
+                                                currentIndex === 0 ? "" : currentText)
+                                        }
+                                        AppButton {
+                                            objectName: "useSystemTimezoneButton"
+                                            storm: true
+                                            readonly property string zone:
+                                                app.profileFields ? app.profileFields.systemTimezone : ""
+                                            visible: zone.length > 0
+                                                     && zone !== app.profileFields.ownTimezone
+                                            enabled: ownTimezoneCombo.enabled
+                                            text: qsTr("Use %1").arg(zone)
+                                            onClicked: app.profileFields.setOwnTimezone(zone)
+                                        }
+                                    }
+                                    Label {
+                                        Layout.topMargin: AppTheme.spacing8
+                                        text: qsTr("Pronouns")
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.settingsOptionSize
+                                        font.weight: AppTheme.weightStrong
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        AppTextField {
+                                            id: ownPronounsField
+                                            objectName: "ownPronounsField"
+                                            storm: true
+                                            Layout.fillWidth: true
+                                            maximumLength: 80
+                                            text: app.profileFields ? app.profileFields.ownPronouns : ""
+                                            enabled: !!(app.profileFields
+                                                     && app.profileFields.canEditPronouns
+                                                     && !app.profileFields.busy)
+                                            placeholderText: qsTr("she/her, they/them")
+                                            Accessible.name: qsTr("Pronouns")
+                                            onAccepted: app.profileFields.setOwnPronouns(text)
+                                        }
+                                        AppButton {
+                                            objectName: "saveOwnPronounsButton"
+                                            storm: true
+                                            kind: "primary"
+                                            text: qsTr("Save")
+                                            enabled: ownPronounsField.enabled
+                                                     && ownPronounsField.text.trim()
+                                                        !== app.profileFields.ownPronouns
+                                            onClicked: app.profileFields.setOwnPronouns(
+                                                ownPronounsField.text)
+                                        }
+                                    }
+                                    Label {
+                                        objectName: "ownProfileFieldsUnsupportedNote"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        visible: !!(app.profileFields
+                                                 && !app.profileFields.canEditTimezone
+                                                 && !app.profileFields.canEditPronouns)
+                                        text: qsTr("Your homeserver does not allow these profile fields.")
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.settingsHintSize
+                                    }
+                                    Label {
+                                        objectName: "ownProfileFieldsError"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        visible: !!(app.profileFields
+                                                 && app.profileFields.lastError.length > 0)
+                                        text: app.profileFields
+                                            ? qsTr("Could not update your profile (%1).")
+                                                .arg(app.profileFields.lastError)
+                                            : ""
                                         color: AppTheme.stormDanger
                                         font.pixelSize: AppTheme.settingsHintSize
                                     }

@@ -26,6 +26,8 @@
 #include "presence/PresenceManager.h"
 #include "matrix/MockMatrixClient.h"
 #include "profile/ProfileBioManager.h"
+#include "profile/ProfileFieldsManager.h"
+#include "ZoneDataForTests.h"
 
 namespace {
 
@@ -36,6 +38,19 @@ class FakeBioClient : public MockMatrixClient
 public:
     bool supportsProfileBios() const override { return true; }
     void fetchProfileBio(const QString &userId, quint64 opId) override
+    {
+        lastUser = userId;
+        lastOp = opId;
+    }
+    QString lastUser;
+    quint64 lastOp = 0;
+};
+
+class FakeFieldsClient : public MockMatrixClient
+{
+public:
+    bool supportsProfileFields() const override { return true; }
+    void fetchProfileFields(const QString &userId, quint64 opId) override
     {
         lastUser = userId;
         lastOp = opId;
@@ -120,6 +135,7 @@ private:
 private slots:
     void initTestCase()
     {
+        ensureZoneDataForTests();
         QVERIFY(m_configHome.isValid());
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
         QCoreApplication::setOrganizationName(
@@ -294,6 +310,80 @@ private slots:
         QTRY_COMPARE(flick->property("contentY").toReal(),
                      flick->property("contentHeight").toReal() - flick->height());
         QVERIFY(m_dialog->property("visible").toBool());
+    }
+    void theCardShowsPronounsLocalTimeAndColoursOnlyWhileTheyAreAllowed()
+    {
+        FakeFieldsClient client;
+        auto *fields = m_controller->profileFields();
+        auto *settings = m_controller->settings();
+        fields->setClient(&client);
+        const bool original = settings->showProfileColors();
+        const auto restore = qScopeGuard([=] {
+            fields->setClient(nullptr);
+            settings->setShowProfileColors(original);
+        });
+        settings->setShowProfileColors(true);
+
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "close"));
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+        const QString user = QStringLiteral("@fields:mock.local");
+        QVariantMap member;
+        member.insert(QStringLiteral("userId"), user);
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "openFor",
+                                          Q_ARG(QVariant, QVariant(member)),
+                                          Q_ARG(QVariant, QVariant())));
+        QTRY_VERIFY(m_dialog->property("opened").toBool());
+        QTRY_COMPARE(client.lastUser, user);
+
+        auto *pronouns = item("profilePronouns");
+        auto *localTime = item("profileLocalTime");
+        auto *animal = item("profileAnimalIdentity");
+        auto *name = item("profileDisplayName");
+        auto *banner = item("profileBanner");
+        QVERIFY(pronouns && localTime && animal && name && banner);
+        QVERIFY(!pronouns->isVisible());
+        QVERIFY(!localTime->isVisible());
+        QVERIFY(!animal->isVisible());
+        const QColor themeName = name->property("color").value<QColor>();
+        const QColor themeBanner = banner->property("c1").value<QColor>();
+
+        const QColor card(QStringLiteral("#ff8800"));
+        Q_EMIT client.profileFieldsReceived(
+            client.lastOp, user, true,
+            { { QStringLiteral("timezone"), QStringLiteral("Asia/Kolkata") },
+              { QStringLiteral("pronouns"), QStringLiteral("she/her, <b>x</b>") },
+              { QStringLiteral("name_color_dark"), QStringLiteral("#ff00ff") },
+              { QStringLiteral("name_color_light"), QStringLiteral("#ff00ff") },
+              { QStringLiteral("card_color"), card.name() },
+              { QStringLiteral("animal_is"), QStringLiteral("fox %1") },
+              { QStringLiteral("animal_need"), QStringLiteral("treats") } });
+
+        QTRY_VERIFY(pronouns->isVisible());
+        QCOMPARE(pronouns->property("text").toString(),
+                 QStringLiteral("she/her, <b>x</b>"));
+        QCOMPARE(pronouns->property("textFormat").toInt(), int(Qt::PlainText));
+        QVERIFY(localTime->isVisible());
+        const QString shown = localTime->property("text").toString();
+        QVERIFY2(shown.startsWith(QStringLiteral("Local time "))
+                     && shown.endsWith(QStringLiteral(" (UTC+5:30)")),
+                 qPrintable(shown));
+        QCOMPARE(animal->property("text").toString(),
+                 QStringLiteral("Is fox 1, give treats!"));
+
+        // On: their colours, the name only as far as it reads on the card.
+        QCOMPARE(banner->property("c1").value<QColor>(), card);
+        const QColor shownName = name->property("color").value<QColor>();
+        QVERIFY(shownName != themeName);
+        QVERIFY(shownName.hsvHue() >= 280 && shownName.hsvHue() <= 320);
+
+        // Off: the theme only.
+        settings->setShowProfileColors(false);
+        QTRY_COMPARE(banner->property("c1").value<QColor>(), themeBanner);
+        QCOMPARE(name->property("color").value<QColor>(), themeName);
+        QVERIFY(pronouns->isVisible() && localTime->isVisible());
+
+        settings->setShowProfileColors(true);
+        QTRY_COMPARE(banner->property("c1").value<QColor>(), card);
     }
     void anElidedStatusShowsItsFullTextOnHover()
     {

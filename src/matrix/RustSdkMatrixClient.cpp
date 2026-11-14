@@ -3914,6 +3914,30 @@ void RustSdkMatrixClient::setProfileBanner(const QString &localPath,
     }
 }
 
+void RustSdkMatrixClient::fetchProfileFields(const QString &userId, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || userId.isEmpty())
+        return;
+    const QByteArray target = userId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_fetch_profile_fields(m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty())
+        Q_EMIT profileFieldsReceived(opId, userId, false, {});
+}
+
+void RustSdkMatrixClient::setProfileField(const QString &name,
+                                          const QString &value, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    const QByteArray field = name.toUtf8();
+    const QByteArray payload = value.toUtf8();
+    const QString result = takeRustString(mx_rust_set_profile_field(
+        m_rustHandle, field.constData(), payload.constData(), opId));
+    if (!result.isEmpty())
+        Q_EMIT profileFieldSet(opId, false, name, QStringLiteral("rejected"));
+}
+
 void RustSdkMatrixClient::fetchProfileBio(const QString &userId, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle || userId.isEmpty())
@@ -11585,6 +11609,30 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 event.value(QStringLiteral("op_id")).toDouble(0)),
             event.value(QStringLiteral("ok")).toBool(false),
             event.value(QStringLiteral("mxc")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("profile_fields")) {
+        QVariantMap fields =
+            event.value(QStringLiteral("fields")).toObject().toVariantMap();
+        for (const auto key : { QLatin1String("can_edit_timezone"),
+                                QLatin1String("can_edit_pronouns") }) {
+            if (event.contains(key))
+                fields.insert(key, event.value(key).toBool(true));
+        }
+        Q_EMIT profileFieldsReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("user_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(false), fields);
+        return true;
+    }
+    if (type == QLatin1String("profile_field_set")) {
+        Q_EMIT profileFieldSet(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("name")).toString(),
             event.value(QStringLiteral("category")).toString());
         return true;
     }
