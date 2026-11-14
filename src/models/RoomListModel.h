@@ -158,7 +158,7 @@ private:
     QString effectiveAvatarUrl(const RoomInfo &room) const;
     bool passesScopeFilter(const RoomInfo &r) const;
     bool passesFilter(const RoomInfo &r) const;
-    bool openRoomEarnsUnreadKeep(bool listedCounts) const;
+    bool openRoomListsAsUnread() const;
     QList<RoomInfo> desiredRooms(const QSet<QString> &superseded);
     void setOrderHeld(bool held);
     void reconcileRooms();
