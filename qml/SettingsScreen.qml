@@ -8616,6 +8616,8 @@ Item {
                                         objectName: "ownProfileFieldsUnsupportedNote"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         visible: !!(app.profileFields
                                                  && !app.profileFields.canEditTimezone
                                                  && !app.profileFields.canEditPronouns)
@@ -8627,6 +8629,8 @@ Item {
                                         objectName: "ownProfileFieldsError"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         visible: !!(app.profileFields
                                                  && app.profileFields.lastError.length > 0)
                                         text: app.profileFields
