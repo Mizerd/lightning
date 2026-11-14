@@ -2,6 +2,7 @@
     { QStringLiteral("theme"), Kind::Int, 0, 12, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("layoutPreset"), Kind::Int, 0, 1, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("messageLayout"), Kind::Int, 0, 3, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
+    { QStringLiteral("bubbleScope"), Kind::Int, 0, 2, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("roomNavigationLayout"), Kind::Int, 0, 1, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("threadStyle"), Kind::Int, 0, 1, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("threadPlacement"), Kind::Int, 0, 1, 1, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },

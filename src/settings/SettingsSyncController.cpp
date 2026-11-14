@@ -87,6 +87,12 @@ QString enumText(const QString &name, const QVariant &v)
         case 2: return QObject::tr("Compact");
         case 3: return QObject::tr("Small avatars");
         }
+    } else if (name == QLatin1String("bubbleScope")) {
+        switch (i) {
+        case 0: return QObject::tr("Direct messages");
+        case 1: return QObject::tr("Direct messages and private rooms");
+        case 2: return QObject::tr("All rooms");
+        }
     } else if (name == QLatin1String("layoutPreset")) {
         switch (i) {
         case 0: return QObject::tr("Lightning");

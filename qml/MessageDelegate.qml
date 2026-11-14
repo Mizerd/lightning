@@ -230,7 +230,10 @@ Item {
                       : app.settings.messageLayout
     property bool isDirectRoom: root.timelineView
                                 && root.timelineView.isDirectRoom === true
-    readonly property bool bubbleMode: timelineLayout === 1 && isDirectRoom
+    readonly property bool bubbleMode:
+        timelineLayout === 1
+        && (isDirectRoom || app.settings.bubbleScope === 2
+            || (app.settings.bubbleScope === 1 && roomJoinRule !== "public"))
     readonly property bool compactMode: timelineLayout === 2
     readonly property bool smallAvatarMode: timelineLayout === 3
     readonly property int headerAvatarSize: 20
@@ -1597,12 +1600,15 @@ Item {
                                 ? (model.isOwn === true ? 4 : 16) : radius
                 opacity: model.redacted ? 0.65 : 1.0
 
+                readonly property bool mentionHighlighted:
+                    model.roomMentionHighlighted === true
+                    || (model.mentionsMe === true
+                        && (model.pushHighlighted === true
+                            || model.pushVerdictKnown !== true))
                 readonly property bool mentionBarVisible:
-                    !root.bubbleMode
-                    && (model.roomMentionHighlighted === true
-                        || (model.mentionsMe === true
-                            && (model.pushHighlighted === true
-                                || model.pushVerdictKnown !== true)))
+                    !root.bubbleMode && mentionHighlighted
+                border.color: AppTheme.bolt
+                border.width: root.bubbleMode && mentionHighlighted ? 2 : 0
                 Rectangle {
                     visible: bubble.mentionBarVisible
                     anchors.left: parent.left

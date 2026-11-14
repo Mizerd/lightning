@@ -1707,7 +1707,7 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   remaining None), 60 px header above 260 px navigation (Account,
   Appearance, Notifications, Privacy & security, Sessions, Labs; About
   pinned bottom). Appearance carries featured theme cards, a match-system
-  switch, a FUNCTIONAL message-layout selector (Modern / Bubbles for DMs /
+  switch, a FUNCTIONAL message-layout selector (Modern / Bubbles, scoped by `bubbleScope` to DMs, DMs and non-public rooms, or all rooms /
   Compact) and a text-size slider (90-140%) — theme, layout and text scale
   persist per account with a global fallback. Avatar shapes are baked into
   the cached bitmap by MediaImageProvider ("|shape:" suffix) instead of

@@ -1112,7 +1112,10 @@ private Q_SLOTS:
 
         QVERIFY(!delegate.contains(QStringLiteral("Qt.AlignRight")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property bool bubbleMode: timelineLayout === 1 && isDirectRoom")));
+            "readonly property bool bubbleMode:\n"
+            "        timelineLayout === 1\n"
+            "        && (isDirectRoom || app.settings.bubbleScope === 2\n"
+            "            || (app.settings.bubbleScope === 1 && roomJoinRule !== \"public\"))")));
         QVERIFY(delegate.contains(QStringLiteral(
             "? (model.isOwn === true ? AppTheme.ownBubble")));
         QVERIFY2(!delegate.contains(QStringLiteral("AppTheme.mentionHighlight")),
@@ -1122,12 +1125,13 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral(
             "                       : \"transparent\"")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property bool mentionBarVisible:\n"
-            "                    !root.bubbleMode\n"
-            "                    && (model.roomMentionHighlighted === true\n"
-            "                        || (model.mentionsMe === true\n"
-            "                            && (model.pushHighlighted === true\n"
-            "                                || model.pushVerdictKnown !== true)))")));
+            "readonly property bool mentionHighlighted:\n"
+            "                    model.roomMentionHighlighted === true\n"
+            "                    || (model.mentionsMe === true\n"
+            "                        && (model.pushHighlighted === true\n"
+            "                            || model.pushVerdictKnown !== true))\n"
+            "                readonly property bool mentionBarVisible:\n"
+            "                    !root.bubbleMode && mentionHighlighted\n")));
         QVERIFY(delegate.contains(QStringLiteral(
             "                    visible: bubble.mentionBarVisible\n")));
         QVERIFY(delegate.contains(QStringLiteral(

@@ -273,6 +273,170 @@ private Q_SLOTS:
         auto *bubbleLayout = findVisual(bubbles.root, QStringLiteral("messageContentColumn"));
         QVERIFY(bubbleLayout);
         QVERIFY(!bubbleLayout->property("mentionBarVisible").toBool());
+        QCOMPARE(QQmlProperty::read(bubbleLayout, QStringLiteral("border.width")).toInt(), 2);
+
+        f.insert(QStringLiteral("mentionsMe"), false);
+        Delegate plain;
+        QVERIFY(build(app, f, plain));
+        auto *plainBubble = findVisual(plain.root, QStringLiteral("messageContentColumn"));
+        QVERIFY(plainBubble);
+        QCOMPARE(QQmlProperty::read(plainBubble, QStringLiteral("border.width")).toInt(), 0);
+    }
+
+    void bubbleScopeDecidesWhichRoomsGetBubbles_data()
+    {
+        QTest::addColumn<int>("scope");
+        QTest::addColumn<bool>("direct");
+        QTest::addColumn<QString>("joinRule");
+        QTest::addColumn<bool>("bubbles");
+        const QString pub = QStringLiteral("public"), inv = QStringLiteral("invite");
+        QTest::newRow("direct-only/dm") << 0 << true << inv << true;
+        QTest::newRow("direct-only/private-room") << 0 << false << inv << false;
+        QTest::newRow("direct-only/public-room") << 0 << false << pub << false;
+        QTest::newRow("non-public/dm") << 1 << true << inv << true;
+        QTest::newRow("non-public/private-room") << 1 << false << inv << true;
+        QTest::newRow("non-public/restricted-room")
+            << 1 << false << QStringLiteral("restricted") << true;
+        QTest::newRow("non-public/public-room") << 1 << false << pub << false;
+        QTest::newRow("all/dm") << 2 << true << inv << true;
+        QTest::newRow("all/private-room") << 2 << false << inv << true;
+        QTest::newRow("all/public-room") << 2 << false << pub << true;
+    }
+    void bubbleScopeDecidesWhichRoomsGetBubbles()
+    {
+        QFETCH(int, scope);
+        QFETCH(bool, direct);
+        QFETCH(QString, joinRule);
+        QFETCH(bool, bubbles);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        QCOMPARE(app.settings()->bubbleScope(), 0);
+        app.settings()->setMessageLayout(1);
+        app.settings()->setBubbleScope(scope);
+        const auto restore = qScopeGuard([&app] { app.settings()->setBubbleScope(0); });
+        QCOMPARE(app.settings()->bubbleScope(), scope);
+
+        Delegate d;
+        QVERIFY(build(app, baseFixture(), d));
+        QQmlComponent comp(d.engine.get());
+        comp.setData("import QtQuick\nQtObject { property bool isDirectRoom: false;"
+                     " property string roomJoinRule: \"\";"
+                     " property string pinnedActionsKey: \"\";"
+                     " property string hoveredActionsKey: \"\" }",
+                     QUrl());
+        std::unique_ptr<QObject> view(comp.create());
+        QVERIFY2(view, qPrintable(comp.errorString()));
+        view->setProperty("isDirectRoom", direct);
+        view->setProperty("roomJoinRule", joinRule);
+        QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                            QVariant::fromValue(view.get()));
+        QCoreApplication::processEvents();
+        QCOMPARE(QQmlProperty::read(d.root, QStringLiteral("roomJoinRule")).toString(),
+                 joinRule);
+        QCOMPARE(QQmlProperty::read(d.root, QStringLiteral("isDirectRoom")).toBool(),
+                 direct);
+
+        QCOMPARE(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool(),
+                 bubbles);
+        auto *bubble = findVisual(d.root, QStringLiteral("messageContentColumn"));
+        QVERIFY(bubble);
+        QCOMPARE(bubble->property("color").value<QColor>().alpha() > 0, bubbles);
+        QQmlProperty::write(d.root, QStringLiteral("timelineView"), QVariant());
+    }
+
+    void aBubbleScopeFromANewerBuildFallsBackToDirectMessages()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setBubbleScope(7);
+        QCOMPARE(app.settings()->bubbleScope(), 0);
+        app.settings()->setBubbleScope(1);
+        QCOMPARE(app.settings()->bubbleScope(), 1);
+        app.settings()->setBubbleScope(0);
+        QCOMPARE(app.settings()->bubbleScope(), 0);
+    }
+
+    void bubblesApplyInAGroupRoom_data()
+    {
+        QTest::addColumn<bool>("own");
+        QTest::newRow("other") << false;
+        QTest::newRow("own") << true;
+    }
+    void bubblesApplyInAGroupRoom()
+    {
+        QFETCH(bool, own);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);
+        app.settings()->setBubbleScope(SettingsManager::kBubbleScopeAll);
+        const auto restore = qScopeGuard([&app] { app.settings()->setBubbleScope(0); });
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), own);
+        f.insert(QStringLiteral("readReceipts"), receipts(3));
+        f.insert(QStringLiteral("readReceiptsTotal"), 3);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        QVERIFY(!QQmlProperty::read(d.root, QStringLiteral("isDirectRoom")).toBool());
+        QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool(),
+                 "a group room did not get the Bubbles layout");
+
+        auto rectOf = [&d](QQuickItem *item) {
+            return QRectF(item->mapToItem(d.root, QPointF(0, 0)),
+                          QSizeF(item->width(), item->height()));
+        };
+        auto *bubble = findVisual(d.root, QStringLiteral("messageContentColumn"));
+        QVERIFY(bubble);
+        QVERIFY(bubble->property("color").value<QColor>().alpha() > 0);
+        const QRectF bubbleRect = rectOf(bubble);
+        QVERIFY(bubbleRect.right() <= d.root->width() + 0.5);
+
+        auto *header = findVisual(d.root, QStringLiteral("senderIdentityHeader"));
+        auto *avatar = findVisual(d.root, QStringLiteral("senderAvatar"));
+        auto *pile = findVisual(d.root, QStringLiteral("readReceiptRow"));
+        QVERIFY2(pile && pile->isVisible() && pile->width() > 0,
+                 "the read receipts did not appear");
+        const QRectF pileRect = rectOf(pile);
+        QVERIFY2(!pileRect.intersects(bubbleRect),
+                 "the read receipts overlap the bubble");
+
+        if (own) {
+            QVERIFY2(!header, "an own bubble shows a sender header");
+            QVERIFY2(!avatar, "an own bubble shows an avatar");
+            QVERIFY2(bubbleRect.left() > d.root->width() / 2,
+                     "an own bubble is not right-aligned");
+        } else {
+            QVERIFY2(header && header->isVisible() && header->width() > 40,
+                     "another member's bubble has no sender header");
+            auto *name = findVisual(header, QStringLiteral("senderName"));
+            QVERIFY2(name && name->isVisible() && name->width() > 0,
+                     "the sender header shows no name");
+            const QRectF headerRect = rectOf(header);
+            QVERIFY2(bubbleRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(headerRect),
+                     qPrintable(QStringLiteral("the sender header %1..%2 is not "
+                                               "inside its bubble %3..%4")
+                                    .arg(headerRect.left()).arg(headerRect.right())
+                                    .arg(bubbleRect.left()).arg(bubbleRect.right())));
+            QVERIFY2(avatar && avatar->isVisible() && avatar->width() > 0,
+                     "another member's bubble has no avatar beside it");
+            const QRectF avatarRect = rectOf(avatar);
+            QVERIFY2(avatarRect.left() >= 0
+                         && avatarRect.right() <= bubbleRect.left() + 0.5,
+                     "the avatar is not beside the bubble");
+            QVERIFY2(avatarRect.top() >= bubbleRect.top() - 0.5
+                         && avatarRect.bottom() <= d.root->height() + 0.5,
+                     "the avatar leaves its row");
+        }
+
+        QQuickItem *bar = forceActionBar(d.root);
+        QVERIFY2(bar && bar->width() > 0 && bar->height() > 0,
+                 "the action bar did not measure");
+        const QRectF barRect = rectOf(bar);
+        QVERIFY2(!barRect.intersects(pileRect),
+                 "the action bar overlaps the read receipts");
+        if (header)
+            QVERIFY2(!barRect.intersects(rectOf(header)),
+                     "the action bar covers the sender header");
     }
 
     void initTestCase()

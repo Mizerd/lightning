@@ -102,6 +102,11 @@ Item {
           section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
           control: "messageLayout",
           anchor: "messageLayoutControl" },
+        { title: qsTr("Use bubbles in"),
+          keywords: QT_TR_NOOP("bubbles bubble scope direct messages private public "
+                         + "group rooms all rooms"),
+          section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
+          anchor: "bubbleScopeCombo" },
         { title: qsTr("Thread style"),
           keywords: QT_TR_NOOP("thread threads style panel inline nheko element interleaved"),
           section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
@@ -4296,6 +4301,41 @@ Item {
                                         key: "messageLayout"
                                     }
                                     Label {
+                                        visible: bubbleScopeCombo.visible
+                                        Layout.fillWidth: true
+                                        Layout.topMargin: AppTheme.spacing8
+                                        text: qsTr("Use bubbles in")
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.settingsOptionSize
+                                    }
+                                    AppComboBox {
+                                        storm: true
+                                        id: bubbleScopeCombo
+                                        objectName: "bubbleScopeCombo"
+                                        visible: app.settings.messageLayout === 1
+                                        Layout.fillWidth: true
+                                        textRole: "label"
+                                        valueRole: "value"
+                                        model: [
+                                            { label: qsTr("Direct messages"), value: 0 },
+                                            { label: qsTr("Direct messages and private rooms"),
+                                              value: 1 },
+                                            { label: qsTr("All rooms"), value: 2 },
+                                        ]
+                                        function syncFromSetting() {
+                                            syncToValue(app.settings.bubbleScope)
+                                        }
+                                        Component.onCompleted: syncFromSetting()
+                                        Connections {
+                                            target: app.settings
+                                            function onBubbleScopeChanged() {
+                                                bubbleScopeCombo.syncFromSetting()
+                                            }
+                                        }
+                                        onActivated: app.settings.bubbleScope = currentValue
+                                        Accessible.name: qsTr("Use bubbles in")
+                                    }
+                                    Label {
                                         Layout.fillWidth: true
                                         Layout.leftMargin: AppTheme.spacing4
                                         wrapMode: Text.WordWrap
@@ -4303,7 +4343,8 @@ Item {
                                         lineHeightMode: Text.ProportionalHeight
                                         color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.settingsHintSize
-                                        text: qsTr("Bubbles applies to direct messages; rooms keep "
+                                        text: qsTr("Bubbles applies to the rooms chosen under "
+                                                   + "“Use bubbles in”; other rooms keep "
                                                    + "the Modern rows. Compact tightens every timeline. "
                                                    + "Small avatars puts a small avatar beside each "
                                                    + "sender's name, above their messages.")

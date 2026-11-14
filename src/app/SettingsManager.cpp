@@ -109,6 +109,7 @@ constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
 constexpr auto kCollapseEmbeds      = "timeline/collapseEmbeds";
 constexpr auto kTimelineAvatars     = "timeline/avatars";
+constexpr auto kBubbleScope         = "ui/bubbleScope";
 constexpr auto kTimelineReactions   = "timeline/reactions";
 constexpr auto kTimelineReadReceipts = "timeline/readReceipts";
 constexpr auto kTimelineMessageActions = "timeline/messageActions";
@@ -732,6 +733,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT conversationReturnModeChanged();
     Q_EMIT showSelectionOnReturnChanged();
     Q_EMIT collapseEmbedsChanged();
+    Q_EMIT bubbleScopeChanged();
     Q_EMIT timelineAvatarsChanged();
     Q_EMIT timelineReactionsChanged();
     Q_EMIT timelineReadReceiptsChanged();
@@ -4268,6 +4270,22 @@ int validTimelineVisibility(int mode)
         ? mode : SettingsManager::kTimelineShow;
 }
 } // namespace
+
+int SettingsManager::bubbleScope() const
+{
+    const int stored = appearanceValue(kBubbleScope, kBubbleScopeDirect).toInt();
+    return (stored == kBubbleScopeNonPublic || stored == kBubbleScopeAll)
+        ? stored : kBubbleScopeDirect;
+}
+
+void SettingsManager::setBubbleScope(int scope)
+{
+    if (scope < kBubbleScopeDirect || scope > kBubbleScopeAll
+        || bubbleScope() == scope)
+        return;
+    setAppearanceValue(kBubbleScope, scope);
+    Q_EMIT bubbleScopeChanged();
+}
 
 int SettingsManager::timelineAvatars() const
 {

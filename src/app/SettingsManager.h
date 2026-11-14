@@ -257,6 +257,8 @@ class SettingsManager : public QObject
                    NOTIFY showProfileChangeEventsChanged)
     Q_PROPERTY(bool collapseEmbeds READ collapseEmbeds WRITE setCollapseEmbeds
                    NOTIFY collapseEmbedsChanged)
+    Q_PROPERTY(int bubbleScope READ bubbleScope WRITE setBubbleScope
+                   NOTIFY bubbleScopeChanged)
     Q_PROPERTY(int timelineAvatars READ timelineAvatars
                    WRITE setTimelineAvatars NOTIFY timelineAvatarsChanged)
     Q_PROPERTY(int timelineReactions READ timelineReactions
@@ -734,6 +736,12 @@ public:
     static constexpr int kTimelineShow = 0;
     static constexpr int kTimelineOnHover = 1;
     static constexpr int kTimelineHide = 2;
+    // Rooms the Bubbles layout applies to.
+    static constexpr int kBubbleScopeDirect = 0;
+    static constexpr int kBubbleScopeNonPublic = 1;
+    static constexpr int kBubbleScopeAll = 2;
+    int bubbleScope() const;
+    void setBubbleScope(int scope);
     int timelineAvatars() const;
     void setTimelineAvatars(int mode);
     int timelineReactions() const;
@@ -1086,6 +1094,7 @@ Q_SIGNALS:
     void showMembershipEventsChanged();
     void showProfileChangeEventsChanged();
     void collapseEmbedsChanged();
+    void bubbleScopeChanged();
     void timelineAvatarsChanged();
     void timelineReactionsChanged();
     void timelineReadReceiptsChanged();
