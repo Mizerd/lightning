@@ -1662,7 +1662,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppTextField</name>
     <message>
-        <location filename="../qml/AppTextField.qml" line="+72"/>
+        <location filename="../qml/AppTextField.qml" line="+73"/>
         <source>Cut</source>
         <translation>Cortar</translation>
     </message>
@@ -8002,7 +8002,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2645"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2681"/>
         <source>Voice message</source>
         <translation>Mensaje de voz</translation>
     </message>
@@ -12639,19 +12639,19 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+30"/>
         <location line="+1"/>
-        <location line="+1072"/>
+        <location line="+1074"/>
         <source>Underline</source>
         <translation>Subrayado</translation>
     </message>
     <message>
-        <location line="-1057"/>
+        <location line="-1059"/>
         <location line="+1"/>
-        <location line="+1065"/>
+        <location line="+1067"/>
         <source>Numbered list</source>
         <translation>Lista numerada</translation>
     </message>
     <message>
-        <location line="-1054"/>
+        <location line="-1056"/>
         <source>Rich text</source>
         <translation>Texto enriquecido</translation>
     </message>
@@ -12662,18 +12662,18 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1030"/>
+        <location line="+1032"/>
         <source>Switch to Markdown composing</source>
         <translation>Cambiar a redacción en Markdown</translation>
     </message>
     <message>
-        <location line="-1029"/>
-        <location line="+1030"/>
+        <location line="-1031"/>
+        <location line="+1032"/>
         <source>Switch to rich-text composing</source>
         <translation>Cambiar a redacción de texto enriquecido</translation>
     </message>
     <message>
-        <location line="-988"/>
+        <location line="-990"/>
         <source>Attach files or create a poll</source>
         <translation>Adjuntar archivos o crear una encuesta</translation>
     </message>
@@ -12683,7 +12683,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Adjuntar</translation>
     </message>
     <message>
-        <location line="+944"/>
+        <location line="+946"/>
         <source>Collapse message box</source>
         <translation>Contraer cuadro de mensaje</translation>
     </message>
@@ -12693,7 +12693,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Ampliar cuadro de mensaje</translation>
     </message>
     <message>
-        <location line="-928"/>
+        <location line="-930"/>
         <source>Aa</source>
         <comment>text-formatting button mark</comment>
         <translation>Aa</translation>
@@ -12705,18 +12705,18 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+929"/>
+        <location line="+931"/>
         <source>Hide formatting</source>
         <translation>Ocultar el formato</translation>
     </message>
     <message>
-        <location line="-928"/>
-        <location line="+929"/>
+        <location line="-930"/>
+        <location line="+931"/>
         <source>Show formatting</source>
         <translation>Mostrar el formato</translation>
     </message>
     <message>
-        <location line="-627"/>
+        <location line="-628"/>
         <source>Select a room to start typing</source>
         <translation>Selecciona una sala para escribir</translation>
     </message>
@@ -12736,7 +12736,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Escribe a %1</translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+197"/>
         <source>Add to dictionary</source>
         <translation>Añadir al diccionario</translation>
     </message>
@@ -12794,7 +12794,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Grabar un mensaje de voz</translation>
     </message>
     <message>
-        <location line="-3157"/>
+        <location line="-3159"/>
         <source>A recording is already in progress.</source>
         <translation>Ya hay una grabación en curso.</translation>
     </message>
@@ -12814,7 +12814,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>La grabación de voz no está disponible.</translation>
     </message>
     <message>
-        <location line="+2874"/>
+        <location line="+2876"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Más</translation>
@@ -12926,7 +12926,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1130"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1148"/>
         <source>Today</source>
         <translation>Hoy</translation>
     </message>
@@ -12974,13 +12974,13 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+847"/>
-        <location line="+1104"/>
+        <location line="+851"/>
+        <location line="+1110"/>
         <source>Reply</source>
         <translation>Responder</translation>
     </message>
     <message>
-        <location line="-1936"/>
+        <location line="-1946"/>
         <source>(original message not loaded)</source>
         <translation>(el mensaje original no está cargado)</translation>
     </message>
@@ -12994,12 +12994,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         </translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+96"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>Falta la clave de la sala. Restaura tu clave de recuperación en Ajustes o espera a que otro dispositivo verificado la comparta.</translation>
     </message>
     <message>
-        <location line="+169"/>
+        <location line="+170"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation>Esta sesión no puede descifrar los mensajes cifrados</translation>
     </message>
@@ -13024,8 +13024,8 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Esperando las claves…</translation>
     </message>
     <message>
-        <location line="-994"/>
-        <location line="+1003"/>
+        <location line="-998"/>
+        <location line="+1007"/>
         <source>Retry decryption</source>
         <translation>Reintentar el descifrado</translation>
     </message>
@@ -13035,7 +13035,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Ajustes de seguridad</translation>
     </message>
     <message>
-        <location line="-1911"/>
+        <location line="-1915"/>
         <source>Link</source>
         <translation>Enlace</translation>
     </message>
@@ -13045,7 +13045,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Abrir este hilo</translation>
     </message>
     <message>
-        <location line="+640"/>
+        <location line="+644"/>
         <source>Show the link preview again</source>
         <translation>Mostrar la vista previa del enlace nuevamente</translation>
     </message>
@@ -13081,30 +13081,30 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2269"/>
+        <location line="+2284"/>
         <location line="+1027"/>
         <source>Retry</source>
         <translation>Reintentar</translation>
     </message>
     <message>
-        <location line="-3279"/>
-        <location line="+1201"/>
+        <location line="-3294"/>
+        <location line="+1207"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-1196"/>
+        <location line="-1202"/>
         <source>Cancel sending this message</source>
         <translation>Cancelar el envío de este mensaje</translation>
     </message>
     <message>
         <location line="+182"/>
-        <location line="+1339"/>
+        <location line="+1354"/>
         <source>Hide image</source>
         <translation>Ocultar imagen</translation>
     </message>
     <message>
-        <location line="-1335"/>
+        <location line="-1350"/>
         <source>Hide</source>
         <translation>Ocultar</translation>
     </message>
@@ -13215,24 +13215,24 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Leído por %1, %2 y otras %3 personas</translation>
     </message>
     <message>
-        <location line="+545"/>
+        <location line="+551"/>
         <source>Message · %1 · %2</source>
         <translation>Mensaje · %1 · %2</translation>
     </message>
     <message>
-        <location line="-977"/>
+        <location line="-983"/>
         <location line="+4"/>
-        <location line="+1089"/>
+        <location line="+1095"/>
         <source>Reply in thread</source>
         <translation>Responder en el hilo</translation>
     </message>
     <message>
-        <location line="-1948"/>
+        <location line="-1958"/>
         <source>Original message removed</source>
         <translation>Mensaje original eliminado</translation>
     </message>
     <message>
-        <location line="+1958"/>
+        <location line="+1968"/>
         <source>Open in room</source>
         <translation>Abrir en la sala</translation>
     </message>
@@ -13262,7 +13262,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Copiar texto</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
+        <source>Copy messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Copy message link</source>
         <translation>Copiar enlace al mensaje</translation>
     </message>
@@ -13424,13 +13429,13 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Reintentar</translation>
     </message>
     <message>
-        <location line="-3675"/>
-        <location line="+1322"/>
+        <location line="-3690"/>
+        <location line="+1337"/>
         <source>Edit</source>
         <translation>Editar</translation>
     </message>
     <message>
-        <location line="-3791"/>
+        <location line="-3810"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13464,22 +13469,22 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="-562"/>
         <location line="+560"/>
-        <location line="+3531"/>
+        <location line="+3550"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5014"/>
+        <location line="-5033"/>
         <location line="+53"/>
         <location line="+506"/>
-        <location line="+4080"/>
+        <location line="+4099"/>
         <source>Image</source>
         <translation>Imagen</translation>
     </message>
     <message>
-        <location line="-4637"/>
+        <location line="-4656"/>
         <source>Attachment</source>
         <translation>Adjunto</translation>
     </message>
@@ -13530,7 +13535,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Mensaje eliminado</translation>
     </message>
     <message>
-        <location line="+427"/>
+        <location line="+431"/>
         <source>%1 • not sent: connection problem</source>
         <translation>%1 • no enviado: problema de conexión</translation>
     </message>
@@ -13545,7 +13550,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>(editado)</translation>
     </message>
     <message>
-        <location line="+1543"/>
+        <location line="+1558"/>
         <source>Add :%1: to my emoji</source>
         <translation>Añadir :%1: a mis emojis</translation>
     </message>
@@ -13585,13 +13590,13 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Denunciar mensaje</translation>
     </message>
     <message>
-        <location line="-640"/>
-        <location line="+654"/>
+        <location line="-655"/>
+        <location line="+669"/>
         <source>Delete</source>
         <translation>Eliminar</translation>
     </message>
     <message>
-        <location line="-649"/>
+        <location line="-664"/>
         <source>Remove message?</source>
         <translation>¿Eliminar el mensaje?</translation>
     </message>
@@ -13606,7 +13611,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Eliminar</translation>
     </message>
     <message>
-        <location line="+687"/>
+        <location line="+702"/>
         <source>Message details</source>
         <translation>Detalles del mensaje</translation>
     </message>
@@ -13683,12 +13688,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Mensaje respondido</translation>
     </message>
     <message>
-        <location line="-1914"/>
+        <location line="-1929"/>
         <source>Show preview</source>
         <translation>Mostrar vista previa</translation>
     </message>
     <message>
-        <location line="+1755"/>
+        <location line="+1770"/>
         <source>Remove edits?</source>
         <translation>¿Quitar las ediciones?</translation>
     </message>
@@ -13708,7 +13713,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Esto cierra la votación y publica el resultado. Una encuesta no se puede volver a abrir.</translation>
     </message>
     <message>
-        <location line="-581"/>
+        <location line="-596"/>
         <source>Delete message?</source>
         <translation>¿Eliminar el mensaje?</translation>
     </message>
@@ -13718,7 +13723,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Esto elimina el mensaje para todos en la sala. No se puede deshacer.</translation>
     </message>
     <message>
-        <location line="+903"/>
+        <location line="+918"/>
         <source>Open link in browser</source>
         <translation>Abrir el enlace en el navegador</translation>
     </message>
@@ -13810,10 +13815,10 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se pudo cargar la pegatina — haz clic para reintentar</translation>
     </message>
     <message>
-        <location line="-5425"/>
+        <location line="-5444"/>
         <location line="+57"/>
         <location line="+509"/>
-        <location line="+4078"/>
+        <location line="+4097"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13826,9 +13831,9 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>vídeo</translation>
     </message>
     <message>
-        <location line="-5806"/>
+        <location line="-5825"/>
         <location line="+562"/>
-        <location line="+4181"/>
+        <location line="+4200"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -27042,7 +27047,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Cerrar Actividad, el selector rápido o Ajustes</translation>
     </message>
     <message>
-        <location line="+480"/>
+        <location line="+489"/>
         <source>Use a single key combination for dialog navigation.</source>
         <translation>Usa una sola combinación de teclas para navegar por los diálogos.</translation>
     </message>
@@ -27067,7 +27072,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Enfocar el cuadro de mensaje</translation>
     </message>
     <message>
-        <location line="-119"/>
+        <location line="-128"/>
         <source>Select the latest message</source>
         <translation>Seleccionar el último mensaje</translation>
     </message>
@@ -27102,7 +27107,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Responder al mensaje seleccionado</translation>
     </message>
     <message>
-        <location line="+128"/>
+        <location line="+137"/>
         <source>closing the find bar, room information, a thread or Settings</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27122,7 +27127,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Mientras la línea de tiempo tiene el foco, se ejecuta «%1» en su lugar.</translation>
     </message>
     <message>
-        <location line="-722"/>
+        <location line="-731"/>
         <source>Application</source>
         <translation>Solicitud</translation>
     </message>
@@ -27325,6 +27330,21 @@ Nota: importar claves no verifica esta sesión.</translation>
         <location line="+3"/>
         <source>Copy the selected message&apos;s link</source>
         <translation>Copiar el enlace del mensaje seleccionado</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Extend the selection to the older message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Extend the selection to the newer message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Copy the selected messages with sender and time</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27608,7 +27628,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Mientras el cuadro de mensaje tiene el foco, se ejecuta &quot;%1&quot;.</translation>
     </message>
     <message>
-        <location line="-728"/>
+        <location line="-737"/>
         <source>Settings navigation</source>
         <translation>Navegación por los ajustes</translation>
     </message>
@@ -27633,7 +27653,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Ir a la subsección de ajustes siguiente</translation>
     </message>
     <message>
-        <location line="+468"/>
+        <location line="+477"/>
         <source>Use a single key combination for Settings navigation.</source>
         <translation>Usa una sola combinación de teclas para navegar por los ajustes.</translation>
     </message>
@@ -27653,7 +27673,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>En Ajustes, se ejecuta «%1» en su lugar.</translation>
     </message>
     <message>
-        <location line="-632"/>
+        <location line="-641"/>
         <source>Scroll Settings up half a page</source>
         <translation>Desplazar los ajustes media página hacia arriba</translation>
     </message>
@@ -27663,7 +27683,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Desplazar los ajustes media página hacia abajo</translation>
     </message>
     <message>
-        <location line="+471"/>
+        <location line="+480"/>
         <source>%1 moves focus, navigates or edits text, so it cannot be a shortcut on its own.</source>
         <translation>%1 mueve el foco, navega o edita texto, así que no puede ser un atajo por sí sola.</translation>
     </message>
@@ -31867,7 +31887,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Marcar este hilo como leído</translation>
     </message>
     <message>
-        <location line="+1139"/>
+        <location line="+1183"/>
         <source>Jump to the newest reply</source>
         <translation>Ir a la respuesta más reciente</translation>
     </message>
@@ -31880,7 +31900,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         </translation>
     </message>
     <message>
-        <location line="-1500"/>
+        <location line="-1544"/>
         <source>This room has been replaced.</source>
         <translation>Esta sala ha sido reemplazada.</translation>
     </message>
@@ -31984,12 +32004,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <location line="-89"/>
         <location line="+91"/>
         <location line="+297"/>
-        <location line="+71"/>
+        <location line="+72"/>
         <source>Replies</source>
         <translation>Respuestas</translation>
     </message>
     <message>
-        <location line="-457"/>
+        <location line="-458"/>
         <source>Unread</source>
         <translation>Sin leer</translation>
     </message>
@@ -32053,7 +32073,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         </translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+28"/>
         <source>Loading thread…</source>
         <translation>Cargando el hilo…</translation>
     </message>
@@ -32093,7 +32113,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Todavía no hay respuestas. Empieza la conversación abajo.</translation>
     </message>
     <message>
-        <location line="+496"/>
+        <location line="+539"/>
         <source>Loading older replies…</source>
         <translation>Cargando respuestas anteriores…</translation>
     </message>
@@ -32160,22 +32180,22 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+766"/>
+        <location line="+768"/>
         <source>Attach files</source>
         <translation>Adjuntar archivos</translation>
     </message>
     <message>
-        <location line="-765"/>
+        <location line="-767"/>
         <source>Attach</source>
         <translation>Adjuntar</translation>
     </message>
     <message>
-        <location line="+227"/>
+        <location line="+228"/>
         <source>Reply…</source>
         <translation type="unfinished">Responder…</translation>
     </message>
     <message>
-        <location line="+521"/>
+        <location line="+522"/>
         <source>Collapse message box</source>
         <translation>Contraer cuadro de mensaje</translation>
     </message>
@@ -32185,8 +32205,8 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Ampliar cuadro de mensaje</translation>
     </message>
     <message>
-        <location line="-724"/>
-        <location line="+185"/>
+        <location line="-726"/>
+        <location line="+186"/>
         <source>Press Enter again to send it as a message.</source>
         <translation>Pulsa Intro de nuevo para enviarlo como mensaje.</translation>
     </message>
@@ -32197,7 +32217,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Responder en un hilo</translation>
     </message>
     <message>
-        <location line="+108"/>
+        <location line="+109"/>
         <source>Add to dictionary</source>
         <translation>Añadir al diccionario</translation>
     </message>
@@ -32427,7 +32447,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1527"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1563"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 cambió su nombre visible de «%2» a «%3» y cambió su avatar.</translation>
     </message>
@@ -32495,7 +32515,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+735"/>
+        <location filename="../qml/TimelinePane.qml" line="+741"/>
         <source>Seen by 1 person</source>
         <translation>Visto por 1 persona</translation>
     </message>
@@ -32515,12 +32535,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5204"/>
+        <location line="+5239"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5203"/>
+        <location filename="../qml/TimelinePane.qml" line="-5238"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -32613,12 +32633,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3728"/>
+        <location line="+3763"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
     <message>
-        <location line="-3717"/>
+        <location line="-3752"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Más acciones de la sala</translation>
@@ -32864,7 +32884,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo completar la búsqueda.</translation>
     </message>
     <message>
-        <location line="+2621"/>
+        <location line="+2656"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33241,8 +33261,8 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6487"/>
-        <location line="+6664"/>
+        <location filename="../qml/TimelinePane.qml" line="-6522"/>
+        <location line="+6699"/>
         <source>Room</source>
         <translation>Sala</translation>
     </message>
@@ -33317,13 +33337,13 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5791"/>
+        <location line="-5826"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
     <message>
-        <location line="+5023"/>
+        <location line="+5058"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Imágenes (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33399,7 +33419,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Suelta archivos para adjuntarlos</translation>
     </message>
     <message>
-        <location line="-5263"/>
+        <location line="-5298"/>
         <source>Join space</source>
         <translation>Unirse al espacio</translation>
     </message>
