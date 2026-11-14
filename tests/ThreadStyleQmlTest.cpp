@@ -404,6 +404,24 @@ ApplicationWindow {
         QTRY_VERIFY(!roomColumn->isVisible());
     }
 
+    void theThreadsListFillsThePanelHeight()
+    {
+        openDevRoom();
+        m_controller->thread()->openList(QString::fromLatin1(kDevRoom));
+        QTRY_VERIFY(m_controller->thread()->listOpen());
+        QVERIFY(!m_controller->thread()->active());
+        QQuickItem *panel = item("threadPanel");
+        QQuickItem *list = item("threadListView");
+        QVERIFY(panel && list);
+        QTRY_VERIFY(list->isVisible() && list->height() > 0);
+        const auto bottom = [&] {
+            return list->mapToItem(panel, QPointF(0, list->height())).y();
+        };
+        QTRY_VERIFY2(qAbs(panel->height() - bottom()) <= 2,
+                     qPrintable(QStringLiteral("list ends at %1 of a %2 px panel")
+                                    .arg(bottom()).arg(panel->height())));
+    }
+
     void panelStyleCanOpenThreadsInTheMainView()
     {
         openDevRoom();
