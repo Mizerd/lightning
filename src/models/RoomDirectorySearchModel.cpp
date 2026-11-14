@@ -2,9 +2,32 @@
 
 #include "matrix/MatrixClient.h"
 
+#include <QStringList>
+
 namespace {
 constexpr int kDebounceMs = 300;
 constexpr int kPageSize = 30;
+
+// A room listed by another directory is usually unknown to our homeserver,
+// and a join by bare room id then has nowhere to go.
+QVariantMap withVia(QVariantMap row, const QString &directoryServer)
+{
+    QStringList via;
+    const auto add = [&via](const QString &server) {
+        if (!server.isEmpty() && !via.contains(server))
+            via.append(server);
+    };
+    // Newer room ids carry no server name, so the alias is tried too.
+    for (const char *key : { "roomId", "alias" }) {
+        const QString id = row.value(QLatin1String(key)).toString();
+        const int colon = id.indexOf(QLatin1Char(':'));
+        if (colon > 0)
+            add(id.mid(colon + 1));
+    }
+    add(directoryServer);
+    row.insert(QStringLiteral("via"), via);
+    return row;
+}
 }
 
 RoomDirectorySearchModel::RoomDirectorySearchModel(QObject *parent)
@@ -83,6 +106,7 @@ QVariant RoomDirectorySearchModel::data(const QModelIndex &index,
     case JoinRuleRole: return row.value(QStringLiteral("joinRule"));
     case MembershipRole: return row.value(QStringLiteral("membership"));
     case IsSpaceRole: return row.value(QStringLiteral("isSpace"));
+    case ViaRole: return row.value(QStringLiteral("via"));
     }
     return {};
 }
@@ -99,6 +123,7 @@ QHash<int, QByteArray> RoomDirectorySearchModel::roleNames() const
         { JoinRuleRole, QByteArrayLiteral("joinRule") },
         { MembershipRole, QByteArrayLiteral("membership") },
         { IsSpaceRole, QByteArrayLiteral("isSpace") },
+        { ViaRole, QByteArrayLiteral("via") },
     };
 }
 
@@ -150,6 +175,7 @@ void RoomDirectorySearchModel::dispatch(bool nextPage)
         return;
     }
     m_pendingOp = opId;
+    m_pendingServer = m_server;
     m_pendingIsNextPage = nextPage;
     m_errorCategory.clear();
     setState(nextPage ? QStringLiteral("loading_more")
@@ -181,12 +207,12 @@ void RoomDirectorySearchModel::onPublicRooms(quint64 opId, bool ok,
         beginResetModel();
         m_rows.clear();
         for (const QVariant &value : rooms)
-            m_rows.append(value.toMap());
+            m_rows.append(withVia(value.toMap(), m_pendingServer));
         endResetModel();
     } else if (!rooms.isEmpty()) {
         beginInsertRows({}, m_rows.size(), m_rows.size() + rooms.size() - 1);
         for (const QVariant &value : rooms)
-            m_rows.append(value.toMap());
+            m_rows.append(withVia(value.toMap(), m_pendingServer));
         endInsertRows();
     }
     m_nextBatch = nextBatch;

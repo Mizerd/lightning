@@ -28,6 +28,8 @@ Dialog {
     property bool knockInFlight: false
     property var knockedRoomIds: ({})
     property bool addressKnockSent: false
+    readonly property string mrsServer: "matrixrooms.info"
+    property bool otherDirectoryServer: false
 
     readonly property bool busy: app.discovery.busy
     readonly property var resolved: app.discovery.resolved
@@ -110,6 +112,8 @@ Dialog {
         // Set the fields first; clear() then cancels the debounce they start.
         app.discovery.directory.query = ""
         app.discovery.directory.server = ""
+        otherDirectoryServer = false
+        directorySourceBox.currentIndex = 0
         app.discovery.directory.clear()
         app.discovery.clearResolved()
         app.discovery.clearError()
@@ -120,6 +124,14 @@ Dialog {
             addressField.forceActiveFocus()
         else
             directorySearchField.forceActiveFocus()
+    }
+
+    // 0 = the account's homeserver, 1 = matrixrooms.info, 2 = a typed server.
+    function chooseDirectorySource(index) {
+        otherDirectoryServer = index === 2
+        app.discovery.directory.server = index === 1 ? mrsServer : ""
+        if (otherDirectoryServer)
+            Qt.callLater(directoryServerField.forceActiveFocus)
     }
 
     function joinRuleLabel(rule) {
@@ -299,9 +311,20 @@ Dialog {
                     text: app.discovery.directory.query
                     onTextChanged: app.discovery.directory.query = text
                 }
+                AppComboBox {
+                    id: directorySourceBox
+                    objectName: "directorySourceBox"
+                    Layout.preferredWidth: 170
+                    storm: true
+                    model: [qsTr("Your server"), root.mrsServer,
+                            qsTr("Other server…")]
+                    Accessible.name: qsTr("Room directory")
+                    onActivated: (index) => root.chooseDirectorySource(index)
+                }
                 AppTextField {
                     id: directoryServerField
                     objectName: "directoryServerField"
+                    visible: root.otherDirectoryServer
                     Layout.preferredWidth: 150
                     storm: true
                     placeholderText: qsTr("Server (optional)")
@@ -309,6 +332,17 @@ Dialog {
                     onEditingFinished:
                         app.discovery.directory.server = text
                 }
+            }
+
+            Label {
+                objectName: "directoryThirdPartyNote"
+                Layout.fillWidth: true
+                visible: app.discovery.directory.server === root.mrsServer
+                text: qsTr("matrixrooms.info is a third-party directory: your homeserver sends it your search terms.")
+                color: AppTheme.stormTextSecondary
+                font.pixelSize: AppTheme.textMeta
+                wrapMode: Text.Wrap
+                Accessible.name: text
             }
 
             ListView {
@@ -336,6 +370,7 @@ Dialog {
                     required property string joinRule
                     required property string membership
                     required property bool isSpace
+                    required property var via
 
                     readonly property string visibleName:
                         name.length > 0 ? name
@@ -361,10 +396,10 @@ Dialog {
                             return
                         root.pendingJoinRoomId = roomId
                         if (rowKnocks) {
-                            if (!root.startKnock(roomId, [], ""))
+                            if (!root.startKnock(roomId, via, ""))
                                 root.pendingJoinRoomId = ""
                         } else {
-                            app.discovery.join(roomId, [], isSpace)
+                            app.discovery.join(roomId, via, isSpace)
                         }
                     }
                     activeFocusOnTab: true

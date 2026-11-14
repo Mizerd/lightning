@@ -30,6 +30,7 @@ public:
         JoinRuleRole,
         MembershipRole,
         IsSpaceRole,
+        ViaRole,
     };
 
     explicit RoomDirectorySearchModel(QObject *parent = nullptr);
@@ -79,6 +80,7 @@ private:
     QTimer m_debounce;
     QList<QVariantMap> m_rows;
     QString m_nextBatch;
+    QString m_pendingServer;
     quint64 m_pendingOp = 0;
     bool m_pendingIsNextPage = false;
 };

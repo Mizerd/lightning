@@ -45,6 +45,37 @@ private slots:
         QVERIFY(clearAt > body.indexOf(QStringLiteral("directory.server = \"\"")));
     }
 
+    void matrixRoomsInfoIsAnOptInLabelledDirectory()
+    {
+        const QString src = read(QStringLiteral("DiscoverJoinDialog.qml"));
+        QVERIFY(src.contains(QStringLiteral(
+            "readonly property string mrsServer: \"matrixrooms.info\"")));
+        const QString box = block(src, QStringLiteral("id: directorySourceBox"),
+                                  QStringLiteral("\n                }"));
+        QVERIFY2(box.contains(QStringLiteral("root.mrsServer")),
+                 "the source picker must name matrixrooms.info");
+        QVERIFY(box.contains(QStringLiteral("onActivated:")));
+        const QString choose =
+            block(src, QStringLiteral("function chooseDirectorySource("),
+                  QStringLiteral("\n    }"));
+        QVERIFY2(choose.contains(QStringLiteral(
+                     "directory.server = index === 1 ? mrsServer : \"\"")),
+                 "only the picked entry may point the directory at it");
+        const QString note =
+            block(src, QStringLiteral("objectName: \"directoryThirdPartyNote\""),
+                  QStringLiteral("\n            }"));
+        QVERIFY2(note.contains(QStringLiteral(
+                     "visible: app.discovery.directory.server === root.mrsServer")),
+                 "the third-party note must show whenever that source is used");
+        const QString reset = block(src, QStringLiteral("function resetAll()"),
+                                    QStringLiteral("\n    }"));
+        QVERIFY2(reset.contains(QStringLiteral("directorySourceBox.currentIndex = 0")),
+                 "a reopened dialog must start on the own server");
+        QVERIFY2(src.contains(QStringLiteral("app.discovery.join(roomId, via, isSpace)"))
+                     && src.contains(QStringLiteral("root.startKnock(roomId, via, \"\")")),
+                 "a row from another directory must join through its servers");
+    }
+
     void aKnockIsTrackedAndCannotBeRepeated()
     {
         const QString src = read(QStringLiteral("DiscoverJoinDialog.qml"));

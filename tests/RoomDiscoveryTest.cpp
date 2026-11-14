@@ -103,6 +103,38 @@ private Q_SLOTS:
                  QStringLiteral("!b:mock.local"));
     }
 
+    void directoryRowsCarryTheServersAJoinCanGoThrough()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        RoomDirectorySearchModel model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        QVariantMap far = directoryRow(QStringLiteral("!far:other.example"),
+                                       QStringLiteral("Far"),
+                                       QStringLiteral("public"));
+        far.insert(QStringLiteral("alias"),
+                   QStringLiteral("#far:third.example"));
+        client.mockPublicRooms = {
+            far, directoryRow(QStringLiteral("!noserverpart"),
+                              QStringLiteral("V12"), QStringLiteral("public")) };
+        model.setServer(QStringLiteral("matrixrooms.info"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        const int viaRole = model.roleNames().key(QByteArrayLiteral("via"), -1);
+        QVERIFY(viaRole >= 0);
+        QCOMPARE(model.data(model.index(0), viaRole).toStringList(),
+                 QStringList({ QStringLiteral("other.example"),
+                               QStringLiteral("third.example"),
+                               QStringLiteral("matrixrooms.info") }));
+        QCOMPARE(model.data(model.index(1), viaRole).toStringList(),
+                 QStringList({ QStringLiteral("matrixrooms.info") }));
+
+        model.setServer(QString());
+        QTRY_COMPARE(model.data(model.index(0), viaRole).toStringList(),
+                     QStringList({ QStringLiteral("other.example"),
+                                   QStringLiteral("third.example") }));
+    }
+
     void resolvePassesThePreviewThrough()
     {
         MockMatrixClient client;
