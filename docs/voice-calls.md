@@ -1398,13 +1398,17 @@ dropped by its id, so it cannot be applied to the newer offer.
 The subscriber answered VP8 and H.264 only, so the SFU never bound a VP9
 publication with no backup codec to us: the section was accepted, no packet
 ever arrived, and the tile waited for ever. **That is an encrypted-room problem
-only**: livekit-client publishes a VP8 backup whenever it does NOT encrypt, and
-no backup when it does. So the policy follows the room:
+only**: livekit-client publishes a VP8 backup by default when it does NOT
+encrypt (`backupCodec` can be turned off), and no backup when it does. So the policy follows the room:
 
 | Call | Answer | Why |
 | --- | --- | --- |
 | Encrypted (`m_encryptionRequired`) | VP8, H.264, VP9 | VP9 has no backup there |
 | Unencrypted | VP8, H.264 (as before) | the VP8 backup exists and is what we want |
+
+An unencrypted VP9-only track (backup turned off) is not answered; its tile
+reads "VP9 isn't supported by this build". It waited for ever before, so this
+is no regression.
 
 VP9 needs `rtpvp9depay` and `vp9dec` (else `avdec_vp9`) in the registry at
 runtime; `libgstrtp` and `libgstvpx` are already required in every package, so

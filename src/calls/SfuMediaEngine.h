@@ -324,8 +324,8 @@ public:
                                        bool echoProbe = false,
                                        const QString &videoCodec = QString());
     /// What this runtime can decode, VP8 first. VP9 is answered only on an
-    /// encrypted call: livekit-client publishes a VP8 backup whenever it does
-    /// not encrypt, and that backup is what an unencrypted call should get.
+    /// encrypted call: livekit-client publishes a VP8 backup by default when
+    /// it does not encrypt, and that backup is what an unencrypted call should get.
     /// `encoding` empty or unknown in receivableVideoCodec() means VP8.
     static QList<lightning::calls::ReceiveVideoCodec> receivableVideoCodecs(
         bool encrypted = true);

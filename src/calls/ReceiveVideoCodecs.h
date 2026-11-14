@@ -20,7 +20,7 @@ struct ReceiveVideoCodec {
 
 /// The video codecs this runtime can receive, by SDP encoding name. `has`
 /// answers whether an element factory exists. No AV1: livekit-client will not
-/// encrypt it, and an unencrypted publisher always has a VP8 backup.
+/// encrypt it, and an unencrypted publisher has a VP8 backup by default.
 inline QList<ReceiveVideoCodec> receivableVideoCodecs(
     const std::function<bool(const QByteArray &)> &has)
 {

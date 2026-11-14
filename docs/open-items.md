@@ -12,11 +12,14 @@ No VP9 sender has been run against it live; the evidence is CTest
   one. If the base layer of that picture was lost or undecryptable, the hold
   is released on a frame that cannot be decoded alone. Needs a real SVC
   sender (a VP9 camera, `L3T3_KEY`) to measure; screen shares are `L1T3`.
-* **Safari's first frames.** The review noted that a Safari sender's first
-  frames need checking against the whole-frame decrypt path. Not reproduced
-  and not characterised here; check livekit-client's Safari handling before
-  reading a short burst of `decrypt failed` at a Safari VP9 stream's start as
-  a key fault.
+* **Safari's first VP9 frames.** livekit-client picks the clear-byte count from
+  the frame's codec (`getVideoCodec(frame) ?? this.videoCodec`). Safari supplies
+  neither a frame mime type nor a payload-type map, so until `updateCodec`
+  arrives after `LocalTrackPublished` the sender falls back to the VP8 shape (10
+  or 3 clear bytes; livekit PR #2131, whose seed covers H.264/H.265 only). Those
+  frames fail authentication against the whole-frame path here and are dropped.
+  Expect a short burst of `decrypt failed` at the start of a Safari VP9 stream;
+  it is not a key fault. Not reproduced.
 
 
 
