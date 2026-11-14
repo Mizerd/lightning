@@ -428,7 +428,7 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
             break;
         case 3:
             if (!roomunread::listsAsUnread(r, notificationModeOf(r.id))) {
-                if (r.id != m_pinnedRoomId)
+                if (r.id != m_unreadKeepId)
                     return false;
             }
             break;
@@ -445,6 +445,7 @@ void RoomListModel::setFilterMode(int mode)
     if (clamped == m_filterMode)
         return;
     m_filterMode = clamped;
+    m_unreadKeepId = openRoomEarnsUnreadKeep(false) ? m_pinnedRoomId : QString();
     ++m_filterGeneration;
     Q_EMIT filterGenerationChanged();
     m_hold.release();
@@ -452,11 +453,32 @@ void RoomListModel::setFilterMode(int mode)
     Q_EMIT filterModeChanged();
 }
 
+// The Unreads tab keeps the open room after it is read only if it was listed there as unread.
+bool RoomListModel::openRoomEarnsUnreadKeep(bool listedCounts) const
+{
+    if (m_filterMode != 3 || m_pinnedRoomId.isEmpty())
+        return false;
+    if (listedCounts) {
+        for (const RoomInfo &r : m_rooms) {
+            if (r.id == m_pinnedRoomId)
+                return true;
+        }
+    }
+    if (!m_client)
+        return false;
+    for (const RoomInfo &r : m_client->rooms()) {
+        if (r.id == m_pinnedRoomId)
+            return roomunread::listsAsUnread(r, notificationModeOf(r.id));
+    }
+    return false;
+}
+
 void RoomListModel::setPinnedRoomId(const QString &roomId)
 {
     if (roomId == m_pinnedRoomId)
         return;
     m_pinnedRoomId = roomId;
+    m_unreadKeepId = openRoomEarnsUnreadKeep(true) ? roomId : QString();
     QDateTime liveNow;
     if (m_client && !roomId.isEmpty()) {
         for (const RoomInfo &r : m_client->rooms()) {

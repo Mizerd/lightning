@@ -423,6 +423,60 @@ private Q_SLOTS:
         QVERIFY(!c.model.orderHeld());
     }
 
+    void unreadsDoesNotListAnAlreadyReadOpenRoom()
+    {
+        Classic c;
+        c.build(false);
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        c.model.setFilterMode(1);
+        c.model.setPinnedRoomId(kR1);
+
+        c.model.setFilterMode(3);
+
+        QCOMPARE(idsOf(c.model), QStringList{ kR2 });
+    }
+
+    void unreadsKeepsARoomOpenedThereAfterItIsRead()
+    {
+        Classic c;
+        c.build(false);
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        c.model.setFilterMode(3);
+        QCOMPARE(idsOf(c.model), QStringList{ kR2 });
+
+        c.model.setPinnedRoomId(kR2);
+        RoomInfo *r = c.client.find(kR2);
+        r->unreadCount = 0;
+        r->hasUnreadMessages = false;
+        c.client.announce();
+        QCoreApplication::processEvents();
+        QCOMPARE(idsOf(c.model), QStringList{ kR2 });
+
+        c.model.setFilterMode(0);
+        c.model.setFilterMode(3);
+        QCOMPARE(idsOf(c.model), QStringList());
+    }
+
+    void unreadsKeepsAnUnreadOpenRoomAfterItIsRead()
+    {
+        Classic c;
+        c.build(false);
+        c.model.setPinnedRoomId(kR2);
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        c.model.setFilterMode(3);
+
+        RoomInfo *r = c.client.find(kR2);
+        r->unreadCount = 0;
+        r->hasUnreadMessages = false;
+        c.client.announce();
+        QCoreApplication::processEvents();
+
+        QCOMPARE(idsOf(c.model), QStringList{ kR2 });
+    }
+
     void classicSwitchingRoomsAppliesTheHeldOrder()
     {
         Classic c;

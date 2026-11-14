@@ -158,6 +158,7 @@ private:
     QString effectiveAvatarUrl(const RoomInfo &room) const;
     bool passesScopeFilter(const RoomInfo &r) const;
     bool passesFilter(const RoomInfo &r) const;
+    bool openRoomEarnsUnreadKeep(bool listedCounts) const;
     QList<RoomInfo> desiredRooms(const QSet<QString> &superseded);
     void setOrderHeld(bool held);
     void reconcileRooms();
@@ -186,6 +187,7 @@ private:
     QString m_pendingSearchQuery;
     int m_filterMode = 0;
     QString m_pinnedRoomId;
+    QString m_unreadKeepId;
     QString m_callRoomId;
     quint64 m_filterGeneration = 1;
     QTimer m_searchDebounce;
