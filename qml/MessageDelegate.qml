@@ -95,7 +95,7 @@ Item {
         messageRangeIds.length > 1 && messageRangeIds.indexOf(model.eventId) >= 0
     TapHandler {
         acceptedModifiers: Qt.ShiftModifier
-        enabled: !root.selectionMode && !!root.timelineView
+        enabled: root.rowActionsEnabled && !!root.timelineView
                  && !!root.timelineView.extendMessageRangeTo
         onTapped: root.timelineView.extendMessageRangeTo(model.eventId)
     }

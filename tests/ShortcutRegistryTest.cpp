@@ -250,7 +250,7 @@ private Q_SLOTS:
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
                                      QStringLiteral("H")), QString());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.newerMessage"),
-                                     QStringLiteral("Shift+J")), QString());
+                                     QStringLiteral("Shift+N")), QString());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.reply"),
                                      QStringLiteral("Y")), QString());
         QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_Y, Qt::NoModifier),
