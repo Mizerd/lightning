@@ -529,12 +529,14 @@ private Q_SLOTS:
 
         QQuickItem *body = nullptr;
         QVERIFY(QTest::qWaitFor([&] {
-            const auto bodies = pane.root->findChildren<QQuickItem *>(
-                QStringLiteral("messageBody"));
-            for (QQuickItem *candidate : bodies) {
-                if (candidate->property("text").toString().contains(
-                        QStringLiteral("example.org/probe")))
-                    body = candidate;
+            for (const char *name : {"messageBody", "messageSegmentText"}) {
+                const auto bodies = pane.root->findChildren<QQuickItem *>(
+                    QLatin1String(name));
+                for (QQuickItem *candidate : bodies) {
+                    if (candidate->property("text").toString().contains(
+                            QStringLiteral("example.org/probe")))
+                        body = candidate;
+                }
             }
             return body && body->width() > 0;
         }, kSignalTimeoutMs));
