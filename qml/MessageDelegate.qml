@@ -93,11 +93,18 @@ Item {
         ? root.timelineView.messageRangeIds : []
     readonly property bool inMessageRange:
         messageRangeIds.length > 1 && messageRangeIds.indexOf(model.eventId) >= 0
-    TapHandler {
-        acceptedModifiers: Qt.ShiftModifier
-        enabled: root.rowActionsEnabled && !!root.timelineView
-                 && !!root.timelineView.extendMessageRangeTo
-        onTapped: root.timelineView.extendMessageRangeTo(model.eventId)
+    Item {
+        anchors.fill: parent
+        z: 1001
+        // Above the row's content and exclusive, so a shift-click on a link or
+        // picture extends the range without also opening it.
+        TapHandler {
+            acceptedModifiers: Qt.ShiftModifier
+            gesturePolicy: TapHandler.WithinBounds
+            enabled: root.rowActionsEnabled && !!root.timelineView
+                     && !!root.timelineView.extendMessageRangeTo
+            onTapped: root.timelineView.extendMessageRangeTo(model.eventId)
+        }
     }
     // isSelected() is a plain call Qt cannot observe; selectedCount changes on
     // every toggle and carries the dependency.

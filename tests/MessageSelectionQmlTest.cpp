@@ -1201,6 +1201,15 @@ ApplicationWindow {
         QVERIFY(entered.toBool());
         QTRY_VERIFY(list->hasActiveFocus());
         const QString newest = list->property("selectedEventId").toString();
+        QCOMPARE(m_window->activeFocusItem(), list);
+        for (QQuickItem *ring : itemsNamed(QStringLiteral("messageRowFocusRing")))
+            QVERIFY2(!ring->isVisible(),
+                     "a row draws its focus ring beside the selection outline");
+        QVERIFY(!model->visibleTextForEvent(newest).isEmpty());
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(),
+                     model->visibleTextForEvent(newest));
         QTest::keyClick(m_window, Qt::Key_K, Qt::ShiftModifier);
         QTest::keyClick(m_window, Qt::Key_K, Qt::ShiftModifier);
         const QStringList ids = rangeIds(list);

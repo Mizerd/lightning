@@ -1216,10 +1216,19 @@ Rectangle {
                     extendingRange = false
                     rangeAnchorEventId = selectedEventId !== "" ? anchor : ""
                 }
+                // The view is a focus scope and hands its focus to the current
+                // row, which would then draw its own focus ring beside the
+                // selection outline.
+                function takeSelectionFocus() {
+                    forceActiveFocus()
+                    var held = Window.activeFocusItem
+                    if (held && held !== replyList)
+                        held.focus = false
+                }
                 function extendMessageRangeTo(eventId) {
                     if (navigableEventAt(rowForEvent(eventId)) === "")
                         return
-                    forceActiveFocus()
+                    takeSelectionFocus()
                     setRangeEnd(function() { selectedEventId = eventId })
                 }
                 readonly property string keyboardSelectedEventId:
@@ -1273,7 +1282,7 @@ Rectangle {
                     return false
                 }
                 function enterMessageSelection(latest) {
-                    forceActiveFocus()
+                    takeSelectionFocus()
                     if (latest) {
                         positionViewAtEnd()
                         return selectVisibleMessage(true)
@@ -1313,6 +1322,8 @@ Rectangle {
                     case "timeline.deleteMessage":
                     case "timeline.saveMessage":
                     case "timeline.reactToMessage":
+                    case "timeline.copyMessageText":
+                    case "timeline.copyMessageLink":
                     case "timeline.copyMessages":
                         var selected = rowForEvent(selectedEventId)
                         var rowItem = selected >= 0 ? itemAtIndex(selected) : null
