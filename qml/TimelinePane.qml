@@ -124,7 +124,13 @@ Rectangle {
                 && root.selectionRoomId === app.currentRoomId)
             app.pagination.saveSelection(root.selectionRoomId, id)
     }
-    onKeyboardSelectedEventIdChanged: rememberSelection()
+    property string rangeAnchorEventId: ""
+    property bool extendingRange: false
+    onKeyboardSelectedEventIdChanged: {
+        if (!extendingRange)
+            rangeAnchorEventId = ""
+        rememberSelection()
+    }
     onResumeSelectedEventIdChanged: rememberSelection()
     function applyReturnSelection() {
         var id = root.pendingReturnSelection
@@ -2864,6 +2870,32 @@ Rectangle {
 
                 property bool selectionDetached: false
 
+                readonly property var messageRangeIds:
+                    root.rangeAnchorEventId !== "" && root.keyboardSelectedEventId !== ""
+                    ? app.timeline.messageIdsBetween(root.rangeAnchorEventId,
+                                                     root.keyboardSelectedEventId)
+                    : []
+                function setRangeEnd(anchor, move) {
+                    if (anchor === "")
+                        anchor = root.keyboardSelectedEventId
+                    root.extendingRange = true
+                    move()
+                    root.extendingRange = false
+                    root.rangeAnchorEventId =
+                        root.keyboardSelectedEventId !== "" ? anchor : ""
+                }
+                function extendMessageRangeTo(eventId) {
+                    if (!root.timelineFocusable
+                            || navigableEventAt(viewRowForStableId(eventId)) === "")
+                        return
+                    stopEntrySelection()
+                    forceActiveFocus()
+                    setRangeEnd(root.rangeAnchorEventId, function() {
+                        root.keyboardSelectedEventId = eventId
+                        selectionDetached = false
+                    })
+                }
+
                 function messageIntersectsViewport(row) {
                     var item = row >= 0 ? itemAtViewRow(row) : null
                     return item && navigableEventAt(row) !== ""
@@ -3015,6 +3047,14 @@ Rectangle {
                     switch (action) {
                     case "timeline.olderMessage": stepSelectedMessage(1); break
                     case "timeline.newerMessage": stepSelectedMessage(-1); break
+                    case "timeline.extendSelectionOlder":
+                        setRangeEnd(root.rangeAnchorEventId,
+                                    function() { stepSelectedMessage(1) })
+                        break
+                    case "timeline.extendSelectionNewer":
+                        setRangeEnd(root.rangeAnchorEventId,
+                                    function() { stepSelectedMessage(-1) })
+                        break
                     case "timeline.halfPageUp":
                         pageTimeline(-1)
                         break
@@ -3039,6 +3079,7 @@ Rectangle {
                     case "timeline.deleteMessage":
                     case "timeline.copyMessageText":
                     case "timeline.copyMessageLink":
+                    case "timeline.copyMessages":
                     case "timeline.viewMessageSource":
                         return runSelectedMessageAction(action)
                     default: return false

@@ -1197,6 +1197,31 @@ Rectangle {
                 activeFocusOnTab: true
 
                 property string selectedEventId: ""
+                property string rangeAnchorEventId: ""
+                property bool extendingRange: false
+                onSelectedEventIdChanged: {
+                    if (!extendingRange)
+                        rangeAnchorEventId = ""
+                }
+                readonly property var messageRangeIds:
+                    rangeAnchorEventId !== "" && selectedEventId !== ""
+                    ? app.thread.model.messageIdsBetween(rangeAnchorEventId,
+                                                         selectedEventId)
+                    : []
+                function setRangeEnd(move) {
+                    var anchor = rangeAnchorEventId !== ""
+                               ? rangeAnchorEventId : selectedEventId
+                    extendingRange = true
+                    move()
+                    extendingRange = false
+                    rangeAnchorEventId = selectedEventId !== "" ? anchor : ""
+                }
+                function extendMessageRangeTo(eventId) {
+                    if (navigableEventAt(rowForEvent(eventId)) === "")
+                        return
+                    forceActiveFocus()
+                    setRangeEnd(function() { selectedEventId = eventId })
+                }
                 readonly property string keyboardSelectedEventId:
                     activeFocus ? selectedEventId : ""
                 function navigableEventAt(row) {
@@ -1264,6 +1289,12 @@ Rectangle {
                     switch (action) {
                     case "timeline.olderMessage": stepSelectedMessage(-1); break
                     case "timeline.newerMessage": stepSelectedMessage(1); break
+                    case "timeline.extendSelectionOlder":
+                        setRangeEnd(function() { stepSelectedMessage(-1) })
+                        break
+                    case "timeline.extendSelectionNewer":
+                        setRangeEnd(function() { stepSelectedMessage(1) })
+                        break
                     case "timeline.halfPageUp":
                         contentY = Math.max(originY - topMargin,
                                             contentY - height * 0.5)
@@ -1282,6 +1313,7 @@ Rectangle {
                     case "timeline.deleteMessage":
                     case "timeline.saveMessage":
                     case "timeline.reactToMessage":
+                    case "timeline.copyMessages":
                         var selected = rowForEvent(selectedEventId)
                         var rowItem = selected >= 0 ? itemAtIndex(selected) : null
                         if (rowItem && rowItem.runSelectionAction)

@@ -188,6 +188,12 @@ private Q_SLOTS:
                  QStringLiteral("timeline.copyMessageText"));
         QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_V, Qt::NoModifier),
                  QStringLiteral("timeline.viewMessageSource"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_K, Qt::ShiftModifier),
+                 QStringLiteral("timeline.extendSelectionOlder"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_J, Qt::ShiftModifier),
+                 QStringLiteral("timeline.extendSelectionNewer"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_C, Qt::ShiftModifier),
+                 QStringLiteral("timeline.copyMessages"));
         QVERIFY(registry.timelineActionForKey(Qt::Key_K, Qt::NoModifier).isEmpty());
         QCOMPARE(registry.timelineActionForKey(Qt::Key_PageUp, Qt::NoModifier),
                  QStringLiteral("timeline.pageUp"));
@@ -214,11 +220,12 @@ private Q_SLOTS:
                 == ShortcutRegistry::MessageSelectionContext)
                 selection.append(id);
         }
-        QCOMPARE(selection.size(), 15);
+        QCOMPARE(selection.size(), 18);
         for (const QString &id : selection) {
             const QString seq = registry.sequenceFor(id);
             QCOMPARE(bySequence.value(seq).size(), 1);
-            if (id != QStringLiteral("timeline.copyMessageText"))
+            if (id != QStringLiteral("timeline.copyMessageText")
+                && !seq.startsWith(QStringLiteral("Shift+")))
                 QVERIFY2(!seq.contains(QLatin1Char('+')), qPrintable(id + QStringLiteral(" ") + seq));
             const QString shadow = roleFor(registry, id, ShortcutRegistry::ShadowNoteRole);
             if (id == QStringLiteral("timeline.copyMessageText"))
@@ -525,7 +532,7 @@ private Q_SLOTS:
                                     .arg(id, seq)));
         }
         QVERIFY2(checkedRows > 0, "no rows at all — the sweep is inert");
-        QCOMPARE(selectionRows, 15);
+        QCOMPARE(selectionRows, 18);
     }
 
     void theDiscordStyleAdditionsShipOnExactlyTheseKeys()

@@ -88,6 +88,17 @@ Item {
         && root.eventIdForActions() !== ""
         && !root.isGallery
     readonly property real selectionGutterWidth: 26
+    readonly property var messageRangeIds:
+        root.timelineView && root.timelineView.messageRangeIds
+        ? root.timelineView.messageRangeIds : []
+    readonly property bool inMessageRange:
+        messageRangeIds.length > 1 && messageRangeIds.indexOf(model.eventId) >= 0
+    TapHandler {
+        acceptedModifiers: Qt.ShiftModifier
+        enabled: !root.selectionMode && !!root.timelineView
+                 && !!root.timelineView.extendMessageRangeTo
+        onTapped: root.timelineView.extendMessageRangeTo(model.eventId)
+    }
     // isSelected() is a plain call Qt cannot observe; selectedCount changes on
     // every toggle and carries the dependency.
     readonly property bool rowSelected:
@@ -1364,7 +1375,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        visible: root.rowSelected
+        visible: root.rowSelected || root.inMessageRange
         color: AppTheme.messageHighlight
         opacity: 0.55
         z: -1
@@ -3601,6 +3612,11 @@ Item {
             root.copyToClipboard(
                 root.timelineModel.visibleTextForEvent(root.menuEventId))
     }
+    function copyMessages() {
+        var ids = root.inMessageRange ? root.messageRangeIds : [root.menuEventId]
+        root.copyToClipboard(root.timelineModel.plainTextForMessages(
+            ids, app.settings.clockTimeFormat))
+    }
     function copyMessageLink() {
         if (root.menuEventId !== "")
             root.copyToClipboard(
@@ -3666,6 +3682,7 @@ Item {
             return true
         case "timeline.copyMessageText": copyMessageText(); return true
         case "timeline.copyMessageLink": copyMessageLink(); return true
+        case "timeline.copyMessages": copyMessages(); return true
         case "timeline.viewMessageSource":
             if (root.timelineModel.requestEventSource)
                 openEventSource(root.menuEventId)
@@ -3926,6 +3943,15 @@ Item {
                 accel: "Ctrl+C"
                 enabled: root.copyableText
                 onTriggered: root.copyMessageText()
+            }
+            AppMenuItem {
+                objectName: "copyMessagesMenuItem"
+                iconName: "content_copy"
+                text: qsTr("Copy messages")
+                accel: "Shift+C"
+                visible: root.inMessageRange
+                enabled: visible
+                onTriggered: root.copyMessages()
             }
             AppMenuItem {
                 iconName: "link"
