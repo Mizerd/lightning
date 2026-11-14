@@ -1450,7 +1450,7 @@ Item {
                         if (root.transientOwnerBlocks)
                             return
                         root.timelineView.hoveredActionsKey = root.actionKey
-                    } else if (!barHover.hovered) {
+                    } else if (!barHover.hovered && !barReachHover.hovered) {
                         root.releaseHoveredActions()
                     }
                 }
@@ -2607,6 +2607,25 @@ Item {
                 }
             }
 
+            // The straight path from the row to a lifted bar leaves the row,
+            // so the whole strip beside the bar keeps the row hovered.
+            Item {
+                objectName: "messageActionBarReach"
+                visible: messageActionBarLoader.visible && root.liftsActionBar
+                y: messageActionBarLoader.y
+                width: parent.width
+                height: Math.max(0, -y)
+                z: 2
+                HoverHandler {
+                    id: barReachHover
+                    blocking: true
+                    onHoveredChanged: {
+                        if (!hovered)
+                            messageActionBarLoader.releaseWhenLeft()
+                    }
+                }
+            }
+
             Loader {
                 id: messageActionBarLoader
                 objectName: "messageActionBarLoader"
@@ -2640,11 +2659,15 @@ Item {
                     blocking: true
                     onHoveredChanged: {
                         if (!hovered)
-                            Qt.callLater(function() {
-                                if (!rowHover.hovered && !barHover.hovered)
-                                    root.releaseHoveredActions()
-                            })
+                            messageActionBarLoader.releaseWhenLeft()
                     }
+                }
+                function releaseWhenLeft() {
+                    Qt.callLater(function() {
+                        if (!rowHover.hovered && !barHover.hovered
+                                && !barReachHover.hovered)
+                            root.releaseHoveredActions()
+                    })
                 }
                 readonly property real barWidth:
                     item ? item.implicitWidth : 200

@@ -2043,6 +2043,84 @@ private Q_SLOTS:
         QTRY_COMPARE(view->property("hoveredActionsKey").toString(), QString());
     }
 
+    void theLiftedBarIsReachableFromAShortImageRow_data()
+    {
+        QTest::addColumn<int>("layoutMode");
+        QTest::newRow("modern") << 0;
+        QTest::newRow("bubbles") << 1;
+        QTest::newRow("compact") << 2;
+        QTest::newRow("small-avatars") << 3;
+    }
+
+    void theLiftedBarIsReachableFromAShortImageRow()
+    {
+        QFETCH(int, layoutMode);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layoutMode);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("showSenderIdentity"), false);
+        f.insert(QStringLiteral("isImage"), true);
+        f.insert(QStringLiteral("mediaWidth"), 160);
+        f.insert(QStringLiteral("mediaHeight"), 40);
+        f.insert(QStringLiteral("mediaMimetype"), QStringLiteral("image/png"));
+        f.insert(QStringLiteral("mediaFilename"), QStringLiteral("strip.png"));
+        f.insert(QStringLiteral("body"), QStringLiteral("strip.png"));
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, layoutMode == 1));
+        QCOMPARE(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool(),
+                 layoutMode == 1);
+        d.root->setY(120);
+        QQmlComponent comp(d.engine.get());
+        comp.setData("import QtQuick\nQtObject { property string pinnedActionsKey: \"\";"
+                     " property string hoveredActionsKey: \"\" }",
+                     QUrl());
+        std::unique_ptr<QObject> view(comp.create());
+        QVERIFY2(view, qPrintable(comp.errorString()));
+        QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                            QVariant::fromValue(view.get()));
+        QCoreApplication::processEvents();
+        auto *row = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messagePresentationRow"));
+        auto *bar = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageActionBarLoader"));
+        QVERIFY(row && bar);
+        const QString key = d.root->property("actionKey").toString();
+        QVERIFY(!key.isEmpty());
+
+        const QPointF from = row->mapToScene(QPointF(80, row->height() - 4));
+        QTest::mouseMove(d.window.get(), QPoint(5, 470));
+        QTest::mouseMove(d.window.get(), from.toPoint());
+        QTRY_COMPARE(view->property("hoveredActionsKey").toString(), key);
+        QTRY_VERIFY(bar->isVisible() && bar->height() > 0);
+        const QPointF to = bar->mapToScene(
+            QPointF(bar->width() / 2, bar->height() / 2));
+        QVERIFY2(!row->contains(row->mapFromScene(to)),
+                 "fixture: the bar is not lifted out of its row");
+
+        int outsideRowAndBar = 0;
+        const int steps = 40;
+        for (int i = 1; i <= steps; ++i) {
+            const QPointF p = from + (to - from) * (qreal(i) / steps);
+            QTest::mouseMove(d.window.get(), p.toPoint());
+            QTest::qWait(5);
+            if (!row->contains(row->mapFromScene(p))
+                    && !bar->contains(bar->mapFromScene(p)))
+                ++outsideRowAndBar;
+            QVERIFY2(view->property("hoveredActionsKey").toString() == key
+                         && bar->isVisible(),
+                     qPrintable(QStringLiteral(
+                         "the action bar vanished at step %1 of %2 on the "
+                         "straight path from the image to the bar")
+                         .arg(i).arg(steps)));
+        }
+        QVERIFY2(outsideRowAndBar > 0,
+                 "fixture: the path never left the row before reaching the bar");
+
+        QTest::mouseMove(d.window.get(), QPoint(5, 470));
+        QTRY_COMPARE(view->property("hoveredActionsKey").toString(), QString());
+    }
+
     static QRectF chipBand(QQuickItem *root)
     {
         QRectF acc;
