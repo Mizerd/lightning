@@ -140,7 +140,8 @@ void SpaceChannelModel::setOpenRoomId(const QString &roomId)
     const bool hadHold = m_hold.enabled();
     m_hold.release();
     m_hold.setOpenRoom(roomId, liveNow);
-    if (hadHold || keepImportantRoomsVisible())
+    m_unreadKeepId = m_filterMode == 3 ? roomId : QString();
+    if (hadHold || keepImportantRoomsVisible() || m_filterMode == 3)
         scheduleRebuild();
 }
 
@@ -362,6 +363,20 @@ void SpaceChannelModel::setFilterMode(int mode)
     if (m_filterMode == clamped)
         return;
     m_filterMode = clamped;
+    // Unreads keeps the open room once read, but must not pull in one that was read before the tab was entered.
+    m_unreadKeepId.clear();
+    if (clamped == 3 && m_client) {
+        for (const RoomInfo &info : m_client->rooms()) {
+            if (info.id != m_hold.openRoomId())
+                continue;
+            const int unreadMode = m_settings ? m_settings->roomUnreadPolicy(info.id)
+                                              : roomunread::kModeAllMessages;
+            if (roomunread::countsAsUnread(info, unreadMode)
+                || roomunread::mentionCount(info, unreadMode) > 0)
+                m_unreadKeepId = info.id;
+            break;
+        }
+    }
     Q_EMIT filterModeChanged();
     m_hold.release();
     rebuild();
@@ -738,7 +753,9 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
             continue;
         if (!room.isInvite
             && !filterAdmits(room.isDirect, room.hasUnread || room.unread > 0
-                                                || room.highlight > 0, room.favourite)) {
+                                                || room.highlight > 0
+                                                || room.id == m_unreadKeepId,
+                             room.favourite)) {
             continue;
         }
         room.depth = 1;

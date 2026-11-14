@@ -477,6 +477,45 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), QStringList{ kR2 });
     }
 
+    void channelsUnreadsDoesNotListAnAlreadyReadOpenRoom()
+    {
+        Channels c;
+        c.build(false);
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        c.model.setOpenRoomId(kR1);
+        c.settle();
+
+        c.model.setFilterMode(3);
+        c.settle();
+
+        QCOMPARE(roomIdsOf(c.model), QStringList{ kR2 });
+    }
+
+    void channelsUnreadsKeepsARoomOpenedThereAfterItIsRead()
+    {
+        Channels c;
+        c.build(false);
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        c.model.setFilterMode(3);
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), QStringList{ kR2 });
+
+        c.model.setOpenRoomId(kR2);
+        RoomInfo *r = c.client.find(kR2);
+        r->unreadCount = 0;
+        r->hasUnreadMessages = false;
+        c.client.announce();
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), QStringList{ kR2 });
+
+        c.model.setFilterMode(0);
+        c.model.setFilterMode(3);
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), QStringList());
+    }
+
     void classicSwitchingRoomsAppliesTheHeldOrder()
     {
         Classic c;

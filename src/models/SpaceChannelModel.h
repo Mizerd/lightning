@@ -221,6 +221,7 @@ private:
     SettingsManager *m_settings = nullptr;
 
     int m_filterMode = 0;
+    QString m_unreadKeepId;
     QString m_searchQuery;
     bool m_messageSearchSupported = false;
     /// The rail selection verbatim. `m_scopeSpaceId` is the Space it names, or
