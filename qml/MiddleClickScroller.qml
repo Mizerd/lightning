@@ -221,6 +221,9 @@ Item {
         anchors.fill: parent
         acceptedButtons: root.latched || root.swallowing
                          ? Qt.AllButtons : Qt.MiddleButton
+        // A MouseArea claims the arrow cursor by default, which would hide the
+        // I-beam and pointing hand of everything beneath the pane.
+        cursorShape: undefined
         hoverEnabled: root.latched
         // The gesture's own clicks and the exit click never reach a MouseArea
         // below (browsers suppress both).
