@@ -33,8 +33,12 @@ Item {
     property string cameraTrackKey: ""
     property string screenTrackKey: ""
     readonly property string activeTrackKey: root.mediaKind === "screen" ? root.screenTrackKey : root.cameraTrackKey
-    property string unsupportedCodec: root.local || root.activeTrackKey.length === 0
-        ? "" : app.groupCall.unsupportedVideoCodec(root.activeTrackKey)
+    property string unsupportedCodec: {
+        // Read so a backup codec published later re-evaluates this.
+        app.groupCall.participantCount
+        return root.local || root.activeTrackKey.length === 0
+            ? "" : app.groupCall.unsupportedVideoCodec(root.activeTrackKey)
+    }
     // Re-attach when the routing key arrives; an attach under an empty key
     // never receives a frame. Declared here rather than in a Connections inside
     // the Loader, because an `on…Changed` handler can't reach a property whose
