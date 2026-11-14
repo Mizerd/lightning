@@ -18,6 +18,8 @@ Item {
     property string ownerDisplayName: ""
     property string trackKey: ""
     property bool local: false
+    property string unsupportedCodec: root.local || root.trackKey.length === 0
+        ? "" : app.groupCall.unsupportedVideoCodec(root.trackKey)
 
     property bool compact: false
     property bool focused: false
@@ -133,18 +135,29 @@ Item {
             visible: !videoLoader.visible
             Icon {
                 Layout.alignment: Qt.AlignHCenter
+                // A compact tile has room for the reason or the glyph, not both.
+                visible: !(root.compact && root.unsupportedCodec.length > 0)
                 name: "screen_share"
                 size: root.compact ? 20 : 30
                 color: AppTheme.stormTextSecondary
             }
             Loader {
                 Layout.fillWidth: true
-                active: !root.compact && root._label.length > 0
+                active: root.unsupportedCodec.length > 0
+                        || (!root.compact && root._label.length > 0)
                 visible: active
                 sourceComponent: Text {
-                    text: qsTr("Waiting for the picture…")
+                    objectName: "callShareStatus"
+                    textFormat: Text.PlainText
+                    text: root.unsupportedCodec.length === 0
+                          ? qsTr("Waiting for the picture…")
+                          : (root.compact
+                             ? qsTr("%1 isn't supported by this build").arg(root.unsupportedCodec)
+                             : qsTr("Can't play this stream: %1 isn't supported by this build").arg(root.unsupportedCodec))
                     color: AppTheme.stormTextSecondary
-                    font.pixelSize: 12
+                    font.pixelSize: root.compact ? 11 : 12
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
                     elide: Text.ElideRight
                     horizontalAlignment: Text.AlignHCenter
                 }

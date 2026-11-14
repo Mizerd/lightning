@@ -19,6 +19,7 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include "calls/ReceiveVideoCodecs.h"
 #include "calls/StreamInfoStats.h"
 #include "calls/CaptureDeviceSelection.h"
 #include "calls/ShareAudioSources.h"
@@ -322,7 +323,12 @@ public:
                                        const QString &pulseClientName = QString(),
                                        const OutputSink *speaker = nullptr,
                                        bool echoProbe = false,
-                                       bool h264 = false);
+                                       const QString &videoCodec = QString());
+    /// What this runtime can decode, VP8 first; `encoding` empty or unknown
+    /// in receivableVideoCodec() means VP8.
+    static QList<lightning::calls::ReceiveVideoCodec> receivableVideoCodecs();
+    static lightning::calls::ReceiveVideoCodec receivableVideoCodec(
+        const QString &encoding);
     void refreshSpeakerSink(bool applyLive = false);
     void refreshMicrophoneCapture();
     OutputSink cachedSpeakerSink() const;
@@ -681,8 +687,9 @@ public:
     void setServerInjectedTrailer(const QByteArray &trailer);
     QByteArray serverInjectedTrailer() const;
     void installDecryptProbeForTest(GstPad *pad, bool video,
-                                    const QString &streamId)
-    { installDecryptProbe(pad, video, streamId); }
+                                    const QString &streamId,
+                                    const QString &videoCodec = QString())
+    { installDecryptProbe(pad, video, streamId, videoCodec); }
     void installEncryptProbeForTest(GstPad *pad, bool video)
     { installEncryptProbe(pad, video); }
     void setEncryptionRequired(bool required);
@@ -722,8 +729,7 @@ private:
     bool publishShareBackup(const QString &cid, GstElement *primary, bool glMemory);
     static QString offerForSfu(const QString &sdp, bool multiCodec);
     static QString offerIdentity(const QString &sdp);
-    static QString receivableVideoCaps(bool h264);
-    static QString videoDepayLossRecovery();
+    static QString receivableVideoCaps();
     static void installKeyframeRequestGate(
         GstPad *depaySink, std::shared_ptr<lightning::calls::StreamInfoStats> stats);
     static void enableVideoRetransmission(GstWebRTCRTPTransceiver *transceiver);
@@ -839,7 +845,7 @@ private:
     bool detachPendingStart(const QString &cid, GstElement *bin,
                             bool force = false);
     void installDecryptProbe(GstPad *pad, bool video, const QString &streamId,
-                             bool h264 = false,
+                             const QString &videoCodec = QString(),
                              std::shared_ptr<lightning::calls::StreamInfoStats> stats = {});
     void noteStreamIds(const QHash<int, QString> &byMline,
                        const QHash<int, QString> &midsByMline,
@@ -1017,12 +1023,12 @@ private:
                             const QString &mediaKind, GstElement **binOut,
                             QString *why,
                             const QString &pulseClientName = QString(),
-                            bool h264 = false);
+                            const QString &videoCodec = QString());
     bool prepareReceiveChain(GstElement *pipeline, const QString &streamId,
                              const QString &trackKey, const QString &mediaKind,
                              GstElement **binOut, QString *why,
                              const QString &pulseClientName = QString(),
-                             bool h264 = false);
+                             const QString &videoCodec = QString());
     /// The other half: start the bin and link it. May block on the device;
     /// touches no engine state.
     static bool startReceiveChain(GstPad *srcPad, GstElement *bin,

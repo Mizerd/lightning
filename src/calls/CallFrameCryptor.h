@@ -15,6 +15,7 @@ public:
         VideoKey,
         VideoDelta,
         VideoH264,
+        VideoWhole,
     };
 
     static int h264ClearBytes(const char *frame, qsizetype size);

@@ -57,6 +57,7 @@ int CallFrameCryptor::headerBytes(FrameKind kind)
     case FrameKind::VideoKey:   return 10;
     case FrameKind::VideoDelta: return 3;
     case FrameKind::VideoH264:  return 5;
+    case FrameKind::VideoWhole: return 0;
     }
     return 1;
 }

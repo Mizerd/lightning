@@ -608,6 +608,12 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
         .take(MAX_TRACKS_PER_PARTICIPANT)
         .filter_map(|track| {
             let sid = sane(&track.sid, 256)?;
+            let codecs: Vec<&str> = track.codecs.iter()
+                .map(|codec| codec.mime_type.as_str())
+                .chain(std::iter::once(track.mime_type.as_str()))
+                .filter_map(|mime| sane(mime, 64))
+                .take(8)
+                .collect();
             Some(json!({
                 "sid": sid,
                 "kind": if track.r#type == 1 { "video" } else { "audio" },
@@ -622,6 +628,7 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
                 "muted": track.muted,
                 "mid": sane(&track.mid, 128).unwrap_or_default(),
                 "stream": sane(&track.stream, 256).unwrap_or_default(),
+                "codecs": codecs,
             }))
         })
         .collect();
@@ -2326,6 +2333,45 @@ mod tests {
         assert_eq!(tracks[1]["mid"], json!("2"));
         assert_ne!(tracks[0]["mid"], tracks[1]["mid"]);
         assert_eq!(tracks[1]["stream"], json!(""));
+    }
+
+    #[test]
+    fn tracks_name_every_codec_they_are_published_in() {
+        let info = lkp::ParticipantInfo {
+            identity: "@a:x:DEVICE".to_owned(),
+            tracks: vec![
+                lkp::TrackInfo {
+                    sid: "TR_share".to_owned(),
+                    r#type: lkp::TrackType::Video as i32,
+                    mime_type: "video/AV1".to_owned(),
+                    codecs: vec![
+                        lkp::SimulcastCodecInfo {
+                            mime_type: "video/AV1".to_owned(), ..Default::default()
+                        },
+                        lkp::SimulcastCodecInfo {
+                            mime_type: "video/VP8".to_owned(), ..Default::default()
+                        },
+                        lkp::SimulcastCodecInfo {
+                            mime_type: "x".repeat(65), ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+                lkp::TrackInfo {
+                    sid: "TR_cam".to_owned(),
+                    r#type: lkp::TrackType::Video as i32,
+                    mime_type: "video/VP9".to_owned(),
+                    ..Default::default()
+                },
+                lkp::TrackInfo { sid: "TR_none".to_owned(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let value = participant_json(&info).expect("valid");
+        let tracks = value["tracks"].as_array().expect("tracks");
+        assert_eq!(tracks[0]["codecs"], json!(["video/AV1", "video/VP8", "video/AV1"]));
+        assert_eq!(tracks[1]["codecs"], json!(["video/VP9"]));
+        assert_eq!(tracks[2]["codecs"], json!([]));
     }
 
     #[test]
