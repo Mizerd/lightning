@@ -1125,13 +1125,11 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral(
             "                       : \"transparent\"")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property bool mentionHighlighted:\n"
+            "readonly property bool mentionBarVisible:\n"
             "                    model.roomMentionHighlighted === true\n"
             "                    || (model.mentionsMe === true\n"
             "                        && (model.pushHighlighted === true\n"
-            "                            || model.pushVerdictKnown !== true))\n"
-            "                readonly property bool mentionBarVisible:\n"
-            "                    !root.bubbleMode && mentionHighlighted\n")));
+            "                            || model.pushVerdictKnown !== true))\n")));
         QVERIFY(delegate.contains(QStringLiteral(
             "                    visible: bubble.mentionBarVisible\n")));
         QVERIFY(delegate.contains(QStringLiteral(

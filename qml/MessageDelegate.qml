@@ -1600,22 +1600,19 @@ Item {
                                 ? (model.isOwn === true ? 4 : 16) : radius
                 opacity: model.redacted ? 0.65 : 1.0
 
-                readonly property bool mentionHighlighted:
+                readonly property bool mentionBarVisible:
                     model.roomMentionHighlighted === true
                     || (model.mentionsMe === true
                         && (model.pushHighlighted === true
                             || model.pushVerdictKnown !== true))
-                readonly property bool mentionBarVisible:
-                    !root.bubbleMode && mentionHighlighted
-                border.color: AppTheme.bolt
-                border.width: root.bubbleMode && mentionHighlighted ? 2 : 0
                 Rectangle {
                     visible: bubble.mentionBarVisible
                     anchors.left: parent.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    anchors.topMargin: 1
-                    anchors.bottomMargin: 1
+                    anchors.leftMargin: root.bubbleMode ? 6 : 0
+                    anchors.topMargin: root.bubbleMode ? root.bubblePad : 1
+                    anchors.bottomMargin: root.bubbleMode ? root.bubblePad : 1
                     width: 3
                     radius: 1
                     color: AppTheme.bolt

@@ -272,15 +272,21 @@ private Q_SLOTS:
         QVERIFY(build(app, f, bubbles, kRowWidth, true));
         auto *bubbleLayout = findVisual(bubbles.root, QStringLiteral("messageContentColumn"));
         QVERIFY(bubbleLayout);
-        QVERIFY(!bubbleLayout->property("mentionBarVisible").toBool());
-        QCOMPARE(QQmlProperty::read(bubbleLayout, QStringLiteral("border.width")).toInt(), 2);
-
-        f.insert(QStringLiteral("mentionsMe"), false);
-        Delegate plain;
-        QVERIFY(build(app, f, plain));
-        auto *plainBubble = findVisual(plain.root, QStringLiteral("messageContentColumn"));
-        QVERIFY(plainBubble);
-        QCOMPARE(QQmlProperty::read(plainBubble, QStringLiteral("border.width")).toInt(), 0);
+        QVERIFY(bubbleLayout->property("mentionBarVisible").toBool());
+        QQuickItem *bar = nullptr;
+        for (QQuickItem *child : bubbleLayout->childItems())
+            if (child->isVisible() && qFuzzyCompare(child->width(), 3.0))
+                bar = child;
+        QVERIFY2(bar, "a highlighted mention has no edge bar in a bubble");
+        const qreal r = 16;
+        QVERIFY2(bar->x() >= 3 && bar->y() >= r / 2
+                     && bar->y() + bar->height() <= bubbleLayout->height() - r / 2,
+                 "the mention bar leaves the bubble's rounded corners");
+        auto *body = findVisual(bubbles.root, QStringLiteral("messageBody"));
+        QVERIFY(body);
+        QVERIFY2(body->mapToItem(bubbleLayout, QPointF(0, 0)).x()
+                     >= bar->x() + bar->width() + 2,
+                 "the mention bar touches the message text");
     }
 
     void bubbleScopeDecidesWhichRoomsGetBubbles_data()
