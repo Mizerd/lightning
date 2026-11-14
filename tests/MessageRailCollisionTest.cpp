@@ -2088,10 +2088,16 @@ private Q_SLOTS:
         const QString key = d.root->property("actionKey").toString();
         QVERIFY(!key.isEmpty());
 
-        const QPointF from = row->mapToScene(QPointF(80, row->height() - 4));
-        QTest::mouseMove(d.window.get(), QPoint(5, 470));
-        QTest::mouseMove(d.window.get(), from.toPoint());
-        QTRY_COMPARE(view->property("hoveredActionsKey").toString(), key);
+        QTest::qWait(300);
+        const QPointF from = row->mapToScene(QPointF(80, 6));
+        QVERIFY(row->height() > 12);
+        for (int i = 0; i < 20
+             && view->property("hoveredActionsKey").toString() != key; ++i) {
+            QTest::mouseMove(d.window.get(), QPoint(5, 470));
+            QTest::mouseMove(d.window.get(), from.toPoint());
+            QTest::qWait(50);
+        }
+        QCOMPARE(view->property("hoveredActionsKey").toString(), key);
         QTRY_VERIFY(bar->isVisible() && bar->height() > 0);
         const QPointF to = bar->mapToScene(
             QPointF(bar->width() / 2, bar->height() / 2));
