@@ -55,6 +55,7 @@ import QtQuick
 QtObject {
     property QtObject roomList: QtObject {
         property bool roomFavouritesSupported: true
+        function isRoomArchived(roomId) { return false }
     }
     property QtObject roomInfo: QtObject {
         property string roomId: ""
@@ -150,6 +151,7 @@ Item {
     bool fxBadges = true;
     bool fxCompact = false;
     int fxWidth = 300;
+    QString fxJoinRule;
 
     struct ClassicRow {
         QStringList warnings;
@@ -220,7 +222,8 @@ Item {
                           invitePending: false; inviter: "%6"; isFavourite: false
                           inviterUserId: "@bk010:x"
                           identityColorKey: "!r:x"; network: ""; networkLabel: "%8"
-                          category: "conversation"; memberCount: 3 }
+                          category: "conversation"; memberCount: 3
+                          joinRule: "%10" }
         }
         delegate: RoomDelegate { width: %9 }
     }
@@ -228,7 +231,7 @@ Item {
 )").arg(unread).arg(highlight).arg(kind)
          .arg(membership, direct ? QStringLiteral("true") : QStringLiteral("false"),
               inviter)
-         .arg(fxName, fxNetworkLabel).arg(fxWidth);
+         .arg(fxName, fxNetworkLabel).arg(fxWidth).arg(fxJoinRule);
         component.setData(source.toUtf8(),
                           QUrl(QStringLiteral("qrc:/classicrow.qml")));
         if (!component.errors().isEmpty()) {
@@ -632,6 +635,43 @@ private Q_SLOTS:
                           centre.toPoint());
         QCoreApplication::processEvents();
         QCOMPARE(row->property("clicks").toInt(), 1);
+    }
+
+    void theGlobeMarksOnlyAPublicRoomThatIsNotADm()
+    {
+        struct Case { QString rule; bool direct; bool globe; };
+        const QList<Case> cases{
+            { QStringLiteral("public"), false, true },
+            { QStringLiteral("public"), true, false },
+            { QString(), false, false },
+            { QStringLiteral("invite"), false, false },
+            { QStringLiteral("knock"), false, false },
+        };
+        for (const Case &c : cases) {
+            const QString tag = c.rule + (c.direct ? QStringLiteral(" dm") : QString());
+            fxJoinRule = c.rule;
+            ClassicRow row;
+            QVERIFY2(buildClassicRow(row, 0, 0, 0, QStringLiteral("joined"), c.direct),
+                     qPrintable(tag));
+            auto *badge = row.row->findChild<QQuickItem *>(QStringLiteral("roomPublicBadge"));
+            QVERIFY2(badge, qPrintable(tag));
+            QCOMPARE(badge->isVisible(), c.globe);
+
+            Harness h;
+            QVERIFY2(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "general"
+            isDirect: %1
+            joinRule: "%2"
+        })").arg(c.direct ? QStringLiteral("true") : QStringLiteral("false"), c.rule)),
+                     qPrintable(tag));
+            auto *corner = h.item()->findChild<QQuickItem *>(QStringLiteral("channelAvatarBadge"));
+            QVERIFY2(corner, qPrintable(tag));
+            QCOMPARE(corner->property("active").toBool(), c.globe);
+        }
+        fxJoinRule.clear();
     }
 
     void aChannelRowWithNoNameYetStillOccupiesItsRow()

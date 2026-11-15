@@ -2043,12 +2043,12 @@ void SettingsManager::setMessageLayout(int layout)
 int SettingsManager::roomFilterMode() const
 {
     const int stored = appearanceValue(kRoomFilterMode, 0).toInt();
-    return (stored < 0 || stored > 4) ? 0 : stored;
+    return (stored < 0 || stored > 5) ? 0 : stored;
 }
 
 void SettingsManager::setRoomFilterMode(int mode)
 {
-    if (mode < 0 || mode > 4)
+    if (mode < 0 || mode > 5)
         mode = 0;
     if (roomFilterMode() == mode)
         return;

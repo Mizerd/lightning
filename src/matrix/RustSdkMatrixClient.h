@@ -264,6 +264,7 @@ public:
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
     void setRoomLowPriority(const QString &roomId, bool lowPriority) override;
+    void setRoomArchived(const QString &roomId, bool archived) override;
     bool supportsMarkRoomRead() const override { return true; }
     void markRoomRead(const QString &roomId) override;
     bool supportsServerNotificationModes() const override { return true; }

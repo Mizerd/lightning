@@ -150,6 +150,19 @@ private Q_SLOTS:
                                QStringLiteral("!a:x"), QStringLiteral("!b:x") }));
     }
 
+    void aHiddenRoomKeepsItsSlotThroughAReorderOfTheShownOnes()
+    {
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        const QString space = QStringLiteral("!s:x");
+        const QString a = QStringLiteral("!a:x"), b = QStringLiteral("!b:x"),
+                      c = QStringLiteral("!c:x"), d = QStringLiteral("!d:x");
+        store.setRoomOrder(space, { a, b, c, d });
+        QCOMPARE(store.orderedRooms(space, { d, c, a }), (QStringList{ a, c, d }));
+        store.setVisibleRoomOrder(space, { d, c, a });
+        QCOMPARE(store.orderedRooms(space, { a, b, c, d }), (QStringList{ d, b, c, a }));
+    }
+
     void dragOrderIsKeptAndNewSpacesGoToTheEnd()
     {
         SettingsManager settings;

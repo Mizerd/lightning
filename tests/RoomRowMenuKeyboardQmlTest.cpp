@@ -74,6 +74,7 @@ import QtQuick
 QtObject {
     property QtObject roomList: QtObject {
         property bool roomFavouritesSupported: true
+        function isRoomArchived(roomId) { return false }
     }
     property QtObject backdrops: QtObject {}
     property bool serverRoomNotificationModes: false

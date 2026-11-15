@@ -11,6 +11,10 @@ QString userFacingError(const QString &action)
             "matrix::room_action",
             "Could not change this room's favourite status.");
     }
+    if (action == QLatin1String("archive")) {
+        return QCoreApplication::translate(
+            "matrix::room_action", "Could not archive or unarchive this room.");
+    }
     if (action == QLatin1String("mark_read")) {
         return QCoreApplication::translate(
             "matrix::room_action", "Could not mark this room as read.");

@@ -107,8 +107,9 @@ public:
     Q_INVOKABLE QStringList moderationScopeRoomIds(
         const QString &spaceId) const;
     Q_INVOKABLE bool roomInAnySpace(const QString &roomId) const;
+    // skipArchived: the rail's reveal lists what the room list lists; settings need every child.
     Q_INVOKABLE QVariantList directChildRoomsDetailed(
-        const QString &spaceId) const;
+        const QString &spaceId, bool skipArchived = false) const;
     QStringList directChildRoomIds(
         const QString &spaceId,
         const QHash<QString, RoomInfo> &byId) const;

@@ -29,6 +29,7 @@ constexpr int kFlagMentionInThreads = 8;
 constexpr int kFlagEncrypted = 16;
 constexpr int kFlagEncryptionKnown = 32;
 constexpr int kFlagLowerBound = 64;
+constexpr int kFlagArchived = 128;
 
 QString localpartOf(const QString &userId)
 {
@@ -230,8 +231,10 @@ void BackgroundSessionHost::recomputeSummary(bool force)
         const int mode = modeFor(room.id);
         if (!roomunread::countsAsUnread(room, mode))
             continue;
-        ++unreadRooms;
         unreadNow.insert(room.id);
+        if (it->flags & kFlagArchived)
+            continue;
+        ++unreadRooms;
         mentions += roomunread::mentionCount(room, mode);
         if (it->flags & kFlagLowerBound)
             lowerBound = true;

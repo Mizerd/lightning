@@ -1232,6 +1232,8 @@ void SettingsSessionTest::interfaceZoomAndRoomFilterPersistAndClamp()
         QCOMPARE(settings.roomFilterMode(), 0);
         settings.setRoomFilterMode(4);
         QCOMPARE(settings.roomFilterMode(), 4);
+        settings.setRoomFilterMode(5);
+        QCOMPARE(settings.roomFilterMode(), 5);
         settings.setRoomFilterMode(3);
         QVERIFY(settings.showBridgeBadges());
         QVERIFY(!settings.compactRoomList());

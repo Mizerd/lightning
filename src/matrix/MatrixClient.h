@@ -369,6 +369,11 @@ public:
         Q_UNUSED(roomId);
         Q_UNUSED(lowPriority);
     }
+    virtual void setRoomArchived(const QString &roomId, bool archived)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(archived);
+    }
     virtual bool supportsMarkRoomRead() const { return false; }
     virtual void markRoomRead(const QString &roomId) { Q_UNUSED(roomId); }
     virtual bool supportsServerNotificationModes() const { return false; }

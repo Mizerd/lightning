@@ -2758,6 +2758,17 @@ void MockMatrixClient::setRoomLowPriority(const QString &roomId, bool lowPriorit
     }
 }
 
+void MockMatrixClient::setRoomArchived(const QString &roomId, bool archived)
+{
+    for (RoomInfo &r : m_rooms) {
+        if (r.id != roomId || r.membership != RoomInfo::Joined || r.isArchived == archived)
+            continue;
+        r.isArchived = archived;
+        Q_EMIT roomsChanged();
+        return;
+    }
+}
+
 void MockMatrixClient::setState(ConnectionState s)
 {
     if (m_state == s)

@@ -82,6 +82,7 @@ struct RoomInfo {
     bool isSpace = false;
     bool isFavourite = false;
     bool lowPriority = false;
+    bool isArchived = false;
     bool isDirect = false;
     QString directUserId;
     QStringList directUserIds;
@@ -140,6 +141,7 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         // category.
         && a.isFavourite == b.isFavourite
         && a.lowPriority == b.lowPriority
+        && a.isArchived == b.isArchived
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
         && a.activeMemberCount == b.activeMemberCount

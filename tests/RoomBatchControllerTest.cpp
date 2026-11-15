@@ -46,6 +46,7 @@ public:
     QStringList readRequests;
     QStringList favouriteRequests;
     QStringList lowPriorityRequests;
+    QStringList archiveRequests;
     QStringList leaveRequests;
     bool supportsMarkRoomRead() const override { return true; }
     bool supportsRoomFavourites() const override { return true; }
@@ -53,6 +54,7 @@ public:
     void markRoomRead(const QString &id) override { readRequests.append(id); }
     void setRoomFavourite(const QString &id, bool) override { favouriteRequests.append(id); }
     void setRoomLowPriority(const QString &id, bool) override { lowPriorityRequests.append(id); }
+    void setRoomArchived(const QString &id, bool) override { archiveRequests.append(id); }
     quint64 leaveRoom(const QString &id) override { leaveRequests.append(id); return leaveRequests.size(); }
 };
 
@@ -159,6 +161,27 @@ private Q_SLOTS:
         batch.requestLeave(); batch.confirmLeave();
         QCOMPARE(client.leaveRequests, QStringList{QStringLiteral("!a:x")});
         emit client.roomLeaveFinished(1, QStringLiteral("!a:x"), false, QStringLiteral("forbidden"));
+        QCOMPARE(batch.failed(), 1);
+    }
+
+    void archiveWaitsForTheTagAndFailsOnRefusal()
+    {
+        BatchClient client;
+        client.rows = {room(QStringLiteral("!a:x")), room(QStringLiteral("!b:x"))};
+        RoomListModel rooms; rooms.setClient(&client);
+        RoomInfoController info; info.setClient(&client);
+        RoomBatchController batch;
+        batch.configure(&client, &rooms, &info, [](const QString &, int) {});
+        batch.setAccount(QStringLiteral("@alice:x"));
+        batch.select(QStringLiteral("!a:x"));
+        batch.select(QStringLiteral("!b:x"));
+        batch.run(QStringLiteral("archive"), 1);
+        QCOMPARE(client.archiveRequests, QStringList{QStringLiteral("!a:x")});
+        client.rows[0].isArchived = true;
+        emit client.roomUpdated(QStringLiteral("!a:x"));
+        QCOMPARE(batch.succeeded(), 1);
+        QTRY_COMPARE(client.archiveRequests.size(), 2);
+        Q_EMIT client.roomActionFailed(QStringLiteral("archive"), QStringLiteral("!b:x"));
         QCOMPARE(batch.failed(), 1);
     }
 

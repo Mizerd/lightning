@@ -75,6 +75,23 @@ AppMenu {
                                  : qsTr("Move to low priority")
         onTriggered: root.setLowPriority(!root.isLowPriority)
     }
+    AppMenuItem {
+        id: roomArchiveItem
+        objectName: "roomArchiveItem"
+        visible: app.roomList.roomFavouritesSupported && !root.isInvite
+        enabled: visible
+        // Read when the menu opens: a function call in a binding would not track the tag.
+        property bool archived: false
+        Connections {
+            target: root
+            function onAboutToShow() {
+                roomArchiveItem.archived = app.roomList.isRoomArchived(root.roomId)
+            }
+        }
+        iconName: archived ? "unarchive" : "archive"
+        text: archived ? qsTr("Unarchive") : qsTr("Archive")
+        onTriggered: app.roomList.setRoomArchived(root.roomId, !archived)
+    }
     AppMenuSeparator {
         visible: app.roomList.roomFavouritesSupported && !root.isInvite
     }

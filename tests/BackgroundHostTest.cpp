@@ -37,7 +37,7 @@ const QString kBob = QStringLiteral("@bob:example.org");
 const QString kHs = QStringLiteral("https://example.org");
 
 constexpr int kHasUnread = 1, kMarkedUnread = 2, kThreadsOnly = 4, kMentionInThreads = 8,
-              kEncrypted = 16, kEncryptionKnown = 32, kLowerBound = 64;
+              kEncrypted = 16, kEncryptionKnown = 32, kLowerBound = 64, kArchived = 128;
 
 struct Seen {
     int unreadRooms = -1;
@@ -95,6 +95,7 @@ private Q_SLOTS:
     void cleanup();
     void theSummaryIsTheForegroundRuleOverTheWholeCountsTable();
     void modesAreReadPerAccountNeverFromTheActiveOne();
+    void anArchivedRoomFeedsNoBackgroundBadge();
     void thePolicyCarriesTheDotSettingAndTheActiveAccountRulesOnly();
     void aBackgroundEventGetsItsOwnAccountsContext();
     void aLateForwardedDecryptionIsANewCandidate();
@@ -303,6 +304,20 @@ void BackgroundHostTest::thePolicyCarriesTheDotSettingAndTheActiveAccountRulesOn
              roomunread::kModeAllMessages | roomunread::kDotNever);
     m_settings->setUnreadDotMode(roomunread::kUnreadDotAll);
     QCOMPARE(m_settings->roomUnreadPolicy(loud), roomunread::kModeAllMessages);
+}
+
+void BackgroundHostTest::anArchivedRoomFeedsNoBackgroundBadge()
+{
+    auto alice = makeHost(kAlice, QStringLiteral("Alice"));
+    m_activity->setLiveState(kAlice, AccountActivityModel::Running);
+    const QJsonArray counts{
+        QJsonArray{QStringLiteral("!old:example.org"), 4, 1,
+                   kHasUnread | kEncryptionKnown | kArchived},
+        QJsonArray{QStringLiteral("!new:example.org"), 2, 0, kHasUnread | kEncryptionKnown}};
+    m_fake->setCounts(handleOf(*alice), counts, 0, true);
+    alice->drainOnce();
+    QCOMPARE(seenFor(*m_activity, kAlice).unreadRooms, 1);
+    QCOMPARE(seenFor(*m_activity, kAlice).mentions, 0);
 }
 
 void BackgroundHostTest::modesAreReadPerAccountNeverFromTheActiveOne()

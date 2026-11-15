@@ -5,6 +5,20 @@
 #include <QTimer>
 #include <utility>
 
+namespace {
+bool isTagAction(const QString &action)
+{
+    return action == QLatin1String("favourite") || action == QLatin1String("low_priority")
+           || action == QLatin1String("archive");
+}
+bool tagValue(const RoomInfo &room, const QString &action)
+{
+    if (action == QLatin1String("favourite")) return room.isFavourite;
+    if (action == QLatin1String("low_priority")) return room.lowPriority;
+    return room.isArchived;
+}
+}
+
 RoomBatchController::RoomBatchController(QObject *parent) : QObject(parent) {}
 bool RoomBatchController::markReadSupported() const { return m_client && m_client->supportsMarkRoomRead(); }
 
@@ -26,12 +40,9 @@ void RoomBatchController::configure(MatrixClient *client, RoomListModel *rooms,
         if (m_action == QLatin1String("read")) finish(id, false);
     });
     const auto checkTag = [this] {
-        if (m_active.isEmpty() || (m_action != QLatin1String("favourite")
-                                   && m_action != QLatin1String("low_priority"))) return;
+        if (m_active.isEmpty() || !isTagAction(m_action)) return;
         for (const auto &room : m_client->rooms())
-            if (room.id == m_active
-                && (m_action == QLatin1String("favourite")
-                    ? room.isFavourite : room.lowPriority) == (m_mode == 1)) {
+            if (room.id == m_active && tagValue(room, m_action) == (m_mode == 1)) {
                 const QString id = m_active;
                 finish(id, true);
                 return;
@@ -132,10 +143,9 @@ QVariantList RoomBatchController::outcomes() const
 void RoomBatchController::run(const QString &action, int mode)
 {
     if (busy() || m_confirmLeave || m_account.isEmpty() || m_order.isEmpty()) return;
-    if (action != QLatin1String("read") && action != QLatin1String("favourite")
-        && action != QLatin1String("low_priority")
+    if (action != QLatin1String("read") && !isTagAction(action)
         && action != QLatin1String("notification")) return;
-    if (((action == QLatin1String("favourite") || action == QLatin1String("low_priority"))
+    if ((isTagAction(action)
          && (!m_client->supportsRoomFavourites() || (mode != 0 && mode != 1)))
         || (action == QLatin1String("read") && !m_client->supportsMarkRoomRead())
         || (action == QLatin1String("notification") && (mode < 0 || mode > 3))) return;
@@ -182,17 +192,14 @@ void RoomBatchController::advance()
     m_active = m_queue.takeFirst();
     const auto id = m_active;
     if (!validRoom(id)) { finish(id, false); return; }
-    if (m_action == QLatin1String("favourite") || m_action == QLatin1String("low_priority")) {
+    if (isTagAction(m_action)) {
         for (const auto &room : m_client->rooms())
-            if (room.id == id
-                && (m_action == QLatin1String("favourite")
-                    ? room.isFavourite : room.lowPriority) == (m_mode == 1)) {
+            if (room.id == id && tagValue(room, m_action) == (m_mode == 1)) {
                 finish(id, true);
                 return;
             }
     }
-    if (m_action == QLatin1String("favourite")
-        || m_action == QLatin1String("low_priority")) {
+    if (isTagAction(m_action)) {
         const auto generation = m_generation;
         const QString action = m_action;
         m_tagFailureConnection = connect(m_client, &MatrixClient::roomActionFailed,
@@ -206,6 +213,7 @@ void RoomBatchController::advance()
     if (m_action == QLatin1String("read")) m_rooms->markRoomRead(id);
     else if (m_action == QLatin1String("favourite")) m_rooms->setRoomFavourite(id, m_mode == 1);
     else if (m_action == QLatin1String("low_priority")) m_rooms->setRoomLowPriority(id, m_mode == 1);
+    else if (m_action == QLatin1String("archive")) m_rooms->setRoomArchived(id, m_mode == 1);
     else if (m_action == QLatin1String("notification")) {
         m_notificationWrite(id, m_mode);
         if (!m_client->supportsServerNotificationModes() && m_notificationRead

@@ -987,6 +987,10 @@ import QtQuick
 QtObject {
     property QtObject roomList: QtObject {
         property bool roomFavouritesSupported: true
+        property bool archived: false
+        property string archiveRequest: ""
+        function isRoomArchived(roomId) { return archived }
+        function setRoomArchived(roomId, on) { archiveRequest = roomId + (on ? " on" : " off") }
     }
     property QtObject backdrops: QtObject {}
     property bool serverRoomNotificationModes: false
@@ -1077,6 +1081,25 @@ ApplicationWindow {
             }
         }
 
+        QObject *fakeRooms = fake->property("roomList").value<QObject *>();
+        auto *archive = scene->findChild<QQuickItem *>(QStringLiteral("roomArchiveItem"));
+        QVERIFY(fakeRooms && archive);
+        for (bool archived : {false, true}) {
+            QMetaObject::invokeMethod(menu, "close");
+            QTRY_VERIFY(!menu->property("opened").toBool());
+            fakeRooms->setProperty("archived", archived);
+            QMetaObject::invokeMethod(scene.data(), "openIt");
+            QTRY_VERIFY(menu->property("opened").toBool());
+            QCOMPARE(archive->property("text").toString(),
+                     archived ? QStringLiteral("Unarchive") : QStringLiteral("Archive"));
+            QMetaObject::invokeMethod(archive, "triggered");
+            QCOMPARE(fakeRooms->property("archiveRequest").toString(),
+                     archived ? QStringLiteral("!room:example.org off")
+                              : QStringLiteral("!room:example.org on"));
+        }
+        QMetaObject::invokeMethod(scene.data(), "openIt");
+        QTRY_VERIFY(menu->property("opened").toBool());
+
         auto *markRead = scene->findChild<QQuickItem *>(QStringLiteral("roomMarkReadItem"));
         auto *select = scene->findChild<QQuickItem *>(QStringLiteral("roomSelectItem"));
         QVERIFY(markRead);
@@ -1098,6 +1121,7 @@ import QtQuick
 QtObject {
     property QtObject roomList: QtObject {
         property bool roomFavouritesSupported: true
+        function isRoomArchived(roomId) { return false }
     }
     property bool serverRoomNotificationModes: false
     property QtObject settings: QtObject {

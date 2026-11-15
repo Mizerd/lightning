@@ -551,10 +551,13 @@ Rectangle {
                     for (let i = 0; i < filterChips.children.length; ++i) {
                         const c = filterChips.children[i]
                         if (c.selected === true) {
-                            if (c.x < contentX)
-                                contentX = c.x
-                            else if (c.x + c.width > contentX + width)
-                                contentX = c.x + c.width - width
+                            // Clear the overflow arrows too, or they cover the chip's edge.
+                            const edge = AppTheme.spacing24
+                            if (c.x - edge < contentX)
+                                contentX = Math.max(0, c.x - edge)
+                            else if (c.x + c.width + edge > contentX + width)
+                                contentX = Math.min(Math.max(0, contentWidth - width),
+                                                    c.x + c.width + edge - width)
                             return
                         }
                     }
@@ -562,7 +565,7 @@ Rectangle {
                 function showStart() {
                     contentX = app.localization.rightToLeft
                              ? Math.max(0, contentWidth - width) : 0
-                    revealSelected()
+                    Qt.callLater(revealSelected)
                 }
                 onWidthChanged: showStart()
                 onContentWidthChanged: showStart()
@@ -598,9 +601,25 @@ Rectangle {
                     && app.spaceChannels.viewKind === "home"
                 readonly property string allTip: roomListSortMenu.groupingText
                                                  + " " + roomListSortMenu.sortText
+                readonly property int archivedCount: channelsLayout
+                    ? app.spaceChannels.archivedCount
+                    : app.roomList.archivedCount
+                readonly property int archivedUnread: channelsLayout
+                    ? app.spaceChannels.archivedUnreadCount
+                    : app.roomList.archivedUnreadCount
+                readonly property bool archivedShown:
+                    archivedCount > 0 || current === 5
+                readonly property var archivedChip: ({
+                    label: qsTr("Archived (%1)").arg(archivedCount)
+                           + (archivedUnread > 0 ? " \u2022" : ""),
+                    value: 5,
+                    tip: archivedUnread > 0
+                         ? qsTr("%n archived chat(s) with unread messages", "", archivedUnread)
+                         : qsTr("Archived chats stay joined and keep notifying as usual")
+                })
                 readonly property int channelsFilterMode: {
                     const stored = app.settings.roomFilterMode
-                    if (stored === 3 || stored === 4)
+                    if (stored === 3 || stored === 4 || stored === 5)
                         return stored
                     if (stored === 1 && (filterChips.spaceView || filterChips.homeView))
                         return 1
@@ -611,15 +630,18 @@ Rectangle {
                           ? [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
                               { label: qsTr("People"), value: 1 },
                               { label: qsTr("Favourites"), value: 4 },
-                              { label: qsTr("Unreads"), value: 3 } ]
+                              { label: qsTr("Unreads"), value: 3 } ].concat(
+                              filterChips.archivedShown ? [ filterChips.archivedChip ] : [])
                           : [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
                               { label: qsTr("Favourites"), value: 4 },
-                              { label: qsTr("Unreads"), value: 3 } ])
+                              { label: qsTr("Unreads"), value: 3 } ].concat(
+                              filterChips.archivedShown ? [ filterChips.archivedChip ] : []))
                        : [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
                            { label: qsTr("People"), value: 1 },
                            { label: qsTr("Rooms"), value: 2 },
                            { label: qsTr("Favourites"), value: 4 },
-                           { label: qsTr("Unreads"), value: 3 } ]
+                           { label: qsTr("Unreads"), value: 3 } ].concat(
+                           filterChips.archivedShown ? [ filterChips.archivedChip ] : [])
                 current: channelsLayout
                          ? filterChips.channelsFilterMode
                          : app.settings.roomFilterMode
@@ -892,6 +914,8 @@ Rectangle {
                             AppButton { text: qsTr("Unfavourite"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("favourite", 0) }
                             AppButton { text: qsTr("Low priority"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("low_priority", 1) }
                             AppButton { text: qsTr("Remove low priority"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("low_priority", 0) }
+                            AppButton { text: qsTr("Archive"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("archive", 1) }
+                            AppButton { text: qsTr("Unarchive"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("archive", 0) }
                             AppButton { text: qsTr("Notify all"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 0) }
                             AppButton { text: qsTr("Mentions"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 1) }
                             AppButton { text: qsTr("Mute"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 2) }
@@ -1084,6 +1108,18 @@ Rectangle {
             ToolTip.visible: hovered
             onClicked: app.settings.roomFilterMode =
                        app.settings.roomFilterMode === 3 ? 0 : 3
+        }
+        IconButton {
+            objectName: "compactRoomListArchived"
+            Layout.alignment: Qt.AlignHCenter
+            visible: filterChips.archivedShown
+            active: app.settings.roomFilterMode === 5
+            iconName: "archive"
+            Accessible.name: active ? qsTr("Show all rooms")
+                                    : filterChips.archivedChip.label
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered
+            onClicked: app.settings.roomFilterMode = active ? 0 : 5
         }
         Rectangle {
             Layout.fillWidth: true

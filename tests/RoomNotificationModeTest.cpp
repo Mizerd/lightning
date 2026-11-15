@@ -199,6 +199,44 @@ private Q_SLOTS:
 #endif
     }
 
+    void aConfirmedArchiveMovesTheRoomUnderArchived()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The tag confirmation comes from the Rust backend.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        const QString tagged = QStringLiteral("!archived:example.org");
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("rooms")},
+            {QStringLiteral("rooms"), QJsonArray{
+                QJsonObject{{QStringLiteral("id"), tagged},
+                            {QStringLiteral("name"), QStringLiteral("Old")},
+                            {QStringLiteral("last_activity_ms"), 2000000000000.0},
+                            {QStringLiteral("membership"), QStringLiteral("joined")}}}}});
+        auto *classic = app.roomList();
+        auto *channels = app.spaceChannels();
+        QVERIFY(classic && channels);
+        QTRY_COMPARE(classic->rowCount(), 1);
+        QVERIFY(!classic->isRoomArchived(tagged));
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("room_tag_confirmed")},
+            {QStringLiteral("room_id"), tagged},
+            {QStringLiteral("archived"), true}});
+        QTRY_VERIFY(classic->isRoomArchived(tagged));
+        QTRY_COMPARE(classic->rowCount(), 0);
+        QTRY_VERIFY(channels->rowForRoom(tagged) < 0);
+        QCOMPARE(classic->archivedCount(), 1);
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("room_tag_confirmed")},
+            {QStringLiteral("room_id"), tagged},
+            {QStringLiteral("archived"), false}});
+        QTRY_COMPARE(classic->rowCount(), 1);
+        QVERIFY(!classic->isRoomArchived(tagged));
+#endif
+    }
+
     void entryPointRejectsInvalidInput()
     {
         AppController app(AppController::MockBackend);

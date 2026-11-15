@@ -58,6 +58,7 @@ Item {
         case 2:  return qsTr("Rooms")
         case 3:  return qsTr("Unread")
         case 4:  return qsTr("Favourites")
+        case 5:  return qsTr("Archived")
         default: return qsTr("Conversations")
         }
     }
@@ -308,6 +309,8 @@ Item {
                         return qsTr("Nothing unread");
                     if (app.roomList.filterMode === 4)
                         return qsTr("No favourites yet");
+                    if (app.roomList.filterMode === 5)
+                        return qsTr("No archived chats");
                     return roomListEmptyState.inSpace ? qsTr("This Space is empty") : qsTr("No conversations yet");
                 }
             }

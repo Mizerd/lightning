@@ -33,6 +33,10 @@ class RoomListModel : public QAbstractListModel
                    NOTIFY unreadTotalsChanged)
     Q_PROPERTY(int highlightRoomCount READ highlightRoomCount
                    NOTIFY unreadTotalsChanged)
+    // Archived rooms in the current scope, and how many of them are unread.
+    Q_PROPERTY(int archivedCount READ archivedCount NOTIFY unreadTotalsChanged)
+    Q_PROPERTY(int archivedUnreadCount READ archivedUnreadCount
+                   NOTIFY unreadTotalsChanged)
     Q_PROPERTY(bool deferReordering READ deferReordering
                    WRITE setDeferReordering NOTIFY deferReorderingChanged)
     Q_PROPERTY(bool orderHeld READ orderHeld NOTIFY orderHeldChanged)
@@ -71,6 +75,7 @@ public:
         NetworkLabelRole,
         ThreadUnreadKindRole,
         RawUnreadRole,
+        JoinRuleRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);
@@ -110,6 +115,9 @@ public:
     Q_INVOKABLE bool isRoomFavourite(const QString &roomId) const;
     Q_INVOKABLE void setRoomFavourite(const QString &roomId, bool favourite);
     Q_INVOKABLE void setRoomLowPriority(const QString &roomId, bool lowPriority);
+    Q_INVOKABLE bool isRoomArchived(const QString &roomId) const;
+    Q_INVOKABLE void setRoomArchived(const QString &roomId, bool archived);
+    static constexpr int kArchivedFilter = 5;
     Q_INVOKABLE static QString roomPermalink(const QString &roomId,
                                              const QString &canonicalAlias = QString());
     QString searchQuery() const { return m_searchQuery; }
@@ -136,6 +144,8 @@ public:
     QString favouritesBoundaryRoomId() const { return m_favouritesBoundaryRoomId; }
     int unreadRoomCount() const { return m_unreadRoomCount; }
     int highlightRoomCount() const { return m_highlightRoomCount; }
+    int archivedUnreadCount() const { return m_archivedUnreadCount; }
+    int archivedCount() const { return m_archivedCount; }
     // The one classification: the section string and the sort read the same
     // function, so a category is never split across two runs.
     static int orderRankOf(const RoomInfo &room);
@@ -178,6 +188,8 @@ private:
     QString m_favouritesBoundaryRoomId;
     int m_unreadRoomCount = 0;
     int m_highlightRoomCount = 0;
+    int m_archivedUnreadCount = 0;
+    int m_archivedCount = 0;
     void updateUnreadTotals();
     int notificationModeOf(const QString &roomId) const;
     int shownUnread(const RoomInfo &room) const;

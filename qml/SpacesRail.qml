@@ -149,7 +149,7 @@ Rectangle {
         void spacesRevision
         if (!app.spaces || !spaceId || spaceId.charAt(0) !== "!")
             return []
-        var rooms = app.spaces.directChildRoomsDetailed(spaceId)
+        var rooms = app.spaces.directChildRoomsDetailed(spaceId, true)
         var sortMode = app.settings ? app.settings.railSort : 0
         if (sortMode === 1) {
             rooms.sort(function(a, b) {
@@ -632,7 +632,7 @@ Rectangle {
                     var ids = []
                     for (var i = 0; i < list.length; ++i)
                         ids.push(list[i].roomId)
-                    app.railLayout.setRoomOrder(spaceItem.spaceId, ids)
+                    app.railLayout.setVisibleRoomOrder(spaceItem.spaceId, ids)
                 }
 
                 activeFocusOnTab: true

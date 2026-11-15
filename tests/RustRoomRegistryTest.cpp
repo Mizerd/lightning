@@ -446,6 +446,21 @@ private Q_SLOTS:
         QVERIFY(!map.value(roomId(0)).lowPriority);
     }
 
+    void theArchivedTagFollowsThePayload()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonObject tagged = roomJson(roomId(0));
+        tagged.insert(QStringLiteral("is_archived"), true);
+        applyIndexReset(registry, QJsonArray{ tagged });
+        QVERIFY(map.value(roomId(0)).isArchived);
+
+        applySnapshot(registry, QJsonArray{ roomJson(roomId(0)) });
+        QVERIFY(!map.value(roomId(0)).isArchived);
+    }
+
     void theActiveMemberCountReachesTheRoom()
     {
         QHash<QString, RoomInfo> map;

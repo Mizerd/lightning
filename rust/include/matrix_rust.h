@@ -222,6 +222,9 @@ char *mx_rust_set_room_favourite(void *client, const char *room_id,
  * m.favourite; success re-emits rooms and failure reports room_action_error. */
 char *mx_rust_set_room_low_priority(void *client, const char *room_id,
                                     int low_priority);
+/* Add or remove Lightning's org.lightning_matrix.archived tag. Success answers
+ * room_tag_confirmed with "archived"; failure room_action_error, action="archive". */
+char *mx_rust_set_room_archived(void *client, const char *room_id, int archived);
 /* Send attachment bytes to a room whose live timeline is NOT open — the
  * forwarding path. Routes through Room::send_attachment; the SDK still
  * encrypts for the target room when that room is encrypted. Answers on

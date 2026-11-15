@@ -1,6 +1,10 @@
 
+use std::collections::HashMap;
 use std::future::Future;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+
+use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId, RoomId, UserId};
 
 use serde_json::{json, Value};
 
@@ -83,6 +87,143 @@ pub(crate) async fn set_low_priority(
     .await
 }
 
+// Reverse-DNS: `m.*` is reserved, and other clients ignore a tag they do not know.
+pub(crate) const ARCHIVED_TAG: &str = "org.lightning_matrix.archived";
+
+pub(crate) fn tags_mark_archived(tags: Option<&matrix_sdk::ruma::events::tag::Tags>) -> bool {
+    tags.is_some_and(|tags| tags.contains_key(&ARCHIVED_TAG.into()))
+}
+
+type ArchivedCache = HashMap<OwnedUserId, HashMap<OwnedRoomId, bool>>;
+
+// Every room payload asks, so the answer is kept in memory instead of re-reading
+// the tag from the store each time.
+fn archived_cache() -> &'static Mutex<ArchivedCache> {
+    static CACHE: OnceLock<Mutex<ArchivedCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_archived(user: &UserId, room: &RoomId) -> Option<bool> {
+    let cache = archived_cache().lock().unwrap_or_else(|e| e.into_inner());
+    cache.get(user).and_then(|rooms| rooms.get(room)).copied()
+}
+
+/// `overwrite` is false for a store read, which must not undo a newer tag event.
+fn remember_archived(user: &UserId, room: &RoomId, archived: bool, overwrite: bool) {
+    let mut cache = archived_cache().lock().unwrap_or_else(|e| e.into_inner());
+    let rooms = cache.entry(user.to_owned()).or_default();
+    if overwrite {
+        rooms.insert(room.to_owned(), archived);
+    } else {
+        rooms.entry(room.to_owned()).or_insert(archived);
+    }
+}
+
+pub(crate) fn forget_archived_account(user: &UserId) {
+    archived_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(user);
+}
+
+pub(crate) async fn is_archived(room: &matrix_sdk::Room) -> bool {
+    if let Some(archived) = cached_archived(room.own_user_id(), room.room_id()) {
+        return archived;
+    }
+    let archived = tags_mark_archived(room.tags().await.ok().flatten().as_ref());
+    remember_archived(room.own_user_id(), room.room_id(), archived, false);
+    cached_archived(room.own_user_id(), room.room_id()).unwrap_or(archived)
+}
+
+/// The cached answer only, for callers that cannot wait on the store.
+pub(crate) fn archived_known(room: &matrix_sdk::Room) -> bool {
+    cached_archived(room.own_user_id(), room.room_id()).unwrap_or(false)
+}
+
+pub(crate) async fn load_archived(client: &matrix_sdk::Client) {
+    for room in client.joined_rooms() {
+        is_archived(&room).await;
+    }
+}
+
+pub(crate) fn note_archived(room: &matrix_sdk::Room, archived: bool) {
+    remember_archived(room.own_user_id(), room.room_id(), archived, true);
+}
+
+/// Keeps the cache in step with tags written by any device, and tells the UI.
+pub(crate) fn install_archived_handler(
+    client: &matrix_sdk::Client,
+    events: Option<crate::EventQueueRef>,
+) {
+    client.add_event_handler(
+        move |ev: matrix_sdk::ruma::events::tag::TagEvent, room: matrix_sdk::Room| {
+            let events = events.clone();
+            async move {
+                let Some(archived) =
+                    on_tag_event(&room, tags_mark_archived(Some(&ev.content.tags)))
+                else {
+                    return;
+                };
+                if let Some(events) = events {
+                    crate::enqueue(&events, json!({
+                        "type": "room_tag_confirmed",
+                        "room_id": room.room_id().to_string(),
+                        "archived": archived,
+                    }));
+                }
+            }
+        },
+    );
+}
+
+/// The archived state to show for a synced tag event, or None when nothing changed.
+fn on_tag_event(room: &matrix_sdk::Room, archived: bool) -> Option<bool> {
+    tag_event_changes(room.own_user_id(), room.room_id(), archived).then_some(archived)
+}
+
+/// Whether a synced tag event changes what the UI shows. An untagged room is the
+/// default, so a cold cache meeting `false` (every favourite at sign-in) is no change.
+fn tag_event_changes(user: &UserId, room: &RoomId, archived: bool) -> bool {
+    let cached = cached_archived(user, room);
+    let changed = cached.unwrap_or(false) != archived;
+    if changed || cached.is_none() {
+        remember_archived(user, room, archived, true);
+    }
+    changed
+}
+
+fn remove_tag_in_background(room: &matrix_sdk::Room) {
+    note_archived(room, false);
+    let room = room.clone();
+    tokio::spawn(async move {
+        let _ = room.remove_tag(ARCHIVED_TAG.into()).await;
+    });
+}
+
+/// A room the user just joined should be visible, even if an old tag says archived.
+/// Only a tag this device already knows is cleared; the request never holds up the join.
+pub(crate) async fn unarchive_after_join(room: &matrix_sdk::Room) {
+    if is_archived(room).await {
+        remove_tag_in_background(room);
+    }
+}
+
+pub(crate) async fn set_archived(
+    room: &matrix_sdk::Room,
+    archived: bool,
+    delays: &[Duration],
+) -> (matrix_sdk::Result<()>, u32) {
+    with_transport_retry(delays, || {
+        let room = room.clone();
+        async move {
+            if archived {
+                room.set_tag(ARCHIVED_TAG.into(), matrix_sdk::ruma::events::tag::TagInfo::new()).await?;
+            } else {
+                room.remove_tag(ARCHIVED_TAG.into()).await?;
+            }
+            Ok(())
+        }
+    })
+    .await
+}
+
 pub(crate) async fn set_unread_flag(
     room: &matrix_sdk::Room,
     unread: bool,
@@ -98,6 +239,19 @@ pub(crate) async fn set_unread_flag(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_lightning_tag_marks_a_room_archived() {
+        use matrix_sdk::ruma::events::tag::{TagInfo, TagName, Tags};
+        assert!(!tags_mark_archived(None));
+        let mut tags = Tags::new();
+        tags.insert(TagName::Favorite, TagInfo::new());
+        tags.insert(TagName::from("u.archived"), TagInfo::new());
+        assert!(!tags_mark_archived(Some(&tags)));
+        tags.insert(TagName::from(ARCHIVED_TAG), TagInfo::new());
+        assert!(tags_mark_archived(Some(&tags)));
+        assert_eq!(TagName::from(ARCHIVED_TAG).to_string(), ARCHIVED_TAG);
+    }
 
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -203,7 +357,102 @@ mod tests {
         (format!("http://{}:{}", addr.ip(), addr.port()), tag_requests)
     }
 
+    fn serve_recording() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&lines);
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let seen = Arc::clone(&seen);
+                thread::spawn(move || {
+                    let line = read_request_line(&mut stream);
+                    if line.contains("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK", r#"{"versions":["v1.1","v1.11"]}"#);
+                        return;
+                    }
+                    seen.lock().unwrap().push(line);
+                    respond(&mut stream, "200 OK", "{}");
+                });
+            }
+        });
+        (format!("http://{}:{}", addr.ip(), addr.port()), lines)
+    }
+
+    #[tokio::test]
+    async fn archiving_puts_and_unarchiving_deletes_the_lightning_tag() {
+        let (homeserver, lines) = serve_recording();
+        let (_client, room) = client_with_room(&homeserver).await;
+
+        let (on, _) = tokio::time::timeout(BOUND, set_archived(&room, true, &FAST))
+            .await.expect("bounded");
+        let (off, _) = tokio::time::timeout(BOUND, set_archived(&room, false, &FAST))
+            .await.expect("bounded");
+        assert!(on.is_ok() && off.is_ok(), "{on:?} {off:?}");
+
+        let tag_lines: Vec<String> = lines.lock().unwrap().iter()
+            .filter(|line| line.contains("/tags/")).cloned().collect();
+        assert_eq!(tag_lines.len(), 2, "{tag_lines:?}");
+        let suffix = format!("/tags/{ARCHIVED_TAG}");
+        assert!(tag_lines[0].starts_with("PUT ") && tag_lines[0].contains(&suffix), "{}", tag_lines[0]);
+        assert!(tag_lines[1].starts_with("DELETE ") && tag_lines[1].contains(&suffix), "{}", tag_lines[1]);
+    }
+
+    #[test]
+    fn untagged_rooms_at_sign_in_change_nothing() {
+        let user = OwnedUserId::try_from("@cold-cache:example.org").expect("user");
+        forget_archived_account(&user);
+        for i in 0..50 {
+            let room = OwnedRoomId::try_from(format!("!fav{i}:example.org")).expect("room");
+            assert!(!tag_event_changes(&user, &room, false), "room {i} was reported");
+            assert!(!tag_event_changes(&user, &room, false), "room {i} repeated");
+        }
+        let room = OwnedRoomId::try_from("!old:example.org").expect("room");
+        assert!(tag_event_changes(&user, &room, true));
+        assert!(!tag_event_changes(&user, &room, true));
+        assert!(tag_event_changes(&user, &room, false));
+        forget_archived_account(&user);
+    }
+
+    #[tokio::test]
+    async fn archiving_right_after_a_join_stays_archived() {
+        let (homeserver, lines) = serve_recording();
+        let (_client, room) = client_with_room_for(&homeserver, "@join-archive:example.org").await;
+        forget_archived_account(room.own_user_id());
+        tokio::time::timeout(Duration::from_millis(500), unarchive_after_join(&room))
+            .await
+            .expect("a join is not held up");
+        let (result, _) = tokio::time::timeout(BOUND, set_archived(&room, true, &FAST))
+            .await.expect("bounded");
+        assert!(result.is_ok(), "{result:?}");
+        note_archived(&room, true);
+        assert_eq!(on_tag_event(&room, true), None, "our own echo is no change");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let deletes: Vec<String> = lines.lock().unwrap().iter()
+            .filter(|line| line.starts_with("DELETE ")).cloned().collect();
+        assert!(deletes.is_empty(), "{deletes:?}");
+        assert!(is_archived(&room).await);
+        forget_archived_account(room.own_user_id());
+    }
+
+    #[tokio::test]
+    async fn a_store_read_never_undoes_a_newer_tag_event() {
+        let (homeserver, _lines) = serve_recording();
+        let (_client, room) = client_with_room_for(&homeserver, "@cache-order:example.org").await;
+        forget_archived_account(room.own_user_id());
+        note_archived(&room, true);
+        remember_archived(room.own_user_id(), room.room_id(), false, false);
+        assert!(is_archived(&room).await);
+        forget_archived_account(room.own_user_id());
+        assert!(!is_archived(&room).await, "the store has no tag for this room");
+    }
+
     async fn client_with_room(homeserver: &str) -> (Client, matrix_sdk::Room) {
+        client_with_room_for(homeserver, "@me:example.org").await
+    }
+
+    async fn client_with_room_for(homeserver: &str, user: &str) -> (Client, matrix_sdk::Room) {
         let client = Client::builder()
             .homeserver_url(homeserver)
             .handle_refresh_tokens()
@@ -212,7 +461,7 @@ mod tests {
             .expect("client");
         let session = MatrixSession {
             meta: SessionMeta {
-                user_id: OwnedUserId::try_from("@me:example.org").expect("user id"),
+                user_id: OwnedUserId::try_from(user).expect("user id"),
                 device_id: OwnedDeviceId::from("TESTDEVICE"),
             },
             tokens: SessionTokens { access_token: "access-0".to_owned(), refresh_token: None },
@@ -234,6 +483,87 @@ mod tests {
     }
 
     const BOUND: Duration = Duration::from_secs(20);
+
+    /// Timing only: `cargo test --release room_payload_cost -- --ignored --nocapture`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn room_payload_cost_with_and_without_the_archived_cache() {
+        const ROOMS: usize = 2000;
+        let (homeserver, _lines) = serve_recording();
+        let store = std::env::temp_dir()
+            .join(format!("lightning-archived-bench-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&store);
+        let client = Client::builder()
+            .homeserver_url(&homeserver)
+            .sqlite_store(&store, None)
+            .build()
+            .await
+            .expect("client");
+        client
+            .matrix_auth()
+            .restore_session(
+                MatrixSession {
+                    meta: SessionMeta {
+                        user_id: OwnedUserId::try_from("@bench:example.org").expect("user"),
+                        device_id: OwnedDeviceId::from("BENCH"),
+                    },
+                    tokens: SessionTokens { access_token: "a".to_owned(), refresh_token: None },
+                },
+                RoomLoadSettings::default(),
+            )
+            .await
+            .expect("restore");
+        let mut response = v5::Response::new("pos-1".to_owned());
+        for i in 0..ROOMS {
+            let id = matrix_sdk::ruma::OwnedRoomId::try_from(format!("!r{i}:example.org"))
+                .expect("room id");
+            response.rooms.insert(id.clone(), v5::response::Room::default());
+            let tag = if i % 10 == 0 { ARCHIVED_TAG } else { "u.other" };
+            let raw = matrix_sdk::ruma::serde::Raw::from_json_string(format!(
+                r#"{{"type":"m.tag","content":{{"tags":{{"{tag}":{{}}}}}}}}"#
+            ))
+            .expect("raw tag");
+            response.extensions.account_data.rooms.insert(id, vec![raw]);
+        }
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+        let events: crate::EventQueueRef =
+            Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let user = client.user_id().expect("user").to_owned();
+        let pass = |cache: bool| {
+            let client = client.clone();
+            let events = Arc::clone(&events);
+            let user = user.clone();
+            async move {
+                if !cache {
+                    forget_archived_account(&user);
+                }
+                let started = std::time::Instant::now();
+                crate::enqueue_rooms_stamped(&events, &client, None).await;
+                events.lock().unwrap().clear();
+                started.elapsed()
+            }
+        };
+        pass(false).await;
+        let mut uncached = Vec::new();
+        let mut cached = Vec::new();
+        for _ in 0..10 {
+            uncached.push(pass(false).await);
+        }
+        pass(true).await;
+        for _ in 0..10 {
+            cached.push(pass(true).await);
+        }
+        uncached.sort();
+        cached.sort();
+        let archived = client.joined_rooms().iter()
+            .filter(|room| archived_known(room)).count();
+        println!("rooms={ROOMS} archived={archived} enqueue_rooms_stamped median: \
+                  store read per room {:?}, cached {:?}", uncached[5], cached[5]);
+        let _ = std::fs::remove_dir_all(&store);
+    }
 
     #[tokio::test]
     async fn a_favourite_write_survives_one_dropped_connection() {

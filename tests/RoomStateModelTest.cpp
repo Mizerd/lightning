@@ -134,6 +134,8 @@ private Q_SLOTS:
     void searchFiltersNameAndAliasAndFindsInvites();
     void filterModeSplitsPeopleRoomsUnreads();
     void favouritesFilterListsOnlyFavourites();
+    void archivedRoomsListOnlyUnderArchived();
+    void theJoinRuleReachesTheRow();
     void identityColorKeyPolicyForDms();
     void invitesStayOnTopAndEverythingElseIsOneActivityFeed();
     void aNewerRoomOutranksAnOlderDirectMessage();
@@ -633,6 +635,47 @@ void RoomStateModelTest::favouritesFilterListsOnlyFavourites()
     QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(), fav.id);
     model.setFilterMode(0);
     QCOMPARE(model.rowCount(), 2);
+}
+
+void RoomStateModelTest::archivedRoomsListOnlyUnderArchived()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto archived = room(QStringLiteral("!old:example.org"));
+    archived.isArchived = true;
+    archived.isFavourite = true;
+    archived.unreadCount = 2;
+    archived.hasUnreadMessages = true;
+    auto other = room(QStringLiteral("!other:example.org"));
+    client.mirror = { archived, other };
+    model.setClient(&client);
+    for (int mode : { 0, 2, 3, 4 }) {
+        model.setFilterMode(mode);
+        for (int row = 0; row < model.rowCount(); ++row)
+            QVERIFY2(model.data(model.index(row), RoomListModel::RoomIdRole).toString()
+                         != archived.id, qPrintable(QString::number(mode)));
+    }
+    model.setFilterMode(5);
+    QCOMPARE(model.filterMode(), 5);
+    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(), archived.id);
+    QVERIFY(model.isRoomArchived(archived.id));
+    QCOMPARE(model.archivedCount(), 1);
+    QCOMPARE(model.archivedUnreadCount(), 1);
+    QCOMPARE(model.unreadRoomCount(), 0);
+}
+
+void RoomStateModelTest::theJoinRuleReachesTheRow()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto open = room(QStringLiteral("!open:example.org"));
+    open.joinRule = QStringLiteral("public");
+    client.mirror = { open };
+    model.setClient(&client);
+    QCOMPARE(model.roleNames().value(RoomListModel::JoinRuleRole), QByteArray("joinRule"));
+    QCOMPARE(model.data(model.index(0), RoomListModel::JoinRuleRole).toString(),
+             QStringLiteral("public"));
 }
 
 void RoomStateModelTest::filterModeSplitsPeopleRoomsUnreads()

@@ -304,7 +304,7 @@ void RailEntryModel::stampActivity(QVector<QVariantMap> &rows) const
         const QList<RoomInfo> all = m_client->rooms();
         rooms.reserve(all.size());
         for (const RoomInfo &r : all) {
-            if (r.isSpace || r.membership != RoomInfo::Joined)
+            if (r.isSpace || r.membership != RoomInfo::Joined || r.isArchived)
                 continue;
             RoomActivity activity;
             activity.direct = r.isDirect;

@@ -433,6 +433,15 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
     as Classic does. Gear/account visibility switches are deliberately absent.
     The room-list options menu explains the grouping and current sort; unread
     status changes rank only when Unread first is selected.
+  * **Archived** rooms carry the `org.lightning_matrix.archived` room tag and
+    are listed only under the Archived filter (Archived (N), hidden at zero;
+    an Archived button in the compact list); room-list search excludes them
+    unless that filter is active, while Ctrl+K and notifications still reach
+    them. They stay archived when new messages arrive, feed no Space, rail,
+    Lobby or window-title badge, and joining or accepting an invite clears the
+    tag when this device already knows it (the store keeps a left room's tags,
+    so a rejoin is covered); a device that never saw the tag leaves the room
+    archived until the user unarchives it.
   * **Activity search** filters loaded rows in memory, intersected with the
     selected category or thread scope. It searches the room name, sender name and
     Matrix ID, the displayed preview (the "Encrypted message" placeholder for an

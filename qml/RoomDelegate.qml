@@ -159,6 +159,24 @@ Item {
                               ? Qt.AlignTop : Qt.AlignVCenter
             Layout.topMargin: model.membership === "invited" ? 2 : 0
 
+            Rectangle {
+                objectName: "roomPublicBadge"
+                visible: model.isDirect !== true && model.joinRule === "public"
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: -3
+                width: 14
+                height: 14
+                radius: 7
+                color: selected ? AppTheme.selected : AppTheme.roomList
+                Icon {
+                    anchors.centerIn: parent
+                    name: "public"
+                    size: 10
+                    color: AppTheme.textMuted
+                }
+            }
+
             PresenceDot {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom

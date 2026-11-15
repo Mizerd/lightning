@@ -602,7 +602,9 @@ impl BgState {
                 for room in client.rooms() {
                     match room.state() {
                         RoomState::Joined if !room.is_space() => {
-                            let tuple = RoomCounts::of(&room).and_then(|c| count_tuple(&c));
+                            let tuple = RoomCounts::of(&room).and_then(|c| count_tuple(&c))
+                                .map(|tuple| with_archived(tuple,
+                                    crate::roomaction::archived_known(&room)));
                             if let Some(tuple) = tuple {
                                 counts.push(tuple);
                             }
@@ -722,6 +724,16 @@ pub(crate) const FLAG_MENTION_IN_THREADS: u64 = 8;
 pub(crate) const FLAG_ENCRYPTED: u64 = 16;
 pub(crate) const FLAG_ENCRYPTION_KNOWN: u64 = 32;
 pub(crate) const FLAG_LOWER_BOUND: u64 = 64;
+pub(crate) const FLAG_ARCHIVED: u64 = 128;
+
+fn with_archived(mut tuple: Value, archived: bool) -> Value {
+    if archived {
+        if let Some(flags) = tuple.get_mut(3) {
+            *flags = json!(flags.as_u64().unwrap_or(0) | FLAG_ARCHIVED);
+        }
+    }
+    tuple
+}
 
 pub(crate) fn count_tuple(counts: &RoomCounts) -> Option<Value> {
     let (unread, highlight) = crate::unread_and_highlight_counts(
@@ -835,6 +847,7 @@ pub(crate) fn apply_order_diff<T: Clone>(
 
 pub(crate) async fn run_aggregator(client: Client, state: Arc<BgState>) {
     let mut updates = client.room_info_notable_update_receiver();
+    crate::roomaction::load_archived(&client).await;
     drop(client);
     state.note_session_start();
     let mut limiter = RescanLimiter::default();
@@ -1359,6 +1372,14 @@ mod tests {
         apply_order_diff(&mut order, VectorDiff::Append { values: v(&["i"]) });
         assert_eq!(apply_order_diff(&mut order, VectorDiff::Reset { values: v(&["j"]) }), ["i"]);
         assert_eq!(order, ["j"]);
+    }
+
+    #[test]
+    fn an_archived_room_carries_its_flag_and_keeps_the_rest() {
+        let tuple = json!(["!r:hs", 1, 0, FLAG_HAS_UNREAD]);
+        assert_eq!(with_archived(tuple.clone(), false), tuple);
+        assert_eq!(with_archived(tuple, true)[3].as_u64(),
+                   Some(FLAG_HAS_UNREAD | FLAG_ARCHIVED));
     }
 
     #[test]

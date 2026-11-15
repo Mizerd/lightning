@@ -77,6 +77,9 @@ public:
                                          const QStringList &known) const;
     Q_INVOKABLE void setRoomOrder(const QString &spaceId,
                                   const QStringList &roomIds);
+    // Saves a reorder of the rooms shown, keeping hidden rooms in their saved slots.
+    Q_INVOKABLE void setVisibleRoomOrder(const QString &spaceId,
+                                         const QStringList &visibleIds);
 
     Q_INVOKABLE void applyArrangement(const QStringList &topLevel,
                                       const QVariantMap &folderMembers);

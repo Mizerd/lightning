@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 
 namespace {
 constexpr auto kLayoutKey = SettingsManager::kRailLayoutKey;
@@ -457,6 +458,23 @@ void RailLayoutStore::setRoomOrder(const QString &spaceId,
         next.roomOrder.insert(spaceId, ids);
     }
     save(next);
+}
+
+void RailLayoutStore::setVisibleRoomOrder(const QString &spaceId,
+                                          const QStringList &visibleIds)
+{
+    const QSet<QString> shown(visibleIds.cbegin(), visibleIds.cend());
+    QStringList merged;
+    qsizetype next = 0;
+    for (const QString &id : load().roomOrder.value(spaceId)) {
+        if (!shown.contains(id))
+            merged.append(id);
+        else if (next < visibleIds.size())
+            merged.append(visibleIds.at(next++));
+    }
+    while (next < visibleIds.size())
+        merged.append(visibleIds.at(next++));
+    setRoomOrder(spaceId, merged);
 }
 
 void RailLayoutStore::setTopLevelOrder(const QStringList &entryIds)

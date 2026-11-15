@@ -205,6 +205,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case HighlightCountRole:     return r.highlightCount;
     case MarkedUnreadRole:       return r.markedUnread;
     case RawUnreadRole:          return roomunread::rawUnread(r);
+    case JoinRuleRole:           return r.joinRule;
     case HasUnreadRole:
         return r.membership == RoomInfo::Joined
             ? roomunread::showsActivityDot(r, notificationModeOf(r.id))
@@ -251,6 +252,7 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { HasUnreadRole,          "hasUnread" },
         { ThreadUnreadKindRole,   "threadUnreadKind" },
         { RawUnreadRole,          "rawUnread" },
+        { JoinRuleRole,           "joinRule" },
         { MembershipRole,         "membership" },
         { IsDirectRole,           "isDirect" },
         { IsFavouriteRole,        "isFavourite" },
@@ -328,7 +330,7 @@ QVariantList RoomListModel::recentRooms(int max) const
     QList<RoomInfo> pool;
     if (m_client) {
         for (const auto &r : m_client->rooms()) {
-            if (r.isSpace || r.membership != RoomInfo::Joined)
+            if (r.isSpace || r.membership != RoomInfo::Joined || r.isArchived)
                 continue;
             if (!passesScopeFilter(r))
                 continue;
@@ -414,6 +416,8 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
 {
     if (!passesScopeFilter(r))
         return false;
+    if (r.isArchived != (m_filterMode == kArchivedFilter))
+        return false;
     if (m_filterMode != 0 && r.membership != RoomInfo::Invited) {
         switch (m_filterMode) {
         case 1:
@@ -440,7 +444,7 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
 
 void RoomListModel::setFilterMode(int mode)
 {
-    const int clamped = (mode < 0 || mode > 4) ? 0 : mode;
+    const int clamped = (mode < 0 || mode > kArchivedFilter) ? 0 : mode;
     if (clamped == m_filterMode)
         return;
     m_filterMode = clamped;
@@ -1047,8 +1051,19 @@ void RoomListModel::updateUnreadTotals()
 {
     int unread = 0;
     int highlight = 0;
+    int archived = 0;
+    int archivedUnread = 0;
     if (m_client) {
         for (const RoomInfo &room : m_client->rooms()) {
+            if (room.isArchived) {
+                if (room.membership == RoomInfo::Joined && !room.isSpace
+                    && passesScopeFilter(room)) {
+                    ++archived;
+                    if (roomunread::countsAsUnread(room, notificationModeOf(room.id)))
+                        ++archivedUnread;
+                }
+                continue;
+            }
             if (room.membership == RoomInfo::Invited) {
                 ++unread;
                 ++highlight;
@@ -1066,10 +1081,13 @@ void RoomListModel::updateUnreadTotals()
                 ++highlight;
         }
     }
-    if (unread == m_unreadRoomCount && highlight == m_highlightRoomCount)
+    if (unread == m_unreadRoomCount && highlight == m_highlightRoomCount
+        && archived == m_archivedCount && archivedUnread == m_archivedUnreadCount)
         return;
     m_unreadRoomCount = unread;
     m_highlightRoomCount = highlight;
+    m_archivedCount = archived;
+    m_archivedUnreadCount = archivedUnread;
     Q_EMIT unreadTotalsChanged();
 }
 
@@ -1105,6 +1123,22 @@ void RoomListModel::setRoomFavourite(const QString &roomId, bool favourite)
 void RoomListModel::setRoomLowPriority(const QString &roomId, bool lowPriority)
 {
     if (m_client) m_client->setRoomLowPriority(roomId, lowPriority);
+}
+
+bool RoomListModel::isRoomArchived(const QString &roomId) const
+{
+    if (!m_client)
+        return false;
+    for (const auto &r : m_client->rooms()) {
+        if (r.id == roomId)
+            return r.isArchived;
+    }
+    return false;
+}
+
+void RoomListModel::setRoomArchived(const QString &roomId, bool archived)
+{
+    if (m_client) m_client->setRoomArchived(roomId, archived);
 }
 
 QString RoomListModel::roomPermalink(const QString &roomId,

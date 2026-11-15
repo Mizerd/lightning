@@ -56,6 +56,8 @@ bool SpaceChannelModel::Row::operator==(const Row &other) const
            && threadUnreadKind == other.threadUnreadKind
            && favourite == other.favourite
            && lowPriority == other.lowPriority
+           && archived == other.archived
+           && joinRule == other.joinRule
            && hiddenUnread == other.hiddenUnread
            && hiddenHighlight == other.hiddenHighlight
            && iconName == other.iconName
@@ -359,7 +361,7 @@ void SpaceChannelModel::setSettings(SettingsManager *settings)
 
 void SpaceChannelModel::setFilterMode(int mode)
 {
-    const int clamped = (mode < 0 || mode > 4) ? 0 : mode;
+    const int clamped = (mode < 0 || mode > 5) ? 0 : mode;
     if (m_filterMode == clamped)
         return;
     m_filterMode = clamped;
@@ -625,6 +627,7 @@ QHash<int, QByteArray> SpaceChannelModel::roleNames() const
         { IsLowPriorityRole, "isLowPriority" },
         { IconNameRole, "iconName" },
         { RawUnreadRole, "rawUnread" },
+        { JoinRuleRole, "joinRule" },
     };
 }
 
@@ -688,6 +691,8 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
         return row.iconName;
     case RawUnreadRole:
         return row.rawUnread;
+    case JoinRuleRole:
+        return row.joinRule;
     default:
         return {};
     }
@@ -751,6 +756,13 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
     for (Row &room : rooms) {
         if (!matchesQuery(room.name))
             continue;
+        if (room.archived) {
+            m_archived.insert(room.id);
+            if (room.hasUnread || room.unread > 0 || room.highlight > 0)
+                m_archivedUnread.insert(room.id);
+        }
+        if (room.archived != (m_filterMode == 5))
+            continue;
         if (!room.isInvite
             && !filterAdmits(room.isDirect, room.hasUnread || room.unread > 0
                                                 || room.highlight > 0
@@ -811,6 +823,8 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
         row.isInvite ? 0 : roomunread::threadUnreadKind(info, mode);
     row.favourite = info.isFavourite;
     row.lowPriority = info.lowPriority;
+    row.archived = info.isArchived;
+    row.joinRule = info.joinRule;
     row.lastActivity = m_hold.keyFor(info.id, info.lastActivity);
     row.targetActivity = m_hold.target(info.id, info.lastActivity);
     return row;
@@ -1065,6 +1079,8 @@ void SpaceChannelModel::rebuild()
         }
     }
 
+    const QSet<QString> archivedBefore = std::exchange(m_archived, {});
+    const QSet<QString> archivedUnreadBefore = std::exchange(m_archivedUnread, {});
     int roomsShown = 0;
     if (m_peopleView) {
         roomsShown = buildPeople(rows, allRooms);
@@ -1078,7 +1094,8 @@ void SpaceChannelModel::rebuild()
         roomsShown = buildSpace(rows, byId);
     }
 
-    if (m_matchCount != roomsShown) {
+    if (m_matchCount != roomsShown || m_archivedUnread != archivedUnreadBefore
+        || m_archived != archivedBefore) {
         m_matchCount = roomsShown;
         Q_EMIT matchCountChanged();
     }

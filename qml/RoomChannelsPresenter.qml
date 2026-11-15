@@ -92,6 +92,8 @@ Item {
                     return qsTr("Nothing in this list matches \"%1\".").arg(app.spaceChannels.searchQuery);
                 if (app.spaceChannels.filterMode === 3)
                     return qsTr("Nothing unread. Everything in this view has been read.");
+                if (app.spaceChannels.filterMode === 5)
+                    return qsTr("No archived chats in this view.");
                 if (app.spaceChannels.viewKind === "people")
                     return qsTr("No direct messages yet. Start one with Create Chat.");
                 if (app.spaceChannels.viewKind === "space")
@@ -217,6 +219,7 @@ Item {
                     isDirect: rowLoader.model.isDirect
                     isInvite: rowLoader.model.isInvite
                     encrypted: rowLoader.model.encrypted
+                    joinRule: rowLoader.model.joinRule || ""
                     unreadCount: rowLoader.model.unreadCount
                     highlightCount: rowLoader.model.highlightCount
                     hasUnread: rowLoader.model.hasUnread

@@ -3812,6 +3812,15 @@ void RustSdkMatrixClient::setRoomLowPriority(const QString &roomId, bool lowPrio
     if (!result.isEmpty()) qCWarning(lcRust) << "low-priority command rejected";
 }
 
+void RustSdkMatrixClient::setRoomArchived(const QString &roomId, bool archived)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_archived(
+        m_rustHandle, room.constData(), archived ? 1 : 0));
+    if (!result.isEmpty()) qCWarning(lcRust) << "archive command rejected";
+}
+
 void RustSdkMatrixClient::markRoomRead(const QString &roomId)
 {
     if (!m_rustHandle || roomId.isEmpty()) return;
@@ -6253,7 +6262,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     if (type == QLatin1String("room_tag_confirmed")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         auto room = m_rooms.find(roomId);
-        if (room == m_rooms.end() || !event.value(QStringLiteral("low_priority")).isBool())
+        if (room == m_rooms.end())
+            return;
+        if (event.value(QStringLiteral("archived")).isBool()) {
+            room->isArchived = event.value(QStringLiteral("archived")).toBool();
+            Q_EMIT roomsChanged();
+            return;
+        }
+        if (!event.value(QStringLiteral("low_priority")).isBool())
             return;
         const bool lowPriority = event.value(QStringLiteral("low_priority")).toBool();
         room->lowPriority = lowPriority;
@@ -6574,7 +6590,8 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     if (type == QLatin1String("room_action_error")) {
         const QString action = event.value(QStringLiteral("action")).toString();
         if (action == QLatin1String("favourite")
-            || action == QLatin1String("low_priority"))
+            || action == QLatin1String("low_priority")
+            || action == QLatin1String("archive"))
             Q_EMIT roomActionFailed(action,
                 event.value(QStringLiteral("room_id")).toString());
         if (action == QLatin1String("mark_read"))

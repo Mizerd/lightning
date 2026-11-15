@@ -16,6 +16,7 @@ private Q_SLOTS:
             matrix::room_action::userFacingError(QStringLiteral("mark_read"));
         const QString unread =
             matrix::room_action::userFacingError(QStringLiteral("marked_unread"));
+        QVERIFY(!matrix::room_action::userFacingError(QStringLiteral("archive")).isEmpty());
 
         QVERIFY2(!fav.isEmpty() && !read.isEmpty() && !unread.isEmpty(),
                  "a room action the user asked for was refused and said "
@@ -115,7 +116,7 @@ private Q_SLOTS:
         QVERIFY2(!lib.contains(QStringLiteral("\"type\": \"room_action_error\"")),
                  "a room_action_error is still built by hand in lib.rs, without "
                  "its reason");
-        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 6);
+        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 7);
     }
 
     void anOverflowResyncsRatherThanOnlyReporting()

@@ -308,6 +308,72 @@ private Q_SLOTS:
         QVERIFY(f.model.matchCount() > 1);
     }
 
+    void theJoinRuleReachesTheChannelRow()
+    {
+        Fixture f;
+        auto rooms = workspace();
+        for (auto &room : rooms)
+            if (room.id == QStringLiteral("!random:x")) room.joinRule = QStringLiteral("public");
+        f.build(rooms);
+        f.selectSpace(QStringLiteral("!work:x"));
+        const int row = rowOfName(f.model, QStringLiteral("random"));
+        QVERIFY(row >= 0);
+        QCOMPARE(f.model.data(f.model.index(row, 0), SpaceChannelModel::JoinRuleRole).toString(),
+                 QStringLiteral("public"));
+        QCOMPARE(f.model.roleNames().value(SpaceChannelModel::JoinRuleRole), QByteArray("joinRule"));
+    }
+
+    void theRailRevealSkipsAnArchivedRoomButSettingsSeeIt()
+    {
+        Fixture f;
+        auto rooms = workspace();
+        for (auto &room : rooms)
+            if (room.id == QStringLiteral("!random:x")) room.isArchived = true;
+        f.build(rooms);
+        const auto ids = [](const QVariantList &rows) {
+            QStringList out;
+            for (const QVariant &row : rows)
+                out.append(row.toMap().value(QStringLiteral("roomId")).toString());
+            return out;
+        };
+        const QStringList all = ids(f.spaces.directChildRoomsDetailed(QStringLiteral("!work:x")));
+        const QStringList shown =
+            ids(f.spaces.directChildRoomsDetailed(QStringLiteral("!work:x"), true));
+        QVERIFY(all.contains(QStringLiteral("!random:x")));
+        QVERIFY(!shown.contains(QStringLiteral("!random:x")));
+        QCOMPARE(shown.size(), all.size() - 1);
+    }
+
+    void anArchivedRoomLeavesItsSpaceAndItsBadge()
+    {
+        Fixture f;
+        auto rooms = workspace();
+        for (auto &room : rooms)
+            if (room.id == QStringLiteral("!random:x")) {
+                room.unreadCount = 4;
+                room.hasUnreadMessages = true;
+            }
+        f.build(rooms);
+        f.selectSpace(QStringLiteral("!work:x"));
+        const int listed = f.model.matchCount();
+        const int badge = railUnreadTotal(f.spaces, QStringLiteral("!work:x"));
+        QCOMPARE(f.model.archivedUnreadCount(), 0);
+
+        for (auto &room : f.client.roomList)
+            if (room.id == QStringLiteral("!random:x")) room.isArchived = true;
+        f.client.announce();
+        QTRY_COMPARE(f.model.matchCount(), listed - 1);
+        QVERIFY(!namesOf(f.model).contains(QStringLiteral("random")));
+        QCOMPARE(f.model.archivedCount(), 1);
+        QCOMPARE(f.model.archivedUnreadCount(), 1);
+        QCOMPARE(railUnreadTotal(f.spaces, QStringLiteral("!work:x")), badge - 4);
+
+        f.model.setFilterMode(5);
+        QCOMPARE(f.model.filterMode(), 5);
+        QCOMPARE(f.model.matchCount(), 1);
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("random")));
+    }
+
     void personalArrangementWinsInsideASpace()
     {
         Fixture f;

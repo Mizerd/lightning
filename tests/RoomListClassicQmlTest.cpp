@@ -808,6 +808,21 @@ RoomsPanel { width: 64; height: 700 }
         auto *fullSearch = byName(f.item.get(), QStringLiteral("roomSearchCard"));
         QVERIFY(fullSearch);
         QVERIFY(!fullSearch->isVisible());
+
+        auto *archived = byName(f.item.get(), QStringLiteral("compactRoomListArchived"));
+        QVERIFY(archived);
+        QVERIFY(!archived->isVisible());
+        const QString roomId = f.controller->roomList()
+            ->data(f.controller->roomList()->index(f.controller->roomList()->rowCount() - 1),
+                   RoomListModel::RoomIdRole).toString();
+        f.controller->roomList()->setRoomArchived(roomId, true);
+        QTRY_VERIFY(archived->isVisible());
+        const int filterBefore = f.controller->settings()->roomFilterMode();
+        QVERIFY(QMetaObject::invokeMethod(archived, "clicked"));
+        QCOMPARE(f.controller->settings()->roomFilterMode(), 5);
+        QTRY_COMPARE(f.controller->roomList()->rowCount(), 1);
+        f.controller->settings()->setRoomFilterMode(filterBefore);
+        f.controller->roomList()->setRoomArchived(roomId, false);
     }
 
     void theRoomListDividerClicksDoubleClicksTabsAndKeys_data()

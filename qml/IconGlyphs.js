@@ -128,4 +128,6 @@ var codepoints = {
     "bookmark": "\ue8e7",
     "unfold_less": "\ue5d6",
     "manage_search": "\uf02f",
+    "archive": "\ue149",
+    "unarchive": "\ue169",
 }

@@ -23,6 +23,8 @@ ItemDelegate {
         && !(typeof app !== "undefined" && app && app.accountPrefs
              && app.accountPrefs.inviteAvatarsAllowed)
     property bool encrypted: false
+    property string joinRule: ""
+    readonly property bool isPublic: !isDirect && joinRule === "public"
     property int unreadCount: 0
     property int highlightCount: 0
     property int threadUnreadKind: 0
@@ -154,7 +156,8 @@ ItemDelegate {
         }
 
         Loader {
-            active: root.isInvite || root.encrypted
+            objectName: "channelAvatarBadge"
+            active: root.isInvite || root.isPublic || root.encrypted
             visible: active
             anchors.right: roomAvatar.right
             anchors.bottom: roomAvatar.bottom
@@ -167,7 +170,7 @@ ItemDelegate {
                 color: AppTheme.roomList
                 Icon {
                     anchors.centerIn: parent
-                    name: root.isInvite ? "person_add" : "lock"
+                    name: root.isInvite ? "person_add" : root.isPublic ? "public" : "lock"
                     size: 9
                     color: root.isInvite ? AppTheme.accent : AppTheme.channelCategoryText
                 }

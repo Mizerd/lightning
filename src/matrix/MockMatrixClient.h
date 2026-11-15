@@ -63,6 +63,7 @@ public:
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
     void setRoomLowPriority(const QString &roomId, bool lowPriority) override;
+    void setRoomArchived(const QString &roomId, bool archived) override;
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }

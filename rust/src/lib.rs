@@ -1482,6 +1482,9 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         // The logout thread drops it inside its runtime instead.
         let client = bridge.client.lock().ok().and_then(|mut guard| guard.take());
         let events = Arc::clone(&bridge.events);
+        if let Some(user) = client.as_ref().and_then(|client| client.user_id()) {
+            roomaction::forget_archived_account(user);
+        }
         if let Some(client) = client {
             spawn_session_thread(bridge.op_thread_name(), move || {
                 let runtime_events = Arc::clone(&events);
@@ -2621,6 +2624,43 @@ pub unsafe extern "C" fn mx_rust_set_room_low_priority(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_archived(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    archived: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let (result, attempts) = roomaction::set_archived(
+                &room, archived != 0, &roomaction::ROOM_ACTION_RETRY_DELAYS).await;
+            match result {
+                Ok(()) => {
+                    roomaction::note_archived(&room, archived != 0);
+                    enqueue(&events, json!({
+                        "type": "room_tag_confirmed",
+                        "room_id": room_id,
+                        "archived": archived != 0,
+                    }));
+                }
+                Err(error) => {
+                    let mut event = roomaction::failure_event("archive", &error, attempts);
+                    event["room_id"] = json!(room_id);
+                    enqueue(&events, event);
+                }
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_send_attachment_bytes(
     ptr: *mut c_void,
     room_id: *const c_char,
@@ -3217,6 +3257,9 @@ fn invite_action(ptr: *mut c_void, room_id: *const c_char, accept: bool) -> *mut
                 "action": if accept { "accept" } else { "reject" },
                 "state": if result.is_ok() { "done" } else { "failed" }
             }));
+            if accept && result.is_ok() {
+                roomaction::unarchive_after_join(&room).await;
+            }
             if result.is_ok() { enqueue_rooms(&events, &client).await; }
         });
         Ok(String::new())
@@ -11588,6 +11631,11 @@ fn install_event_handlers(
         );
     }
 
+    if let Some(user) = client.user_id() {
+        roomaction::forget_archived_account(user);
+    }
+    roomaction::install_archived_handler(client, (!background).then(|| Arc::clone(&events)));
+
     if !background {
         install_ui_event_handlers(client, Arc::clone(&events));
     }
@@ -14013,6 +14061,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "mention_in_threads": mention_in_threads,
         "is_favourite": room.is_favourite(),
         "is_low_priority": room.is_low_priority(),
+        "is_archived": roomaction::is_archived(room).await,
         "has_unread_messages": room.num_unread_messages() > 0,
         "encrypted": room.encryption_state().is_encrypted(),
         "encryption_known": !room.encryption_state().is_unknown(),

@@ -480,7 +480,7 @@ QStringList SpaceManager::directChildRoomIds(
 }
 
 QVariantList SpaceManager::directChildRoomsDetailed(
-    const QString &spaceId) const
+    const QString &spaceId, bool skipArchived) const
 {
     QVariantList out;
     if (!m_client || spaceId.isEmpty())
@@ -502,7 +502,8 @@ QVariantList SpaceManager::directChildRoomsDetailed(
         seen.insert(childId);
         const auto it = byId.constFind(childId);
         if (it == byId.constEnd() || it->isSpace
-            || it->membership != RoomInfo::Joined) {
+            || it->membership != RoomInfo::Joined
+            || (skipArchived && it->isArchived)) {
             continue;
         }
         const int mode = m_modeOf ? m_modeOf(it->id)
@@ -847,11 +848,12 @@ void SpaceManager::rebuild()
     const auto modeOf = [this](const QString &id) {
         return m_modeOf ? m_modeOf(id) : roomunread::kModeAllMessages;
     };
+    // An archived room is listed only under Archived, so it feeds no Space badge.
     const auto unreadOf = [&](const RoomInfo &r) {
-        return roomunread::visibleUnreadCount(r, modeOf(r.id));
+        return r.isArchived ? 0 : roomunread::visibleUnreadCount(r, modeOf(r.id));
     };
     const auto highlightOf = [&](const RoomInfo &r) {
-        return roomunread::mentionCount(r, modeOf(r.id));
+        return r.isArchived ? 0 : roomunread::mentionCount(r, modeOf(r.id));
     };
     beginResetModel();
     m_spaces.clear();
@@ -1212,6 +1214,7 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
             { QStringLiteral("highlightCount"),
               roomunread::mentionCount(*it, roomMode(id)) },
             { QStringLiteral("membership"), QStringLiteral("joined") },
+            { QStringLiteral("isArchived"), it->isArchived },
             { QStringLiteral("joinRule"), QString() },
             { QStringLiteral("via"), QStringList() },
             { QStringLiteral("selectable"), selectable },
@@ -1295,12 +1298,14 @@ QVariantList SpaceManager::buildLobbySections(
                 ++spaceCount;
             else
                 ++roomCount;
+            all.append(row);
+            if (row.value(QStringLiteral("isArchived")).toBool())
+                continue;
             unreadTotal += row.value(QStringLiteral("unreadCount")).toInt();
             anyUnread = anyUnread
                         || row.value(QStringLiteral("hasUnread")).toBool();
             highlightTotal +=
                 row.value(QStringLiteral("highlightCount")).toInt();
-            all.append(row);
         }
         const bool headerMatches = !isRoot && searching
             && lobbyMatches(needle,

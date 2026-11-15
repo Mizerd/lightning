@@ -33,6 +33,9 @@ class SpaceChannelModel : public QAbstractListModel
     Q_PROPERTY(QString viewKind READ viewKind NOTIFY scopeSpaceIdChanged)
     Q_PROPERTY(bool empty READ empty NOTIFY countChanged)
     Q_PROPERTY(int matchCount READ matchCount NOTIFY matchCountChanged)
+    Q_PROPERTY(int archivedCount READ archivedCount NOTIFY matchCountChanged)
+    Q_PROPERTY(int archivedUnreadCount READ archivedUnreadCount
+                   NOTIFY matchCountChanged)
     Q_PROPERTY(bool deferReordering READ deferReordering
                    WRITE setDeferReordering NOTIFY deferReorderingChanged)
     Q_PROPERTY(bool orderHeld READ orderHeld NOTIFY orderHeldChanged)
@@ -74,6 +77,7 @@ public:
         IsLowPriorityRole,
         IconNameRole,
         RawUnreadRole,
+        JoinRuleRole,
     };
 
     explicit SpaceChannelModel(QObject *parent = nullptr);
@@ -93,6 +97,8 @@ public:
     void setScopeSpaceId(const QString &spaceId);
     bool empty() const;
     int matchCount() const { return m_matchCount; }
+    int archivedUnreadCount() const { return int(m_archivedUnread.size()); }
+    int archivedCount() const { return int(m_archived.size()); }
     bool deferReordering() const { return m_hold.enabled(); }
     void setDeferReordering(bool defer);
     bool orderHeld() const { return m_orderHeld; }
@@ -168,6 +174,8 @@ private:
         int threadUnreadKind = 0;
         bool favourite = false;
         bool lowPriority = false;
+        bool archived = false;
+        QString joinRule;
         int hiddenUnread = 0;
         int hiddenHighlight = 0;
         QString iconName;
@@ -242,6 +250,8 @@ private:
     QTimer m_holdCap;
     bool m_accountHasContent = false;
     int m_matchCount = 0;
+    QSet<QString> m_archived;
+    QSet<QString> m_archivedUnread;
     int m_rebuildCount = 0;
 
     mutable QSet<QString> m_collapsed;

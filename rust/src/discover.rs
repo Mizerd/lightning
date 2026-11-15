@@ -335,7 +335,12 @@ pub(crate) fn join_room(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        if matches!(&result, Ok(Ok(_))) {
+        if let Ok(Ok(room)) = &result {
+            // A store read and a spawned request: the join result never waits on the server.
+            crate::roomaction::unarchive_after_join(room).await;
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
             crate::enqueue_rooms(&events, &client).await;
         }
         match result {

@@ -397,6 +397,21 @@ private Q_SLOTS:
         QCOMPARE(secs.at(1).toMap().value(QStringLiteral("unreadTotal")).toInt(), 0);
     }
 
+    void anArchivedRoomIsListedButSilentInTheLobbyRollup()
+    {
+        QList<RoomInfo> rooms = lobbyRooms();
+        for (RoomInfo &r : rooms)
+            if (r.id == kA1) r.isArchived = true;
+        const QVariantList secs = SpaceManager::buildLobbySections(
+            kHome, byId(rooms), lobbyHierarchy(), QString(), {});
+        QStringList listed;
+        for (const QVariant &sec : secs)
+            listed += ids(sec.toMap().value(QStringLiteral("rows")).toList());
+        QVERIFY(listed.contains(kA1));
+        QVERIFY(!secs.at(1).toMap().value(QStringLiteral("hasUnread")).toBool());
+        QCOMPARE(secs.at(1).toMap().value(QStringLiteral("unreadTotal")).toInt(), 0);
+    }
+
     void lobbySectionCountsRoomsAndSpacesSeparately()
     {
         const QVariantList secs = sections();
