@@ -19499,9 +19499,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n archived chat(s) with unread messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n archived chat with unread messages</numerusform>
+            <numerusform>%n archived chats with unread messages</numerusform>
         </translation>
     </message>
     <message>
