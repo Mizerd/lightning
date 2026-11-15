@@ -156,6 +156,17 @@ pub(crate) fn pick_preview(newest_first: &[TimelineEvent]) -> Option<Outcome> {
     if text.is_empty() { None } else { Some(Outcome::Found(text, ts, sender)) }
 }
 
+/// Not every homeserver leaves an ignored user's events out of `/messages`.
+pub(crate) fn without_senders(
+    mut newest_first: Vec<TimelineEvent>,
+    ignored: impl Fn(&UserId) -> bool,
+) -> Vec<TimelineEvent> {
+    newest_first.retain(|event| {
+        !event.raw().get_field::<OwnedUserId>("sender").ok().flatten().is_some_and(|s| ignored(&*s))
+    });
+    newest_first
+}
+
 pub(crate) fn conversation_filter() -> RoomEventFilter {
     let mut filter = RoomEventFilter::default();
     filter.types = Some(
@@ -177,7 +188,9 @@ pub(crate) async fn look(room: &matrix_sdk::Room) -> Outcome {
     let Ok(Ok(messages)) = response else {
         return Outcome::Failed;
     };
-    pick_preview(&messages.chunk).unwrap_or(Outcome::Nothing)
+    let own = room.own_user_id();
+    pick_preview(&without_senders(messages.chunk, |sender| is_ignored(own, sender)))
+        .unwrap_or(Outcome::Nothing)
 }
 
 /// Whether the SDK's latest event is our own join. matrix-sdk picks it on
@@ -207,6 +220,8 @@ pub(crate) enum Remembered {
     /// Preview line, stamp, and its sender when known.
     Message(String, u64, Option<OwnedUserId>),
     Undecryptable(u64, Option<OwnedEventId>),
+    /// The stamp of a room being refreshed: it keeps its place, not its text.
+    Place(u64),
 }
 
 type Key = (OwnedUserId, OwnedRoomId);
@@ -215,12 +230,30 @@ struct State {
     generation: u64,
     current: HashMap<OwnedUserId, u64>,
     entries: HashMap<Key, Remembered>,
+    /// Each room's newest event as last sent to the UI. matrix-sdk empties
+    /// `latest_event` on an ignore-list change, unordered with our handler.
+    shown: HashMap<Key, LatestSnapshot>,
+    ignored: HashMap<OwnedUserId, HashSet<String>>,
+}
+
+impl State {
+    fn drop_user(&mut self, user: &UserId) {
+        self.entries.retain(|(owner, _), _| owner != user);
+        self.shown.retain(|(owner, _), _| owner != user);
+        self.ignored.remove(user);
+    }
 }
 
 fn state() -> &'static Mutex<State> {
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
     STATE.get_or_init(|| {
-        Mutex::new(State { generation: 0, current: HashMap::new(), entries: HashMap::new() })
+        Mutex::new(State {
+            generation: 0,
+            current: HashMap::new(),
+            entries: HashMap::new(),
+            shown: HashMap::new(),
+            ignored: HashMap::new(),
+        })
     })
 }
 
@@ -235,7 +268,7 @@ impl RunGuard {
         st.generation += 1;
         let generation = st.generation;
         st.current.insert(user.clone(), generation);
-        st.entries.retain(|(owner, _), _| owner != &user);
+        st.drop_user(&user);
         Self { user, generation }
     }
 
@@ -265,7 +298,7 @@ impl Drop for RunGuard {
         let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
         if st.current.get(&self.user) == Some(&self.generation) {
             st.current.remove(&self.user);
-            st.entries.retain(|(owner, _), _| owner != &self.user);
+            st.drop_user(&self.user);
         }
     }
 }
@@ -273,7 +306,47 @@ impl Drop for RunGuard {
 pub(crate) fn forget_user(user: &UserId) {
     let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
     st.current.remove(user);
-    st.entries.retain(|(owner, _), _| owner != user);
+    st.drop_user(user);
+}
+
+pub(crate) fn note_shown(user: &UserId, room: &RoomId, shown: LatestSnapshot) {
+    let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
+    if st.current.contains_key(user) {
+        st.shown.insert((user.to_owned(), room.to_owned()), shown);
+    }
+}
+
+pub(crate) fn forget_shown(user: &UserId, room: &RoomId) {
+    let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
+    st.shown.remove(&(user.to_owned(), room.to_owned()));
+}
+
+/// The live newest event, else the one last sent to the UI; the flag says the
+/// live one was already gone.
+pub(crate) fn snapshot_or_shown(
+    live: Option<LatestSnapshot>,
+    user: &UserId,
+    room: &RoomId,
+) -> (Option<LatestSnapshot>, bool) {
+    if live.is_some() {
+        return (live, false);
+    }
+    let st = state().lock().unwrap_or_else(|e| e.into_inner());
+    let shown = st.shown.get(&(user.to_owned(), room.to_owned())).cloned();
+    let recovered = shown.is_some();
+    (shown, recovered)
+}
+
+pub(crate) fn set_ignored(user: &UserId, ignored: &[String]) {
+    let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
+    if st.current.contains_key(user) {
+        st.ignored.insert(user.to_owned(), ignored.iter().cloned().collect());
+    }
+}
+
+pub(crate) fn is_ignored(user: &UserId, sender: &UserId) -> bool {
+    let st = state().lock().unwrap_or_else(|e| e.into_inner());
+    st.ignored.get(user).is_some_and(|ignored| ignored.contains(sender.as_str()))
 }
 
 pub(crate) fn remembered(user: &UserId, room: &RoomId) -> Option<Remembered> {
@@ -366,6 +439,20 @@ pub(crate) fn across_ignore_change(
     if may_replace(remembered, &keep) { AcrossIgnore::Keep(keep) } else { AcrossIgnore::Leave }
 }
 
+/// What a refreshed room keeps until its look answers.
+pub(crate) fn place_only(
+    latest: Option<&LatestSnapshot>,
+    remembered: Option<&Remembered>,
+) -> Option<Remembered> {
+    let kept = match remembered {
+        Some(utd @ Remembered::Undecryptable(..)) => return Some(utd.clone()),
+        Some(Remembered::Message(_, ts, _)) | Some(Remembered::Place(ts)) => *ts,
+        None => 0,
+    };
+    let ts = kept.max(latest.map_or(0, |l| l.ts));
+    (ts > 0).then_some(Remembered::Place(ts))
+}
+
 /// Rooms refreshed for each user on an ignore-list change. The member store is
 /// lazy-loaded and a blanked room has no sender, so on the way back these are
 /// the only record of which rooms that user's events are in.
@@ -426,6 +513,9 @@ pub(crate) fn merge_remembered(
         }
         Some(Remembered::Undecryptable(ts, _)) if own_preview.is_empty() => {
             (own_preview, own_activity.max(ts), true)
+        }
+        Some(Remembered::Place(ts)) if own_preview.is_empty() => {
+            (own_preview, own_activity.max(ts), false)
         }
         Some(Remembered::Undecryptable(ts, _)) if ts > own_activity => (String::new(), ts, true),
         _ => (own_preview, own_activity, false),
@@ -695,6 +785,79 @@ mod tests {
         run.remember(room, utd.clone());
         run.remember_if_newer(room, Remembered::Message("x".into(), 99, None));
         assert_eq!(remembered(&user, room), Some(utd));
+    }
+
+    #[test]
+    fn a_preview_already_sent_to_the_ui_survives_the_sdk_clearing_it_first() {
+        let user = uid("@shown:hs");
+        let room = room_id!("!shown:hs");
+        let eve = snap("hello", 40, "@eve:hs");
+        note_shown(&user, room, eve.clone());
+        assert_eq!(snapshot_or_shown(None, &user, room), (None, false), "no run, nothing kept");
+
+        let run = RunGuard::new(user.clone());
+        note_shown(&user, room, eve.clone());
+        let live = snap("newer", 50, "@eve:hs");
+        assert_eq!(snapshot_or_shown(Some(live.clone()), &user, room), (Some(live), false));
+        let (recovered, was_cleared) = snapshot_or_shown(None, &user, room);
+        assert!(was_cleared);
+        assert_eq!(
+            across_ignore_change(&[uid("@mallory:hs")], recovered.as_ref(), None, false),
+            AcrossIgnore::Keep(Remembered::Message("hello".into(), 40, Some(uid("@eve:hs"))))
+        );
+        assert_eq!(across_ignore_change(&[uid("@eve:hs")], recovered.as_ref(), None, false),
+                   AcrossIgnore::Refresh, "and it still knows who wrote it");
+        forget_shown(&user, room);
+        assert_eq!(snapshot_or_shown(None, &user, room), (None, false));
+        note_shown(&user, room, eve);
+        drop(run);
+        assert_eq!(snapshot_or_shown(None, &user, room), (None, false), "it ends with the run");
+    }
+
+    #[test]
+    fn a_refreshed_room_keeps_its_place_without_its_text_and_is_looked_at() {
+        let eve = snap("eve's secret", 40, "@eve:hs");
+        assert_eq!(place_only(Some(&eve), None), Some(Remembered::Place(40)));
+        let newer = Remembered::Message("decrypted".into(), 50, None);
+        assert_eq!(place_only(Some(&eve), Some(&newer)), Some(Remembered::Place(50)));
+        assert_eq!(place_only(None, Some(&Remembered::Place(7))), Some(Remembered::Place(7)));
+        let utd = Remembered::Undecryptable(9, None);
+        assert_eq!(place_only(Some(&eve), Some(&utd)), Some(utd));
+        assert_eq!(place_only(None, None), None);
+
+        assert_eq!(merge_remembered(String::new(), 0, Some(Remembered::Place(40))),
+                   (String::new(), 40, false));
+        assert_eq!(merge_remembered("own".into(), 5, Some(Remembered::Place(40))),
+                   ("own".into(), 5, false));
+        assert!(may_replace(Some(&Remembered::Place(40)), &Remembered::Message("b".into(), 3, None)),
+                "an older answer still replaces a bare place");
+        assert_eq!(across_ignore_change(&[uid("@bob:hs")], None, Some(&Remembered::Place(40)), false),
+                   AcrossIgnore::Leave);
+    }
+
+    #[test]
+    fn an_ignored_sender_is_never_picked_from_a_page_or_named_for_another_account() {
+        let me = uid("@me-ignoring:hs");
+        let other = uid("@other-ignoring:hs");
+        let run = RunGuard::new(me.clone());
+        let _other_run = RunGuard::new(other.clone());
+        set_ignored(&me, &["@a:x".to_owned()]);
+        assert!(is_ignored(&me, &uid("@a:x")));
+        assert!(!is_ignored(&me, &uid("@b:x")));
+        assert!(!is_ignored(&other, &uid("@a:x")));
+
+        let mut theirs = message(30, "from the ignored user");
+        theirs["sender"] = "@a:x".into();
+        let mut kept = message(20, "from someone else");
+        kept["sender"] = "@b:x".into();
+        let page = without_senders(vec![raw(theirs), raw(kept)], |s| is_ignored(&me, s));
+        assert_eq!(pick_preview(&page),
+                   Some(Outcome::Found("from someone else".into(), 20, Some(uid("@b:x")))));
+        set_ignored(&me, &[]);
+        assert!(!is_ignored(&me, &uid("@a:x")));
+        set_ignored(&me, &["@a:x".to_owned()]);
+        drop(run);
+        assert!(!is_ignored(&me, &uid("@a:x")), "the list ends with the run");
     }
 
     #[test]

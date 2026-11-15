@@ -13498,6 +13498,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                        << event.value(QStringLiteral("previews_refreshed")).toInt()
                        << "blank="
                        << event.value(QStringLiteral("previews_blank")).toInt()
+                       << "recovered="
+                       << event.value(QStringLiteral("previews_recovered")).toInt()
                        << "ms=" << event.value(QStringLiteral("previews_ms")).toInt();
         // Their shown preview may be the changed user's; the backfill refills it.
         const QJsonArray refreshed =

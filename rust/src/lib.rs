@@ -12195,6 +12195,10 @@ async fn run_modern_sync(
         let mut list_running = false;
         let mut ignore_list_sub = client.subscribe_to_ignore_user_list_changes();
         let mut ignored_before = crate::ignore::stored_ignored_users(&client).await;
+        if let Some(own) = client.user_id() {
+            previewbackfill::set_ignored(own, &ignored_before);
+        }
+        let mut forced_looks: Vec<OwnedRoomId> = Vec::new();
         let latest_events = client.latest_events().await;
         let mut watched_latest: BTreeSet<OwnedRoomId> = BTreeSet::new();
         let mut room_updates_sub = client.subscribe_to_all_room_updates();
@@ -12245,40 +12249,10 @@ async fn run_modern_sync(
                                             &mut watched_latest,
                                             &mut forwarded_order).await;
                     enqueue_spaces(&events, &space_service, &client).await;
-                    let now_ms = preview_backfill.now_ms();
                     while let Some(done) = backfill_tasks.try_join_next() {
-                        if let Ok((room_id, spawned_in, outcome)) = done {
-                            if !preview_backfill.accepts(&room_id, spawned_in) {
-                                continue;
-                            }
-                            let remembered = match &outcome {
-                                previewbackfill::Outcome::Found(preview, ts, sender) => {
-                                    Some(previewbackfill::Remembered::Message(
-                                        preview.clone(), *ts, sender.clone()))
-                                }
-                                previewbackfill::Outcome::Undecryptable(ts, id) => {
-                                    Some(previewbackfill::Remembered::Undecryptable(*ts, id.clone()))
-                                }
-                                _ => None,
-                            };
-                            if let (Some(what), Some(results)) = (remembered, &backfill_results) {
-                                let (preview, ts, utd) = match &what {
-                                    previewbackfill::Remembered::Message(p, t, _) => (p.clone(), *t, false),
-                                    previewbackfill::Remembered::Undecryptable(t, _) => (String::new(), *t, true),
-                                };
-                                results.remember(&room_id, what);
-                                let (preview, preview_kind, preview_arg) = preview_wire(&preview);
-                                enqueue(&events, json!({
-                                    "type": "room_preview_backfill",
-                                    "room_id": room_id.to_string(),
-                                    "preview": preview,
-                                    "preview_kind": preview_kind,
-                                    "preview_arg": preview_arg,
-                                    "undecryptable": utd,
-                                    "last_activity_ms": ts,
-                                }));
-                            }
-                            preview_backfill.finish(&room_id, &outcome, now_ms);
+                        if let Ok(done) = done {
+                            finish_preview_look(&events, backfill_results.as_ref(),
+                                                &mut preview_backfill, done);
                         }
                     }
                     if backfill_tasks.is_empty() {
@@ -12289,33 +12263,20 @@ async fn run_modern_sync(
                             .map_or(true, |at| at.elapsed() >= std::time::Duration::from_secs(3))
                     {
                         last_backfill_scan = Some(std::time::Instant::now());
-                        let candidates: Vec<OwnedRoomId> = client
-                            .joined_rooms()
-                            .into_iter()
-                            .filter(|room| {
-                                matches!(
-                                    room.latest_event(),
-                                    matrix_sdk_base::latest_event::LatestEventValue::None
-                                ) && !matches!(
-                                    previewbackfill::remembered(room.own_user_id(), room.room_id()),
-                                    Some(previewbackfill::Remembered::Message(..))
-                                )
-                            })
-                            .map(|room| room.room_id().to_owned())
-                            .filter(|id| preview_backfill.is_eligible(id, now_ms))
-                            .collect();
-                        let picked = preview_backfill.pick(candidates, backfill_tasks.len(), now_ms);
-                        for room_id in picked {
-                            let Some(room) = client.get_room(&room_id) else {
-                                preview_backfill.finish(&room_id, &previewbackfill::Outcome::Failed, now_ms);
-                                continue;
-                            };
-                            let spawned_in = preview_backfill.generation();
-                            backfill_tasks.spawn(async move {
-                                let outcome = previewbackfill::look(&room).await;
-                                (room_id, spawned_in, outcome)
-                            });
-                        }
+                        spawn_preview_looks(&client, &mut preview_backfill, &mut backfill_tasks,
+                                            &mut forced_looks);
+                    }
+                }
+                // Not only on a room-list batch: an idle account has none, and
+                // its finished looks were never collected.
+                Some(done) = backfill_tasks.join_next(), if !backfill_tasks.is_empty() => {
+                    if let Ok(done) = done {
+                        finish_preview_look(&events, backfill_results.as_ref(),
+                                            &mut preview_backfill, done);
+                    }
+                    if !first_sync {
+                        spawn_preview_looks(&client, &mut preview_backfill, &mut backfill_tasks,
+                                            &mut forced_looks);
                     }
                 }
                 updates = room_updates_sub.recv(), if room_updates_live => {
@@ -12355,13 +12316,23 @@ async fn run_modern_sync(
                     if let Some(users) = changed {
                         let delta = previewbackfill::ignore_list_delta(&ignored_before, &users);
                         ignored_before = users.clone();
+                        if let Some(own) = client.user_id() {
+                            previewbackfill::set_ignored(own, &users);
+                        }
                         let carried = match &backfill_results {
                             Some(results) => carry_previews_across_ignore_change(
                                 &client, results, &mut preview_backfill,
                                 &mut ignore_touched, &delta,
                             ).await,
-                            None => (0, Vec::new(), 0, 0),
+                            None => (0, Vec::new(), 0, 0, 0),
                         };
+                        forced_looks = carried.1.iter()
+                            .filter_map(|id| RoomId::parse(id.as_str()).ok())
+                            .collect();
+                        if !first_sync {
+                            spawn_preview_looks(&client, &mut preview_backfill,
+                                                &mut backfill_tasks, &mut forced_looks);
+                        }
                         enqueue(&events, json!({
                             "type": "ignored_users_changed",
                             "users": users,
@@ -12370,6 +12341,7 @@ async fn run_modern_sync(
                             "previews_refreshed_rooms": carried.1,
                             "previews_blank": carried.2,
                             "previews_ms": carried.3,
+                            "previews_recovered": carried.4,
                         }));
                     }
                 }
@@ -13508,24 +13480,102 @@ fn replaced_event_id(
     EventId::parse(relation.get("event_id")?.as_str()?).ok()
 }
 
-/// Best-effort: matrix-sdk's own ignore-list task clears the event cache
-/// unordered with this, so the snapshot of each room's newest event is taken
-/// before any await; only rooms a changed user touches go back to the server.
+fn finish_preview_look(
+    events: &Arc<Mutex<VecDeque<String>>>,
+    results: Option<&previewbackfill::RunGuard>,
+    backfill: &mut previewbackfill::Backfill,
+    (room_id, spawned_in, outcome): (OwnedRoomId, u64, previewbackfill::Outcome),
+) {
+    if !backfill.accepts(&room_id, spawned_in) {
+        return;
+    }
+    let remembered = match &outcome {
+        previewbackfill::Outcome::Found(preview, ts, sender) => Some(
+            previewbackfill::Remembered::Message(preview.clone(), *ts, sender.clone()),
+        ),
+        previewbackfill::Outcome::Undecryptable(ts, id) => {
+            Some(previewbackfill::Remembered::Undecryptable(*ts, id.clone()))
+        }
+        _ => None,
+    };
+    if let (Some(what), Some(results)) = (remembered, results) {
+        let (preview, ts, utd) = match &what {
+            previewbackfill::Remembered::Message(p, t, _) => (p.clone(), *t, false),
+            previewbackfill::Remembered::Undecryptable(t, _) => (String::new(), *t, true),
+            previewbackfill::Remembered::Place(t) => (String::new(), *t, false),
+        };
+        results.remember(&room_id, what);
+        let (preview, preview_kind, preview_arg) = preview_wire(&preview);
+        enqueue(events, json!({
+            "type": "room_preview_backfill",
+            "room_id": room_id.to_string(),
+            "preview": preview,
+            "preview_kind": preview_kind,
+            "preview_arg": preview_arg,
+            "undecryptable": utd,
+            "last_activity_ms": ts,
+        }));
+    }
+    let now_ms = backfill.now_ms();
+    backfill.finish(&room_id, &outcome, now_ms);
+}
+
+/// `forced` rooms are looked at whatever `latest_event` says: matrix-sdk may
+/// not have cleared it yet after an ignore-list change.
+fn spawn_preview_looks(
+    client: &Client,
+    backfill: &mut previewbackfill::Backfill,
+    tasks: &mut tokio::task::JoinSet<(OwnedRoomId, u64, previewbackfill::Outcome)>,
+    forced: &mut Vec<OwnedRoomId>,
+) {
+    let now_ms = backfill.now_ms();
+    let scanned = client.joined_rooms().into_iter().filter(|room| {
+        matches!(room.latest_event(), matrix_sdk_base::latest_event::LatestEventValue::None)
+            && !matches!(
+                previewbackfill::remembered(room.own_user_id(), room.room_id()),
+                Some(previewbackfill::Remembered::Message(..))
+            )
+    });
+    let candidates: Vec<OwnedRoomId> = forced
+        .iter()
+        .cloned()
+        .chain(scanned.map(|room| room.room_id().to_owned()))
+        .filter(|id| backfill.is_eligible(id, now_ms))
+        .collect();
+    let picked = backfill.pick(candidates, tasks.len(), now_ms);
+    forced.retain(|id| !picked.contains(id) && backfill.is_eligible(id, now_ms));
+    for room_id in picked {
+        let Some(room) = client.get_room(&room_id) else {
+            backfill.finish(&room_id, &previewbackfill::Outcome::Failed, now_ms);
+            continue;
+        };
+        let spawned_in = backfill.generation();
+        tasks.spawn(async move {
+            let outcome = previewbackfill::look(&room).await;
+            (room_id, spawned_in, outcome)
+        });
+    }
+}
+
+/// matrix-sdk's own ignore-list task clears the event cache unordered with
+/// this, so a room's newest event is read before any await and, where it is
+/// already gone, taken from what was last sent to the UI.
 async fn carry_previews_across_ignore_change(
     client: &Client,
     results: &previewbackfill::RunGuard,
     backfill: &mut previewbackfill::Backfill,
     touched: &mut previewbackfill::IgnoreTouched,
     changed: &[String],
-) -> (usize, Vec<String>, usize, u64) {
+) -> (usize, Vec<String>, usize, u64, usize) {
     use matrix_sdk_base::latest_event::LatestEventValue;
     use previewbackfill::{AcrossIgnore, LatestSnapshot};
     let started = std::time::Instant::now();
-    let Some(own) = client.user_id().map(ToOwned::to_owned) else { return (0, Vec::new(), 0, 0) };
+    let Some(own) = client.user_id().map(ToOwned::to_owned) else { return (0, Vec::new(), 0, 0, 0) };
     backfill.begin_ignore_change();
     let names = changed;
     let changed: Vec<OwnedUserId> =
         changed.iter().filter_map(|user| UserId::parse(user.as_str()).ok()).collect();
+    let mut recovered = 0usize;
     let snapshots: Vec<(Room, Option<LatestSnapshot>, Option<OwnedEventId>)> = client
         .joined_rooms()
         .into_iter()
@@ -13542,10 +13592,13 @@ async fn carry_previews_across_ignore_change(
                 ),
                 _ => (None, None),
             };
+            let (snapshot, was_cleared) =
+                previewbackfill::snapshot_or_shown(snapshot, &own, room.room_id());
+            recovered += usize::from(was_cleared);
             (room, snapshot, original)
         })
         .collect();
-    let decided: Vec<(OwnedRoomId, AcrossIgnore)> =
+    let decided: Vec<(OwnedRoomId, AcrossIgnore, Option<previewbackfill::Remembered>)> =
         futures_util::stream::iter(snapshots.into_iter().map(|(room, mut snapshot, original)| {
             let (changed, own, touched) = (&changed, &own, &*touched);
             async move {
@@ -13567,14 +13620,15 @@ async fn carry_previews_across_ignore_change(
                 let decision = previewbackfill::across_ignore_change(
                     changed, snapshot.as_ref(), kept.as_ref(), linked,
                 );
-                (room.room_id().to_owned(), decision)
+                let place = previewbackfill::place_only(snapshot.as_ref(), kept.as_ref());
+                (room.room_id().to_owned(), decision, place)
             }
         }))
         .buffer_unordered(16)
         .collect()
         .await;
     let (mut kept, mut refreshed, mut blank) = (0usize, Vec::new(), 0usize);
-    for (room_id, decision) in decided {
+    for (room_id, decision, place) in decided {
         match decision {
             AcrossIgnore::Keep(what) => {
                 kept += 1;
@@ -13582,10 +13636,14 @@ async fn carry_previews_across_ignore_change(
             }
             AcrossIgnore::Refresh => {
                 refreshed.push(room_id.to_string());
-                if let Some(was @ previewbackfill::Remembered::Message(..)) =
-                    previewbackfill::remembered(&own, &room_id)
-                {
-                    previewbackfill::replace_remembered(&own, &room_id, &was, None);
+                previewbackfill::forget_shown(&own, &room_id);
+                match place {
+                    Some(place) => results.remember(&room_id, place),
+                    None => {
+                        if let Some(was) = previewbackfill::remembered(&own, &room_id) {
+                            previewbackfill::replace_remembered(&own, &room_id, &was, None);
+                        }
+                    }
                 }
                 backfill.forget(&room_id);
                 touched.record(names, &room_id);
@@ -13593,7 +13651,7 @@ async fn carry_previews_across_ignore_change(
             AcrossIgnore::Leave => blank += 1,
         }
     }
-    (kept, refreshed, blank, started.elapsed().as_millis() as u64)
+    (kept, refreshed, blank, started.elapsed().as_millis() as u64, recovered)
 }
 
 async fn edited_event_timestamp_ms(room: &Room, event_id: &EventId) -> Option<u64> {
@@ -13857,9 +13915,32 @@ async fn room_payload(room: &Room) -> serde_json::Value {
     if let Some(was) = remembered.as_ref().filter(|was| settled.as_ref() != Some(*was)) {
         previewbackfill::replace_remembered(room.own_user_id(), room.room_id(), was, settled.clone());
     }
+    let latest_sender = match &latest_event {
+        matrix_sdk_base::latest_event::LatestEventValue::Remote(event) => {
+            Some(event.raw().get_field::<OwnedUserId>("sender").ok().flatten())
+        }
+        _ => None,
+    };
+    // matrix-sdk does not keep an ignored user's event out of `latest_event`.
+    let (latest_line, latest_ts) = if latest_sender
+        .as_ref()
+        .is_some_and(|s| s.as_ref().is_some_and(|s| previewbackfill::is_ignored(room.own_user_id(), s)))
+    {
+        (String::new(), 0)
+    } else {
+        (latest_event_preview_line(&latest_event),
+         room_ordering_timestamp_ms(&latest_event, edited_ts))
+    };
+    if let Some(sender) = latest_sender.filter(|_| !latest_line.is_empty() || latest_ts > 0) {
+        previewbackfill::note_shown(room.own_user_id(), room.room_id(), previewbackfill::LatestSnapshot {
+            preview: latest_line.clone(),
+            ts: latest_ts,
+            sender,
+        });
+    }
     let (own_preview, own_activity, own_undecryptable) = previewbackfill::merge_remembered(
-        latest_event_preview_line(&latest_event),
-        room_ordering_timestamp_ms(&latest_event, edited_ts),
+        latest_line,
+        latest_ts,
         settled,
     );
     let own_join_latest = own_preview.is_empty()
