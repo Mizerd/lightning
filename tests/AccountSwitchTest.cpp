@@ -365,6 +365,46 @@ private Q_SLOTS:
                  QStringLiteral("bob-token-fixture"));
     }
 
+    void adjacentAccountCyclesInSavedOrderAndWraps()
+    {
+        const QString carol = QStringLiteral("@carol:three.example");
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice, QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QCOMPARE(app.auth()->currentUserId(), kAlice);
+        QVERIFY(!app.switchToAdjacentAccount(false));
+        QVERIFY(!app.switchToAdjacentAccount(true));
+        QVERIFY(!app.accountSwitching());
+        QCOMPARE(app.auth()->currentUserId(), kAlice);
+
+        app.settings()->saveSession(kHsTwo, kBob, QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.settings()->saveSession(QStringLiteral("https://three.example"), carol,
+                                    QStringLiteral("CAROLDEV"),
+                                    QStringLiteral("carol-token-fixture"));
+        // saveSession() makes the saved account the active one.
+        app.switchToAccount(kAlice);
+        QTRY_COMPARE(app.settings()->activeAccountUserId(), kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        const QStringList order = app.settings()->savedAccountUserIds();
+        QCOMPARE(order.size(), 3);
+        const qsizetype start = order.indexOf(kAlice);
+        const auto step = [&app](bool backward, const QString &want) {
+            QVERIFY(app.switchToAdjacentAccount(backward));
+            QTRY_COMPARE(app.auth()->currentUserId(), want);
+            QTRY_VERIFY(!app.accountSwitching());
+            QCOMPARE(app.currentScreen(), AppController::MainScreen);
+        };
+        for (int i = 1; i <= 3; ++i)
+            step(false, order.at((start + i) % 3));
+        for (int i = 1; i <= 3; ++i)
+            step(true, order.at((start + 3 - i) % 3));
+    }
+
     void aClickDuringARunningSwitchRunsWhenItCompletes()
     {
         AppController app(AppController::MockBackend);

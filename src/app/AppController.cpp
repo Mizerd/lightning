@@ -5414,6 +5414,27 @@ bool AppController::navigateRoomForward()
     return stepRoomHistory(true);
 }
 
+bool AppController::switchToAdjacentAccount(bool backward)
+{
+    if (!m_settings || !m_accounts || (m_auth && m_auth->logoutPending()))
+        return false;
+    const QString current = m_queuedSwitchTarget.isEmpty()
+        ? m_settings->activeAccountUserId() : m_queuedSwitchTarget;
+    QStringList ids;
+    for (const QString &id : m_settings->savedAccountUserIds()) {
+        if (id == current || !m_accounts->needsSignIn(id))
+            ids.append(id);
+    }
+    if (ids.size() < 2)
+        return false;
+    const qsizetype n = ids.size();
+    const qsizetype here = ids.indexOf(current);
+    const qsizetype next = here < 0 ? (backward ? n - 1 : 0)
+                                    : (here + (backward ? n - 1 : 1)) % n;
+    switchToAccount(ids.at(next));
+    return true;
+}
+
 bool AppController::openAdjacentRoom(bool backward)
 {
     if (!roomHistoryNavigationAllowed() || !m_settings)

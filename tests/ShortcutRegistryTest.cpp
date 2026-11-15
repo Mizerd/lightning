@@ -611,6 +611,23 @@ private Q_SLOTS:
                  QStringLiteral("Alt+Down"));
     }
 
+    void accountCyclingShipsOnCtrlBacktick()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const auto resolved = resolvedById(registry);
+        QCOMPARE(resolved.value(QStringLiteral("nav.nextAccount")), QStringLiteral("Ctrl+`"));
+        QCOMPARE(resolved.value(QStringLiteral("nav.previousAccount")),
+                 QStringLiteral("Ctrl+Shift+`"));
+        QCOMPARE(registry.conflictCount(), 0);
+        QCOMPARE(registry.sequenceFromKeyEvent(Qt::Key_QuoteLeft, Qt::ControlModifier),
+                 QStringLiteral("Ctrl+`"));
+        QCOMPARE(registry.setBinding(QStringLiteral("nav.nextAccount"),
+                                     QStringLiteral("Ctrl+Alt+Down")), QString());
+        QCOMPARE(registry.sequenceFor(QStringLiteral("nav.nextAccount")),
+                 QStringLiteral("Ctrl+Alt+Down"));
+    }
+
     void theDiscordAuditAdditionsShipOnExactlyTheseKeys()
     {
         SettingsManager settings;

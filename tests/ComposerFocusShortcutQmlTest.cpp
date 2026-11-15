@@ -504,6 +504,34 @@ Popup {
         QTRY_COMPARE(m_controller->currentRoomId(), rooms.at(1));
     }
 
+    void accountShortcutsFireAndFollowRebinding()
+    {
+        QObject *next = shortcutOn(QStringLiteral("Ctrl+`"));
+        QObject *previous = shortcutOn(QStringLiteral("Ctrl+Shift+`"));
+        QVERIFY(next);
+        QVERIFY(previous);
+        QSignalSpy nextFired(next, SIGNAL(activated()));
+        QSignalSpy previousFired(previous, SIGNAL(activated()));
+        item("composerInput")->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_QuoteLeft, Qt::ControlModifier);
+        QTRY_COMPARE(nextFired.count(), 1);
+        QTest::keyClick(m_window, Qt::Key_QuoteLeft,
+                        Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(previousFired.count(), 1);
+        // One account: nothing to switch to.
+        QVERIFY(!m_controller->accountSwitching());
+
+        QCOMPARE(m_controller->shortcuts()->setBinding(QStringLiteral("nav.nextAccount"),
+                                                       QStringLiteral("Ctrl+Alt+Down")),
+                 QString());
+        QTRY_COMPARE(boundSequence(next), QStringLiteral("Ctrl+Alt+Down"));
+        QTest::keyClick(m_window, Qt::Key_QuoteLeft, Qt::ControlModifier);
+        QTest::qWait(50);
+        QCOMPARE(nextFired.count(), 1);
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::ControlModifier | Qt::AltModifier);
+        QTRY_COMPARE(nextFired.count(), 2);
+    }
+
     void focusShortcutRefusesHiddenComposer()
     {
         openJoinedRoom();
