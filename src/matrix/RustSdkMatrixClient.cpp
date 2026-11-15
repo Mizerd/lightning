@@ -198,10 +198,9 @@ QDateTime timestampFromMs(qint64 ms)
     return QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC);
 }
 
-void setPreviewFrom(RoomInfo &room, const TimelineEvent &event,
-                    const QString &actorLabel = QString())
+void setPreviewFrom(RoomInfo &room, const TimelineEvent &event)
 {
-    const auto token = matrix::preview::summaryToken(event, actorLabel);
+    const auto token = matrix::preview::summaryToken(event);
     room.setPreview(token.kind, token.arg);
 }
 
@@ -7612,14 +7611,7 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
             Q_EMIT roomUpdated(roomId);
             return;
         }
-        QString actor;
-        if (event.type == TimelineEvent::StateChange
-            && event.senderDisplayName.isEmpty()) {
-            const QString known = displayNameFor(roomId, event.sender);
-            if (known != event.sender)
-                actor = known;
-        }
-        setPreviewFrom(*roomIt, event, actor);
+        setPreviewFrom(*roomIt, event);
         roomIt->raiseActivity(event.timestamp);
         Q_EMIT roomUpdated(roomId);
         return;

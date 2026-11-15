@@ -156,6 +156,28 @@ private Q_SLOTS:
         QVERIFY(roomrecency::replacesPreview(text));
     }
 
+    void aStateRowNeitherRaisesTheRoomNorReplacesThePreview()
+    {
+        TimelineEvent rename;
+        rename.type = TimelineEvent::StateChange;
+        rename.stateKind = QStringLiteral("member_profile");
+        QVERIFY(!roomrecency::raisesRecency(rename));
+        QVERIFY(!roomrecency::replacesPreview(rename));
+
+        TimelineEvent setting;
+        setting.type = TimelineEvent::StateChange;
+        setting.stateKind = QStringLiteral("m.room.name");
+        setting.body = QStringLiteral("@a:example.org changed the room name.");
+        QVERIFY(!roomrecency::raisesRecency(setting));
+        QVERIFY(!roomrecency::replacesPreview(setting));
+
+        TimelineEvent call;
+        call.type = TimelineEvent::StateChange;
+        call.stateKind = QStringLiteral("m.call");
+        QVERIFY(roomrecency::raisesRecency(call));
+        QVERIFY(!roomrecency::replacesPreview(call));
+    }
+
     void aSnapshotUsedAsTheIndexBaseMakesTheNextDiffFail()
     {
         QHash<QString, RoomInfo> map;

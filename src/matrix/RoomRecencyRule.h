@@ -14,14 +14,27 @@
 // body, so it never replaces the preview.
 namespace roomrecency {
 
+inline bool isCallRow(const TimelineEvent &event)
+{
+    return event.type == TimelineEvent::CallEvent
+        || (event.type == TimelineEvent::StateChange
+            && (event.stateKind == QLatin1String("m.call")
+                || event.stateKind == QLatin1String("m.call.video")));
+}
+
+// A membership, profile or room-setting row is not conversation, shown or
+// hidden: the room list's own latest event (rust/src/previewbackfill.rs) never
+// counts one, so an opened room must not either.
 inline bool raisesRecency(const TimelineEvent &event)
 {
-    return !event.isVirtual();
+    return !event.isVirtual()
+        && (event.type != TimelineEvent::StateChange || isCallRow(event));
 }
 
 inline bool replacesPreview(const TimelineEvent &event)
 {
-    return raisesRecency(event) && event.type != TimelineEvent::CallEvent;
+    return raisesRecency(event) && !isCallRow(event);
 }
+
 
 }
