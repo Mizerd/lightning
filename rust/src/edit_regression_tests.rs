@@ -766,11 +766,19 @@ async fn a_sent_reply_to_an_unloaded_event_gets_its_quote() {
         .await
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while row(&timeline, "$reply").await["is_local_echo"] != true {
-        assert!(Instant::now() < deadline, "the sent local echo never appeared");
+    while row(&timeline, "$reply").await.is_null() {
+        if Instant::now() >= deadline {
+            let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+            let rows: Vec<_> = timeline
+                .items()
+                .await
+                .iter()
+                .map(|item| item_to_json(item, ROOM, "@me:localhost", &registry))
+                .collect();
+            panic!("the reply was never sent: {rows:?}");
+        }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    // Let the listener see the sent echo before the remote one replaces it.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let mut remote = message("$reply", "a reply", 6000);

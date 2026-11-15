@@ -295,6 +295,9 @@ const EXPORT_MEDIA_CAP: usize = 50_000;
 struct EncryptedRoomMedia {
     keys: std::collections::HashSet<String>,
     overflowed: bool,
+    // Registered since the active room last changed, so not yet judged.
+    unpinned: std::collections::HashSet<String>,
+    unpinned_lost: bool,
 }
 
 struct MediaRegistry {
@@ -718,7 +721,14 @@ impl TimelineRegistry {
             return;
         }
         if let Ok(mut guard) = self.media_sources.lock() {
-            guard.insert(key, media);
+            guard.insert(key.clone(), media);
+        }
+        if let Ok(mut marks) = self.encrypted_room_media.lock() {
+            if marks.unpinned.len() >= MEDIA_SOURCE_CAP {
+                marks.unpinned_lost = true;
+            } else {
+                marks.unpinned.insert(key);
+            }
         }
     }
 
@@ -808,15 +818,16 @@ impl TimelineRegistry {
         else {
             return;
         };
-        if marks.overflowed {
+        if marks.overflowed || marks.unpinned_lost {
             sources.clear();
             *marks = EncryptedRoomMedia::default();
             return;
         }
-        marks.keys.retain(|key| sources.entries.contains_key(key));
+        let unpinned = std::mem::take(&mut marks.unpinned);
         if private {
-            marks.keys.extend(sources.entries.keys().cloned());
+            marks.keys.extend(unpinned);
         }
+        marks.keys.retain(|key| sources.entries.contains_key(key));
     }
 
     pub(crate) fn mark_media_from_encrypted_room(&self, key: &str) {
