@@ -8,15 +8,15 @@
 Built on the official Rust Matrix SDK, with search that works in encrypted
 rooms and MatrixRTC group calls.
 
-[![Latest release](https://img.shields.io/github/v/release/Mizerd/lightning?label=release)](https://github.com/Mizerd/lightning/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/lightning-matrix/lightning?label=release)](https://github.com/lightning-matrix/lightning/releases/latest)
 [![Flathub](https://img.shields.io/flathub/v/org.lightning_matrix.Lightning?logo=flathub&label=flathub)](https://flathub.org/apps/org.lightning_matrix.Lightning)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/Mizerd/lightning?style=flat&logo=github)](https://github.com/Mizerd/lightning/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/lightning-matrix/lightning?style=flat&logo=github)](https://github.com/lightning-matrix/lightning/stargazers)
 [![Matrix room](https://img.shields.io/badge/matrix-%23lightning%3Amatrix.smetonis.net-0dbd8b?logo=matrix)](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net)
 
 **[Website](https://www.lightning-matrix.org)** ·
 **[Get it on Flathub](https://flathub.org/apps/org.lightning_matrix.Lightning)** ·
-**[All downloads](https://github.com/Mizerd/lightning/releases/latest)** ·
+**[All downloads](https://github.com/lightning-matrix/lightning/releases/latest)** ·
 **[Install guide](docs/install.md)**
 
 <a href="https://flathub.org/apps/org.lightning_matrix.Lightning"><img width="200" alt="Get it on Flathub" src="https://flathub.org/api/badge?locale=en"></a>
@@ -40,7 +40,7 @@ rooms and MatrixRTC group calls.
 
 > **Beta.** Lightning is usable day to day but young, and is listed as Beta in
 > the [Matrix client directory](https://matrix.org/ecosystem/clients/lightning/).
-> Expect rough edges, and please [report them](https://github.com/Mizerd/lightning/issues).
+> Expect rough edges, and please [report them](https://github.com/lightning-matrix/lightning/issues).
 
 ## Why Lightning
 
@@ -108,13 +108,13 @@ GStreamer and C library, so it also runs on distributions too old for the deb,
 the rpm and the AppImage.
 
 Every release also ships these on
-[GitHub Releases](https://github.com/Mizerd/lightning/releases/latest),
+[GitHub Releases](https://github.com/lightning-matrix/lightning/releases/latest),
 with a `SHA256SUMS` file:
 
 | Platform | Packages |
 |---|---|
 | Linux (x86-64) | AppImage, `.deb` for Debian 13+ or Ubuntu 26.04+, `.rpm` for Fedora 44+, `.flatpak`, `.snap` |
-| NixOS | `nix run github:Mizerd/lightning`, or the flake with its Home Manager module |
+| NixOS | `nix run github:lightning-matrix/lightning`, or the flake with its Home Manager module |
 | Windows 10+ (x86-64) | MSI, Setup EXE or portable ZIP, per-user by default. Unsigned, so SmartScreen warns |
 | macOS 26+ (Apple Silicon) | ZIP. Not notarized, so the first launch needs *Open Anyway*. Does not update itself |
 
@@ -127,7 +127,7 @@ the macOS first-launch steps.
 With the repository's Nix flake on Linux:
 
 ```sh
-git clone https://github.com/Mizerd/lightning.git
+git clone https://github.com/lightning-matrix/lightning.git
 cd lightning
 nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
 nix develop -c cmake --build build-rust
@@ -142,11 +142,11 @@ build options and how the layers fit together.
 Bug reports, testing and focused patches are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
-- The public repository is <https://github.com/Mizerd/lightning>. A change
+- The public repository is <https://github.com/lightning-matrix/lightning>. A change
   arrives as a pull request there or as a patch emailed to the maintainer.
 - A pull request is applied on the maintainer's own repository, which GitHub
   is synchronised from, and then closed, not merged, even when it ships. The
-  [issue tracker](https://github.com/Mizerd/lightning/issues) is the place to
+  [issue tracker](https://github.com/lightning-matrix/lightning/issues) is the place to
   report a bug.
 - Credit: your commits keep your name and email whichever route you use, and
   you appear in the contributor list. Details in

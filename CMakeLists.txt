@@ -99,7 +99,7 @@ string(REPLACE ";" "," LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO
 # signature and the strictly-newer rule apply identically; see the freeze/pin
 # trade-off in docs/updates.md.
 set(LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
-    "https://github.com/Mizerd/lightning/releases/download/update-latest"
+    "https://github.com/lightning-matrix/lightning/releases/download/update-latest"
     CACHE STRING
     "Base URL of the mirrored manifest pair (the primary source), or empty to make the canonical host the only source")
 

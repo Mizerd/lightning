@@ -33,7 +33,7 @@ ROOT="$(project_dir)"
 
 : "${FLATHUB_REPO:=flathub/org.lightning_matrix.Lightning}"
 : "${FLATHUB_BASE_BRANCH:=master}"
-: "${FLATHUB_SOURCE_REPO:=https://github.com/Mizerd/lightning.git}"
+: "${FLATHUB_SOURCE_REPO:=https://github.com/lightning-matrix/lightning.git}"
 : "${FLATHUB_API_HOST:=https://api.github.com}"
 : "${FLATHUB_DRY_RUN:=false}"
 MANIFEST=org.lightning_matrix.Lightning.yaml
@@ -197,7 +197,7 @@ if [[ -n "$existing" ]]; then
     exit 0
 fi
 
-notes_url="https://github.com/Mizerd/lightning/releases/tag/${TAG}"
+notes_url="https://github.com/lightning-matrix/lightning/releases/tag/${TAG}"
 jq -n --arg title "Update to ${RELEASE_VERSION}" --arg head "$BRANCH" \
     --arg base "$FLATHUB_BASE_BRANCH" \
     --arg body "Lightning ${RELEASE_VERSION}. Release notes: ${notes_url}" \

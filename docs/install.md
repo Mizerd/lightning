@@ -1,7 +1,7 @@
 # Installing Lightning
 
 Packages are attached to the
-[**Releases**](https://github.com/Mizerd/lightning/releases) page on GitHub. Every
+[**Releases**](https://github.com/lightning-matrix/lightning/releases) page on GitHub. Every
 release ships a `SHA256SUMS` file; verifying is worth the one command, because no
 package is code-signed yet:
 
@@ -112,7 +112,7 @@ unsafe; it is built with `strict` confinement.
 If you want to use it without installing:
 
 ```sh
-nix run github:Mizerd/lightning
+nix run github:lightning-matrix/lightning
 ```
 
 **Installing using flakes**:
@@ -124,8 +124,8 @@ Add lightning-matrix-client as an input:
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     lightning-matrix-client = {
-      url = "github:Mizerd/lightning";
-      #url = "github:Mizerd/lightning/v0.10.5"; # Use this if you want a specific version
+      url = "github:lightning-matrix/lightning";
+      #url = "github:lightning-matrix/lightning/v0.10.5"; # Use this if you want a specific version
     };
   };
   . . . # Your outputs config

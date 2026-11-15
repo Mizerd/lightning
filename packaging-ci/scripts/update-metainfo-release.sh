@@ -23,7 +23,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(project_dir)
 
 # The GitHub release page holding the full notes (GitLab may become private).
-: "${METAINFO_RELEASE_URL_PREFIX:=https://github.com/Mizerd/lightning/releases/tag/v}"
+: "${METAINFO_RELEASE_URL_PREFIX:=https://github.com/lightning-matrix/lightning/releases/tag/v}"
 
 METAINFO="$ROOT/packaging-ci/packaging/common/lightning.metainfo.xml"
 NOTES=""

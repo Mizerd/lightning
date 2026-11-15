@@ -830,7 +830,7 @@ ApplicationWindow {
                     visible: softwareRendererNotice.noticeContext === "appimage-nixos"
                     text: qsTr("How to fix")
                     onClicked: {
-                        app.media.openWebUrl("https://github.com/Mizerd/lightning/blob/main/docs/install.md#nixos-appimage-and-gpu-acceleration")
+                        app.media.openWebUrl("https://github.com/lightning-matrix/lightning/blob/main/docs/install.md#nixos-appimage-and-gpu-acceleration")
                     }
                 }
                 AppButton {

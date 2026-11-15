@@ -16,11 +16,11 @@
 
 #ifndef LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
 #define LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE                                                      \
-    "https://github.com/Mizerd/lightning/releases/download/update-latest"
+    "https://github.com/lightning-matrix/lightning/releases/download/update-latest"
 #endif
 
 #ifndef LIGHTNING_UPDATE_RELEASE_PAGE_BASE
-#define LIGHTNING_UPDATE_RELEASE_PAGE_BASE "https://github.com/Mizerd/lightning/releases/tag/v"
+#define LIGHTNING_UPDATE_RELEASE_PAGE_BASE "https://github.com/lightning-matrix/lightning/releases/tag/v"
 #endif
 
 namespace lightning::update {

@@ -23,7 +23,7 @@ CMake options, the same portable Qt ABI. Two things differ on purpose:
 tag vX.Y.Z created on GitHub (the project 6 push mirror delivers it)
   -> GitHub webhook (the "Branch or tag creation" event only)
   -> COPR /webhooks/github/<id>/<uuid>/lightning-matrix/ -> package "lightning-matrix"
-  -> COPR clones https://github.com/Mizerd/lightning.git at the tag and runs, as root in a Fedora mock chroot with network:
+  -> COPR clones https://github.com/lightning-matrix/lightning.git at the tag and runs, as root in a Fedora mock chroot with network:
        make -f .copr/Makefile srpm outdir=<dir> spec=<ignored>
          -> packaging-ci/scripts/build-copr-srpm.sh
               git archive HEAD, cargo vendor --locked, stamp the spec
@@ -70,22 +70,22 @@ Everything here is outward-facing and done by the maintainer, by hand.
    builds* OFF (the crates are vendored into the SRPM; the SRPM step has
    network regardless). The default 5-hour build timeout is enough.
 2. *Packages → New package → SCM*: name `lightning-matrix`, clone URL
-   `https://github.com/Mizerd/lightning.git`, committish `main`, SRPM
+   `https://github.com/lightning-matrix/lightning.git`, committish `main`, SRPM
    build method `make srpm`, *Auto-rebuild* ON. The same with copr-cli:
-   `copr-cli add-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://github.com/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`
+   `copr-cli add-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://github.com/lightning-matrix/lightning.git --commit main --method make_srpm --webhook-rebuild on`
 3. First build by hand (*Rebuild*, or
    `copr-cli build-package mizerd/lightning-matrix --name lightning-matrix`); watch
    `builder-live.log`, and check the `%check` output for
    `call media engine built in: yes`.
 4. *Settings → Integrations*: copy the **GitHub** webhook URL
    (`https://copr.fedorainfracloud.org/webhooks/github/<id>/<uuid>/`). In GitHub,
-   `Mizerd/lightning` → *Settings → Webhooks → Add webhook*: that URL with
+   `lightning-matrix/lightning` → *Settings → Webhooks → Add webhook*: that URL with
    `lightning-matrix/` appended (the package name), content type
    `application/json` (COPR reads `flask.request.json`), and under *Let me select
    individual events* tick **Branch or tag creation** (the `create` event) and
    nothing else. Remove the old GitLab webhook (project 6 → *Settings →
    Webhooks*) and, for an existing package, repoint it:
-   `copr-cli edit-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://github.com/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`.
+   `copr-cli edit-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://github.com/lightning-matrix/lightning.git --commit main --method make_srpm --webhook-rebuild on`.
 
    **Why `create`, and not `push` or `release`** (read from COPR's frontend,
    `webhooks_ns/webhooks_general.py` and `logic/packages_logic.py`, 2026-10-13):

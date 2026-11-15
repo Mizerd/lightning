@@ -153,7 +153,7 @@ from it, and it deliberately describes fewer things.
   "artifacts": {
     "linux-appimage":   { "filename": "…", "size": 0, "sha256": "…",
                           "url": "https://gitlab.smetonis.net/api/v4/projects/6/packages/generic/lightning/0.8.0/…",
-                          "mirror_url": "https://github.com/Mizerd/lightning/releases/download/v0.8.0/…" },
+                          "mirror_url": "https://github.com/lightning-matrix/lightning/releases/download/v0.8.0/…" },
     "linux-deb":        { … },
     "linux-rpm":        { … },
     "windows-msi":      { … },
@@ -567,7 +567,7 @@ pipeline behaves exactly as it did before.
 
 | Variable | Value | Flags |
 | --- | --- | --- |
-| `GITHUB_MIRROR_REPO` | `Mizerd/lightning` — the mirror repository, `<owner>/<repo>` | **Protected**, not masked (it is not secret) |
+| `GITHUB_MIRROR_REPO` | `lightning-matrix/lightning` — the mirror repository, `<owner>/<repo>` | **Protected**, not masked (it is not secret) |
 | `GITHUB_MIRROR_TOKEN` | A GitHub token that may create a release and upload assets on that repository, and nothing else | **Protected**, **Masked**, not a File variable, **environment scope `mirror`** (only `mirror-release-to-github` declares it) |
 
 Scope the token as narrowly as GitHub allows — a fine-grained personal access

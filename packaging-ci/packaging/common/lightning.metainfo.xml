@@ -72,41 +72,41 @@
       English values.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.5/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/lightning-matrix/lightning/v0.10.5/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with a shared picture, replies, reactions and a thread</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.5/docs/screenshots/flathub/02-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/lightning-matrix/lightning/v0.10.5/docs/screenshots/flathub/02-call.png</image>
       <caption>A group call in a room with a screen share on the stage</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.5/docs/screenshots/flathub/03-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/lightning-matrix/lightning/v0.10.5/docs/screenshots/flathub/03-threads.png</image>
       <caption>A thread and its replies, opened from the conversation it started in</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.5/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/lightning-matrix/lightning/v0.10.5/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a custom theme with a gradient conversation background</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.5/docs/screenshots/flathub/05-settings.png</image>
+      <image type="source">https://raw.githubusercontent.com/lightning-matrix/lightning/v0.10.5/docs/screenshots/flathub/05-settings.png</image>
       <caption>Appearance settings with themes that follow the system light or dark style</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.5/docs/screenshots/flathub/06-verification.png</image>
+      <image type="source">https://raw.githubusercontent.com/lightning-matrix/lightning/v0.10.5/docs/screenshots/flathub/06-verification.png</image>
       <caption>Verifying a new session by comparing emoji</caption>
     </screenshot>
   </screenshots>
 
   <url type="homepage">https://www.lightning-matrix.org</url>
-  <url type="bugtracker">https://github.com/Mizerd/lightning/issues</url>
+  <url type="bugtracker">https://github.com/lightning-matrix/lightning/issues</url>
   <!--
     The GitHub mirror, although GitLab is canonical: the issue tracker and
     every other public link live there, and outsiders cannot register on the
     GitLab instance. CONTRIBUTING.md names the canonical repository.
   -->
-  <url type="vcs-browser">https://github.com/Mizerd/lightning</url>
-  <url type="contribute">https://github.com/Mizerd/lightning/blob/main/CONTRIBUTING.md</url>
-  <url type="translate">https://github.com/Mizerd/lightning/blob/main/docs/localization.md</url>
+  <url type="vcs-browser">https://github.com/lightning-matrix/lightning</url>
+  <url type="contribute">https://github.com/lightning-matrix/lightning/blob/main/CONTRIBUTING.md</url>
+  <url type="translate">https://github.com/lightning-matrix/lightning/blob/main/docs/localization.md</url>
   <url type="contact">https://matrix.to/#/%23lightning%3Amatrix.smetonis.net</url>
 
   <!--

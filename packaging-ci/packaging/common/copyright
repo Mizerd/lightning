@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Lightning
-Source: https://github.com/Mizerd/lightning
+Source: https://github.com/lightning-matrix/lightning
 
 Files: *
 Copyright: Lightning contributors

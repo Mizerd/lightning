@@ -191,7 +191,7 @@ QString mirrorHost()
 
 QString mirrorArtifactUrl(const QString &version, const QString &filename)
 {
-    return QStringLiteral("https://%1/Mizerd/lightning/releases/download/v%2/%3")
+    return QStringLiteral("https://%1/lightning-matrix/lightning/releases/download/v%2/%3")
         .arg(mirrorHost(), version, filename);
 }
 
@@ -2106,7 +2106,7 @@ void UpdateManagerStateTest::theReleasePageLinkIsTheGitHubTagForTheOfferedVersio
     ingest(manager.get(), manifest);
     QVERIFY(manager->updateAvailable());
     QCOMPARE(manager->releaseNotesUrl(),
-             QUrl(QStringLiteral("https://github.com/Mizerd/lightning/releases/tag/v0.8.0")));
+             QUrl(QStringLiteral("https://github.com/lightning-matrix/lightning/releases/tag/v0.8.0")));
 
     const auto bare = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     ingest(bare.get(), manifestObject(QStringLiteral("0.8.0")));
@@ -2115,7 +2115,7 @@ void UpdateManagerStateTest::theReleasePageLinkIsTheGitHubTagForTheOfferedVersio
     const auto foreign = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     QJsonObject bad = manifestObject(QStringLiteral("0.8.0"));
     bad.insert(QStringLiteral("release_notes_url"),
-               QStringLiteral("https://github.com/Mizerd/lightning/releases/tag/v0.8.0"));
+               QStringLiteral("https://github.com/lightning-matrix/lightning/releases/tag/v0.8.0"));
     ingest(foreign.get(), bad);
     QVERIFY(!foreign->updateAvailable());
     QVERIFY(foreign->releaseNotesUrl().isEmpty());

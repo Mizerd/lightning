@@ -13,11 +13,11 @@ set -Eeuo pipefail
 #   rewrite-github-release-bodies.sh --apply         # rewrite
 #   rewrite-github-release-bodies.sh v0.10.1 v0.9.9  # only these tags
 #
-# Environment: GITHUB_MIRROR_REPO (default Mizerd/lightning).
+# Environment: GITHUB_MIRROR_REPO (default lightning-matrix/lightning).
 # Idempotent: a body already carrying the new footer is skipped. A body with no
 # recognisable old footer is skipped with a notice, never guessed at.
 
-repo="${GITHUB_MIRROR_REPO:-Mizerd/lightning}"
+repo="${GITHUB_MIRROR_REPO:-lightning-matrix/lightning}"
 apply=false
 tags=()
 for a in "$@"; do

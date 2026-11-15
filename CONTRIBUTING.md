@@ -6,7 +6,7 @@ repository's operating conventions live in [`CLAUDE.md`](CLAUDE.md), which is
 worth skimming before a larger change.
 
 The public home of the project is
-<https://github.com/Mizerd/lightning>: clone it, file issues there, and download
+<https://github.com/lightning-matrix/lightning>: clone it, file issues there, and download
 releases from it. Development and releases are driven from the maintainer's own
 GitLab, which is not open to the public and which GitHub is synchronised from
 (force-pushed): anything committed directly to GitHub's own branches is
@@ -22,7 +22,7 @@ the two.
 
 ## Reporting a bug
 
-Open an issue on [GitHub](https://github.com/Mizerd/lightning/issues)
+Open an issue on [GitHub](https://github.com/lightning-matrix/lightning/issues)
 or email the maintainer. Say which version you are on (Settings → About, or
 `lightning-matrix --version`), your platform, and what you expected against what
 happened. For calling or media problems include the output of
@@ -34,7 +34,7 @@ private message contents.
 
 ### 1. A pull request on GitHub — the easiest way
 
-Fork [Mizerd/lightning](https://github.com/Mizerd/lightning) on GitHub and open
+Fork [lightning-matrix/lightning](https://github.com/lightning-matrix/lightning) on GitHub and open
 a PR against `main`. You need nothing but a GitHub account, and you get a web UI
 to review the diff in.
 
@@ -53,7 +53,7 @@ from the maintainer's repository and such a commit is destroyed without warning.
 If you would rather not use GitHub:
 
 ```sh
-git clone https://github.com/Mizerd/lightning.git
+git clone https://github.com/lightning-matrix/lightning.git
 cd lightning
 # commit your work on top of main, in scoped commits
 git format-patch origin/main --stdout > lightning-<topic>.patch

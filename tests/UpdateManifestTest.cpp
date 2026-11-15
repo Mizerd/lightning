@@ -130,7 +130,7 @@ QString mirrorHost()
 
 QString mirrorArtifactUrl(const QString &filename)
 {
-    return QStringLiteral("https://%1/Mizerd/lightning/releases/download/v0.8.0/%2")
+    return QStringLiteral("https://%1/lightning-matrix/lightning/releases/download/v0.8.0/%2")
         .arg(mirrorHost(), filename);
 }
 
@@ -617,12 +617,12 @@ void UpdateManifestTest::rejectsAReleaseNotesLinkOnAMirrorHost()
 
     QJsonObject manifest = baseManifest();
     manifest.insert(QStringLiteral("release_notes_url"),
-                    QStringLiteral("https://%1/Mizerd/lightning/releases/tag/v0.8.0")
+                    QStringLiteral("https://%1/lightning-matrix/lightning/releases/tag/v0.8.0")
                         .arg(mirrorHost()));
     QCOMPARE(verify(manifest).error, ManifestError::ReleaseNotesUrlRejected);
 
     QVERIFY(!isAllowedManifestUrl(
-        QUrl(QStringLiteral("https://%1/Mizerd/lightning/releases/tag/v0.8.0").arg(mirrorHost()))));
+        QUrl(QStringLiteral("https://%1/lightning-matrix/lightning/releases/tag/v0.8.0").arg(mirrorHost()))));
     QVERIFY(isAllowedArtifactUrl(QUrl(mirrorArtifactUrl(QStringLiteral("x.deb")))));
 }
 
@@ -786,7 +786,7 @@ void UpdateManifestTest::separatesMetadataAndArtifactHostPolicies()
         QVERIFY(!host.contains(QLatin1Char('/')));
         QVERIFY(!host.contains(QLatin1Char(':')));
         QVERIFY(!host.isEmpty());
-        const QUrl url(QStringLiteral("https://%1/Mizerd/lightning/releases/download/v0.8.0/a.deb")
+        const QUrl url(QStringLiteral("https://%1/lightning-matrix/lightning/releases/download/v0.8.0/a.deb")
                            .arg(host));
         QVERIFY2(isAllowedArtifactUrl(url), qPrintable(host));
         QVERIFY2(!isAllowedManifestUrl(url), qPrintable(host));

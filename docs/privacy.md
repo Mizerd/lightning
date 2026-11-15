@@ -432,4 +432,4 @@ linked.
 ## Contact
 
 Rokas Smetonis — <contact@lightning-matrix.org> ·
-<https://github.com/Mizerd/lightning>
+<https://github.com/lightning-matrix/lightning>

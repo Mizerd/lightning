@@ -290,7 +290,7 @@ modules:
       - -DLIGHTNING_UPDATE_PUBKEY_2026A=pnNX0yQfhr66fpbMJ89MCNWkHVtfAr+WwI9c4OHzz50=
     sources:
       - type: git
-        url: https://github.com/Mizerd/lightning.git
+        url: https://github.com/lightning-matrix/lightning.git
         tag: v0.10.5
         commit: 2b63840bf06db13010726628d5d6a8e2c165aa0a
         x-checker-data:

@@ -46,8 +46,8 @@ from the fixed GitHub release slot first, then from the gitlab.com mirror (see
 package registry only when neither supplies a pair that verifies:
 
 ```
-https://github.com/Mizerd/lightning/releases/download/update-latest/update-manifest-v1.json
-https://github.com/Mizerd/lightning/releases/download/update-latest/update-manifest-v1.json.sig
+https://github.com/lightning-matrix/lightning/releases/download/update-latest/update-manifest-v1.json
+https://github.com/lightning-matrix/lightning/releases/download/update-latest/update-manifest-v1.json.sig
 .../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json       (last fallback)
 .../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json.sig   (last fallback)
 ```
@@ -537,7 +537,7 @@ Release signing keys, rotation and the compromise procedure are documented in
 the deployment repository, in `docs/update-manifest.md`.
 
 The release-notes link the update dialog shows is derived from the signed,
-validated version (`https://github.com/Mizerd/lightning/releases/tag/v<version>`),
+validated version (`https://github.com/lightning-matrix/lightning/releases/tag/v<version>`),
 not read from the manifest's `release_notes_url`. That field is still parsed and
 must name the canonical host or the whole manifest is refused, and the
 generator keeps emitting the GitLab URL, because deployed 0.7.3+ clients reject

@@ -106,7 +106,7 @@ QString AboutController::versionSummary() const
 
 QString AboutController::reportIssueUrl() const
 {
-    return QStringLiteral("https://github.com/Mizerd/lightning/issues");
+    return QStringLiteral("https://github.com/lightning-matrix/lightning/issues");
 }
 
 void AboutController::copyVersion()

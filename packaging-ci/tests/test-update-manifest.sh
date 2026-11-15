@@ -26,7 +26,7 @@ SIG_NAME=update-manifest-v1.json.sig
 # Synthetic GitHub mirror credentials. The repo is the real mirror name because
 # the derived URLs are asserted literally; the token is a canary that must never
 # appear in any log the scripts produce.
-MIRROR_REPO=Mizerd/lightning
+MIRROR_REPO=lightning-matrix/lightning
 MIRROR_TOKEN=ghp_MOCKMIRRORCANARY0123456789abcdef
 fail=0
 note() { printf '  ok: %s\n' "$1"; }

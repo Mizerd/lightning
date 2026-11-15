@@ -89,7 +89,7 @@ private Q_SLOTS:
     {
         AboutController about;
         QCOMPARE(about.reportIssueUrl(),
-                 QStringLiteral("https://github.com/Mizerd/lightning/issues"));
+                 QStringLiteral("https://github.com/lightning-matrix/lightning/issues"));
     }
 
     void theHomeserverCardLoadsAndIgnoresAStaleAnswer()

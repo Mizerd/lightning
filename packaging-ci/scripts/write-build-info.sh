@@ -42,7 +42,7 @@ jq -n \
     --arg pipeline_id "${CI_PIPELINE_ID:-local}" \
     --arg job_id "${CI_JOB_ID:-local}" \
     --arg package_format "$FORMAT" \
-    --arg repository "${LIGHTNING_PUBLIC_REPOSITORY:-https://github.com/Mizerd/lightning.git}" \
+    --arg repository "${LIGHTNING_PUBLIC_REPOSITORY:-https://github.com/lightning-matrix/lightning.git}" \
     --arg requested_ref "$SOURCE_REF" \
     --arg source_sha "$SOURCE_SHA" \
     --arg source_commit_time "$SOURCE_TIME" \
