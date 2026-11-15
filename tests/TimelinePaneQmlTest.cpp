@@ -5078,11 +5078,11 @@ false);
         const QVariant none;
         const Case cases[] = {
             { "encrypted private", true, true, QStringLiteral("invite"), false, false, "lock", false },
-            { "unencrypted public", false, true, QStringLiteral("public"), false, false, "lock_open", true },
+            { "unencrypted public", false, true, QStringLiteral("public"), false, false, "no_encryption", true },
             { "encrypted public", true, true, QStringLiteral("public"), false, false, "lock", true },
             { "public DM", true, true, QStringLiteral("public"), true, false, "lock", false },
             { "public space", false, true, QStringLiteral("public"), false, true, nullptr, true },
-            { "knock", false, true, QStringLiteral("knock"), false, false, "lock_open", false },
+            { "knock", false, true, QStringLiteral("knock"), false, false, "no_encryption", false },
             { "both unknown", false, false, none, false, false, nullptr, false },
             { "fields absent", none, none, none, false, false, nullptr, false },
         };

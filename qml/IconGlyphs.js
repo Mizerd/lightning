@@ -34,6 +34,7 @@ var codepoints = {
     "lock": "\ue899",
     "lock_open": "\ue898",
     "public": "\ue80b",
+    "no_encryption": "\uf03f",
     "account_circle": "\uf20b",
     "verified_user": "\uf013",
     "palette": "\ue40a",

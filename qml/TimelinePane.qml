@@ -1187,7 +1187,7 @@ Rectangle {
                                      && (encrypted
                                          || (root.currentRoom.encryptionKnown === true
                                              && root.currentRoom.encrypted === false))
-                            name: encrypted ? "lock" : "lock_open"
+                            name: encrypted ? "lock" : "no_encryption"
                             size: 14
                             color: AppTheme.textMuted
                             Accessible.role: Accessible.StaticText
