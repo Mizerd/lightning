@@ -2173,6 +2173,11 @@ void TimelineModelDiffTest::replyToSenderResolvesDisplayNameWithLocalpartFallbac
     QCOMPARE(m_model->data(m_model->index(0),
                            TimelineModel::ThreadLatestSenderDisplayNameRole)
                  .toString(),
+             QStringLiteral("Maya Chen"));
+    m_client->displayNames.remove(QStringLiteral("@maya:example.org"));
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::ThreadLatestSenderDisplayNameRole)
+                 .toString(),
              QStringLiteral("Maya (SDK)"));
 }
 
