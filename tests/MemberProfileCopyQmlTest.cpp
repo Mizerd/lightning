@@ -12,6 +12,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlProperty>
+#include <QQmlExpression>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -433,6 +434,83 @@ private slots:
         hoverStatus(status);
         QTest::qWait(700);
         QVERIFY(!tip(status, "ToolTip.visible").toBool());
+    }
+
+    void theOverflowChipNeverSitsAloneOnARow()
+    {
+        struct Case { QString userId; QString membership; QString role; bool own; };
+        const QList<Case> cases{
+            { QStringLiteral("@bob:mock.local"), QStringLiteral("joined"), QString(), false },
+            { QStringLiteral("@bob:matrix.org"), QStringLiteral("joined"),
+              QStringLiteral("moderator"), false },
+            { QStringLiteral("@bob:example-homeserver.org"), QStringLiteral("joined"),
+              QStringLiteral("administrator"), false },
+            { QStringLiteral("@bob:chat.a-rather-long-homeserver.example.com"),
+              QStringLiteral("invited"), QStringLiteral("administrator"), false },
+            { QStringLiteral("@alice:mock.local"), QStringLiteral("joined"),
+              QStringLiteral("creator"), true },
+        };
+        QQmlExpression scaleBack(qmlContext(m_dialog), m_dialog,
+                                 QStringLiteral("AppTheme.textScale = 1.0"));
+        const auto restore = qScopeGuard([&] { scaleBack.evaluate(); });
+        QStringList failures;
+        int rows = 0;
+        for (const double scale : { 1.0, 1.25 }) {
+            QQmlExpression setScale(qmlContext(m_dialog), m_dialog,
+                                    QStringLiteral("AppTheme.textScale = %1").arg(scale));
+            setScale.evaluate();
+            for (const Case &c : cases) {
+                QVERIFY(QMetaObject::invokeMethod(m_dialog, "close"));
+                QTRY_VERIFY(!m_dialog->property("visible").toBool());
+                QVariantMap member;
+                member.insert(QStringLiteral("userId"), c.userId);
+                member.insert(QStringLiteral("membership"), c.membership);
+                member.insert(QStringLiteral("role"), c.role);
+                member.insert(QStringLiteral("isOwn"), c.own);
+                member.insert(QStringLiteral("roomScoped"), false);
+                QVERIFY(QMetaObject::invokeMethod(m_dialog, "openFor",
+                                                  Q_ARG(QVariant, QVariant(member)),
+                                                  Q_ARG(QVariant, QVariant())));
+                QTRY_VERIFY(m_dialog->property("opened").toBool());
+                auto *card = m_dialog->property("contentItem").value<QQuickItem *>();
+                auto *more = item("profileOverflowButton");
+                auto *share = item("profileShareButton");
+                QVERIFY(card && more && share);
+                QTest::qWait(50);
+                const QString tag = QStringLiteral("%1 (%2, scale %3): ")
+                                        .arg(c.userId, c.role).arg(scale);
+                const auto rectIn = [card](QQuickItem *i) {
+                    return i->mapRectToItem(card, i->boundingRect());
+                };
+                const QRectF bounds(0, 0, card->width(), card->height());
+                QList<QQuickItem *> chips;
+                for (QQuickItem *chip : share->parentItem()->childItems())
+                    if (chip->isVisible() && chip->width() > 0 && chip != more)
+                        chips << chip;
+                const QRectF m = rectIn(more);
+                if (!bounds.adjusted(-0.5, -0.5, 0.5, 0.5).contains(m))
+                    failures << tag + QStringLiteral("the overflow chip leaves the card");
+                bool sharesARow = false;
+                for (QQuickItem *chip : chips) {
+                    const QRectF r = rectIn(chip);
+                    if (!bounds.adjusted(-0.5, -0.5, 0.5, 0.5).contains(r))
+                        failures << tag + chip->objectName()
+                                        + QStringLiteral(" leaves the card");
+                    if (r.intersected(m).width() > 0.5 && r.intersected(m).height() > 0.5)
+                        failures << tag + chip->objectName()
+                                        + QStringLiteral(" is under the overflow chip");
+                    if (r.top() < m.bottom() - 0.5 && r.bottom() > m.top() + 0.5)
+                        sharesARow = true;
+                }
+                ++rows;
+                if (!sharesARow)
+                    failures << tag + QStringLiteral("the overflow chip sits alone at y %1, "
+                                                     "%2 chips above it").arg(m.top())
+                                          .arg(chips.size());
+            }
+        }
+        QCOMPARE(rows, 10);
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
     }
 };
 

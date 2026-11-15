@@ -2865,6 +2865,101 @@ false, rows, threshold));
                  qPrintable(QStringLiteral("Edit at %1, Save message at %2").arg(editAt).arg(saveAt)));
     }
 
+    void anOwnMessageMenuStaysInsideTheWindowAtEveryWidth()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        TimelineModel *tl = controller.timeline();
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->sendTextMessage(QStringLiteral("!devs:mock.local"), QStringLiteral("my own line"));
+        int ownRow = -1;
+        const auto findOwn = [&] {
+            for (int row = 0; row < tl->rowCount(); ++row) {
+                const QModelIndex idx = tl->index(row);
+                if (tl->data(idx, TimelineModel::IsOwnRole).toBool()
+                    && tl->canEditEvent(tl->data(idx, TimelineModel::EventIdRole).toString())) {
+                    ownRow = row;
+                    return true;
+                }
+            }
+            return false;
+        };
+        QTRY_VERIFY2_WITH_TIMEOUT(findOwn(), "fixture: no editable own message", kSignalTimeoutMs);
+        QVariantMap fixture;
+        const auto roles = tl->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), tl->data(tl->index(ownRow), it.key()));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"), QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root);
+        QQuickWindow window;
+        root->setParentItem(window.contentItem());
+        window.show();
+        const auto fmt = [](const QRectF &r) {
+            return QStringLiteral("%1..%2 x %3..%4").arg(r.left()).arg(r.right())
+                .arg(r.top()).arg(r.bottom());
+        };
+        QStringList failures;
+        for (const QSize size : { QSize(640, 240), QSize(360, 240), QSize(360, 600) }) {
+            window.resize(size);
+            root->setWidth(size.width());
+            QCoreApplication::processEvents();
+            QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier,
+                              QPoint(qMin(180, size.width() / 2),
+                                     qMax(4, qRound(root->height() / 2))));
+            auto *menu = root->findChild<QObject *>(QStringLiteral("messageContextMenu"));
+            QVERIFY(menu);
+            QTRY_VERIFY_WITH_TIMEOUT(menu->property("opened").toBool(), kSignalTimeoutMs);
+            QCoreApplication::processEvents();
+            auto *content = menu->property("contentItem").value<QQuickItem *>();
+            QVERIFY(content && content->parentItem());
+            QQuickItem *popup = content->parentItem();
+            const QRectF menuRect(popup->mapToScene(QPointF()), popup->size());
+            const QString at = QStringLiteral("%1x%2: ").arg(size.width()).arg(size.height());
+            if (!QRectF(0, 0, size.width(), size.height()).adjusted(-0.5, -0.5, 0.5, 0.5)
+                     .contains(menuRect))
+                failures << at + QStringLiteral("menu %1 leaves the window").arg(fmt(menuRect));
+            const qreal header = menu->property("topPadding").toReal();
+            const QRectF view(content->mapToScene(QPointF()), content->size());
+            if (view.top() < menuRect.top() + header - 0.5)
+                failures << at + QStringLiteral("the item list starts at %1, inside the "
+                                                "%2 px context header").arg(view.top()).arg(header);
+            QRectF previous;
+            const int count = menu->property("count").toInt();
+            int shown = 0;
+            for (int i = 0; i < count; ++i) {
+                QQuickItem *item = nullptr;
+                QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                          Q_ARG(int, i));
+                if (!item || !item->isVisible() || item->height() <= 0)
+                    continue;
+                ++shown;
+                const QRectF r(item->mapToScene(QPointF()), item->size());
+                if (r.left() < menuRect.left() - 0.5 || r.right() > menuRect.right() + 0.5)
+                    failures << at + QStringLiteral("item %1 %2 sticks out of the menu %3")
+                                         .arg(i).arg(fmt(r), fmt(menuRect));
+                if (!previous.isNull() && r.top() < previous.bottom() - 0.5)
+                    failures << at + QStringLiteral("item %1 %2 overlaps the one above %3")
+                                         .arg(i).arg(fmt(r), fmt(previous));
+                previous = r;
+            }
+            if (shown < 5)
+                failures << at + QStringLiteral("only %1 items measured").arg(shown);
+            QMetaObject::invokeMethod(menu, "close");
+            QTRY_VERIFY(!menu->property("visible").toBool());
+        }
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
+    }
+
     void rightClickMenuSnapshotsStableEventAndClosesOnRoomSwitch()
     {
         AppController controller(AppController::MockBackend);
@@ -5209,6 +5304,9 @@ false);
         auto *globe = root->findChild<QQuickItem *>(
             QStringLiteral("roomHeaderPublicIcon"));
         QVERIFY(globe);
+        auto *lock = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderEncryptionIcon"));
+        QVERIFY(lock);
         auto *header = identity->parentItem();
         QVERIFY(header);
 
@@ -5305,6 +5403,41 @@ false);
                             "%3, past its column (%4) or the header buttons (%5)")
                             .arg(scale).arg(w).arg(globeRight)
                             .arg(identityRight).arg(actionsLeft));
+                }
+
+                {
+                    const auto sceneRect = [](QQuickItem *i) {
+                        return QRectF(i->mapToScene(QPointF()), i->size());
+                    };
+                    const QRectF headerRect = sceneRect(header);
+                    const QRectF actionsRect = sceneRect(actions);
+                    QList<QPair<QString, QQuickItem *>> marks;
+                    marks.append({ QStringLiteral("title"), title });
+                    if (lock->isVisible())
+                        marks.append({ QStringLiteral("lock"), lock });
+                    if (globe->isVisible())
+                        marks.append({ QStringLiteral("globe"), globe });
+                    for (int i = 0; i < marks.size(); ++i) {
+                        const QRectF r = sceneRect(marks.at(i).second);
+                        if (r.width() <= 0)
+                            continue;
+                        if (!headerRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(r)
+                                || (actions->width() > 0 && r.intersects(actionsRect)))
+                            failures.append(QStringLiteral(
+                                "at text scale %1: %2 at pane %3: the %4 (%5..%6, "
+                                "%7..%8) leaves the header or meets its buttons "
+                                "(%9..)").arg(scale).arg(QLatin1String(v.label)).arg(w)
+                                .arg(marks.at(i).first).arg(r.left()).arg(r.right())
+                                .arg(r.top()).arg(r.bottom()).arg(actionsRect.left()));
+                        for (int j = i + 1; j < marks.size(); ++j) {
+                            const QRectF o = sceneRect(marks.at(j).second);
+                            if (o.width() > 0 && r.intersected(o).width() > 0.5)
+                                failures.append(QStringLiteral(
+                                    "at text scale %1: %2 at pane %3: the %4 and the "
+                                    "%5 overlap").arg(scale).arg(QLatin1String(v.label))
+                                    .arg(w).arg(marks.at(i).first, marks.at(j).first));
+                        }
+                    }
                 }
 
                 if (truncated && spacer->width() > 0.5)

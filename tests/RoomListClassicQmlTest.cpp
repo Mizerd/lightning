@@ -842,6 +842,17 @@ RoomsPanel { width: 64; height: 700 }
         auto *dot = byName(f.item.get(), QStringLiteral("compactRoomListArchivedDot"));
         QVERIFY2(dot, "the compact archive button has no unread dot");
         QTRY_VERIFY(dot->isVisible());
+        const QRectF button(archived->mapToItem(f.item.get(), QPointF()), archived->size());
+        QVERIFY2(button.left() >= -0.1 && button.right() <= 64.1 && button.top() >= -0.1
+                     && button.bottom() <= 700.1,
+                 qPrintable(QStringLiteral("the archive button %1..%2 escapes the 64 px column")
+                                .arg(button.left()).arg(button.right())));
+        const QRectF dotIn(dot->mapToItem(archived, QPointF()), dot->size());
+        QVERIFY2(QRectF(0, 0, archived->width(), archived->height()).contains(dotIn),
+                 qPrintable(QStringLiteral("the unread dot %1,%2 %3x%4 leaves its %5x%6 button")
+                                .arg(dotIn.x()).arg(dotIn.y()).arg(dotIn.width())
+                                .arg(dotIn.height()).arg(archived->width())
+                                .arg(archived->height())));
         const int filterBefore = f.controller->settings()->roomFilterMode();
         QVERIFY(QMetaObject::invokeMethod(archived, "clicked"));
         QCOMPARE(f.controller->settings()->roomFilterMode(), 5);
@@ -921,6 +932,87 @@ RoomsPanel { width: 260; height: 700 }
                                 .arg(arrow.left()).arg(arrow.right())
                                 .arg(strip.left()).arg(strip.right())));
         rooms->setRoomArchived(roomId, false);
+    }
+
+    void theFilterStripKeepsEveryChipInsideItsGutters_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::newRow("240") << 240;
+        QTest::newRow("300") << 300;
+        QTest::newRow("420") << 420;
+    }
+
+    void theFilterStripKeepsEveryChipInsideItsGutters()
+    {
+        QFETCH(int, width);
+        Fixture f;
+        const QByteArray qml = QStringLiteral(R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: %1; height: 700 }
+)QML").arg(width).toUtf8();
+        QVERIFY(load(f, qml.constData(), width, 700));
+        RoomListModel *rooms = f.controller->roomList();
+        auto *settings = f.controller->settings();
+        const int filterBefore = settings->roomFilterMode();
+        const QString roomId = rooms->data(rooms->index(rooms->rowCount() - 1),
+                                           RoomListModel::RoomIdRole).toString();
+        const auto restore = qScopeGuard([&] {
+            settings->setRoomFilterMode(filterBefore);
+            rooms->setRoomArchived(roomId, false);
+        });
+        rooms->setRoomArchived(roomId, true);
+        auto *flick = byName(f.item.get(), QStringLiteral("roomFilterChipsFlick"));
+        auto *left = byName(f.item.get(), QStringLiteral("roomFilterChipsMoreLeft"));
+        auto *right = byName(f.item.get(), QStringLiteral("roomFilterChipsMoreRight"));
+        QVERIFY(flick && left && right);
+        QTRY_VERIFY(byName(f.item.get(), QStringLiteral("roomFilterChips_5")));
+        const auto inPanel = [&](QQuickItem *i) {
+            return QRectF(i->mapToItem(f.item.get(), QPointF()), i->size());
+        };
+        const auto fmt = [](const QRectF &r) {
+            return QStringLiteral("%1..%2 x %3..%4").arg(r.left()).arg(r.right())
+                .arg(r.top()).arg(r.bottom());
+        };
+        const QRectF panel(0, 0, width, 700);
+        const QRectF strip = inPanel(flick);
+        QVERIFY2(panel.contains(strip), qPrintable(fmt(strip)));
+        for (QQuickItem *arrow : { left, right }) {
+            if (!arrow->isVisible())
+                continue;
+            const QRectF a = inPanel(arrow);
+            QVERIFY2(panel.contains(a), qPrintable(arrow->objectName() + QLatin1Char(' ') + fmt(a)));
+            QVERIFY2(!strip.intersects(a),
+                     qPrintable(arrow->objectName() + QStringLiteral(" %1 on the strip %2")
+                                                          .arg(fmt(a), fmt(strip))));
+        }
+        QList<QQuickItem *> chips;
+        for (int value : { 0, 1, 2, 4, 3, 5 }) {
+            auto *chip = byName(f.item.get(), QStringLiteral("roomFilterChips_%1").arg(value));
+            QVERIFY2(chip && chip->isVisible(), qPrintable(QString::number(value)));
+            chips << chip;
+        }
+        for (int i = 1; i < chips.size(); ++i) {
+            const QRectF a = inPanel(chips.at(i - 1)), b = inPanel(chips.at(i));
+            QVERIFY2(a.right() <= b.left() + 0.5,
+                     qPrintable(QStringLiteral("chips %1 and %2 overlap: %3 / %4")
+                                    .arg(i - 1).arg(i).arg(fmt(a), fmt(b))));
+        }
+        const qreal fade = 16;
+        for (int value : { 5, 0, 3 }) {
+            settings->setRoomFilterMode(value);
+            auto *chip = byName(f.item.get(), QStringLiteral("roomFilterChips_%1").arg(value));
+            const auto visibleClear = [&] {
+                const QRectF c = inPanel(chip);
+                const qreal lo = strip.left() + (left->isVisible() && left->property("more").toBool() ? fade : 0);
+                const qreal hi = strip.right() - (right->isVisible() && right->property("more").toBool() ? fade : 0);
+                return c.left() >= lo - 0.5 && c.right() <= hi + 0.5;
+            };
+            QTRY_VERIFY2(visibleClear(),
+                         qPrintable(QStringLiteral("selected chip %1 at %2 is clipped or "
+                                                   "under a fade of the strip %3")
+                                        .arg(value).arg(fmt(inPanel(chip)), fmt(strip))));
+        }
     }
 
     void theRoomListDividerClicksDoubleClicksTabsAndKeys_data()

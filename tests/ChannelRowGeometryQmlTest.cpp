@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QQmlExpression>
 #include <QImage>
+#include <QScopeGuard>
 #include <QFont>
 #include <QScopeGuard>
 
@@ -152,6 +153,7 @@ Item {
     bool fxCompact = false;
     int fxWidth = 300;
     QString fxJoinRule;
+    QString fxColorKey = QStringLiteral("!r:x");
 
     struct ClassicRow {
         QStringList warnings;
@@ -191,6 +193,14 @@ QtObject {
             return id === "@bk010:x" ? "2 room(s) in common" : ""
         }
     }
+    property QtObject presence: QtObject {
+        property int revision: 0
+        property int sessionEpoch: 0
+        function stateFor(u) { return "online" }
+        function infoFor(u) { return ({ state: "online" }) }
+        function watch(u) {}
+        function unwatch(u) {}
+    }
     function textFontWithEmoji(f) { return f }
 }
 )").arg(fxBadges ? QStringLiteral("true") : QStringLiteral("false"), fxCompact ? QStringLiteral("true") : QStringLiteral("false")).toUtf8(),
@@ -221,7 +231,7 @@ Item {
                           avatarUrl: ""; encrypted: false; isSpace: false
                           invitePending: false; inviter: "%6"; isFavourite: false
                           inviterUserId: "@bk010:x"
-                          identityColorKey: "!r:x"; network: ""; networkLabel: "%8"
+                          identityColorKey: "%11"; network: ""; networkLabel: "%8"
                           category: "conversation"; memberCount: 3
                           joinRule: "%10" }
         }
@@ -231,7 +241,7 @@ Item {
 )").arg(unread).arg(highlight).arg(kind)
          .arg(membership, direct ? QStringLiteral("true") : QStringLiteral("false"),
               inviter)
-         .arg(fxName, fxNetworkLabel).arg(fxWidth).arg(fxJoinRule);
+         .arg(fxName, fxNetworkLabel).arg(fxWidth).arg(fxJoinRule, fxColorKey);
         component.setData(source.toUtf8(),
                           QUrl(QStringLiteral("qrc:/classicrow.qml")));
         if (!component.errors().isEmpty()) {
@@ -672,6 +682,65 @@ private Q_SLOTS:
             QCOMPARE(corner->property("active").toBool(), c.globe);
         }
         fxJoinRule.clear();
+    }
+
+    void theAvatarCornerMarksStayClearOfTheUnreadBadge()
+    {
+        struct Case { const char *label; bool direct; bool compact; int width; };
+        const Case cases[] = {
+            { "public room", false, false, 300 },
+            { "public room narrow", false, false, 220 },
+            { "public room compact", false, true, 220 },
+            { "dm with presence", true, false, 300 },
+            { "dm with presence compact", true, true, 220 },
+        };
+        const auto restore = qScopeGuard([this] {
+            fxJoinRule.clear();
+            fxColorKey = QStringLiteral("!r:x");
+            fxCompact = false;
+            fxWidth = 300;
+        });
+        QStringList failures;
+        for (const Case &c : cases) {
+            fxJoinRule = QStringLiteral("public");
+            fxColorKey = c.direct ? QStringLiteral("@peer:x") : QStringLiteral("!r:x");
+            fxCompact = c.compact;
+            fxWidth = c.width;
+            ClassicRow row;
+            QVERIFY2(buildClassicRow(row, 12, 3, 0, QStringLiteral("joined"), c.direct),
+                     c.label);
+            QCoreApplication::processEvents();
+            auto *globe = row.row->findChild<QQuickItem *>(QStringLiteral("roomPublicBadge"));
+            auto *badge = row.row->findChild<QQuickItem *>(QStringLiteral("roomUnreadBadge"));
+            auto *name = row.row->findChild<QQuickItem *>(QStringLiteral("roomNameLabel"));
+            QQuickItem *presence = nullptr;
+            for (auto *it : row.row->findChildren<QQuickItem *>())
+                if (it->property("presenceState").isValid() && it->property("dotSize").isValid())
+                    presence = it;
+            QVERIFY2(globe && badge && name && presence, c.label);
+            QTRY_VERIFY2(badge->isVisible(), c.label);
+            if (globe->isVisible() == c.direct || presence->isVisible() != c.direct)
+                failures << QStringLiteral("%1: globe %2 presence %3")
+                                .arg(QLatin1String(c.label)).arg(globe->isVisible())
+                                .arg(presence->isVisible());
+            QQuickItem *mark = c.direct ? presence : globe;
+            const auto inRow = [&](QQuickItem *i) {
+                return QRectF(i->mapToItem(row.row, QPointF()), i->size());
+            };
+            const QRectF bounds(0, 0, row.row->width(), row.row->height());
+            for (QQuickItem *i : { mark, badge, name }) {
+                const QRectF r = inRow(i);
+                if (!bounds.adjusted(-0.5, -0.5, 0.5, 0.5).contains(r))
+                    failures << QStringLiteral("%1: %2 %3,%4 %5x%6 leaves the %7x%8 row")
+                                    .arg(QLatin1String(c.label), i->objectName())
+                                    .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height())
+                                    .arg(bounds.width()).arg(bounds.height());
+            }
+            if (inRow(mark).intersects(inRow(badge)) || inRow(mark).intersects(inRow(name)))
+                failures << QStringLiteral("%1: the avatar mark meets the badge or the name")
+                                .arg(QLatin1String(c.label));
+        }
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
     }
 
     void aChannelRowWithNoNameYetStillOccupiesItsRow()
