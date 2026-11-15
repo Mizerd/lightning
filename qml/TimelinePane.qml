@@ -1176,17 +1176,41 @@ Rectangle {
                                                     ? qsTr("View profile") : ""
                             Accessible.onPressAction: header.openPeerProfile()
                         }
+                        // Unknown encryption state shows nothing rather than a guess.
                         Icon {
                             id: encryptionLock
-                            visible: root.currentRoom.encrypted === true
-                            name: "lock"
+                            objectName: "roomHeaderEncryptionIcon"
+                            readonly property bool encrypted:
+                                root.currentRoom.encrypted === true
+                            visible: app.currentRoomId !== ""
+                                     && root.currentRoom.isSpace !== true
+                                     && (encrypted
+                                         || (root.currentRoom.encryptionKnown === true
+                                             && root.currentRoom.encrypted === false))
+                            name: encrypted ? "lock" : "lock_open"
                             size: 14
                             color: AppTheme.textMuted
                             Accessible.role: Accessible.StaticText
-                            Accessible.name: qsTr("Room encrypted")
+                            Accessible.name: ToolTip.text
                             HoverHandler { id: encryptionLockHover }
-                            ToolTip.text: qsTr("Room encrypted")
+                            ToolTip.text: encrypted ? qsTr("Room encrypted")
+                                                    : qsTr("Not encrypted")
                             ToolTip.visible: encryptionLockHover.hovered
+                            ToolTip.delay: 600
+                        }
+                        Icon {
+                            objectName: "roomHeaderPublicIcon"
+                            visible: app.currentRoomId !== ""
+                                     && root.currentRoom.isDirect !== true
+                                     && root.currentRoom.joinRule === "public"
+                            name: "public"
+                            size: 14
+                            color: AppTheme.textMuted
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: ToolTip.text
+                            HoverHandler { id: publicIconHover }
+                            ToolTip.text: qsTr("Public room")
+                            ToolTip.visible: publicIconHover.hovered
                             ToolTip.delay: 600
                         }
                     }

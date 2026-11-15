@@ -5051,6 +5051,70 @@ false);
         QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
     }
 
+    void theHeaderShowsEncryptionAndPublicStateOnlyWhenKnown()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString listed = loginAndRoomIdAt(controller, 0);
+        QVERIFY(!listed.isEmpty());
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, listed,
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        auto *lock = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderEncryptionIcon"));
+        auto *globe = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderPublicIcon"));
+        QVERIFY(lock && globe);
+
+        struct Case {
+            const char *label;
+            QVariant encrypted, known, joinRule;
+            bool direct, space;
+            const char *lockName;
+            bool globe;
+        };
+        const QVariant none;
+        const Case cases[] = {
+            { "encrypted private", true, true, QStringLiteral("invite"), false, false, "lock", false },
+            { "unencrypted public", false, true, QStringLiteral("public"), false, false, "lock_open", true },
+            { "encrypted public", true, true, QStringLiteral("public"), false, false, "lock", true },
+            { "public DM", true, true, QStringLiteral("public"), true, false, "lock", false },
+            { "public space", false, true, QStringLiteral("public"), false, true, nullptr, true },
+            { "knock", false, true, QStringLiteral("knock"), false, false, "lock_open", false },
+            { "both unknown", false, false, none, false, false, nullptr, false },
+            { "fields absent", none, none, none, false, false, nullptr, false },
+        };
+        QStringList failures;
+        for (const Case &c : cases) {
+            QVariantMap room;
+            room.insert(QStringLiteral("id"), listed);
+            room.insert(QStringLiteral("name"), QStringLiteral("State room"));
+            room.insert(QStringLiteral("isDirect"), c.direct);
+            room.insert(QStringLiteral("isSpace"), c.space);
+            if (c.encrypted.isValid())
+                room.insert(QStringLiteral("encrypted"), c.encrypted);
+            if (c.known.isValid())
+                room.insert(QStringLiteral("encryptionKnown"), c.known);
+            if (c.joinRule.isValid())
+                room.insert(QStringLiteral("joinRule"), c.joinRule);
+            root->setProperty("currentRoom", room);
+            QCoreApplication::processEvents();
+            const bool lockShown = lock->isVisible();
+            if (lockShown != (c.lockName != nullptr)
+                    || (c.lockName && lock->property("name").toString()
+                                          != QLatin1String(c.lockName)))
+                failures << QStringLiteral("%1: lock visible=%2 name=%3")
+                                .arg(QLatin1String(c.label)).arg(lockShown)
+                                .arg(lock->property("name").toString());
+            if (globe->isVisible() != c.globe)
+                failures << QStringLiteral("%1: globe visible=%2")
+                                .arg(QLatin1String(c.label)).arg(globe->isVisible());
+        }
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
+    }
+
     void theRoomTitleOutranksTheHeaderIconRowAtEveryWidth()
     {
         AppController controller(AppController::MockBackend);
@@ -5073,6 +5137,9 @@ false);
         QVERIFY(actions);
         QVERIFY(spacer);
         QVERIFY(title);
+        auto *globe = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderPublicIcon"));
+        QVERIFY(globe);
         auto *header = identity->parentItem();
         QVERIFY(header);
 
@@ -5083,10 +5150,11 @@ false);
         QVERIFY2(titlePx > 0, "the title's scaled font size did not evaluate");
         const double inkFloor = 15.0 * 0.53 * titlePx;
 
-        struct Variant { const char *label; bool topic; bool lock; };
+        struct Variant { const char *label; bool topic; bool lock; bool pub; };
         const Variant variants[] = {
-            { "topic+lock", true, true },
-            { "no topic, no lock", false, false },
+            { "topic+lock", true, true, false },
+            { "no topic, no lock", false, false, false },
+            { "topic+lock+public", true, true, true },
         };
         const double kOneIconSlot = 34.0;
         QStringList failures;
@@ -5113,6 +5181,9 @@ false);
                         v.topic ? QStringLiteral("Where the work happens")
                                 : QString());
             room.insert(QStringLiteral("encrypted"), v.lock);
+            room.insert(QStringLiteral("encryptionKnown"), true);
+            if (v.pub)
+                room.insert(QStringLiteral("joinRule"), QStringLiteral("public"));
             root->setProperty("currentRoom", room);
             QTest::qWait(60);
             QCoreApplication::processEvents();
@@ -5150,6 +5221,22 @@ false);
                         .arg(scale));
                 if (titleStarved)
                     ++sawStarved;
+
+                if (v.pub) {
+                    const double globeRight = globe->mapToScene(
+                        QPointF(globe->width(), 0)).x();
+                    const double identityRight = identity->mapToScene(
+                        QPointF(identity->width(), 0)).x();
+                    const double actionsLeft = actions->mapToScene(
+                        QPointF(0, 0)).x();
+                    if (!globe->isVisible() || globeRight > identityRight + 0.5
+                            || (actions->width() > 0 && globeRight > actionsLeft + 0.5))
+                        failures.append(QStringLiteral(
+                            "at text scale %1: pane %2: the public icon ends at "
+                            "%3, past its column (%4) or the header buttons (%5)")
+                            .arg(scale).arg(w).arg(globeRight)
+                            .arg(identityRight).arg(actionsLeft));
+                }
 
                 if (truncated && spacer->width() > 0.5)
                     failures.append(QStringLiteral(

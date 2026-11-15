@@ -33,6 +33,7 @@ var codepoints = {
     "done_all": "\ue877",
     "lock": "\ue899",
     "lock_open": "\ue898",
+    "public": "\ue80b",
     "account_circle": "\uf20b",
     "verified_user": "\uf013",
     "palette": "\ue40a",
