@@ -871,8 +871,10 @@ private Q_SLOTS:
         AppController controller(AppController::MockBackend);
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
-        // Outside demo mode the mock answers every fetch with op id 0.
+        // Outside demo mode the mock answers every fetch with op id 0; signed
+        // in, that is a failure rather than a request waiting for a session.
         mock->setSupportsMediaBridgeForTest(true);
+        mock->setLoggedInForTest(true);
         MediaBridge *bridge = controller.mediaBridge();
         QVERIFY(bridge->supported());
         const QString key = QStringLiteral("fixture-video");
@@ -957,6 +959,7 @@ private Q_SLOTS:
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         mock->setSupportsMediaBridgeForTest(true);
+        mock->setLoggedInForTest(true);
         QVariantMap fixture = baseFixture(controller);
         fixture.insert(QStringLiteral("isVideo"), true);
         fixture.insert(QStringLiteral("mediaWidth"), 1280);

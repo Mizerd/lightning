@@ -272,6 +272,8 @@ quint64 MockMatrixClient::fetchMxcThumbnail(const QString &mxc, int width,
     Q_UNUSED(width);
     Q_UNUSED(height);
     if (!m_screenshotDemoMode) {
+        if (m_refuseMediaSignedOut && !m_loggedIn)
+            return 0;
         const auto it = m_avatarBytesForTest.constFind(mxc);
         if (!m_mediaBridgeSupportedForTest
             || it == m_avatarBytesForTest.constEnd())

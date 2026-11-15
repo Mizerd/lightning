@@ -200,6 +200,7 @@ private Q_SLOTS:
     void onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
                        const QString &category);
     void onLoggedOut();
+    void onClientReady();
 
 private:
     void abortFetch(const QString &cacheKey);
@@ -300,6 +301,9 @@ private:
 
     QHash<quint64, Pending> m_inflight;
     QQueue<Pending> m_queue;
+    // Refused for want of a session, sent on the next sign-in: mainly the
+    // startup restore. A switch or a failed sign-in drops them; views ask again.
+    QList<Pending> m_parked;
     struct FailureMark {
         QString category;
         qint64 markedAtMs = 0;
@@ -402,6 +406,7 @@ private:
     static constexpr int kMaxConcurrent = 8;
     static constexpr int kMaxHeavyConcurrent = 6;
     static constexpr int kMaxFailureMarks = 512;
+    static constexpr int kMaxParked = 512;
     static constexpr int kAvatarCanonicalEdge = 224;
     static constexpr int kArtworkMaxEntries = 24;
     static constexpr qint64 kArtworkMaxBytes = 24 * 1024 * 1024;

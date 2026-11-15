@@ -12,6 +12,7 @@
 #include "auth/AuthManager.h"
 #include "calls/SfuCallController.h"
 #include "matrix/MockMatrixClient.h"
+#include "media/MediaBridge.h"
 #include "media/MediaPlaybackController.h"
 #include "models/PaginationController.h"
 #include "gif/GifSearchController.h"
@@ -403,6 +404,42 @@ private Q_SLOTS:
             step(false, order.at((start + i) % 3));
         for (int i = 1; i <= 3; ++i)
             step(true, order.at((start + 3 - i) % 3));
+    }
+
+    void aRequestParkedBeforeASwitchIsNeverSentForTheNextAccount()
+    {
+        const QString avatar = QStringLiteral("mxc://one.example/alice-room");
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice, QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob, QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+
+        auto *mock = app.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->setSupportsMediaBridgeForTest(true);
+        mock->setRefuseMediaWhileSignedOutForTest(true);
+        mock->setAvatarBytesForTest(avatar, QByteArray("pixels"),
+                                    QStringLiteral("image/png"));
+        MediaBridge *bridge = app.mediaBridge();
+        QSignalSpy failed(bridge, &MediaBridge::mediaFetchFailed);
+
+        // Asked for in the gap between the switch's own clear and Bob's sign-in.
+        app.switchToAccount(kBob);
+        QVERIFY(app.accountSwitching());
+        mock->setLoggedInForTest(false);
+        QCOMPARE(bridge->avatarSource(avatar, 64), QString());
+        QCOMPARE(failed.count(), 0);
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTest::qWait(100);
+        // Had Alice's parked request been sent under Bob, it would be cached now.
+        QCOMPARE(bridge->avatarSource(avatar, 64), QString());
     }
 
     void aClickDuringARunningSwitchRunsWhenItCompletes()

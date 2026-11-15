@@ -28,6 +28,7 @@
 #include <QUuid>
 
 #include <cstring>
+#include <utility>
 
 Q_LOGGING_CATEGORY(lcMedia, "lightning.media")
 
@@ -157,6 +158,11 @@ void MediaBridge::setClient(MatrixClient *client)
                 this, &MediaBridge::onMediaFailed);
         connect(m_client, &MatrixClient::loggedOut,
                 this, &MediaBridge::onLoggedOut);
+        // Queued: the account-change clear runs synchronously on the same
+        // signal and must drop requests parked for the previous account first.
+        connect(m_client, &MatrixClient::loginSucceeded,
+                this, &MediaBridge::onClientReady, Qt::QueuedConnection);
+        connect(m_client, &MatrixClient::loginFailed, this, [this] { m_parked.clear(); });
     }
     Q_EMIT supportedChanged();
 }
@@ -407,6 +413,10 @@ bool MediaBridge::alreadyPending(const QString &cacheKey) const
     }
     for (const Pending &p : m_queue) {
         if (p.cacheKey == cacheKey && !p.saveRequest && !p.starRequest)
+            return true;
+    }
+    for (const Pending &p : m_parked) {
+        if (p.cacheKey == cacheKey)
             return true;
     }
     return false;
@@ -1336,6 +1346,13 @@ void MediaBridge::dispatch(const Pending &request)
     else
         opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind,
                                     tracked.timeoutClass);
+    if (opId == 0 && !m_client->isLoggedIn() && !tracked.saveRequest
+        && !tracked.starRequest && !isLinkMediaKey(tracked.mediaKey)) {
+        if (m_parked.size() >= kMaxParked)
+            m_parked.removeFirst();
+        m_parked.append(request);
+        return;
+    }
     if (opId == 0) {
         ++m_statFailed;
         qCWarning(lcMedia, "fetch %s unavailable (backend returned opId=0)",
@@ -2326,6 +2343,7 @@ void MediaBridge::clear()
     m_windowRefetches.clear();
     m_inflight.clear();
     m_queue.clear();
+    m_parked.clear();
     if (!m_activeSaves.isEmpty()) {
         m_activeSaves.clear();
         Q_EMIT activeSavesChanged();
@@ -2383,4 +2401,11 @@ void MediaBridge::retryAvatar(const QString &mxcUri)
 void MediaBridge::onLoggedOut()
 {
     clear();
+}
+
+void MediaBridge::onClientReady()
+{
+    const QList<Pending> parked = std::exchange(m_parked, {});
+    for (const Pending &request : parked)
+        dispatch(request);
 }

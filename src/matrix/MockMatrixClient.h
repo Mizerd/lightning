@@ -310,6 +310,8 @@ public:
     }
     void *adoptedHandleForTest() const { return m_adoptedHandleForTest; }
     QString adoptedUserForTest() const { return m_adoptedUserForTest; }
+    void setLoggedInForTest(bool loggedIn) { m_loggedIn = loggedIn; }
+    void setRefuseMediaWhileSignedOutForTest(bool on) { m_refuseMediaSignedOut = on; }
     void setSupportsMediaBridgeForTest(bool on)
     { m_mediaBridgeSupportedForTest = on; }
     void setAvatarBytesForTest(const QString &mxc, const QByteArray &bytes,
@@ -390,6 +392,7 @@ private:
     int m_restoreCalls = 0;
 
     bool m_mediaBridgeSupportedForTest = false;
+    bool m_refuseMediaSignedOut = false;
     struct AvatarBytesFixture {
         QByteArray bytes;
         QString mime;

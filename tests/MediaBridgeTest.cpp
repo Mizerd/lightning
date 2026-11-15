@@ -49,6 +49,7 @@ public:
     QList<Fetch> fetches;
     QList<quint64> cancels;
     bool rejectFetches = false;
+    bool loggedIn = true;
 
     bool supportsMediaBridge() const override { return true; }
     quint64 fetchMedia(const QString &mediaKey, int kind,
@@ -84,7 +85,14 @@ public:
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
-    bool isLoggedIn() const override { return true; }
+    bool isLoggedIn() const override { return loggedIn; }
+    void sessionReady()
+    {
+        loggedIn = true;
+        Q_EMIT loginSucceeded(currentUserId());
+        QCoreApplication::processEvents();
+    }
+    void signInFailed() { Q_EMIT loginFailed(QStringLiteral("refused")); }
     QString currentUserId() const override { return QStringLiteral("@me:example.org"); }
     QString homeserverUrl() const override { return {}; }
     void startSync() override {}
@@ -874,6 +882,89 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1);
         client.succeed(client.fetches.first().opId, QByteArray("pixels"));
         QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty());
+    }
+
+    void aRequestWithNoSessionWaitsForTheNextOne()
+    {
+        FakeClient client;
+        client.loggedIn = false;
+        client.rejectFetches = true;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        capturedLines().clear();
+        QtMessageHandler previous = qInstallMessageHandler(captureHandler);
+
+        bridge.avatarSource(kMxc, 64);
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(bridge.avatarFailureCategory(kMxc), QString());
+
+        client.rejectFetches = false;
+        client.sessionReady();
+        qInstallMessageHandler(previous);
+        QCOMPARE(client.fetches.size(), 1);
+        client.succeed(client.fetches.first().opId, QByteArray("pixels"));
+        QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty());
+        for (const QString &line : capturedLines())
+            QVERIFY2(!line.contains(QLatin1String("unavailable")), qPrintable(line));
+
+        // A request parked for the previous account is not sent for the next.
+        client.loggedIn = false;
+        client.rejectFetches = true;
+        const QString other = QStringLiteral("mxc://example.org/avatar2");
+        bridge.avatarSource(other, 64);
+        bridge.clear();
+        client.sessionReady();
+        QCOMPARE(client.fetches.size(), 1);
+    }
+
+    void anAccountChangeClearWinsWhateverTheConnectionOrder()
+    {
+        FakeClient client;
+        client.loggedIn = false;
+        client.rejectFetches = true;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        // Connected after the bridge, as an account-change handler could be.
+        QObject::connect(&client, &MatrixClient::loginSucceeded, &bridge,
+                         [&bridge] { bridge.clear(); });
+        bridge.avatarSource(kMxc, 64);
+        client.rejectFetches = false;
+        client.sessionReady();
+        QCOMPARE(client.fetches.size(), 0);
+    }
+
+    void aFailedSignInDropsParkedRequests()
+    {
+        FakeClient client;
+        client.loggedIn = false;
+        client.rejectFetches = true;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.avatarSource(kMxc, 64);
+        client.signInFailed();
+        client.rejectFetches = false;
+        client.sessionReady();
+        QCOMPARE(client.fetches.size(), 0);
+    }
+
+    void parkedRequestsAreCapped()
+    {
+        FakeClient client;
+        client.loggedIn = false;
+        client.rejectFetches = true;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        for (int i = 0; i < 600; ++i)
+            bridge.avatarSource(QStringLiteral("mxc://example.org/a%1").arg(i), 64);
+        client.rejectFetches = false;
+        client.sessionReady();
+        for (int done = 0; done < client.fetches.size() && done < 1000; ++done)
+            client.succeed(client.fetches.at(done).opId, QByteArray("pixels"));
+        QCOMPARE(client.fetches.size(), 512);
+        QCOMPARE(client.fetches.first().key, QStringLiteral("mxc://example.org/a88"));
+        QCOMPARE(client.fetches.last().key, QStringLiteral("mxc://example.org/a599"));
     }
 
     void retryAvatarAsksForOneKeyAndNeverForAnOlderAccountsAvatar()
