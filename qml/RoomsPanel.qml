@@ -536,10 +536,14 @@ Rectangle {
             Flickable {
                 id: chipsFlick
                 objectName: "roomFilterChipsFlick"
+                // Overflowing, the strip gives up gutters for the arrows so they never sit on a label.
+                readonly property bool overflowing:
+                    filterChips.implicitWidth > parent.width - AppTheme.spacing12 * 2
+                readonly property real gutter: overflowing ? AppTheme.spacing20 : 0
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: AppTheme.spacing12
-                anchors.rightMargin: AppTheme.spacing12
+                anchors.leftMargin: AppTheme.spacing12 + gutter
+                anchors.rightMargin: AppTheme.spacing12 + gutter
                 anchors.verticalCenter: parent.verticalCenter
                 height: filterChips.implicitHeight
                 contentWidth: Math.max(filterChips.implicitWidth, width)
@@ -551,8 +555,8 @@ Rectangle {
                     for (let i = 0; i < filterChips.children.length; ++i) {
                         const c = filterChips.children[i]
                         if (c.selected === true) {
-                            // Clear the overflow arrows too, or they cover the chip's edge.
-                            const edge = AppTheme.spacing24
+                            // Clear the edge fade too, or it dims the chip's edge.
+                            const edge = AppTheme.spacing16
                             if (c.x - edge < contentX)
                                 contentX = Math.max(0, c.x - edge)
                             else if (c.x + c.width + edge > contentX + width)
@@ -658,16 +662,21 @@ Rectangle {
                     readonly property bool leftEdge: modelData.side === "left"
                     objectName: leftEdge ? "roomFilterChipsMoreLeft"
                                          : "roomFilterChipsMoreRight"
-                    visible: leftEdge ? chipsFlick.contentX > 1
-                                      : chipsFlick.contentX + chipsFlick.width
-                                        < chipsFlick.contentWidth - 1
-                    width: AppTheme.spacing24
+                    readonly property bool more: leftEdge
+                        ? chipsFlick.contentX > 1
+                        : chipsFlick.contentX + chipsFlick.width < chipsFlick.contentWidth - 1
+                    visible: chipsFlick.overflowing
+                    width: chipsFlick.gutter
                     height: chipsFlick.height
                     anchors.verticalCenter: chipsFlick.verticalCenter
-                    x: leftEdge ? chipsFlick.x : chipsFlick.x + chipsFlick.width - width
+                    x: leftEdge ? chipsFlick.x - width : chipsFlick.x + chipsFlick.width
                     z: 2
                     Rectangle {
-                        anchors.fill: parent
+                        objectName: "roomFilterChipsFade"
+                        visible: chipEdge.more
+                        width: AppTheme.spacing16
+                        height: parent.height
+                        x: chipEdge.leftEdge ? parent.width : -width
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
                             GradientStop {
@@ -681,8 +690,8 @@ Rectangle {
                         }
                     }
                     Icon {
-                        anchors.verticalCenter: parent.verticalCenter
-                        x: chipEdge.leftEdge ? 0 : parent.width - width
+                        anchors.centerIn: parent
+                        opacity: chipEdge.more ? 1 : 0.35
                         name: chipEdge.leftEdge ? "chevron_left" : "chevron_right"
                         size: 16
                         color: AppTheme.textSecondary
@@ -1117,9 +1126,23 @@ Rectangle {
             iconName: "archive"
             Accessible.name: active ? qsTr("Show all rooms")
                                     : filterChips.archivedChip.label
-            ToolTip.text: Accessible.name
+            ToolTip.text: active ? Accessible.name : filterChips.archivedChip.tip
             ToolTip.visible: hovered
             onClicked: app.settings.roomFilterMode = active ? 0 : 5
+            Rectangle {
+                objectName: "compactRoomListArchivedDot"
+                visible: filterChips.archivedUnread > 0
+                width: 8
+                height: 8
+                radius: 4
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: AppTheme.spacing4
+                anchors.rightMargin: AppTheme.spacing4
+                color: AppTheme.unreadDot
+                border.width: AppTheme.badgeDotRingWidth
+                border.color: AppTheme.unreadDotRing
+            }
         }
         Rectangle {
             Layout.fillWidth: true

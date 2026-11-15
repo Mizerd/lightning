@@ -1892,6 +1892,16 @@ private Q_SLOTS:
         }
     }
 
+    void theSettingsBioEditorAsksForTheSavedBio()
+    {
+        const QString screen = read(QStringLiteral("SettingsScreen.qml"));
+        const int at = screen.indexOf(QLatin1String("objectName: \"ownBioSection\""));
+        QVERIFY(at >= 0);
+        QVERIFY2(screen.mid(at, 800).contains(
+                     QLatin1String("app.bio.request(app.accounts.activeUserId)")),
+                 "the bio editor shows an empty bio on a fresh session");
+    }
+
     void theFilterChipsOpenAtTheirStartInRightToLeft()
     {
         const QString panel = read(QStringLiteral("RoomsPanel.qml"));

@@ -2796,6 +2796,75 @@ false, rows, threshold));
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    void anOwnMessageMenuPutsEditBesideReplyAndOffersNoProfile()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        TimelineModel *tl = controller.timeline();
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->sendTextMessage(QStringLiteral("!devs:mock.local"), QStringLiteral("my own line"));
+        int ownRow = -1;
+        const auto findOwn = [&] {
+            for (int row = 0; row < tl->rowCount(); ++row) {
+                const QModelIndex idx = tl->index(row);
+                if (tl->data(idx, TimelineModel::IsOwnRole).toBool()
+                    && tl->canEditEvent(tl->data(idx, TimelineModel::EventIdRole).toString())) {
+                    ownRow = row;
+                    return true;
+                }
+            }
+            return false;
+        };
+        QTRY_VERIFY2_WITH_TIMEOUT(findOwn(), "fixture: no editable own message", kSignalTimeoutMs);
+        QVariantMap fixture;
+        const auto roles = tl->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), tl->data(tl->index(ownRow), it.key()));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"), QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root);
+        QQuickWindow window;
+        window.resize(640, 240);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        window.show();
+        QCoreApplication::processEvents();
+        QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier,
+                          QPoint(180, qMax(4, qRound(root->height() / 2))));
+        auto *menu = root->findChild<QObject *>(QStringLiteral("messageContextMenu"));
+        QVERIFY(menu);
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("opened").toBool(), kSignalTimeoutMs);
+
+        auto *profile = root->findChild<QQuickItem *>(QStringLiteral("viewProfileMenuItem"));
+        auto *edit = root->findChild<QQuickItem *>(QStringLiteral("editMessageMenuItem"));
+        auto *save = root->findChild<QQuickItem *>(QStringLiteral("saveMessageMenuItem"));
+        QVERIFY(profile && edit && save);
+        QVERIFY2(!profile->isVisible(), "an own message offers View profile");
+        QVERIFY(edit->isVisible());
+        int editAt = -1, saveAt = -1;
+        const int count = menu->property("count").toInt();
+        for (int i = 0; i < count; ++i) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, i));
+            if (item == edit)
+                editAt = i;
+            if (item == save)
+                saveAt = i;
+        }
+        QVERIFY2(editAt >= 0 && saveAt >= 0 && editAt < saveAt,
+                 qPrintable(QStringLiteral("Edit at %1, Save message at %2").arg(editAt).arg(saveAt)));
+    }
+
     void rightClickMenuSnapshotsStableEventAndClosesOnRoomSwitch()
     {
         AppController controller(AppController::MockBackend);

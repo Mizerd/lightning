@@ -1104,13 +1104,18 @@ ApplicationWindow {
         auto *select = scene->findChild<QQuickItem *>(QStringLiteral("roomSelectItem"));
         QVERIFY(markRead);
         QVERIFY(select);
+        auto *markUnread = scene->findChild<QQuickItem *>(QStringLiteral("roomMarkUnreadItem"));
+        QVERIFY(markUnread);
         QVERIFY(markRead->isVisible());
+        QVERIFY(!markUnread->isVisible());
         QVERIFY(markRead->property("iconName").toString()
                 != select->property("iconName").toString());
         menu->setProperty("isUnread", false);
         QTRY_VERIFY(!markRead->isVisible());
+        QTRY_VERIFY(markUnread->isVisible());
         menu->setProperty("isUnread", true);
         QTRY_VERIFY(markRead->isVisible());
+        QTRY_VERIFY(!markUnread->isVisible());
     }
 
     void theRealRoomNotificationsFlyoutFitsItsOwnText()

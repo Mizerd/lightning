@@ -827,17 +827,52 @@ RoomsPanel { width: 64; height: 700 }
         auto *archived = byName(f.item.get(), QStringLiteral("compactRoomListArchived"));
         QVERIFY(archived);
         QVERIFY(!archived->isVisible());
-        const QString roomId = f.controller->roomList()
-            ->data(f.controller->roomList()->index(f.controller->roomList()->rowCount() - 1),
-                   RoomListModel::RoomIdRole).toString();
+        RoomListModel *rooms = f.controller->roomList();
+        int unreadRow = -1;
+        for (int row = 0; row < rooms->rowCount() && unreadRow < 0; ++row) {
+            if (rooms->data(rooms->index(row), RoomListModel::UnreadCountRole).toInt() > 0)
+                unreadRow = row;
+        }
+        QVERIFY2(unreadRow >= 0, "fixture: the mock list has an unread room");
+        const QString roomId = rooms->data(rooms->index(unreadRow),
+                                           RoomListModel::RoomIdRole).toString();
         f.controller->roomList()->setRoomArchived(roomId, true);
         QTRY_VERIFY(archived->isVisible());
+        QTRY_VERIFY(rooms->archivedUnreadCount() > 0);
+        auto *dot = byName(f.item.get(), QStringLiteral("compactRoomListArchivedDot"));
+        QVERIFY2(dot, "the compact archive button has no unread dot");
+        QTRY_VERIFY(dot->isVisible());
         const int filterBefore = f.controller->settings()->roomFilterMode();
         QVERIFY(QMetaObject::invokeMethod(archived, "clicked"));
         QCOMPARE(f.controller->settings()->roomFilterMode(), 5);
         QTRY_COMPARE(f.controller->roomList()->rowCount(), 1);
         f.controller->settings()->setRoomFilterMode(filterBefore);
         f.controller->roomList()->setRoomArchived(roomId, false);
+    }
+
+    void theFilterStripArrowsNeverCoverAChip()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: 260; height: 700 }
+)QML", 260, 700));
+        RoomListModel *rooms = f.controller->roomList();
+        const QString roomId = rooms->data(rooms->index(rooms->rowCount() - 1),
+                                           RoomListModel::RoomIdRole).toString();
+        rooms->setRoomArchived(roomId, true);
+        auto *flick = byName(f.item.get(), QStringLiteral("roomFilterChipsFlick"));
+        auto *right = byName(f.item.get(), QStringLiteral("roomFilterChipsMoreRight"));
+        QVERIFY(flick && right);
+        QTRY_VERIFY2(right->isVisible(), "fixture: the strip overflows at this width");
+        const QRectF strip(flick->mapToItem(f.item.get(), QPointF()), flick->size());
+        const QRectF arrow(right->mapToItem(f.item.get(), QPointF()), right->size());
+        QVERIFY2(!strip.intersects(arrow),
+                 qPrintable(QStringLiteral("arrow %1..%2 sits on the chips %3..%4")
+                                .arg(arrow.left()).arg(arrow.right())
+                                .arg(strip.left()).arg(strip.right())));
+        rooms->setRoomArchived(roomId, false);
     }
 
     void theRoomListDividerClicksDoubleClicksTabsAndKeys_data()

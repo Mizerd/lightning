@@ -8402,6 +8402,9 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
                                     visible: !!(app.bio && app.bio.available)
+                                    // Nothing else asks for your own bio until your profile card opens.
+                                    onVisibleChanged: if (visible) app.bio.request(app.accounts.activeUserId)
+                                    Component.onCompleted: if (visible) app.bio.request(app.accounts.activeUserId)
 
                                     Label {
                                         text: qsTr("About you")
@@ -8466,6 +8469,7 @@ Item {
                                                 ? qsTr("Saving…") : qsTr("Save")
                                             enabled: !!(app.bio && app.bio.supported
                                                      && !app.bio.busy
+                                                     && ownBioField.text !== app.bio.ownBio
                                                      && ownBioField.text.length <= app.bio.maxLength)
                                             onClicked: {
                                                 app.bio.setOwnBio(ownBioField.text)

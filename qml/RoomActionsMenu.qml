@@ -106,7 +106,7 @@ AppMenu {
     }
     AppMenuItem {
         objectName: "roomMarkUnreadItem"
-        visible: !root.isInvite
+        visible: !root.isInvite && !root.isUnread
         enabled: visible
         iconName: "visibility_off"
         text: qsTr("Mark as unread")

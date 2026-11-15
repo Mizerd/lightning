@@ -3940,6 +3940,19 @@ Item {
                 onTriggered: app.pagination.jumpToEvent(
                     root.menuEventId)
             }
+            AppMenuItem {
+                objectName: "editMessageMenuItem"
+                iconName: "edit_square"
+                text: qsTr("Edit")
+                accel: "E"
+                enabled: root.timelineModel.canEditEvent(root.menuEventId)
+                visible: enabled
+                onTriggered: app.composer.beginEdit(
+                    root.menuEventId,
+                    root.timelineModel.visibleTextForEvent(root.menuEventId),
+                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId),
+                    root.timelineModel.roomId)
+            }
             AppMenuSeparator {}
             AppMenuItem {
                 iconName: "push_pin"
@@ -4154,9 +4167,11 @@ Item {
             }
             AppMenuSeparator { }
             AppMenuItem {
+                objectName: "viewProfileMenuItem"
                 iconName: "person"
                 text: qsTr("View profile")
-                enabled: root.menuEventId !== ""
+                visible: model.isOwn !== true
+                enabled: visible && root.menuEventId !== ""
                          && root.timelineView
                          && !!root.timelineView.openSenderProfile
                 onTriggered: root.openSenderProfileForRow()
@@ -4184,18 +4199,6 @@ Item {
                 enabled: root.menuEventId !== ""
                          && !!root.timelineModel.requestEventSource
                 onTriggered: root.openEventSource(root.menuEventId)
-            }
-            AppMenuItem {
-                iconName: "edit_square"
-                text: qsTr("Edit")
-                accel: "E"
-                enabled: root.timelineModel.canEditEvent(root.menuEventId)
-                visible: enabled
-                onTriggered: app.composer.beginEdit(
-                    root.menuEventId,
-                    root.timelineModel.visibleTextForEvent(root.menuEventId),
-                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId),
-                    root.timelineModel.roomId)
             }
             AppMenuItem {
                 objectName: "removeEditsMenuItem"

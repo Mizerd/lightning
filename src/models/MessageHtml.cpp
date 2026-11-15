@@ -1038,11 +1038,17 @@ QString MessageHtml::sanitize(
                 continue;
             }
             const QUrl u(href);
-            if (isSafeHttp(u) || isMatrixUri(u)) {
+            QUrl matrixUri(href.trimmed());
+            const bool isMatrix = isMatrixUri(matrixUri);
+            if (isSafeHttp(u) || isMatrix) {
                 const QString linkInk = mentionStyle.linkColor.isEmpty()
                     ? mentionStyle.accentColor
                     : mentionStyle.linkColor;
-                out += QStringLiteral("<a href=\"") + href.toHtmlEscaped()
+                // The click handler matches "matrix:" exactly.
+                if (isMatrix)
+                    matrixUri.setScheme(QStringLiteral("matrix"));
+                const QString shown = isMatrix ? matrixUri.toString() : href;
+                out += QStringLiteral("<a href=\"") + shown.toHtmlEscaped()
                     + QStringLiteral("\"");
                 if (!linkInk.isEmpty())
                     out += QStringLiteral(" style=\"color:")

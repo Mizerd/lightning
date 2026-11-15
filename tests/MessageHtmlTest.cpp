@@ -652,6 +652,18 @@ private Q_SLOTS:
             "<a href=\"matrix:u/bob:example.org\">Bob</a> hey"));
         QVERIFY2(user.contains(QStringLiteral("<a href=\"mention:@bob:example.org\"")),
                  qPrintable(user));
+        const QString upper = sanitize(QStringLiteral(
+            "<a href=\"MATRIX:r/general:example.org\">room</a>"));
+        QVERIFY2(upper.contains(QStringLiteral("<a href=\"matrix:r/general:example.org\"")),
+                 qPrintable(upper));
+        const QString spaced = sanitize(QStringLiteral(
+            "<a href=\"  matrix:roomid/abc:example.org/e/def  \">msg</a>"));
+        QVERIFY2(spaced.contains(QStringLiteral("<a href=\"matrix:roomid/abc:example.org/e/def\"")),
+                 qPrintable(spaced));
+        const QString upperUser = sanitize(QStringLiteral(
+            "<a href=\" MATRIX:u/bob:example.org \">Bob</a>"));
+        QVERIFY2(upperUser.contains(QStringLiteral("<a href=\"mention:@bob:example.org\"")),
+                 qPrintable(upperUser));
         const QString bogus = sanitize(QStringLiteral(
             "<a href=\"matrix://evil.example/r/x\">x</a>"));
         QVERIFY2(!bogus.contains(QStringLiteral("<a ")), qPrintable(bogus));

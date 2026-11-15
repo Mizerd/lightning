@@ -2289,7 +2289,39 @@ private slots:
         QCOMPARE(bioField->property("text").toString(),
                  m_controller->bio() ? m_controller->bio()->ownBio()
                                      : QString());
+        auto *save = item("saveOwnBioButton");
+        QVERIFY2(!save->property("enabled").toBool(),
+                 "Save is offered for a bio that is already saved");
+        const QString saved = bioField->property("text").toString();
+        bioField->setProperty("text", saved + QStringLiteral(" more"));
+        QTRY_VERIFY(save->property("enabled").toBool());
+        bioField->setProperty("text", saved);
+        QTRY_VERIFY(!save->property("enabled").toBool());
 
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+    }
+
+    void theLayoutPreviewDrawsBubblesLikeTheTimeline()
+    {
+        m_controller->showSettingsSection(QStringLiteral("layout"));
+        QCoreApplication::processEvents();
+        QQuickItem *preview = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT((preview = item("layoutPresetPreview")) != nullptr, 3000);
+        const int before = m_controller->settings()->messageLayout();
+        m_controller->settings()->setMessageLayout(1);
+        QCoreApplication::processEvents();
+        auto *other = preview->findChild<QQuickItem *>(QStringLiteral("layoutPreviewOtherLine"));
+        auto *own = preview->findChild<QQuickItem *>(QStringLiteral("layoutPreviewOwnLine"));
+        QVERIFY2(other && own, "the preview has no bubble lines");
+        QVERIFY2(other->property("leftPadding").toReal() > 0,
+                 "a preview bubble hugs its text with no padding");
+        QVERIFY2(own->property("leftPadding").toReal() > 0, "your own line has no bubble");
+        const QPointF ownRight = own->mapToItem(preview, QPointF(own->width(), 0));
+        const QPointF otherRight = other->mapToItem(preview, QPointF(other->width(), 0));
+        QVERIFY2(ownRight.x() > otherRight.x(),
+                 "your own bubble is not on the right as in the timeline");
+        m_controller->settings()->setMessageLayout(before);
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
     }

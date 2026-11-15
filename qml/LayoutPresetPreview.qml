@@ -11,6 +11,7 @@ Rectangle {
     property int threadPlacement: 0
     property int roomListWidth: 180
     readonly property bool compact: messageLayout === 2 || messageLayout === 3
+    readonly property bool bubbles: messageLayout === 1
     readonly property int rowGap: messageSpacing === 0 ? 3
                                   : messageSpacing === 2 ? 10 : 6
     readonly property int composerHeight: compact ? 22 : 30
@@ -120,28 +121,39 @@ Rectangle {
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 }
                 Label {
+                    objectName: "layoutPreviewOtherLine"
                     text: qsTr("The draft is ready")
                     color: AppTheme.textPrimary
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                    leftPadding: root.bubbles ? 8 : 0
+                    rightPadding: leftPadding
+                    topPadding: root.bubbles ? 3 : 0
+                    bottomPadding: topPadding
                     background: Rectangle {
-                        visible: root.messageLayout === 1
-                        color: AppTheme.surface
-                        radius: AppTheme.radiusSm
+                        visible: root.bubbles
+                        color: AppTheme.otherBubble
+                        radius: 9
                     }
                 }
                 Label {
+                    objectName: "layoutPreviewOtherLine"
                     text: qsTr("I added the notes")
                     color: AppTheme.textPrimary
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                    leftPadding: root.bubbles ? 8 : 0
+                    rightPadding: leftPadding
+                    topPadding: root.bubbles ? 3 : 0
+                    bottomPadding: topPadding
                     background: Rectangle {
-                        visible: root.messageLayout === 1
-                        color: AppTheme.surface
-                        radius: AppTheme.radiusSm
+                        visible: root.bubbles
+                        color: AppTheme.otherBubble
+                        radius: 9
                     }
                 }
                 Label {
+                    visible: !root.bubbles
                     text: qsTr("You · 10:43")
                     color: AppTheme.textSecondary
                     font.family: AppTheme.uiFont
@@ -149,10 +161,22 @@ Rectangle {
                     Layout.topMargin: root.rowGap
                 }
                 Label {
+                    objectName: "layoutPreviewOwnLine"
                     text: qsTr("Thanks!")
-                    color: AppTheme.textPrimary
+                    color: root.bubbles ? AppTheme.ownBubbleText : AppTheme.textPrimary
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                    Layout.alignment: root.bubbles ? Qt.AlignRight : Qt.AlignLeft
+                    Layout.topMargin: root.bubbles ? root.rowGap : 0
+                    leftPadding: root.bubbles ? 8 : 0
+                    rightPadding: leftPadding
+                    topPadding: root.bubbles ? 3 : 0
+                    bottomPadding: topPadding
+                    background: Rectangle {
+                        visible: root.bubbles
+                        color: AppTheme.ownBubble
+                        radius: 9
+                    }
                 }
                 Item { Layout.fillHeight: true }
                 Rectangle {
