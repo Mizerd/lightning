@@ -1011,7 +1011,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7186"/>
+        <location filename="../src/app/AppController.cpp" line="+7194"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -8008,7 +8008,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2681"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2683"/>
         <source>Voice message</source>
         <translation>ভয়েস বার্তা</translation>
     </message>
@@ -9473,7 +9473,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সেখানে</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+42"/>
         <source>Yesterday</source>
         <translation>গতকাল</translation>
     </message>
@@ -10645,7 +10645,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>LocalizationManager</name>
     <message>
-        <location filename="../src/i18n/LocalizationManager.cpp" line="+203"/>
+        <location filename="../src/i18n/LocalizationManager.cpp" line="+230"/>
         <location line="+1"/>
         <source>System default</source>
         <translation>সিস্টেমের ডিফল্ট</translation>
@@ -12035,7 +12035,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+490"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+488"/>
         <source>Profile for %1</source>
         <translation>%1-এর প্রোফাইল</translation>
     </message>
@@ -12962,7 +12962,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1151"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1150"/>
         <source>Today</source>
         <translation>আজ</translation>
     </message>
@@ -13010,13 +13010,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+851"/>
+        <location line="+853"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-1946"/>
+        <location line="-1948"/>
         <source>(original message not loaded)</source>
         <translation>(মূল বার্তা লোড হয়নি)</translation>
     </message>
@@ -13035,7 +13035,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম কী নেই। সেটিংসে আপনার পুনরুদ্ধার কী ফিরিয়ে আনুন, বা অন্য কোনো যাচাইকৃত ডিভাইস কী ভাগ করার অপেক্ষা করুন।</translation>
     </message>
     <message>
-        <location line="+170"/>
+        <location line="+172"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation>এই সেশন এনক্রিপ্টেড বার্তা আনলক করতে পারছে না</translation>
     </message>
@@ -13060,8 +13060,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>কীর অপেক্ষায়…</translation>
     </message>
     <message>
-        <location line="-999"/>
-        <location line="+1008"/>
+        <location line="-1001"/>
+        <location line="+1010"/>
         <source>Retry decryption</source>
         <translation>ডিক্রিপশন আবার চেষ্টা করুন</translation>
     </message>
@@ -13071,17 +13071,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিরাপত্তা সেটিংস</translation>
     </message>
     <message>
-        <location line="-1916"/>
+        <location line="-1917"/>
         <source>Link</source>
         <translation>লিঙ্ক</translation>
     </message>
     <message>
-        <location line="+1342"/>
+        <location line="+1341"/>
         <source>Open this thread</source>
         <translation>এই থ্রেডটি খুলুন</translation>
     </message>
     <message>
-        <location line="+644"/>
+        <location line="+646"/>
         <source>Show the link preview again</source>
         <translation>আবার লিঙ্ক প্রিভিউ দেখান</translation>
     </message>
@@ -13263,12 +13263,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>থ্রেডে উত্তর দিন</translation>
     </message>
     <message>
-        <location line="-1958"/>
+        <location line="-1960"/>
         <source>Original message removed</source>
         <translation>মূল বার্তা সরানো হয়েছে</translation>
     </message>
     <message>
-        <location line="+1968"/>
+        <location line="+1970"/>
         <source>Open in room</source>
         <translation>রুমে খুলুন</translation>
     </message>
@@ -13471,7 +13471,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-3811"/>
+        <location line="-3812"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13505,22 +13505,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-562"/>
         <location line="+560"/>
-        <location line="+3551"/>
+        <location line="+3552"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5034"/>
+        <location line="-5035"/>
         <location line="+53"/>
         <location line="+506"/>
-        <location line="+4100"/>
+        <location line="+4101"/>
         <source>Image</source>
         <translation>ছবি</translation>
     </message>
     <message>
-        <location line="-4657"/>
+        <location line="-4658"/>
         <source>Attachment</source>
         <translation>সংযুক্তি</translation>
     </message>
@@ -13541,7 +13541,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+382"/>
+        <location line="+381"/>
         <source>A reply in a thread is waiting for keys</source>
         <translation>একটি থ্রেডের উত্তর কীয়ের অপেক্ষায় আছে</translation>
     </message>
@@ -13571,7 +13571,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বার্তা মুছে ফেলা হয়েছে</translation>
     </message>
     <message>
-        <location line="+431"/>
+        <location line="+433"/>
         <source>%1 • not sent: connection problem</source>
         <translation>%1 • পাঠানো হয়নি: সংযোগে সমস্যা</translation>
     </message>
@@ -13851,10 +13851,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="-5445"/>
+        <location line="-5446"/>
         <location line="+57"/>
         <location line="+509"/>
-        <location line="+4098"/>
+        <location line="+4099"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13867,9 +13867,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-5826"/>
+        <location line="-5827"/>
         <location line="+562"/>
-        <location line="+4201"/>
+        <location line="+4202"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -17686,7 +17686,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, নিঃশব্দ</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>Yesterday</source>
         <translation>গতকাল</translation>
     </message>
@@ -17928,12 +17928,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoController</name>
     <message>
-        <location filename="../src/app/RoomInfoController.cpp" line="+70"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="+76"/>
         <source>The server did not accept the change.</source>
         <translation>সার্ভার পরিবর্তনটি গ্রহণ করেনি।</translation>
     </message>
     <message>
-        <location line="+391"/>
+        <location line="+396"/>
         <source>You do not have permission to change that.</source>
         <translation>এটি বদলানোর অনুমতি আপনার নেই।</translation>
     </message>
@@ -19206,7 +19206,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+190"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+191"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1 পরিচিতি</translation>
@@ -19881,12 +19881,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2680"/>
+        <location line="+2682"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning এই অ্যাকাউন্টের স্থানীয় সেশন পুরোপুরি রিসেট করতে পারেনি। অ্যাপ্লিকেশন লগ ও ফাইল সিস্টেমের অনুমতি দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-2694"/>
+        <location line="-2696"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>স্থানীয় Lightning সেশন নতুন করে গড়া হয়েছে। আগের এনক্রিপশন সংরক্ষণ সরিয়ে রাখা হয়েছে, মোছা হয়নি, এবং এখনও এই অ্যাকাউন্টের ডেটা ডিরেক্টরিতে আছে। আপনি আবার সাইন ইন করতে পারেন।</translation>
     </message>
@@ -19899,7 +19899,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4567"/>
+        <location line="+4562"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19908,15 +19908,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4946"/>
+        <location line="-4941"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4753"/>
+        <location line="+4748"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-4948"/>
+        <location line="-4943"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19924,7 +19924,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+757"/>
-        <location line="+2611"/>
+        <location line="+2613"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>স্টিকার পাঠানো যায়নি।</translation>
@@ -20022,7 +20022,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভোটের কাজ সম্পন্ন করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-6499"/>
+        <location line="-6501"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>এই অ্যাকাউন্টের ডেটা এখনও একটি ব্যাকগ্রাউন্ড সেশনে ব্যবহৃত হচ্ছে। একটু অপেক্ষা করে আবার চেষ্টা করুন।</translation>
     </message>
@@ -20052,7 +20052,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার পাসওয়ার্ড দিন।</translation>
     </message>
     <message>
-        <location line="+5633"/>
+        <location line="+5635"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>বার্তাটি পাঠানো যায়নি। বার্তার “আবার চেষ্টা করুন” ক্রিয়া থেকে আবার চেষ্টা করতে পারেন।</translation>
     </message>
@@ -20099,7 +20099,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>[এখনও ডিক্রিপ্ট করা যাচ্ছে না]</translation>
     </message>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+580"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+573"/>
         <source>Rust SDK send failed.</source>
         <translation>Rust SDK পাঠানো ব্যর্থ হয়েছে।</translation>
     </message>
@@ -21599,12 +21599,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুমের কার্যকলাপ দেখান</translation>
     </message>
     <message>
-        <location line="-4675"/>
-        <source>room activity membership joins leaves profile</source>
-        <translation>রুমের কার্যকলাপ সদস্যপদ যোগদান প্রস্থান প্রোফাইল</translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="-4671"/>
         <location line="+4849"/>
         <source>Mouse-wheel speed</source>
         <translation>মাউস-হুইলের গতি</translation>
@@ -24417,7 +24412,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>বার্তার ব্যবধান ঘনত্ব সংকুচিত আরামদায়ক প্রশস্ত ফাঁক প্যাডিং message spacing density compact cozy roomy gap padding</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+62"/>
+        <source>room activity membership joins leaves profile routine</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <location line="+4889"/>
         <source>When returning to a conversation</source>
         <translation>কথোপকথনে ফিরে এলে</translation>
@@ -31981,7 +31981,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+666"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
@@ -32028,12 +32028,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+392"/>
+        <location filename="../qml/ThreadPanel.qml" line="+393"/>
         <source>Mark this thread read</source>
         <translation>এই থ্রেড পড়া হয়েছে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="+1183"/>
+        <location line="+1184"/>
         <source>Jump to the newest reply</source>
         <translation>সবচেয়ে নতুন উত্তরে যান</translation>
     </message>
@@ -32046,7 +32046,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1544"/>
+        <location line="-1546"/>
         <source>This room has been replaced.</source>
         <translation>এই রুমটি প্রতিস্থাপন করা হয়েছে।</translation>
     </message>
@@ -32056,7 +32056,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এই রুমে পোস্ট করার অনুমতি আপনার নেই।</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+122"/>
         <source>Yesterday</source>
         <translation>গতকাল</translation>
     </message>
@@ -32139,7 +32139,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message numerus="yes">
         <location line="+41"/>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>%n reply(s)</source>
         <translation>
             <numerusform>%n উত্তর</numerusform>
@@ -32147,20 +32147,20 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-89"/>
-        <location line="+91"/>
+        <location line="-90"/>
+        <location line="+92"/>
         <location line="+297"/>
         <location line="+72"/>
         <source>Replies</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-458"/>
+        <location line="-459"/>
         <source>Unread</source>
         <translation>অপঠিত</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Loading…</source>
         <translation>লোড হচ্ছে…</translation>
     </message>
@@ -32178,7 +32178,7 @@ Note: importing keys does not verify this session.</source>
         <translation>রুমে খুলুন</translation>
     </message>
     <message>
-        <location line="-642"/>
+        <location line="-644"/>
         <source>Message deleted</source>
         <translation>বার্তা মুছে ফেলা হয়েছে</translation>
     </message>
@@ -32188,7 +32188,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এই বার্তাটি ডিক্রিপ্ট করা যাচ্ছে না</translation>
     </message>
     <message>
-        <location line="+653"/>
+        <location line="+655"/>
         <location line="+1"/>
         <source>Collapse thread root</source>
         <translation type="unfinished"></translation>
@@ -35129,7 +35129,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2418"/>
+        <location filename="../src/main.cpp" line="+2420"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>নেটিভ Qt/QML Matrix ক্লায়েন্ট। ব্যাকএন্ড: --backend={mock,http,rust}। ডিফল্ট: rust (Rust SDK ছাড়া বিল্ডে http)।</translation>
     </message>

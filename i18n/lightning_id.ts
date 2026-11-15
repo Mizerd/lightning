@@ -1003,7 +1003,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7186"/>
+        <location filename="../src/app/AppController.cpp" line="+7194"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -7988,7 +7988,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2681"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2683"/>
         <source>Voice message</source>
         <translation>Pesan suara</translation>
     </message>
@@ -9449,7 +9449,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>di sana</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+42"/>
         <source>Yesterday</source>
         <translation>Kemarin</translation>
     </message>
@@ -10620,7 +10620,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>LocalizationManager</name>
     <message>
-        <location filename="../src/i18n/LocalizationManager.cpp" line="+203"/>
+        <location filename="../src/i18n/LocalizationManager.cpp" line="+230"/>
         <location line="+1"/>
         <source>System default</source>
         <translation>Bawaan sistem</translation>
@@ -12002,7 +12002,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+490"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+488"/>
         <source>Profile for %1</source>
         <translation>Profil untuk %1</translation>
     </message>
@@ -12929,7 +12929,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1151"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1150"/>
         <source>Today</source>
         <translation>Hari ini</translation>
     </message>
@@ -12977,13 +12977,13 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+851"/>
+        <location line="+853"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>Balas</translation>
     </message>
     <message>
-        <location line="-1946"/>
+        <location line="-1948"/>
         <source>(original message not loaded)</source>
         <translation>(pesan asli belum dimuat)</translation>
     </message>
@@ -13001,7 +13001,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Kunci ruang tidak ada. Pulihkan kunci pemulihan Anda di Pengaturan, atau tunggu perangkat terverifikasi lain membagikan kuncinya.</translation>
     </message>
     <message>
-        <location line="+170"/>
+        <location line="+172"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation>Sesi ini tidak dapat membuka pesan terenkripsi</translation>
     </message>
@@ -13026,8 +13026,8 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Menunggu kunci…</translation>
     </message>
     <message>
-        <location line="-999"/>
-        <location line="+1008"/>
+        <location line="-1001"/>
+        <location line="+1010"/>
         <source>Retry decryption</source>
         <translation>Coba dekripsi lagi</translation>
     </message>
@@ -13037,17 +13037,17 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Pengaturan keamanan</translation>
     </message>
     <message>
-        <location line="-1916"/>
+        <location line="-1917"/>
         <source>Link</source>
         <translation>Tautan</translation>
     </message>
     <message>
-        <location line="+1342"/>
+        <location line="+1341"/>
         <source>Open this thread</source>
         <translation>Buka utas ini</translation>
     </message>
     <message>
-        <location line="+644"/>
+        <location line="+646"/>
         <source>Show the link preview again</source>
         <translation>Tampilkan pratinjau tautan lagi</translation>
     </message>
@@ -13229,12 +13229,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Balas di utas</translation>
     </message>
     <message>
-        <location line="-1958"/>
+        <location line="-1960"/>
         <source>Original message removed</source>
         <translation>Pesan asli dihapus</translation>
     </message>
     <message>
-        <location line="+1968"/>
+        <location line="+1970"/>
         <source>Open in room</source>
         <translation>Buka di ruang</translation>
     </message>
@@ -13437,7 +13437,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Sunting</translation>
     </message>
     <message>
-        <location line="-3811"/>
+        <location line="-3812"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13471,22 +13471,22 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="-562"/>
         <location line="+560"/>
-        <location line="+3551"/>
+        <location line="+3552"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5034"/>
+        <location line="-5035"/>
         <location line="+53"/>
         <location line="+506"/>
-        <location line="+4100"/>
+        <location line="+4101"/>
         <source>Image</source>
         <translation>Gambar</translation>
     </message>
     <message>
-        <location line="-4657"/>
+        <location line="-4658"/>
         <source>Attachment</source>
         <translation>Lampiran</translation>
     </message>
@@ -13505,7 +13505,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         </translation>
     </message>
     <message>
-        <location line="+382"/>
+        <location line="+381"/>
         <source>A reply in a thread is waiting for keys</source>
         <translation>Balasan di utas sedang menunggu kunci</translation>
     </message>
@@ -13535,7 +13535,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Pesan dihapus</translation>
     </message>
     <message>
-        <location line="+431"/>
+        <location line="+433"/>
         <source>%1 • not sent: connection problem</source>
         <translation>%1 • tidak terkirim: masalah koneksi</translation>
     </message>
@@ -13814,10 +13814,10 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Stiker gagal dimuat — klik untuk mencoba lagi</translation>
     </message>
     <message>
-        <location line="-5445"/>
+        <location line="-5446"/>
         <location line="+57"/>
         <location line="+509"/>
-        <location line="+4098"/>
+        <location line="+4099"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13830,9 +13830,9 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>video</translation>
     </message>
     <message>
-        <location line="-5826"/>
+        <location line="-5827"/>
         <location line="+562"/>
-        <location line="+4201"/>
+        <location line="+4202"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -17636,7 +17636,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>%1, dibisukan</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>Yesterday</source>
         <translation>Kemarin</translation>
     </message>
@@ -17878,12 +17878,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomInfoController</name>
     <message>
-        <location filename="../src/app/RoomInfoController.cpp" line="+70"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="+76"/>
         <source>The server did not accept the change.</source>
         <translation>Server tidak menerima perubahan itu.</translation>
     </message>
     <message>
-        <location line="+391"/>
+        <location line="+396"/>
         <source>You do not have permission to change that.</source>
         <translation>Anda tidak memiliki izin untuk mengubah itu.</translation>
     </message>
@@ -19148,7 +19148,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+190"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+191"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>Kontak %1</translation>
@@ -19819,12 +19819,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2680"/>
+        <location line="+2682"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning tidak dapat mereset sepenuhnya sesi lokal untuk akun ini. Periksa log aplikasi dan izin sistem berkas, lalu coba lagi.</translation>
     </message>
     <message>
-        <location line="-2694"/>
+        <location line="-2696"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Sesi Lightning lokal telah dibangun ulang. Penyimpanan enkripsi sebelumnya disingkirkan, bukan dihapus, dan masih ada di direktori data akun ini. Anda dapat masuk lagi.</translation>
     </message>
@@ -19837,7 +19837,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4567"/>
+        <location line="+4562"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19846,15 +19846,15 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-4946"/>
+        <location line="-4941"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4753"/>
+        <location line="+4748"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-4948"/>
+        <location line="-4943"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19862,7 +19862,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+757"/>
-        <location line="+2611"/>
+        <location line="+2613"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>Stiker tidak dapat dikirim.</translation>
@@ -19960,7 +19960,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tindakan jajak pendapat tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="-6499"/>
+        <location line="-6501"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Data akun ini masih digunakan oleh sesi latar belakang. Tunggu sebentar lalu coba lagi.</translation>
     </message>
@@ -19990,7 +19990,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Masukkan kata sandi Anda.</translation>
     </message>
     <message>
-        <location line="+5633"/>
+        <location line="+5635"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Pesan tidak dapat dikirim. Anda dapat mencoba lagi dari tindakan Coba lagi pada pesan.</translation>
     </message>
@@ -20037,7 +20037,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>[belum dapat didekripsi]</translation>
     </message>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+580"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+573"/>
         <source>Rust SDK send failed.</source>
         <translation>Pengiriman Rust SDK gagal.</translation>
     </message>
@@ -21526,12 +21526,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tampilkan aktivitas ruang</translation>
     </message>
     <message>
-        <location line="-4675"/>
-        <source>room activity membership joins leaves profile</source>
-        <translation>aktivitas ruang keanggotaan bergabung keluar profil</translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="-4671"/>
         <location line="+4849"/>
         <source>Mouse-wheel speed</source>
         <translation>Kecepatan roda tetikus</translation>
@@ -24337,7 +24332,12 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>jarak pesan kepadatan ringkas nyaman lega celah bantalan</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+62"/>
+        <source>room activity membership joins leaves profile routine</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <location line="+4889"/>
         <source>When returning to a conversation</source>
         <translation>Saat kembali ke percakapan</translation>
@@ -31852,7 +31852,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+645"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+666"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Lampiran tidak didukung pada backend ini.</translation>
@@ -31899,12 +31899,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+392"/>
+        <location filename="../qml/ThreadPanel.qml" line="+393"/>
         <source>Mark this thread read</source>
         <translation>Tandai utas ini sudah dibaca</translation>
     </message>
     <message>
-        <location line="+1183"/>
+        <location line="+1184"/>
         <source>Jump to the newest reply</source>
         <translation>Lompat ke balasan terbaru</translation>
     </message>
@@ -31916,7 +31916,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         </translation>
     </message>
     <message>
-        <location line="-1544"/>
+        <location line="-1546"/>
         <source>This room has been replaced.</source>
         <translation>Ruang ini telah diganti.</translation>
     </message>
@@ -31926,7 +31926,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Anda tidak memiliki izin untuk mengirim pesan di ruang ini.</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+122"/>
         <source>Yesterday</source>
         <translation>Kemarin</translation>
     </message>
@@ -32009,27 +32009,27 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message numerus="yes">
         <location line="+41"/>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>%n reply(s)</source>
         <translation>
             <numerusform>%n balasan</numerusform>
         </translation>
     </message>
     <message>
-        <location line="-89"/>
-        <location line="+91"/>
+        <location line="-90"/>
+        <location line="+92"/>
         <location line="+297"/>
         <location line="+72"/>
         <source>Replies</source>
         <translation>Balasan</translation>
     </message>
     <message>
-        <location line="-458"/>
+        <location line="-459"/>
         <source>Unread</source>
         <translation>Belum dibaca</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Loading…</source>
         <translation>Memuat…</translation>
     </message>
@@ -32047,7 +32047,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Buka di ruang</translation>
     </message>
     <message>
-        <location line="-642"/>
+        <location line="-644"/>
         <source>Message deleted</source>
         <translation>Pesan dihapus</translation>
     </message>
@@ -32057,7 +32057,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Tidak dapat mendekripsi pesan ini</translation>
     </message>
     <message>
-        <location line="+653"/>
+        <location line="+655"/>
         <location line="+1"/>
         <source>Collapse thread root</source>
         <translation type="unfinished"></translation>
@@ -34985,7 +34985,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2418"/>
+        <location filename="../src/main.cpp" line="+2420"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Klien Matrix Qt/QML asli. Backend: --backend={mock,http,rust}. Bawaan: rust (http pada build tanpa Rust SDK).</translation>
     </message>
