@@ -12263,20 +12263,20 @@ async fn run_modern_sync(
                             .map_or(true, |at| at.elapsed() >= std::time::Duration::from_secs(3))
                     {
                         last_backfill_scan = Some(std::time::Instant::now());
-                        spawn_preview_looks(&client, &mut preview_backfill, &mut backfill_tasks,
-                                            &mut forced_looks);
+                        spawn_preview_looks(&client, backfill_results.as_ref(), &mut preview_backfill,
+                                            &mut backfill_tasks, &mut forced_looks, true);
                     }
                 }
-                // Not only on a room-list batch: an idle account has none, and
-                // its finished looks were never collected.
+                // An idle account gets no room-list batch, so finished looks
+                // are collected here too.
                 Some(done) = backfill_tasks.join_next(), if !backfill_tasks.is_empty() => {
                     if let Ok(done) = done {
                         finish_preview_look(&events, backfill_results.as_ref(),
                                             &mut preview_backfill, done);
                     }
                     if !first_sync {
-                        spawn_preview_looks(&client, &mut preview_backfill, &mut backfill_tasks,
-                                            &mut forced_looks);
+                        spawn_preview_looks(&client, backfill_results.as_ref(), &mut preview_backfill,
+                                            &mut backfill_tasks, &mut forced_looks, false);
                     }
                 }
                 updates = room_updates_sub.recv(), if room_updates_live => {
@@ -12326,12 +12326,15 @@ async fn run_modern_sync(
                             ).await,
                             None => (0, Vec::new(), 0, 0, 0),
                         };
-                        forced_looks = carried.1.iter()
-                            .filter_map(|id| RoomId::parse(id.as_str()).ok())
-                            .collect();
+                        for id in carried.1.iter().filter_map(|id| RoomId::parse(id.as_str()).ok()) {
+                            if !forced_looks.contains(&id) {
+                                forced_looks.push(id);
+                            }
+                        }
                         if !first_sync {
-                            spawn_preview_looks(&client, &mut preview_backfill,
-                                                &mut backfill_tasks, &mut forced_looks);
+                            spawn_preview_looks(&client, backfill_results.as_ref(),
+                                                &mut preview_backfill, &mut backfill_tasks,
+                                                &mut forced_looks, false);
                         }
                         enqueue(&events, json!({
                             "type": "ignored_users_changed",
@@ -13520,17 +13523,35 @@ fn finish_preview_look(
     backfill.finish(&room_id, &outcome, now_ms);
 }
 
+fn latest_sender_ignored(room: &Room, latest: &matrix_sdk_base::latest_event::LatestEventValue) -> bool {
+    matches!(latest, matrix_sdk_base::latest_event::LatestEventValue::Remote(event)
+        if event.raw().get_field::<OwnedUserId>("sender").ok().flatten()
+            .is_some_and(|s| previewbackfill::is_ignored(room.own_user_id(), &s)))
+}
+
 /// `forced` rooms are looked at whatever `latest_event` says: matrix-sdk may
-/// not have cleared it yet after an ignore-list change.
+/// not have cleared it yet after an ignore-list change. `scan` adds every room
+/// with no line to show. Nothing is spawned without `results` to keep answers.
 fn spawn_preview_looks(
     client: &Client,
+    results: Option<&previewbackfill::RunGuard>,
     backfill: &mut previewbackfill::Backfill,
     tasks: &mut tokio::task::JoinSet<(OwnedRoomId, u64, previewbackfill::Outcome)>,
     forced: &mut Vec<OwnedRoomId>,
+    scan: bool,
 ) {
+    if results.is_none() {
+        forced.clear();
+        return;
+    }
     let now_ms = backfill.now_ms();
     let scanned = client.joined_rooms().into_iter().filter(|room| {
-        matches!(room.latest_event(), matrix_sdk_base::latest_event::LatestEventValue::None)
+        scan
+            && {
+                let latest = room.latest_event();
+                matches!(latest, matrix_sdk_base::latest_event::LatestEventValue::None)
+                    || latest_sender_ignored(room, &latest)
+            }
             && !matches!(
                 previewbackfill::remembered(room.own_user_id(), room.room_id()),
                 Some(previewbackfill::Remembered::Message(..))
@@ -13911,7 +13932,10 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         }
         _ => previewbackfill::UndecryptableNow::Unknown,
     };
-    let settled = previewbackfill::settle(remembered.clone(), latest_event_id.as_deref(), utd_now);
+    let settled = previewbackfill::without_ignored(
+        previewbackfill::settle(remembered.clone(), latest_event_id.as_deref(), utd_now),
+        |sender| previewbackfill::is_ignored(room.own_user_id(), sender),
+    );
     if let Some(was) = remembered.as_ref().filter(|was| settled.as_ref() != Some(*was)) {
         previewbackfill::replace_remembered(room.own_user_id(), room.room_id(), was, settled.clone());
     }
@@ -13921,15 +13945,13 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         }
         _ => None,
     };
-    // matrix-sdk does not keep an ignored user's event out of `latest_event`.
-    let (latest_line, latest_ts) = if latest_sender
-        .as_ref()
-        .is_some_and(|s| s.as_ref().is_some_and(|s| previewbackfill::is_ignored(room.own_user_id(), s)))
-    {
-        (String::new(), 0)
+    // matrix-sdk does not keep an ignored user's event out of `latest_event`;
+    // the room keeps its place and the backfill finds it an older line.
+    let latest_ts = room_ordering_timestamp_ms(&latest_event, edited_ts);
+    let latest_line = if latest_sender_ignored(room, &latest_event) {
+        String::new()
     } else {
-        (latest_event_preview_line(&latest_event),
-         room_ordering_timestamp_ms(&latest_event, edited_ts))
+        latest_event_preview_line(&latest_event)
     };
     if let Some(sender) = latest_sender.filter(|_| !latest_line.is_empty() || latest_ts > 0) {
         previewbackfill::note_shown(room.own_user_id(), room.room_id(), previewbackfill::LatestSnapshot {
@@ -21384,5 +21406,78 @@ mod sync_payload_tests {
         }))
         .unwrap();
         assert!(stable_poll_start(&edit).is_none(), "an edited poll is not a new one");
+    }
+}
+
+#[cfg(test)]
+mod ignore_preview_wiring_tests {
+    use super::{room_payload, spawn_preview_looks};
+    use crate::previewbackfill::{remembered, set_ignored, Backfill, Remembered, RunGuard};
+    use matrix_sdk::ruma::{owned_device_id, room_id, OwnedRoomId, OwnedUserId};
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+
+    async fn client_as(server: &MatrixMockServer, user: &str) -> matrix_sdk::Client {
+        let user: OwnedUserId = user.try_into().unwrap();
+        server
+            .client_builder()
+            .logged_in_with_token("token".into(), user, owned_device_id!("DEVICE"))
+            .build()
+            .await
+    }
+
+    #[tokio::test]
+    async fn the_room_payload_never_shows_an_ignored_users_remembered_message() {
+        let server = MatrixMockServer::new().await;
+        let client = client_as(&server, "@payload-ignoring:localhost").await;
+        let room = server.sync_joined_room(&client, room_id!("!payload:localhost")).await;
+        let own = client.user_id().unwrap().to_owned();
+        let run = RunGuard::new(own.clone());
+        let mallory: OwnedUserId = "@mallory:localhost".try_into().unwrap();
+        run.remember(room.room_id(), Remembered::Message("mallory's text".into(), 70, Some(mallory)));
+        set_ignored(&own, &["@mallory:localhost".to_owned()]);
+
+        let payload = room_payload(&room).await;
+        assert_eq!(payload["last_message_preview"], "", "{payload}");
+        assert_eq!(payload["last_activity_ms"], 70, "it keeps its place");
+        assert_eq!(remembered(&own, room.room_id()), Some(Remembered::Place(70)));
+        drop(run);
+    }
+
+    async fn two_blank_rooms(server: &MatrixMockServer, user: &str) -> (matrix_sdk::Client, OwnedRoomId, OwnedRoomId) {
+        let client = client_as(server, user).await;
+        let blank: OwnedRoomId = room_id!("!blank:localhost").to_owned();
+        let forced: OwnedRoomId = room_id!("!forced:localhost").to_owned();
+        server.sync_joined_room(&client, &blank).await;
+        server.sync_joined_room(&client, &forced).await;
+        (client, blank, forced)
+    }
+
+    #[tokio::test]
+    async fn a_background_account_spawns_no_looks() {
+        let server = MatrixMockServer::new().await;
+        let (client, _, forced_room) = two_blank_rooms(&server, "@spawn-gate:localhost").await;
+        let mut tasks = tokio::task::JoinSet::new();
+        let mut forced = vec![forced_room];
+        spawn_preview_looks(&client, None, &mut Backfill::default(), &mut tasks, &mut forced, true);
+        assert!(tasks.is_empty(), "nothing would keep the answers");
+    }
+
+    #[tokio::test]
+    async fn only_the_paced_scan_adds_rooms_beyond_the_forced_ones() {
+        let server = MatrixMockServer::new().await;
+        let (client, blank, forced_room) = two_blank_rooms(&server, "@spawn-scan:localhost").await;
+        let run = RunGuard::new(client.user_id().unwrap().to_owned());
+        let mut backfill = Backfill::default();
+        let mut tasks = tokio::task::JoinSet::new();
+        let mut forced = vec![forced_room];
+        spawn_preview_looks(&client, Some(&run), &mut backfill, &mut tasks, &mut forced, false);
+        assert_eq!(tasks.len(), 1, "without the scan only the forced room");
+        assert!(forced.is_empty());
+        assert!(backfill.is_eligible(&blank, backfill.now_ms()));
+        spawn_preview_looks(&client, Some(&run), &mut backfill, &mut tasks, &mut forced, true);
+        assert_eq!(tasks.len(), 2, "the scan adds the blank room");
+        assert!(!backfill.is_eligible(&blank, backfill.now_ms()));
+        tasks.abort_all();
+        drop(run);
     }
 }

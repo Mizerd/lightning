@@ -332,7 +332,14 @@ pub(crate) fn snapshot_or_shown(
         return (live, false);
     }
     let st = state().lock().unwrap_or_else(|e| e.into_inner());
-    let shown = st.shown.get(&(user.to_owned(), room.to_owned())).cloned();
+    let ignored = |s: &UserId| st.ignored.get(user).is_some_and(|i| i.contains(s.as_str()));
+    let shown = st.shown.get(&(user.to_owned(), room.to_owned())).map(|shown| {
+        match &shown.sender {
+            Some(s) if !ignored(s) => shown.clone(),
+            // Its place only, with no sender, so the room is refreshed.
+            _ => LatestSnapshot { preview: String::new(), ts: shown.ts, sender: None },
+        }
+    });
     let recovered = shown.is_some();
     (shown, recovered)
 }
@@ -425,8 +432,7 @@ pub(crate) fn across_ignore_change(
     // A kept message can be newer than `latest` and surfaces once the SDK clears
     // it, so its sender counts too; an unknown sender counts as changed.
     let shown_sender_changed = latest
-        .and_then(|l| l.sender.as_ref())
-        .is_some_and(|s| changed.contains(s))
+        .is_some_and(|l| l.sender.as_ref().map_or(true, |s| changed.contains(s)))
         || matches!(remembered, Some(Remembered::Message(_, _, sender))
             if sender.as_ref().map_or(true, |s| changed.contains(s)));
     if linked || shown_sender_changed {
@@ -497,6 +503,20 @@ pub(crate) fn settle(
                     Some(Remembered::Undecryptable(ts, Some(id)))
                 }
             }
+        }
+        other => other,
+    }
+}
+
+/// An ignored user's message, including one that has just decrypted, keeps
+/// only its place.
+pub(crate) fn without_ignored(
+    settled: Option<Remembered>,
+    ignored: impl Fn(&UserId) -> bool,
+) -> Option<Remembered> {
+    match settled {
+        Some(Remembered::Message(_, ts, Some(sender))) if ignored(&sender) => {
+            Some(Remembered::Place(ts))
         }
         other => other,
     }
@@ -807,11 +827,38 @@ mod tests {
         );
         assert_eq!(across_ignore_change(&[uid("@eve:hs")], recovered.as_ref(), None, false),
                    AcrossIgnore::Refresh, "and it still knows who wrote it");
+        for (sender, ignored) in [(None, vec![]), (Some(uid("@eve:hs")), vec!["@eve:hs".to_owned()])] {
+            note_shown(&user, room, LatestSnapshot { preview: "kept text".into(), ts: 45, sender });
+            set_ignored(&user, &ignored);
+            let (place, _) = snapshot_or_shown(None, &user, room);
+            assert_eq!(place, Some(LatestSnapshot { preview: String::new(), ts: 45, sender: None }));
+            assert_eq!(across_ignore_change(&[uid("@mallory:hs")], place.as_ref(), None, false),
+                       AcrossIgnore::Refresh, "an unknown or ignored sender is looked at again");
+            assert_eq!(place_only(place.as_ref(), None), Some(Remembered::Place(45)));
+        }
+        set_ignored(&user, &[]);
         forget_shown(&user, room);
         assert_eq!(snapshot_or_shown(None, &user, room), (None, false));
         note_shown(&user, room, eve);
         drop(run);
         assert_eq!(snapshot_or_shown(None, &user, room), (None, false), "it ends with the run");
+    }
+
+    #[test]
+    fn an_ignored_users_message_keeps_only_its_place_even_once_it_decrypts() {
+        let mallory = uid("@mallory:hs");
+        let is_mallory = |s: &UserId| s == &*mallory;
+        let id: OwnedEventId = "$utd:hs".try_into().unwrap();
+        let decrypted = settle(
+            Some(Remembered::Undecryptable(80, Some(id))),
+            None,
+            UndecryptableNow::Decrypted("mallory's secret".into(), Some(mallory.clone())),
+        );
+        assert_eq!(without_ignored(decrypted, is_mallory), Some(Remembered::Place(80)));
+        let eve = Some(Remembered::Message("eve".into(), 81, Some(uid("@eve:hs"))));
+        assert_eq!(without_ignored(eve.clone(), is_mallory), eve);
+        let unknown = Some(Remembered::Message("x".into(), 82, None));
+        assert_eq!(without_ignored(unknown.clone(), is_mallory), unknown);
     }
 
     #[test]
