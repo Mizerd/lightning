@@ -19,6 +19,7 @@ GridLayout {
     property bool isDefault: true
     property string conflictsWith: ""
     property string shadowNote: ""
+    property string overlapNote: ""
 
     property bool capturing: false
     property string captureError: ""
@@ -116,6 +117,19 @@ GridLayout {
                 wrapMode: Text.WordWrap
                 text: row.conflictsWith
                 color: AppTheme.stormDanger
+                font.pixelSize: AppTheme.textMeta
+            }
+        }
+        Loader {
+            Layout.fillWidth: true
+            active: row.conflictsWith === "" && row.overlapNote !== ""
+            visible: active
+            sourceComponent: Label {
+                objectName: "shortcutOverlap_" + row.actionId
+                width: parent ? parent.width : implicitWidth
+                wrapMode: Text.WordWrap
+                text: row.overlapNote
+                color: AppTheme.warning
                 font.pixelSize: AppTheme.textMeta
             }
         }

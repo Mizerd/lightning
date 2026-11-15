@@ -5753,6 +5753,7 @@ Item {
                                                 isDefault: shortcutRowLoader.model.shortcutIsDefault
                                                 conflictsWith: shortcutRowLoader.model.shortcutConflict
                                                 shadowNote: shortcutRowLoader.model.shortcutShadow
+                                                overlapNote: shortcutRowLoader.model.shortcutOverlap
                                                 compact: contentColumn.width < 560
                                             }
                                         }
@@ -5786,9 +5787,11 @@ Item {
                                                + "while the message box has focus. "
                                                + "Everywhere else, the same key still "
                                                + "does its usual job.\n\n"
-                                               + "Escape, and the single letters the "
-                                               + "message menu uses while it is open, "
-                                               + "are reserved and cannot be assigned.")
+                                               + "Escape and a few keys Lightning uses "
+                                               + "itself are reserved. A key another "
+                                               + "action has by default can be taken: "
+                                               + "that action then has no key until you "
+                                               + "give it one.")
                                 }
                                 AppButton {
                                     storm: true

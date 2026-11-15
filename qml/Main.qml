@@ -673,7 +673,7 @@ ApplicationWindow {
     }
 
     Shortcut {
-        sequence: "Ctrl+Shift+D"
+        sequence: "Ctrl+Alt+Shift+D"
         enabled: app.screenshotDemoActive
         onActivated: if (app.demo) app.demo.toggleControls()
     }

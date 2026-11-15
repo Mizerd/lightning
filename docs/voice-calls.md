@@ -1328,7 +1328,7 @@ of the transport; "Keyframes encoded" is counted at the encoder.
 Stream Info rows now carry RTP loss (received, or as the SFU reports it for
 what we send), jitter, resend requests (NACKs), keyframes and keyframe requests,
 and the decoder; it can be toggled from the spotlight's and full screen's
-controls as well as Ctrl+F9.
+controls as well as Ctrl+Shift+F9.
 
 Hardware encoding, measured on the RTX 3080 (6 s scrolling 1080p desktop at
 3 Mbit/s, PSNR against the source): `preset=low-latency-hq` and
@@ -1340,7 +1340,7 @@ the ladder (`extraVaH264Encoders()`).
 
 ## Stream Info
 
-During a MatrixRTC call, **Ctrl+F9** toggles Stream Info over the call stage,
+During a MatrixRTC call, **Ctrl+Shift+F9** toggles Stream Info over the call stage,
 including full screen. Rebind “Show or hide Stream Info” in Settings → Keyboard
 shortcuts; searching Settings for “Stream Info” finds that page. The overlay
 starts off for every call and its visibility is never saved.

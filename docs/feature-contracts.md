@@ -2726,12 +2726,22 @@ encryption is not yet KNOWN — a real state during hydration — the STRICTER o
 the two wins: guessing "unencrypted" would put a body on screen the user
 asked to withhold, and nobody would learn it had happened.
 
-**Mute and deafen keys** are window-global (Ctrl+Shift+U, Ctrl+Shift+H) and
-follow the same lane selection the call bar's buttons use. Discord's own keys
-were both unavailable: Ctrl+Shift+M is `room.markRead` and Ctrl+Shift+D is in
-the reserved table. They are inert outside a call rather than absent — a key
+**Mute and deafen keys** are window-global and follow the same lane selection
+the call bar's buttons use. Since 2026-11-15 they are Discord's Ctrl+Shift+M and
+Ctrl+Shift+D: Ctrl+Shift+U, the old mute key, is IBus's Unicode-entry hotkey and
+never reached us from a focused text field. The camera has NO default: its old
+Ctrl+Shift+V is "paste as plain text" everywhere else and turned the camera on
+from the composer. They are inert outside a call rather than absent — a key
 that quietly does nothing is better than one that takes the sequence away
 from something else while a call is up.
+
+**Shortcut overlaps: a key the user chose beats a key Lightning chose.** Only
+overrides are stored, so a changed default reaches everyone who never touched
+that row and nobody who did. Binding a key that another action holds only by
+default is allowed; that action resolves to no key and both rows say so. Two
+chosen keys on one sequence, and the hard-coded keys, are still refused, except
+Alt+V and the message menu's R/T/E for a Global action: Qt blocks window
+shortcuts while the popup that owns them is open.
 
 **Picture-in-picture** (`CallPipWindow.qml`) is a small always-on-top window
 opened from the call bar, and — only when the "automatic pop-out" setting is

@@ -97,7 +97,7 @@ Item {
                 ToolButton { text: "✕"; implicitWidth: 24; implicitHeight: 24
                     onClicked: if (root.demo) root.demo.setControlsVisible(false)
                     ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Hide (Ctrl+Shift+D restores)") }
+                    ToolTip.text: qsTr("Hide (Ctrl+Alt+Shift+D restores)") }
             }
 
             Label {

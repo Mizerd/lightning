@@ -1557,6 +1557,11 @@ function(_lightning_configure_qml_module target _scope)
         target_link_libraries(${target} ${_scope} Qt6::GuiPrivate)
         target_compile_definitions(${target} ${_scope}
             LIGHTNING_HAVE_QPA_SCREEN=1)
+        # Shortcut capture asks the key mapper what Qt's shortcut map matches.
+        if(Qt6_VERSION VERSION_GREATER_EQUAL 6.7)
+            target_compile_definitions(${target} ${_scope}
+                LIGHTNING_HAVE_QPA_KEYMAPPER=1)
+        endif()
     endif()
     # The call sounds' stream role; see LIGHTNING_HAVE_QT_AUDIO_ROLE above.
     if(LIGHTNING_HAVE_QT_AUDIO_ROLE)

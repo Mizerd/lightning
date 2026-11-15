@@ -8,6 +8,12 @@
 #include <QKeyEvent>
 #include <QKeySequence>
 
+#if defined(LIGHTNING_HAVE_QPA_KEYMAPPER)
+#include <QtGui/private/qguiapplication_p.h>
+#include <qpa/qplatformintegration.h>
+#include <qpa/qplatformkeymapper.h>
+#endif
+
 // Qt's own synthesized-key path into the shortcut map (exported, not in a header).
 extern Q_GUI_EXPORT bool qt_sendShortcutOverrideEvent(QObject *o, ulong timestamp, int k,
                                                       Qt::KeyboardModifiers mods,
@@ -148,7 +154,21 @@ QString ShortcutRegistry::blockingReservedOwner(const QString &portable,
         && actionId == QStringLiteral("dialog.close")
         && portable == QStringLiteral("Ctrl+C"))
         return {};
+    if (const Action *action = find(actionId); action && popupReserved(portable, *action))
+        return {};
     return owner;
+}
+
+const ShortcutRegistry::Reserved *
+ShortcutRegistry::popupReserved(const QString &portable, const Action &action) const
+{
+    if (action.context != GlobalContext || action.appWide)
+        return nullptr;
+    for (const Reserved &r : m_reserved) {
+        if (r.sequence == portable && !r.whileOpen.isEmpty())
+            return &r;
+    }
+    return nullptr;
 }
 
 bool ShortcutRegistry::contextsClash(ActionContext a, ActionContext b)
@@ -200,6 +220,13 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
     }
 #endif
     if (m_keyboardPlatform != KeyboardPlatform::Unknown) {
+#if defined(LIGHTNING_HAVE_QPA_KEYMAPPER)
+        m_keyMapper = [](const QKeyEvent *event) {
+            QPlatformIntegration *pi = QGuiApplicationPrivate::platformIntegration();
+            return pi ? pi->keyMapper()->possibleKeyCombinations(event)
+                      : QList<QKeyCombination>();
+        };
+#endif
         if (QCoreApplication *app = QCoreApplication::instance())
             app->installEventFilter(this);
     }
@@ -253,6 +280,18 @@ bool ShortcutRegistry::eventFilter(QObject *watched, QEvent *event)
         m_pressedModifiers = int(key->modifiers());
         m_pressedDigit = physicalDigitKey(m_keyboardPlatform, key->nativeScanCode(),
                                           key->nativeVirtualKey());
+        // Qt's shortcut map matches Shift+symbol as the key's unshifted symbol
+        // plus Shift (Ctrl+Shift+` for a "~" press on US xkb); capture must too.
+        m_pressedBaseKey = 0;
+        if (m_keyMapper && key->modifiers().testFlag(Qt::ShiftModifier)
+            && isPrintableKey(key->key())
+            && !(key->key() >= Qt::Key_A && key->key() <= Qt::Key_Z)) {
+            const QList<QKeyCombination> combos = m_keyMapper(key);
+            if (!combos.isEmpty() && combos.first().key() != key->key()
+                && isPrintableKey(combos.first().key())
+                && combos.first().keyboardModifiers().testFlag(Qt::ShiftModifier))
+                m_pressedBaseKey = combos.first().key();
+        }
         if (event->type() == QEvent::KeyPress && watched->isWindowType()
             && runKeypadGlobalShortcut(watched, key))
             return true;
@@ -261,6 +300,7 @@ bool ShortcutRegistry::eventFilter(QObject *watched, QEvent *event)
     case QEvent::KeyRelease:
         m_pressedKey = 0;
         m_pressedDigit = 0;
+        m_pressedBaseKey = 0;
         break;
     default:
         break;
@@ -275,7 +315,7 @@ bool ShortcutRegistry::runKeypadGlobalShortcut(QObject *window, const QKeyEvent 
 {
     if (!key->modifiers().testFlag(Qt::KeypadModifier))
         return false;
-    const QString seq = sequenceFromKeyEvent(key->key(), int(key->modifiers()));
+    const QString seq = literalSequence(key->key(), int(key->modifiers()));
     if (!seq.startsWith(QLatin1String("Num+")))
         return false;
     bool bound = false;
@@ -311,12 +351,26 @@ void ShortcutRegistry::buildTables()
     const QString dialogCat = tr("Dialogs");
     const QString settingsCat = tr("Settings navigation");
 
+#if defined(Q_OS_MACOS)
+    // Qt's Ctrl is Cmd here: Cmd+Tab belongs to the system and Option+arrows
+    // move by word. Meta is the Control key.
+    const QString historyBack = QStringLiteral("Ctrl+[");
+    const QString historyForward = QStringLiteral("Ctrl+]");
+    const QString nextRoom = QStringLiteral("Meta+Tab");
+    const QString previousRoom = QStringLiteral("Meta+Shift+Tab");
+#else
+    const QString historyBack = QStringLiteral("Alt+Left");
+    const QString historyForward = QStringLiteral("Alt+Right");
+    const QString nextRoom = QStringLiteral("Ctrl+Tab");
+    const QString previousRoom = QStringLiteral("Ctrl+Shift+Tab");
+#endif
+
     // Every row must be wired to a QML `Shortcut`: a registry entry whose QML
     // site was never migrated is a shortcut that reports a key and does
     // nothing, which is strictly worse than not offering it.
     m_actions = {
         { QStringLiteral("app.quit"), appCat,
-          tr("Quit Lightning"), QStringLiteral("Ctrl+Q"), GlobalContext },
+          tr("Quit Lightning"), QStringLiteral("Ctrl+Q"), GlobalContext, true },
         { QStringLiteral("app.openSettings"), appCat,
           tr("Open Settings, or focus its search field"),
           QStringLiteral("Ctrl+,"), GlobalContext },
@@ -337,20 +391,26 @@ void ShortcutRegistry::buildTables()
           tr("Create a room or Space"), QStringLiteral("Ctrl+Shift+N"),
           GlobalContext },
         { QStringLiteral("nav.newDirectMessage"), navCat,
-          tr("Start a direct message"), QStringLiteral("Ctrl+Shift+T"),
+          tr("Start a direct message"), QStringLiteral("Ctrl+N"),
           GlobalContext },
         { QStringLiteral("nav.historyBack"), navCat,
-          tr("Go back to the previous conversation"), QStringLiteral("Alt+Left"),
+          tr("Go back to the previous conversation"), historyBack,
           GlobalContext },
         { QStringLiteral("nav.historyForward"), navCat,
-          tr("Go forward to the next conversation"), QStringLiteral("Alt+Right"),
+          tr("Go forward to the next conversation"), historyForward,
           GlobalContext },
         { QStringLiteral("nav.nextRoom"), navCat,
-          tr("Go to the next conversation in the list"), QStringLiteral("Ctrl+Tab"),
+          tr("Go to the next conversation in the list"), nextRoom,
           GlobalContext },
         { QStringLiteral("nav.previousRoom"), navCat,
           tr("Go to the previous conversation in the list"),
-          QStringLiteral("Ctrl+Shift+Tab"), GlobalContext },
+          previousRoom, GlobalContext },
+        { QStringLiteral("nav.nextUnreadRoom"), navCat,
+          tr("Go to the next unread conversation"), QStringLiteral("Alt+Shift+Down"),
+          GlobalContext },
+        { QStringLiteral("nav.previousUnreadRoom"), navCat,
+          tr("Go to the previous unread conversation"), QStringLiteral("Alt+Shift+Up"),
+          GlobalContext },
         { QStringLiteral("nav.nextAccount"), navCat,
           tr("Switch to the next account"), QStringLiteral("Ctrl+`"), GlobalContext },
         { QStringLiteral("nav.previousAccount"), navCat,
@@ -497,7 +557,7 @@ void ShortcutRegistry::buildTables()
           GlobalContext },
         { QStringLiteral("room.markRead"), roomCat,
           tr("Mark the open conversation as read"),
-          QStringLiteral("Ctrl+Shift+M"), GlobalContext },
+          QStringLiteral("Ctrl+R"), GlobalContext },
         { QStringLiteral("room.markAllRead"), roomCat,
           tr("Mark every conversation as read"), QStringLiteral("Ctrl+Shift+A"),
           GlobalContext },
@@ -512,17 +572,16 @@ void ShortcutRegistry::buildTables()
           GlobalContext },
 
         { QStringLiteral("call.toggleStreamInfo"), callCat,
-          tr("Show or hide Stream Info"), QStringLiteral("Ctrl+F9"),
-          GlobalContext },
+          tr("Show or hide Stream Info"), QStringLiteral("Ctrl+Shift+F9"),
+          GlobalContext, true },
         { QStringLiteral("call.toggleMute"), callCat,
-          tr("Mute or unmute the microphone"), QStringLiteral("Ctrl+Shift+U"),
+          tr("Mute or unmute the microphone"), QStringLiteral("Ctrl+Shift+M"),
           GlobalContext },
         { QStringLiteral("call.toggleDeafen"), callCat,
-          tr("Deafen or undeafen"), QStringLiteral("Ctrl+Shift+H"),
+          tr("Deafen or undeafen"), QStringLiteral("Ctrl+Shift+D"),
           GlobalContext },
         { QStringLiteral("call.toggleCamera"), callCat,
-          tr("Turn the camera on or off"), QStringLiteral("Ctrl+Shift+V"),
-          GlobalContext },
+          tr("Turn the camera on or off"), {}, GlobalContext },
         { QStringLiteral("call.returnToCall"), callCat,
           tr("Return to the active call"), QStringLiteral("Ctrl+Alt+A"),
           GlobalContext },
@@ -578,12 +637,15 @@ void ShortcutRegistry::buildTables()
         { QStringLiteral("Esc"),
           tr("closing the find bar, room information, a thread or Settings") },
         { QStringLiteral("Alt+V"),
-          tr("the emoji picker's skin-tone selector") },
+          tr("the emoji picker's skin-tone selector"), tr("the emoji picker is open") },
         { QStringLiteral("Ctrl+C"), tr("the message menu's Copy accelerator") },
-        { QStringLiteral("R"), tr("the message menu's Reply accelerator") },
-        { QStringLiteral("T"), tr("the message menu's Thread accelerator") },
-        { QStringLiteral("E"), tr("the message menu's Edit accelerator") },
-        { QStringLiteral("Ctrl+Shift+D"), tr("the screenshot-demo controls") },
+        { QStringLiteral("R"), tr("the message menu's Reply accelerator"),
+          tr("a message's menu is open") },
+        { QStringLiteral("T"), tr("the message menu's Thread accelerator"),
+          tr("a message's menu is open") },
+        { QStringLiteral("E"), tr("the message menu's Edit accelerator"),
+          tr("a message's menu is open") },
+        { QStringLiteral("Ctrl+Alt+Shift+D"), tr("the screenshot-demo controls") },
         { QStringLiteral("Space"), tr("paging the timeline and the media grids") },
         { QStringLiteral("Shift+PgUp"),
           tr("jumping to the oldest unread message") },
@@ -620,6 +682,7 @@ QHash<int, QByteArray> ShortcutRegistry::roleNames() const
         { ContextRole, "shortcutContext" },
         { ConflictsWithRole, "shortcutConflict" },
         { ShadowNoteRole, "shortcutShadow" },
+        { OverlapNoteRole, "shortcutOverlap" },
     };
 }
 
@@ -648,6 +711,8 @@ QVariant ShortcutRegistry::data(const QModelIndex &index, int role) const
         return conflictNote(row);
     case ShadowNoteRole:
         return shadowNote(row);
+    case OverlapNoteRole:
+        return overlapNote(row);
     default:
         return {};
     }
@@ -682,6 +747,19 @@ QString ShortcutRegistry::normalize(const QString &sequence)
 
 QString ShortcutRegistry::sequenceFromKeyEvent(int key, int modifiers) const
 {
+    const QString base = baseSequenceFor(key, modifiers);
+    return base.isEmpty() ? literalSequence(key, modifiers) : base;
+}
+
+QString ShortcutRegistry::baseSequenceFor(int key, int modifiers) const
+{
+    if (m_pressedBaseKey == 0 || key != m_pressedKey || modifiers != m_pressedModifiers)
+        return {};
+    return literalSequence(m_pressedBaseKey, modifiers);
+}
+
+QString ShortcutRegistry::literalSequence(int key, int modifiers)
+{
     auto mods = static_cast<Qt::KeyboardModifiers>(modifiers)
                       & ~Qt::GroupSwitchModifier;
     // The numpad is a key of its own only when pressed alone; Ctrl+Num+0 is
@@ -705,14 +783,6 @@ QString ShortcutRegistry::storedOverride(const QString &actionId) const
     return normalize(m_settings->shortcutSequence(actionId));
 }
 
-QString ShortcutRegistry::currentSequence(const Action &action) const
-{
-    const QString stored = storedOverride(action.id);
-    if (!stored.isEmpty())
-        return stored;
-    return normalize(action.defaultSequence);
-}
-
 QString ShortcutRegistry::sequenceFor(const QString &actionId) const
 {
     for (int i = 0; i < m_actions.size(); ++i) {
@@ -727,7 +797,7 @@ QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
 {
     // Like Qt's shortcut map: an exact numpad binding first, then the same key
     // without the numpad, so a numpad Delete still runs a Delete binding.
-    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    const QString seq = literalSequence(key, modifiers);
     if (seq.isEmpty())
         return {};
     // A modified press on a main-row digit also answers that digit's binding,
@@ -738,8 +808,9 @@ QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
     if (m_pressedDigit != 0 && m_pressedKey == key && m_pressedModifiers == modifiers
         && key != m_pressedDigit
         && (Qt::KeyboardModifiers(modifiers) & commandMods))
-        physical = sequenceFromKeyEvent(m_pressedDigit, modifiers);
-    for (const QString &candidate : { seq, withoutKeypad(seq), physical }) {
+        physical = literalSequence(m_pressedDigit, modifiers);
+    for (const QString &candidate :
+         { seq, withoutKeypad(seq), baseSequenceFor(key, modifiers), physical }) {
         if (candidate.isEmpty())
             continue;
         for (int i = 0; i < m_actions.size(); ++i) {
@@ -921,6 +992,9 @@ QString ShortcutRegistry::validationError(const QString &actionId,
             continue;
         if (exclusive(other.id, actionId))
             continue;
+        // Another action's default yields to this choice (see reload()).
+        if (!m_custom.at(i))
+            continue;
         if (m_resolved.at(i) == portable) {
             return tr("%1 is already used for “%2”. Two shortcuts on "
                       "one key make Qt fire neither of them.")
@@ -1064,6 +1138,31 @@ QString ShortcutRegistry::shadowNote(int row) const
     return notes.join(QLatin1Char('\n'));
 }
 
+QString ShortcutRegistry::overlapNote(int row) const
+{
+    if (row < 0 || row >= m_actions.size())
+        return {};
+    const Action &a = m_actions.at(row);
+    if (m_displacedBy.at(row) >= 0) {
+        return tr("No key: %1 now runs “%2”. Choose another key for this one.")
+            .arg(displayText(normalize(a.defaultSequence)),
+                 m_actions.at(m_displacedBy.at(row)).description);
+    }
+    QStringList notes;
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_displacedBy.at(i) == row) {
+            notes.append(tr("Also the default key for “%1”, which has no key while "
+                            "this one uses it.")
+                             .arg(m_actions.at(i).description));
+        }
+    }
+    if (const Reserved *r = popupReserved(m_resolved.at(row), a)) {
+        notes.append(tr("While %1, %2 is used for %3 instead.")
+                         .arg(r->whileOpen, displayText(m_resolved.at(row)), r->owner));
+    }
+    return notes.join(QLatin1Char('\n'));
+}
+
 void ShortcutRegistry::recomputeSummary()
 {
     int conflicts = 0;
@@ -1093,9 +1192,30 @@ void ShortcutRegistry::announceAll()
 
 void ShortcutRegistry::reload()
 {
-    m_resolved.resize(m_actions.size());
-    for (int i = 0; i < m_actions.size(); ++i)
-        m_resolved[i] = currentSequence(m_actions.at(i));
+    const qsizetype n = m_actions.size();
+    m_resolved.resize(n);
+    m_custom.resize(n);
+    m_displacedBy.fill(-1, n);
+    for (qsizetype i = 0; i < n; ++i) {
+        const QString stored = storedOverride(m_actions.at(i).id);
+        m_custom[i] = !stored.isEmpty();
+        m_resolved[i] = m_custom.at(i) ? stored : normalize(m_actions.at(i).defaultSequence);
+    }
+    // A key the user chose beats a key Lightning chose, so a changed default
+    // never takes a customised key and the two never cancel each other out.
+    for (qsizetype i = 0; i < n; ++i) {
+        if (m_custom.at(i) || m_resolved.at(i).isEmpty())
+            continue;
+        for (qsizetype j = 0; j < n; ++j) {
+            if (j == i || !m_custom.at(j) || m_resolved.at(j) != m_resolved.at(i)
+                || !actionsClash(m_actions.at(i), m_actions.at(j))
+                || exclusive(m_actions.at(i).id, m_actions.at(j).id))
+                continue;
+            m_displacedBy[i] = int(j);
+            m_resolved[i].clear();
+            break;
+        }
+    }
     recomputeSummary();
     ++m_revision;
     announceAll();

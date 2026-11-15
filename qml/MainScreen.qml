@@ -427,6 +427,22 @@ Item {
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.nextUnreadRoom")]
+        }
+        enabled: app.loggedIn && app.currentScreen !== 2
+        onActivated: app.openAdjacentRoom(false, true)
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.previousUnreadRoom")]
+        }
+        enabled: app.loggedIn && app.currentScreen !== 2
+        onActivated: app.openAdjacentRoom(true, true)
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("nav.nextAccount")]
         }
         enabled: app.loggedIn && !app.accountSwitching

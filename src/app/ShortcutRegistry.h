@@ -2,10 +2,14 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QKeyCombination>
+#include <QList>
 #include <QString>
 #include <QStringList>
 #include <QPair>
 #include <QVector>
+
+#include <functional>
 
 class QEvent;
 class QKeyEvent;
@@ -27,9 +31,11 @@ class SettingsManager;
 ///     when no numpad binding exists, as Qt's shortcut map does.
 ///
 ///  2. Two enabled `Shortcut`s on one sequence are ambiguous and Qt fires
-///     neither. So `setBinding` refuses a conflicting sequence instead of
-///     storing it, and the reserved list covers the hard-coded sequences
-///     that have no row of their own.
+///     neither. So a key the user chose beats a key Lightning chose: binding
+///     a key another action holds only by default is allowed, and that action
+///     resolves to no key. Two chosen keys on one sequence are refused, and so
+///     are the hard-coded sequences in the reserved list, except those owned
+///     by a popup: Qt blocks window shortcuts while it is open.
 ///
 /// Global vs Editor on the same sequence is a shadow, not a conflict: the
 /// composer accepts ShortcutOverride before shortcut dispatch, so the Editor
@@ -74,6 +80,7 @@ public:
         ContextRole,
         ConflictsWithRole,
         ShadowNoteRole,
+        OverlapNoteRole,
     };
 
     explicit ShortcutRegistry(SettingsManager *settings,
@@ -143,6 +150,10 @@ public:
         m_keyboardPlatform = platform;
     }
 
+    /// What Qt's shortcut map would try for a native press, most specific first.
+    using KeyMapper = std::function<QList<QKeyCombination>(const QKeyEvent *)>;
+    void setKeyMapperForTesting(KeyMapper mapper) { m_keyMapper = std::move(mapper); }
+
     /// Records the physical key of each press so a modified digit binding
     /// matches whatever symbol the layout put on that key. QML key events do
     /// not carry the native virtual key, which macOS needs.
@@ -161,6 +172,8 @@ public:
 
 private:
     QString actionForKeyIn(ActionContext context, int key, int modifiers) const;
+    QString baseSequenceFor(int key, int modifiers) const;
+    static QString literalSequence(int key, int modifiers);
     bool runKeypadGlobalShortcut(QObject *window, const QKeyEvent *key);
 
     struct Action {
@@ -169,22 +182,27 @@ private:
         QString description;
         QString defaultSequence;
         ActionContext context = GlobalContext;
+        /// Qt.ApplicationShortcut in QML, which no popup blocks.
+        bool appWide = false;
     };
 
     struct Reserved {
         QString sequence;
         QString owner;
+        /// Set when only an open popup listens for it, e.g. "the emoji picker is open".
+        QString whileOpen;
     };
 
     void buildTables();
     const Action *find(const QString &actionId) const;
     QString storedOverride(const QString &actionId) const;
-    QString currentSequence(const Action &action) const;
     QString conflictNote(int row) const;
     QString blockingReservedOwner(const QString &portable,
                                   ActionContext context,
                                   const QString &actionId) const;
     QString shadowNote(int row) const;
+    QString overlapNote(int row) const;
+    const Reserved *popupReserved(const QString &portable, const Action &action) const;
     void recomputeSummary();
     void announceAll();
 
@@ -196,6 +214,8 @@ private:
     static bool contextsClash(ActionContext a, ActionContext b);
     static bool actionsClash(const Action &a, const Action &b);
     QVector<QString> m_resolved;
+    QVector<bool> m_custom;
+    QVector<int> m_displacedBy;
     int m_conflicts = 0;
     bool m_anyCustomised = false;
     int m_revision = 0;
@@ -203,4 +223,6 @@ private:
     int m_pressedKey = 0;
     int m_pressedModifiers = 0;
     int m_pressedDigit = 0;
+    int m_pressedBaseKey = 0;
+    KeyMapper m_keyMapper;
 };

@@ -5435,7 +5435,7 @@ bool AppController::switchToAdjacentAccount(bool backward)
     return true;
 }
 
-bool AppController::openAdjacentRoom(bool backward)
+bool AppController::openAdjacentRoom(bool backward, bool unreadOnly)
 {
     if (!roomHistoryNavigationAllowed() || !m_settings)
         return false;
@@ -5451,6 +5451,7 @@ bool AppController::openAdjacentRoom(bool backward)
     const int kindRole = role("kind");
     const int inviteRole = role("isInvite");
     const int spaceRole = role("isSpace");
+    const int unreadRole = role("hasUnread");
     QStringList rooms;
     QList<int> rows;
     for (int row = 0; row < model->rowCount(); ++row) {
@@ -5463,6 +5464,8 @@ bool AppController::openAdjacentRoom(bool backward)
             || !is(spaceRole, false))
             continue;
         const QString id = at.data(idRole).toString();
+        if (unreadOnly && id != m_currentRoomId && !at.data(unreadRole).toBool())
+            continue;
         if (!id.isEmpty()) {
             rooms.append(id);
             rows.append(row);

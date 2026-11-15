@@ -123,6 +123,28 @@ private:
         return ids;
     }
 
+    // The next unread room after the open one in list order, wrapping; the
+    // open room itself never counts.
+    QString nextUnread(bool backward) const
+    {
+        const QStringList rooms = listedRooms();
+        QSet<QString> unread;
+        auto *model = m_controller->roomList();
+        for (int row = 0; row < model->rowCount(); ++row) {
+            const QModelIndex at = model->index(row);
+            if (at.data(RoomListModel::HasUnreadRole).toBool())
+                unread.insert(at.data(RoomListModel::RoomIdRole).toString());
+        }
+        const qsizetype n = rooms.size();
+        const qsizetype here = rooms.indexOf(m_controller->currentRoomId());
+        for (qsizetype step = 1; step < n; ++step) {
+            const QString id = rooms.at(((here + (backward ? -step : step)) % n + n) % n);
+            if (unread.contains(id))
+                return id;
+        }
+        return {};
+    }
+
     bool listHasInvite() const
     {
         auto *model = m_controller->roomList();
@@ -502,6 +524,25 @@ Popup {
         QCOMPARE(m_controller->currentRoomId(), rooms.first());
         QTest::keyClick(m_window, Qt::Key_Down, Qt::AltModifier);
         QTRY_COMPARE(m_controller->currentRoomId(), rooms.at(1));
+    }
+
+    void altShiftArrowsSkipToTheNextAndPreviousUnreadRoom()
+    {
+        const QStringList rooms = listedRooms();
+        m_controller->openRoom(rooms.first());
+        QTRY_COMPARE(m_controller->currentRoomId(), rooms.first());
+        item("composerInput")->forceActiveFocus();
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        const QString down = nextUnread(false);
+        QVERIFY2(!down.isEmpty() && down != rooms.at(1),
+                 qPrintable(QStringLiteral("fixture needs a read room before an unread one: [%1] -> %2")
+                                .arg(rooms.join(QLatin1Char(' ')), down)));
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::AltModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(m_controller->currentRoomId(), down);
+        const QString up = nextUnread(true);
+        QVERIFY(!up.isEmpty());
+        QTest::keyClick(m_window, Qt::Key_Up, Qt::AltModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(m_controller->currentRoomId(), up);
     }
 
     void accountShortcutsFireAndFollowRebinding()

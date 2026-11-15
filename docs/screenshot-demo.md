@@ -52,7 +52,7 @@ no such flags — see [Production exclusion](#production-exclusion)).
 | `--theme <name>` | Force a theme (e.g. `ocean`, `midnight`, `violet`, `dark`) |
 | `--appearance <light\|dark\|system\|system-dark>` | Force light/dark/match-system; `system-dark` is match-system on a desktop that asks for dark (a fresh install's dark look) |
 | `--size <WxH\|narrow\|wide>` | Set the window size |
-| `--hide-controls` | Start with the demo controls hidden (Ctrl+Shift+D restores) |
+| `--hide-controls` | Start with the demo controls hidden (Ctrl+Alt+Shift+D restores) |
 | `--reset` | Remove the isolated demo profile |
 | `-- <args…>` | Pass extra arguments straight to the app |
 
@@ -215,7 +215,7 @@ The floating panel (top-right; an overlay, so hiding it leaves no gap) has:
   **Reset all**, **Hide controls** actions.
 - A status line: *Demo account · Scenario · Size*.
 - A compact collapsed pill; **Expand/collapse**; **Hide entirely**;
-  **Ctrl+Shift+D** restores.
+  **Ctrl+Alt+Shift+D** restores.
 
 Theme and window changes go through the SAME settings/controller paths as the
 normal Settings interface — the panel does not duplicate Settings. It is present

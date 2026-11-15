@@ -739,7 +739,7 @@ public Q_SLOTS:
     Q_INVOKABLE bool navigateRoomForward();
     /// Opens the next (or previous) room in the order the room list shows,
     /// wrapping at the ends. Invites, Spaces and headers are skipped.
-    Q_INVOKABLE bool openAdjacentRoom(bool backward);
+    Q_INVOKABLE bool openAdjacentRoom(bool backward, bool unreadOnly = false);
     /// Switches to the next (or previous) signed-in account in saved order,
     /// wrapping at the ends, through switchToAccount().
     Q_INVOKABLE bool switchToAdjacentAccount(bool backward);

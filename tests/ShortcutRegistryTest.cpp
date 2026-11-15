@@ -48,6 +48,7 @@ bool paletteOnly(const QString &id)
         QStringLiteral("thread.openRootInRoom"),
         QStringLiteral("composer.toggleHeight"),
         QStringLiteral("timeline.jumpToLatestAndCompose"),
+        QStringLiteral("call.toggleCamera"),
     };
     return ids.contains(id);
 }
@@ -63,12 +64,15 @@ private Q_SLOTS:
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
         const QString id = QStringLiteral("call.toggleStreamInfo");
-        QCOMPARE(registry.defaultSequenceFor(id), QStringLiteral("Ctrl+F9"));
+        QCOMPARE(registry.defaultSequenceFor(id), QStringLiteral("Ctrl+Shift+F9"));
         QVERIFY(!roleFor(registry, id, ShortcutRegistry::DescriptionRole).isEmpty());
-        QCOMPARE(registry.validationError(id, QStringLiteral("Ctrl+F9")), QString());
-        QCOMPARE(registry.setBinding(id, QStringLiteral("Ctrl+Shift+F9")), QString());
-        QCOMPARE(registry.sequenceFor(id), QStringLiteral("Ctrl+Shift+F9"));
-        QVERIFY(!registry.validationError(id, QStringLiteral("Ctrl+Shift+I")).isEmpty());
+        QCOMPARE(registry.validationError(id, QStringLiteral("Ctrl+Shift+F9")), QString());
+        QCOMPARE(registry.setBinding(id, QStringLiteral("Ctrl+F11")), QString());
+        QCOMPARE(registry.sequenceFor(id), QStringLiteral("Ctrl+F11"));
+        QCOMPARE(registry.setBinding(QStringLiteral("nav.activityCenter"),
+                                     QStringLiteral("Ctrl+F12")), QString());
+        QVERIFY(!registry.validationError(id, QStringLiteral("Ctrl+F12")).isEmpty());
+        registry.resetToDefault(QStringLiteral("nav.activityCenter"));
         registry.resetToDefault(id);
     }
 
@@ -93,7 +97,7 @@ private Q_SLOTS:
         QVERIFY(!registry.validationError(QStringLiteral("view.toggleLayoutPreset"),
                                            QStringLiteral("Ctrl+Shift+F8")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("composer.toggleHeight"),
-                                           QStringLiteral("Ctrl+Shift+D")).isEmpty());
+                                           QStringLiteral("Ctrl+Alt+Shift+D")).isEmpty());
         QCOMPARE(registry.sequenceFor(QStringLiteral("view.toggleLayoutPreset")),
                  QString());
     }
@@ -312,8 +316,8 @@ private Q_SLOTS:
         QCOMPARE(registry.conflictCount(), 0);
         QVERIFY(roleFor(registry, QStringLiteral("timeline.reply"),
                         ShortcutRegistry::ConflictsWithRole).isEmpty());
-        QVERIFY(!registry.validationError(QStringLiteral("room.find"),
-                                          QStringLiteral("R")).isEmpty());
+        QVERIFY(registry.validationError(QStringLiteral("room.find"),
+                                         QStringLiteral("R")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
                                           QStringLiteral("R")).isEmpty());
     }
@@ -322,14 +326,20 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.pageUp"),
+                                     QStringLiteral("F5")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
+                                     QStringLiteral("Q")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.jumpToStart"),
+                                     QStringLiteral("Ctrl+F2")), QString());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.olderMessage"),
-                                           QStringLiteral("PgUp")).isEmpty());
+                                           QStringLiteral("F5")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
-                                           QStringLiteral("K")).isEmpty());
+                                           QStringLiteral("Q")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
-                                           QStringLiteral("Ctrl+Up")).isEmpty());
+                                           QStringLiteral("Ctrl+F2")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.newerMessage"),
-                                           QStringLiteral("Ctrl+Up")).isEmpty());
+                                           QStringLiteral("Ctrl+F2")).isEmpty());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
                                      QStringLiteral("Ctrl+K")), QString());
         QVERIFY(roleFor(registry, QStringLiteral("nav.quickSwitcher"),
@@ -553,8 +563,7 @@ private Q_SLOTS:
               QStringLiteral("Ctrl+Shift+G") },
             { QStringLiteral("composer.attach"),
               QStringLiteral("Ctrl+Shift+O") },
-            { QStringLiteral("call.toggleCamera"),
-              QStringLiteral("Ctrl+Shift+V") },
+            { QStringLiteral("call.toggleCamera"), QString() },
             { QStringLiteral("call.returnToCall"),
               QStringLiteral("Ctrl+Alt+A") },
         };
@@ -635,8 +644,7 @@ private Q_SLOTS:
         const auto resolved = resolvedById(registry);
 
         const QVector<QPair<QString, QString>> expected = {
-            { QStringLiteral("nav.newDirectMessage"),
-              QStringLiteral("Ctrl+Shift+T") },
+            { QStringLiteral("nav.newDirectMessage"), QStringLiteral("Ctrl+N") },
             { QStringLiteral("nav.activityCenter"),
               QStringLiteral("Ctrl+Shift+I") },
             { QStringLiteral("room.markAllRead"),
@@ -809,8 +817,7 @@ private Q_SLOTS:
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
         const QString id = QStringLiteral("timeline.pageUp");
-        QVERIFY(registry.validationError(id, QStringLiteral("PgDown")).isEmpty()
-                == false);
+        QVERIFY(registry.validationError(id, QStringLiteral("PgDown")).isEmpty());
         QVERIFY(registry.validationError(id, QStringLiteral("F5")).isEmpty());
         QVERIFY(registry.validationError(id, QStringLiteral("Ctrl+Left"))
                     .isEmpty());
@@ -824,12 +831,16 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.setBinding(QStringLiteral("shell.toggleRoomList"),
+                                     QStringLiteral("Ctrl+F2")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.jumpToStart"),
+                                     QStringLiteral("Ctrl+F3")), QString());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
-                                          QStringLiteral("Ctrl+B")).isEmpty());
+                                          QStringLiteral("Ctrl+F2")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("room.find"),
-                                          QStringLiteral("Ctrl+Up")).isEmpty());
+                                          QStringLiteral("Ctrl+F3")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("composer.bold"),
-                                          QStringLiteral("Ctrl+Down")).isEmpty());
+                                          QStringLiteral("Ctrl+F3")).isEmpty());
         QVERIFY(registry.isReserved(QStringLiteral("Shift+PgUp")));
         QVERIFY(!registry.isReserved(QStringLiteral("PgUp")));
     }
@@ -865,12 +876,19 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.setBinding(QStringLiteral("composer.gifPicker"),
+                                     QStringLiteral("Ctrl+F2")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("composer.attach"),
+                                     QStringLiteral("Ctrl+F3")), QString());
         QVERIFY(!registry.validationError(QStringLiteral("room.findNext"),
-                                          QStringLiteral("Ctrl+Shift+G"))
+                                          QStringLiteral("Ctrl+F2"))
                      .isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("room.findPrevious"),
-                                          QStringLiteral("Ctrl+Shift+O"))
+                                          QStringLiteral("Ctrl+F3"))
                      .isEmpty());
+        QVERIFY(registry.validationError(QStringLiteral("room.findPrevious"),
+                                         QStringLiteral("Ctrl+F2"))
+                    .isEmpty());
     }
 
     void aGlobalActionAcceptsASingleKeyOnItsOwn()
@@ -907,7 +925,7 @@ private Q_SLOTS:
             QVERIFY2(error.contains(QStringLiteral("moves focus, navigates or edits text")),
                      qPrintable(QStringLiteral("%1: %2").arg(QLatin1String(key), error)));
         }
-        QCOMPARE(registry.sequenceFor(mute), QStringLiteral("Ctrl+Shift+U"));
+        QCOMPARE(registry.sequenceFor(mute), QStringLiteral("Ctrl+Shift+M"));
         QVERIFY(!registry.anyCustomised());
     }
 
@@ -918,15 +936,15 @@ private Q_SLOTS:
         const QString mute = QStringLiteral("call.toggleMute");
         const QString deafen = QStringLiteral("call.toggleDeafen");
 
-        const QString reserved = registry.setBinding(mute, QStringLiteral("R"));
-        QVERIFY2(reserved.contains(QStringLiteral("Reply accelerator"))
+        const QString reserved = registry.setBinding(mute, QStringLiteral("Ctrl+C"));
+        QVERIFY2(reserved.contains(QStringLiteral("Copy accelerator"))
                      && reserved.contains(QStringLiteral("Two shortcuts on one key")),
                  qPrintable(reserved));
 
         QCOMPARE(registry.setBinding(mute, QStringLiteral("M")), QString());
         const QString clash = registry.setBinding(deafen, QStringLiteral("M"));
         QVERIFY2(clash.contains(registry.descriptionFor(mute)), qPrintable(clash));
-        QCOMPARE(registry.sequenceFor(deafen), QStringLiteral("Ctrl+Shift+H"));
+        QCOMPARE(registry.sequenceFor(deafen), QStringLiteral("Ctrl+Shift+D"));
 
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.pageUp"),
                                      QStringLiteral("F5")), QString());
@@ -992,8 +1010,10 @@ private Q_SLOTS:
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
 
+        QCOMPARE(registry.setBinding(QStringLiteral("nav.quickSwitcher"),
+                                     QStringLiteral("Ctrl+F2")), QString());
         const QString error = registry.setBinding(
-            QStringLiteral("nav.messageSearch"), QStringLiteral("Ctrl+K"));
+            QStringLiteral("nav.messageSearch"), QStringLiteral("Ctrl+F2"));
         QVERIFY(!error.isEmpty());
         QVERIFY2(error.contains(registry.descriptionFor(
                      QStringLiteral("nav.quickSwitcher"))),
@@ -1001,6 +1021,128 @@ private Q_SLOTS:
         QCOMPARE(registry.sequenceFor(QStringLiteral("nav.messageSearch")),
                  QStringLiteral("Ctrl+Shift+F"));
         QCOMPARE(registry.conflictCount(), 0);
+    }
+
+    void theAuditedDefaultsShipOnExactlyTheseKeys()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const auto resolved = resolvedById(registry);
+        const QVector<QPair<QString, QString>> expected = {
+            { QStringLiteral("call.toggleMute"), QStringLiteral("Ctrl+Shift+M") },
+            { QStringLiteral("call.toggleDeafen"), QStringLiteral("Ctrl+Shift+D") },
+            { QStringLiteral("call.toggleCamera"), QString() },
+            { QStringLiteral("call.toggleStreamInfo"), QStringLiteral("Ctrl+Shift+F9") },
+            { QStringLiteral("room.markRead"), QStringLiteral("Ctrl+R") },
+            { QStringLiteral("room.markUnread"), QStringLiteral("Ctrl+Shift+R") },
+            { QStringLiteral("nav.newDirectMessage"), QStringLiteral("Ctrl+N") },
+            { QStringLiteral("nav.newConversation"), QStringLiteral("Ctrl+Shift+N") },
+            { QStringLiteral("nav.nextUnreadRoom"), QStringLiteral("Alt+Shift+Down") },
+            { QStringLiteral("nav.previousUnreadRoom"), QStringLiteral("Alt+Shift+Up") },
+        };
+        for (const auto &row : expected) {
+            QVERIFY2(resolved.contains(row.first), qPrintable(row.first));
+            QCOMPARE(resolved.value(row.first), row.second);
+        }
+        for (const char *gone : { "Ctrl+Shift+U", "Ctrl+Shift+V", "Ctrl+Shift+H",
+                                  "Ctrl+Shift+T", "Ctrl+F9" }) {
+            for (auto it = resolved.cbegin(); it != resolved.cend(); ++it)
+                QVERIFY2(it.value() != QLatin1String(gone), qPrintable(it.key()));
+        }
+        QCOMPARE(registry.conflictCount(), 0);
+    }
+
+    void aCustomisedBindingSurvivesAChangedDefault()
+    {
+        // Written as an older build would have left them: only overrides are stored.
+        {
+            SettingsManager old;
+            old.setShortcutSequence(QStringLiteral("call.toggleDeafen"),
+                                    QStringLiteral("Ctrl+Shift+F5"));
+            old.setShortcutSequence(QStringLiteral("room.markUnread"),
+                                    QStringLiteral("Ctrl+K"));
+        }
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.sequenceFor(QStringLiteral("call.toggleDeafen")),
+                 QStringLiteral("Ctrl+Shift+F5"));
+        QCOMPARE(registry.sequenceFor(QStringLiteral("call.toggleMute")),
+                 registry.defaultSequenceFor(QStringLiteral("call.toggleMute")));
+        QCOMPARE(registry.sequenceFor(QStringLiteral("room.markUnread")),
+                 QStringLiteral("Ctrl+K"));
+        QCOMPARE(registry.sequenceFor(QStringLiteral("nav.quickSwitcher")), QString());
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(roleFor(registry, QStringLiteral("nav.quickSwitcher"),
+                        ShortcutRegistry::OverlapNoteRole)
+                    .contains(registry.descriptionFor(QStringLiteral("room.markUnread"))));
+        QCOMPARE(settings.shortcutSequence(QStringLiteral("nav.quickSwitcher")), QString());
+    }
+
+    void anOverlapWarnsAndResolvesDeterministically()
+    {
+        SettingsManager settings;
+        const QString deafen = QStringLiteral("call.toggleDeafen");
+        const QString switcher = QStringLiteral("nav.quickSwitcher");
+        {
+            ShortcutRegistry registry(&settings);
+            QCOMPARE(registry.setBinding(deafen, QStringLiteral("Ctrl+K")), QString());
+            QCOMPARE(registry.sequenceFor(deafen), QStringLiteral("Ctrl+K"));
+            QCOMPARE(registry.sequenceFor(switcher), QString());
+            QCOMPARE(registry.conflictCount(), 0);
+            QVERIFY(roleFor(registry, deafen, ShortcutRegistry::ConflictsWithRole).isEmpty());
+            QVERIFY(roleFor(registry, switcher, ShortcutRegistry::OverlapNoteRole)
+                        .contains(registry.descriptionFor(deafen)));
+            QVERIFY(roleFor(registry, deafen, ShortcutRegistry::OverlapNoteRole)
+                        .contains(registry.descriptionFor(switcher)));
+            const QString taken = registry.setBinding(QStringLiteral("nav.activityCenter"),
+                                                      QStringLiteral("Ctrl+K"));
+            QVERIFY2(taken.contains(registry.descriptionFor(deafen)), qPrintable(taken));
+            QVERIFY(!registry.resetToDefault(switcher).isEmpty());
+            QCOMPARE(registry.sequenceFor(switcher), QString());
+        }
+        ShortcutRegistry again(&settings);
+        QCOMPARE(again.sequenceFor(deafen), QStringLiteral("Ctrl+K"));
+        QCOMPARE(again.sequenceFor(switcher), QString());
+        again.resetToDefault(deafen);
+        QCOMPARE(again.sequenceFor(switcher), QStringLiteral("Ctrl+K"));
+        QVERIFY(roleFor(again, switcher, ShortcutRegistry::OverlapNoteRole).isEmpty());
+    }
+
+    void aPopupKeyMayBeSharedWithAWarningButNotByAnAppWideAction()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString saved = QStringLiteral("nav.savedMessages");
+        QCOMPARE(registry.setBinding(saved, QStringLiteral("Alt+V")), QString());
+        QVERIFY(roleFor(registry, saved, ShortcutRegistry::OverlapNoteRole)
+                    .contains(QStringLiteral("emoji picker is open")));
+        QVERIFY(roleFor(registry, saved, ShortcutRegistry::ConflictsWithRole).isEmpty());
+        QCOMPARE(registry.setBinding(QStringLiteral("room.markAllRead"), QStringLiteral("R")),
+                 QString());
+        QVERIFY(roleFor(registry, QStringLiteral("room.markAllRead"),
+                        ShortcutRegistry::OverlapNoteRole)
+                    .contains(QStringLiteral("menu is open")));
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(!registry.setBinding(QStringLiteral("app.quit"), QStringLiteral("Alt+V"))
+                     .isEmpty());
+        QVERIFY(!registry.setBinding(QStringLiteral("composer.bold"), QStringLiteral("Alt+V"))
+                     .isEmpty());
+    }
+
+    void theHardReservedKeysAreStillRefused()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString id = QStringLiteral("nav.savedMessages");
+        for (const char *key : { "Esc", "Space", "Home", "End", "Shift+PgUp", "Ctrl+C",
+                                 "Ctrl+Alt+Shift+D" }) {
+            QVERIFY2(!registry.setBinding(id, QString::fromLatin1(key)).isEmpty(), key);
+        }
+        for (const char *key : { "Ctrl+C", "Ctrl+Alt+Shift+D" }) {
+            const QString error = registry.setBinding(id, QString::fromLatin1(key));
+            QVERIFY2(error.contains(QStringLiteral("already used for")), qPrintable(error));
+        }
+        QVERIFY(!registry.anyCustomised());
     }
 
     void aReservedSequenceIsRefusedAndSaysWhatOwnsIt()
@@ -1253,7 +1395,8 @@ private Q_SLOTS:
         QCOMPARE(registry.defaultSequenceFor(id), QString());
         QCOMPARE(roleFor(registry, id, ShortcutRegistry::ContextRole),
                  QString::number(int(ShortcutRegistry::GlobalContext)));
-        QVERIFY(!registry.validationError(id, QStringLiteral("Ctrl+K")).isEmpty());
+        QVERIFY(registry.validationError(id, QStringLiteral("Ctrl+K")).isEmpty());
+        QVERIFY(!registry.validationError(id, QStringLiteral("Esc")).isEmpty());
         QCOMPARE(registry.setBinding(id, QStringLiteral("Ctrl+Alt+L")), QString());
         QCOMPARE(registry.sequenceFor(id), QStringLiteral("Ctrl+Alt+L"));
         registry.resetToDefault(id);
@@ -1332,6 +1475,55 @@ private Q_SLOTS:
             if (p.key != Qt::Key_8)
                 QVERIFY(registry.editorActionForKey(p.key, ctrlShift).isEmpty());
         }
+    }
+
+    void aShiftedSymbolIsCapturedAsTheKeyQtMatchesAtRuntime()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QObject target;
+        const auto ctrlShift = Qt::ControlModifier | Qt::ShiftModifier;
+        // US xkb: "~" on the ` key, "!" on 1; German: "?" on the ß key.
+        const QHash<int, int> base = { { Qt::Key_AsciiTilde, Qt::Key_QuoteLeft },
+                                       { Qt::Key_Exclam, Qt::Key_1 },
+                                       { Qt::Key_Question, Qt::Key_ssharp } };
+        registry.setKeyMapperForTesting([&base](const QKeyEvent *e) {
+            return QList<QKeyCombination>{
+                QKeyCombination(e->modifiers(), Qt::Key(base.value(e->key(), e->key()))),
+                QKeyCombination(e->modifiers() & ~Qt::ShiftModifier, Qt::Key(e->key())) };
+        });
+        const QVector<QPair<int, QString>> presses = {
+            { Qt::Key_AsciiTilde, QStringLiteral("Ctrl+Shift+`") },
+            { Qt::Key_Exclam, QStringLiteral("Ctrl+Shift+1") },
+            { Qt::Key_Question, QStringLiteral("Ctrl+Shift+\u00DF") },
+        };
+        for (const auto &p : presses) {
+            QKeyEvent press(QEvent::KeyPress, p.first, ctrlShift, 49, 0, 0);
+            registry.eventFilter(&target, &press);
+            QCOMPARE(registry.sequenceFromKeyEvent(p.first, ctrlShift), p.second);
+            QKeyEvent release(QEvent::KeyRelease, p.first, ctrlShift, 49, 0, 0);
+            registry.eventFilter(&target, &release);
+        }
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_AsciiTilde, ctrlShift, 49, 0, 0);
+        registry.eventFilter(&target, &press);
+        QCOMPARE(registry.setBinding(QStringLiteral("nav.nextAccount"),
+                                     registry.sequenceFromKeyEvent(Qt::Key_AsciiTilde,
+                                                                   ctrlShift)),
+                 QString());
+        QCOMPARE(registry.sequenceFor(QStringLiteral("nav.nextAccount")),
+                 QStringLiteral("Ctrl+Shift+`"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_AsciiTilde, ctrlShift), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
+                                     QStringLiteral("Ctrl+Shift+`")), QString());
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_AsciiTilde, ctrlShift),
+                 QStringLiteral("timeline.olderMessage"));
+        // A letter, and a press the mapper was not asked about, stay literal.
+        QCOMPARE(registry.sequenceFromKeyEvent(Qt::Key_Exclam, ctrlShift),
+                 QStringLiteral("Ctrl+Shift+!"));
+        QKeyEvent letter(QEvent::KeyPress, Qt::Key_A, ctrlShift, 38, 0, 0);
+        registry.eventFilter(&target, &letter);
+        QCOMPARE(registry.sequenceFromKeyEvent(Qt::Key_A, ctrlShift),
+                 QStringLiteral("Ctrl+Shift+A"));
     }
 
     void aLiteralSymbolBindingWinsOverThePhysicalDigit()
