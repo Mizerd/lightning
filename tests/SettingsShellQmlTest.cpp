@@ -11,6 +11,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFont>
+#include <QFontMetricsF>
 #include <QHash>
 #include <QRegularExpression>
 #include <QScopeGuard>
@@ -1577,6 +1578,30 @@ private slots:
         QVERIFY(!accountNav->isVisible());
         search->setProperty("text", QString());
         QCoreApplication::processEvents();
+    }
+
+    void aNavRowsLabelSitsOnItsIconsCentreLine()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        int checked = 0;
+        for (const char *key : {"account", "privacy", "appearance", "layout", "about"}) {
+            auto *label = item(qPrintable(QStringLiteral("navRowLabel_%1").arg(key)));
+            auto *icon = item(qPrintable(QStringLiteral("settingsNavIcon_%1").arg(key)));
+            QVERIFY2(label && icon, key);
+            if (!label->isVisible())
+                continue;
+            ++checked;
+            const QFontMetricsF metrics(label->property("font").value<QFont>());
+            const qreal glyphMid = label->mapToScene(QPointF(0, label->baselineOffset())).y()
+                                   - metrics.capHeight() / 2;
+            const qreal iconMid = icon->mapToScene(QPointF(0, icon->height() / 2)).y();
+            QVERIFY2(std::abs(glyphMid - iconMid) <= 2.0,
+                     qPrintable(QStringLiteral("%1: the label's letters centre at y=%2, "
+                                               "its icon at y=%3")
+                                    .arg(key).arg(glyphMid).arg(iconMid)));
+        }
+        QVERIFY2(checked >= 3, qPrintable(QStringLiteral("only %1 rows measured").arg(checked)));
     }
 
     void ctrlCommaFocusesSearchThenFiltersNavAndBindsInlineControl()

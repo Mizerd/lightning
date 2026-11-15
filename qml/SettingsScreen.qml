@@ -1391,7 +1391,8 @@ Item {
             hasOutline && root.outlineExpanded(sectionKey)
         objectName: "settingsNavRow_" + sectionKey
         Layout.fillWidth: true
-        implicitHeight: Math.max(32, navRowText.implicitHeight + AppTheme.spacing12)
+        implicitHeight: Math.max(32, navRowText.implicitHeight * AppTheme.lineHeightBody
+                                     + AppTheme.spacing12)
         readonly property int caretGutter: 4 + 11 + AppTheme.spacing4
         leftPadding: root.navCollapsed ? padding : padding + caretGutter
         PlainToolTip {
@@ -1445,6 +1446,7 @@ Item {
         contentItem: RowLayout {
             spacing: AppTheme.spacing8
             Icon {
+                objectName: "settingsNavIcon_" + navRow.sectionKey
                 name: navRow.iconName
                 size: 16
                 Layout.alignment: Qt.AlignVCenter
@@ -1454,6 +1456,8 @@ Item {
             }
             Label {
                 id: navRowText
+                // not-body-copy: body leading would lift the letters off the icon's centre line
+                objectName: "navRowLabel_" + navRow.sectionKey
                 text: navRow.navLabel
                 visible: !root.navCollapsed
                 Layout.fillWidth: true
@@ -1464,8 +1468,6 @@ Item {
                 font.pixelSize: AppTheme.settingsOptionSize
                 font.weight: navRow.highlighted ? AppTheme.weightBold : AppTheme.weightStrong
                 wrapMode: Text.WordWrap
-                lineHeight: AppTheme.lineHeightBody
-                lineHeightMode: Text.ProportionalHeight
             }
             AbstractButton {
                 id: navChevron
