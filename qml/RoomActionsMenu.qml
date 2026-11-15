@@ -17,6 +17,7 @@ AppMenu {
     property bool isLowPriority: false
     property bool isUnread: true
     property bool isInvite: false
+    property bool selectable: true
 
     signal acceptInviteRequested()
     signal rejectInviteRequested()
@@ -33,7 +34,7 @@ AppMenu {
 
     AppMenuItem {
         objectName: "roomSelectItem"
-        visible: !root.isInvite
+        visible: root.selectable && !root.isInvite
         iconName: "check_circle"
         text: qsTr("Select room")
         onTriggered: root.selectRoomRequested()

@@ -14,6 +14,38 @@ Item {
     signal messageSearchRequested()
     signal actionRequested(string actionId)
     signal expandRequested()
+    signal roomLinkCopyRequested(string roomId)
+    signal leaveRoomRequested(string roomId, string roomName)
+    signal chatBackgroundRequested(string roomId, string roomName)
+    signal inviteRequested(string roomId)
+
+    function openRoomMenu(row, unread) {
+        roomMenu.roomId = row.roomId
+        roomMenu.roomName = row.name || ""
+        roomMenu.canonicalAlias = row.canonicalAlias || ""
+        roomMenu.isDirect = row.isDirect === true
+        roomMenu.isFavourite = row.isFavourite === true
+        roomMenu.isLowPriority = row.isLowPriority === true
+        roomMenu.isUnread = unread
+        roomMenu.isInvite = row.membership === "invited" || row.isInvite === true
+        roomMenu.popup()
+    }
+    RoomActionsMenu {
+        id: roomMenu
+        objectName: "compactRoomContextMenu"
+        selectable: false
+        onAcceptInviteRequested: app.roomList.acceptInvite(roomId)
+        onRejectInviteRequested: app.roomList.rejectInvite(roomId)
+        onMarkRead: app.roomList.markRoomRead(roomId)
+        onMarkUnread: app.roomList.markRoomUnread(roomId)
+        onSetFavourite: on => app.roomList.setRoomFavourite(roomId, on)
+        onSetLowPriority: on => app.roomList.setRoomLowPriority(roomId, on)
+        onSetNotificationMode: mode => app.setRoomNotificationMode(roomId, mode)
+        onCopyRoomLink: root.roomLinkCopyRequested(roomId)
+        onLeaveRoomRequested: root.leaveRoomRequested(roomId, roomName)
+        onChatBackgroundRequested: root.chatBackgroundRequested(roomId, roomName)
+        onInviteRequested: root.inviteRequested(roomId)
+    }
     readonly property bool channels: app.settings.roomNavigationLayout === 1
 
     ListView {
@@ -56,6 +88,7 @@ Item {
                 if (model.membership === "joined") root.roomActivated(model.roomId)
                 else root.expandRequested()
             }
+            onContextMenuRequested: root.openRoomMenu(model, model.rawUnread === true)
         }
     }
 
@@ -99,6 +132,9 @@ Item {
                 return kind === "room"
                        && app.settings.roomNotificationMode(model.roomId) === 2
             }
+            onContextMenuRequested: if (kind === "room")
+                root.openRoomMenu(model, model.rawUnread === true || model.hasUnread
+                                  || model.unreadCount > 0 || model.highlightCount > 0)
             onHoveredChanged: if (kind === "room")
                 app.spaceChannels.setRoomHovered(model.roomId, hovered)
             onClicked: {

@@ -49,6 +49,16 @@ Rectangle {
         root.SplitView.preferredWidth = Qt.binding(
             function() { return app.settings.roomListWidth })
     }
+    function copyRoomLink(roomId) {
+        var row = app.roomList.findRoom(roomId)
+        var link = app.roomList.roomPermalink(roomId, (row && row.canonicalAlias) || "")
+        if (link.length > 0) {
+            roomLinkClipboard.text = link
+            roomLinkClipboard.selectAll()
+            roomLinkClipboard.copy()
+            roomLinkClipboard.text = ""
+        }
+    }
     function expand() {
         app.settings.roomListWidth = app.settings.roomListExpandedWidth()
         root.SplitView.preferredWidth = Qt.binding(
@@ -1006,17 +1016,7 @@ Rectangle {
                     onCreateRequested: newConversationDialog.openDialog()
                     onDiscoverRequested: discoverJoinDialog.openDialog()
                     onClearSearchRequested: roomSearch.clear()
-                    onRoomLinkCopyRequested: (roomId) => {
-                        var row = app.roomList.findRoom(roomId)
-                        var link = app.roomList.roomPermalink(
-                            roomId, (row && row.canonicalAlias) || "")
-                        if (link.length > 0) {
-                            roomLinkClipboard.text = link
-                            roomLinkClipboard.selectAll()
-                            roomLinkClipboard.copy()
-                            roomLinkClipboard.text = ""
-                        }
-                    }
+                    onRoomLinkCopyRequested: (roomId) => root.copyRoomLink(roomId)
                     onLeaveRoomRequested: (roomId, roomName) =>
                         leaveRoomConfirm.openForRoom(roomId, roomName)
                     onChatBackgroundRequested: (roomId, roomName) =>
@@ -1044,17 +1044,7 @@ Rectangle {
                     onCreateChatRequested: newConversationDialog.openDialog("dm")
                     onJoinAddressRequested: discoverJoinDialog.openDialog("address")
                     onExploreSpacesRequested: discoverJoinDialog.openDialog("browse")
-                    onRoomLinkCopyRequested: (roomId) => {
-                        var row = app.roomList.findRoom(roomId)
-                        var link = app.roomList.roomPermalink(
-                            roomId, (row && row.canonicalAlias) || "")
-                        if (link.length > 0) {
-                            roomLinkClipboard.text = link
-                            roomLinkClipboard.selectAll()
-                            roomLinkClipboard.copy()
-                            roomLinkClipboard.text = ""
-                        }
-                    }
+                    onRoomLinkCopyRequested: (roomId) => root.copyRoomLink(roomId)
                     onLeaveRoomRequested: (roomId, roomName) =>
                         leaveRoomConfirm.openForRoom(roomId, roomName)
                     onChatBackgroundRequested: (roomId, roomName) =>
@@ -1159,6 +1149,12 @@ Rectangle {
                 onLobbyActivated: app.openLobby()
                 onMessageSearchRequested: root.messageSearchRequested()
                 onExpandRequested: root.expand()
+                onRoomLinkCopyRequested: (roomId) => root.copyRoomLink(roomId)
+                onLeaveRoomRequested: (roomId, roomName) =>
+                    leaveRoomConfirm.openForRoom(roomId, roomName)
+                onChatBackgroundRequested: (roomId, roomName) =>
+                    roomChatBackgroundDialog.openForRoom(roomId, roomName)
+                onInviteRequested: (roomId) => roomInviteDialog.openFor(roomId)
                 onActionRequested: (actionId) => {
                     if (actionId === "@new-room")
                         newConversationDialog.openDialog("room")

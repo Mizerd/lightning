@@ -850,6 +850,54 @@ RoomsPanel { width: 64; height: 700 }
         f.controller->roomList()->setRoomArchived(roomId, false);
     }
 
+    void aCompactRowsRightClickOffersTheRoomMenuAndArchives()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: 64; height: 700 }
+)QML", 400, 700));
+        QVERIFY(f.item->property("compact").toBool());
+        RoomListModel *rooms = f.controller->roomList();
+        QQuickItem *row = nullptr;
+        QString roomId;
+        QTRY_VERIFY_WITH_TIMEOUT(([&] {
+            QList<QQuickItem *> all;
+            visualTree(f.item.get(), all);
+            for (auto *item : all) {
+                if (item->objectName() != QStringLiteral("compactRoomRow") || !item->isVisible())
+                    continue;
+                const QString id = item->property("rowId").toString();
+                for (int r = 0; r < rooms->rowCount(); ++r) {
+                    const QModelIndex idx = rooms->index(r);
+                    if (rooms->data(idx, RoomListModel::RoomIdRole).toString() == id
+                        && rooms->data(idx, RoomListModel::MembershipRole).toString()
+                               == QStringLiteral("joined")) {
+                        row = item;
+                        roomId = id;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }()), kTimeoutMs);
+        const QPointF centre = row->mapToScene(QPointF(row->width() / 2, row->height() / 2));
+        QTest::mouseClick(&f.window, Qt::RightButton, Qt::NoModifier, centre.toPoint());
+        auto *menu = f.item->findChild<QObject *>(QStringLiteral("compactRoomContextMenu"));
+        QVERIFY2(menu, "the compact list has no room menu");
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("opened").toBool(), kTimeoutMs);
+        QCOMPARE(menu->property("roomId").toString(), roomId);
+        auto *select = menu->findChild<QQuickItem *>(QStringLiteral("roomSelectItem"));
+        auto *archive = menu->findChild<QQuickItem *>(QStringLiteral("roomArchiveItem"));
+        QVERIFY(select && archive);
+        QVERIFY2(!select->isVisible(), "the compact menu offers a selection it cannot show");
+        QVERIFY(archive->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(archive, "triggered"));
+        QTRY_VERIFY(rooms->isRoomArchived(roomId));
+        rooms->setRoomArchived(roomId, false);
+    }
+
     void theFilterStripArrowsNeverCoverAChip()
     {
         Fixture f;

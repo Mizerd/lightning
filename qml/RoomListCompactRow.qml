@@ -20,6 +20,7 @@ ItemDelegate {
     property bool muted: false
     property int threadUnreadKind: 0
     readonly property string tooltipText: label
+    signal contextMenuRequested()
 
     width: ListView.view ? ListView.view.width : 64
     height: 48
@@ -29,6 +30,12 @@ ItemDelegate {
     Keys.onReturnPressed: root.clicked()
     Keys.onEnterPressed: root.clicked()
     Keys.onSpacePressed: root.clicked()
+    Keys.onMenuPressed: root.contextMenuRequested()
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onTapped: root.contextMenuRequested()
+    }
     Accessible.role: Accessible.Button
     Accessible.name: muted ? qsTr("%1, muted").arg(label)
                      : threadUnreadKind === 2 && highlightCount === 0
