@@ -12229,6 +12229,7 @@ async fn run_modern_sync(
         let mut backfill_tasks: tokio::task::JoinSet<(OwnedRoomId, u64, previewbackfill::Outcome)> =
             tokio::task::JoinSet::new();
         let mut last_backfill_scan: Option<std::time::Instant> = None;
+        let mut scan_due: Option<tokio::time::Instant> = None;
         loop {
             tokio::select! {
                 _ = &mut cancel => {
@@ -12277,7 +12278,20 @@ async fn run_modern_sync(
                     if !first_sync {
                         spawn_preview_looks(&client, backfill_results.as_ref(), &mut preview_backfill,
                                             &mut backfill_tasks, &mut forced_looks, false);
+                        scan_due.get_or_insert_with(|| {
+                            tokio::time::Instant::from_std(last_backfill_scan.map_or_else(
+                                std::time::Instant::now,
+                                |at| at + std::time::Duration::from_secs(3),
+                            ))
+                        });
                     }
+                }
+                _ = tokio::time::sleep_until(scan_due.unwrap_or_else(tokio::time::Instant::now)),
+                    if scan_due.is_some() => {
+                    scan_due = None;
+                    last_backfill_scan = Some(std::time::Instant::now());
+                    spawn_preview_looks(&client, backfill_results.as_ref(), &mut preview_backfill,
+                                        &mut backfill_tasks, &mut forced_looks, true);
                 }
                 updates = room_updates_sub.recv(), if room_updates_live => {
                     match updates {
