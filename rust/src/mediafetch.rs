@@ -65,6 +65,8 @@ pub(crate) fn avatar_fallback_eligible(
     }
     match status {
         Some(code) if (500..600).contains(&code) => true,
+        // Synapse with dynamic thumbnails off answers 400 for a file it cannot thumbnail.
+        Some(400) => true,
         Some(404) => not_found_errcode,
         _ => false,
     }
@@ -85,6 +87,7 @@ pub(crate) fn classify_media_error(err: &matrix_sdk::Error) -> &'static str {
     match failure_status(err) {
         Some(code) if (500..600).contains(&code) => "server_error",
         Some(429) => "rate_limited",
+        Some(400) => "bad_request",
         Some(403) => "forbidden",
         Some(404) if matches!(err.client_api_error_kind(), Some(ErrorKind::Unrecognized)) => {
             "unrecognized"
@@ -479,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_thumbnail_server_fault_falls_back_to_the_file() {
+    fn only_a_thumbnail_the_server_cannot_serve_falls_back_to_the_file() {
         assert!(avatar_fallback_eligible(true, Some(500), false));
         assert!(avatar_fallback_eligible(true, Some(502), false));
         assert!(avatar_fallback_eligible(true, Some(599), false));
@@ -487,7 +490,7 @@ mod tests {
         assert!(!avatar_fallback_eligible(true, Some(404), false));
         assert!(!avatar_fallback_eligible(true, Some(403), false));
         assert!(!avatar_fallback_eligible(true, Some(429), false));
-        assert!(!avatar_fallback_eligible(true, Some(400), false));
+        assert!(avatar_fallback_eligible(true, Some(400), false));
         assert!(!avatar_fallback_eligible(true, None, false));
         assert!(!avatar_fallback_eligible(true, Some(600), false));
         assert!(!avatar_fallback_eligible(false, Some(500), false));

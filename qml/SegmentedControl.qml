@@ -40,7 +40,9 @@ RowLayout {
             implicitWidth: segText.implicitWidth + (root.dense ? 12 : 24)
             implicitHeight: root.dense ? AppTheme.buttonHeightSm
                                        : AppTheme.buttonHeight
-            Layout.fillWidth: root.overflowing
+            // Never `overflowing`: it reads implicitWidth, which this policy moves (a
+            // fixed width is pixel-rounded), so the layout would re-polish forever.
+            Layout.fillWidth: root.fitWidth
             Layout.maximumWidth: implicitWidth
             hoverEnabled: true
             focusPolicy: Qt.TabFocus

@@ -577,7 +577,8 @@ Rectangle {
                                 }
                             }
                             Label {
-                                visible: root.roomData.encrypted !== true
+                                visible: root.roomData.encryptionKnown === true
+                                         && root.roomData.encrypted !== true
                                 text: qsTr("Not encrypted")
                                 color: AppTheme.textMuted
                                 font.pixelSize: AppTheme.textBody

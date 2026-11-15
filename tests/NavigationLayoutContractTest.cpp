@@ -803,7 +803,7 @@ private slots:
         QVERIFY2(host.contains(QStringLiteral("contentWidth: Math.max(filterChips.implicitWidth, width)")),
                  "the room-list filter chips do not scroll at their natural width");
         QVERIFY(control.contains(QStringLiteral("RowLayout {")));
-        QVERIFY(control.contains(QStringLiteral("Layout.fillWidth: root.overflowing")));
+        QVERIFY(control.contains(QStringLiteral("Layout.fillWidth: root.fitWidth")));
         QVERIFY(control.contains(QStringLiteral("Layout.maximumWidth: implicitWidth")));
         QVERIFY(control.contains(QStringLiteral("fitWidth && width > 0 && implicitWidth > width")));
         QVERIFY(control.contains(QStringLiteral("elide: Text.ElideRight")));

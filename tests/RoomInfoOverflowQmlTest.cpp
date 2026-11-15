@@ -16,6 +16,8 @@
 #include <QtTest/QtTest>
 
 #include <QFile>
+#include <QFontDatabase>
+#include <QGuiApplication>
 #include <QJSValue>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
@@ -143,9 +145,10 @@ class RoomInfoOverflowQmlTest : public QObject
         for (int i = 0; i < 8; ++i)
             QCoreApplication::processEvents();
     }
-    void showRoom(const QString &name, const QString &topic)
+    void showRoom(const QString &name, const QString &topic,
+                  const QVariantMap &extra = {})
     {
-        QVariantMap data;
+        QVariantMap data = extra;
         data.insert(QStringLiteral("name"), name);
         data.insert(QStringLiteral("topic"), topic);
         data.insert(QStringLiteral("avatarUrl"), QString());
@@ -160,6 +163,25 @@ class RoomInfoOverflowQmlTest : public QObject
                 return;
         }
         QFAIL("the room list kept replacing the fixture");
+    }
+
+    static void polishLoopsAreRecordedFrom(QStringList *seen)
+    {
+        static QStringList *sink = nullptr;
+        static QtMessageHandler previous = nullptr;
+        if (!seen) {
+            qInstallMessageHandler(previous);
+            sink = nullptr;
+            return;
+        }
+        sink = seen;
+        previous = qInstallMessageHandler(
+            [](QtMsgType type, const QMessageLogContext &ctx, const QString &msg) {
+                if (sink && msg.contains(QLatin1String("polish()")))
+                    sink->append(msg);
+                if (previous)
+                    previous(type, ctx, msg);
+            });
     }
 
 private Q_SLOTS:
@@ -253,6 +275,109 @@ private Q_SLOTS:
         QVERIFY(!info->loading());
         QCOMPARE(info->joinedCount(), 0);
         QVERIFY(label->isVisible());
+    }
+
+    // Without the panel's deferred wrap, so a looping width loops every frame.
+    void aFittingTabStripKeepsItsNaturalWidthAtItsOwnEdge()
+    {
+        QStringList seen;
+        polishLoopsAreRecordedFrom(&seen);
+        const auto restore = qScopeGuard([&] { polishLoopsAreRecordedFrom(nullptr); });
+        QQmlComponent component(m_engine.get());
+        component.setData(R"QML(
+import QtQuick
+import QtQuick.Layouts
+import MatrixClient
+Window {
+    width: 700; height: 120; visible: true
+    readonly property bool manrope: Qt.fontFamilies().indexOf("Manrope") >= 0
+    property alias strip: strip
+    property alias column: column
+    ColumnLayout {
+        id: column
+        width: 600
+        SegmentedControl {
+            id: strip
+            storm: true; dense: true; fitWidth: true
+            Layout.fillWidth: true; Layout.minimumWidth: 0
+            model: ["Overview", "Pinned", "People", "Media", "Widgets"]
+        }
+    }
+}
+)QML", QUrl(QStringLiteral("strip-edge.qml")));
+        std::unique_ptr<QObject> window(component.create());
+        QVERIFY2(window, qPrintable(component.errorString()));
+        QVERIFY(QTest::qWaitForWindowExposed(qobject_cast<QWindow *>(window.get())));
+        auto *strip = window->property("strip").value<QQuickItem *>();
+        auto *column = window->property("column").value<QQuickItem *>();
+        QVERIFY(strip && column);
+        QVERIFY(window->property("manrope").toBool());
+        QTRY_COMPARE(strip->width(), 600.0);
+        const qreal natural = strip->implicitWidth();
+        qInfo("strip natural width %.3f", natural);
+        QStringList hits;
+        int tried = 0;
+        for (qreal d = -3; d <= 1.01; d += 0.25, ++tried) {
+            column->setWidth(natural + d);
+            QTest::qWait(50);
+            if (!seen.isEmpty())
+                hits << QStringLiteral("@%1: %2").arg(natural + d).arg(seen.first());
+            seen.clear();
+            if (strip->implicitWidth() != natural)
+                hits << QStringLiteral("@%1: implicitWidth %2, natural %3")
+                            .arg(natural + d).arg(strip->implicitWidth()).arg(natural);
+        }
+        QCOMPARE(tried, 17);
+        QVERIFY2(hits.isEmpty(), qPrintable(hits.join(QLatin1Char('\n'))));
+    }
+
+    void resizingThePanelNeverLoopsItsLayout()
+    {
+        QStringList seen;
+        polishLoopsAreRecordedFrom(&seen);
+        auto *window = qobject_cast<QQuickWindow *>(m_window.get());
+        QVERIFY(window);
+        const auto restore = qScopeGuard([&] {
+            polishLoopsAreRecordedFrom(nullptr);
+            m_panel->setProperty("section", QStringLiteral("overview"));
+            window->setWidth(420);
+            m_panel->setWidth(360);
+            settle();
+        });
+        QStringList hits;
+        for (const QString &section : {QStringLiteral("overview"), QStringLiteral("people"),
+                                       QStringLiteral("media")}) {
+            m_panel->setProperty("section", section);
+            QList<int> widths;
+            for (int w = 720; w >= 260; w -= 7)
+                widths << w;
+            for (int w = 260; w <= 720; w += 7)
+                widths << w;
+            for (int w : widths) {
+                window->setWidth(w + 60);
+                m_panel->setWidth(w);
+                QTest::qWait(5);
+                if (!seen.isEmpty())
+                    hits << QStringLiteral("%1 @%2: %3").arg(section).arg(w).arg(seen.first());
+                seen.clear();
+            }
+        }
+        QVERIFY2(hits.isEmpty(), qPrintable(hits.join(QLatin1Char('\n'))));
+    }
+
+    void notEncryptedIsShownOnlyWhenTheStateIsKnown()
+    {
+        auto notEncrypted = [this] {
+            QQuickItem *label = itemWithText(QStringLiteral("Not encrypted"), "Label");
+            return label && label->isVisible();
+        };
+        showRoom(QStringLiteral("Unknown"), QString(),
+                 {{QStringLiteral("encrypted"), false}});
+        QVERIFY2(!notEncrypted(), "an unknown encryption state was labelled");
+        showRoom(QStringLiteral("Plain"), QString(),
+                 {{QStringLiteral("encrypted"), false},
+                  {QStringLiteral("encryptionKnown"), true}});
+        QVERIFY(notEncrypted());
     }
 
     void aLongUnbrokenNameIsCappedAtThreeLines()
@@ -393,5 +518,19 @@ private Q_SLOTS:
     }
 };
 
-QTEST_MAIN(RoomInfoOverflowQmlTest)
+int main(int argc, char *argv[])
+{
+    QGuiApplication app(argc, argv);
+    // The tab strip's rounding gap only exists with the real UI font's metrics.
+    if (QFontDatabase::addApplicationFont(
+            QStringLiteral(QML_DIR "/../data/fonts/Manrope[wght].ttf")) < 0)
+        qFatal("Manrope did not load");
+    // Desktop fontconfig hints lightly, so advances are fractional; a bare CI
+    // fontconfig hints fully and rounds them away.
+    QFont font = QGuiApplication::font();
+    font.setHintingPreference(QFont::PreferNoHinting);
+    QGuiApplication::setFont(font);
+    RoomInfoOverflowQmlTest test;
+    return QTest::qExec(&test, argc, argv);
+}
 #include "RoomInfoOverflowQmlTest.moc"
