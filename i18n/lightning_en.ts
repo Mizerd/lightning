@@ -19132,7 +19132,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Your rooms appear here once the first sync finishes.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19159,6 +19159,11 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Favourite a room from its menu to pin it here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Archive a chat from its menu to keep it out of your other lists.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

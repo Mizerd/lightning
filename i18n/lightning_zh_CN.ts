@@ -19077,7 +19077,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>还没有任何对话</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Your rooms appear here once the first sync finishes.</source>
         <translation>首次同步完成后，你的房间会显示在这里。</translation>
     </message>
@@ -19105,6 +19105,11 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>Favourite a room from its menu to pin it here.</source>
         <translation>在房间菜单中将其设为收藏,即可固定在此处。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Archive a chat from its menu to keep it out of your other lists.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>

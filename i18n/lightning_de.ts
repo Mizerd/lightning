@@ -19143,7 +19143,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Noch keine Unterhaltungen</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Your rooms appear here once the first sync finishes.</source>
         <translation>Deine Räume erscheinen hier, sobald die erste Synchronisierung abgeschlossen ist.</translation>
     </message>
@@ -19171,6 +19171,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+2"/>
         <source>Favourite a room from its menu to pin it here.</source>
         <translation>Markiere einen Raum im Menü als Favorit, um ihn hier anzuheften.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Archive a chat from its menu to keep it out of your other lists.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
