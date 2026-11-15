@@ -3892,7 +3892,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+87"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
         <source>%1, invitation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3932,7 +3932,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>%1 · Low priority</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16855,6 +16855,16 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="+17"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Archive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+12"/>
         <source>Mark as read</source>
         <translation type="unfinished"></translation>
@@ -17126,6 +17136,11 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Nothing unread. Everything in this view has been read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats in this view.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -17689,7 +17704,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+282"/>
+        <location line="+300"/>
         <source>%1 invited you to a Space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18195,17 +18210,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Not encrypted</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-545"/>
+        <location line="-546"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2120"/>
+        <location line="+2121"/>
         <source>Open</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18215,7 +18230,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-548"/>
+        <location line="-549"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18266,7 +18281,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+119"/>
         <source>Show less</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19026,12 +19041,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+180"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+181"/>
         <source>Invites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-123"/>
+        <location line="-124"/>
         <source>People</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19046,7 +19061,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Conversations</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19056,13 +19071,18 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-118"/>
-        <location line="+122"/>
+        <location line="-119"/>
+        <location line="+123"/>
         <source>Favourites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-122"/>
+        <source>Archived</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>Low priority</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19094,6 +19114,11 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>No favourites yet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -19407,7 +19432,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+717"/>
+        <location line="+741"/>
         <source>%n room(s) updated</source>
         <translation>
             <numerusform>%n room updated</numerusform>
@@ -19415,7 +19440,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="-722"/>
+        <location line="-746"/>
         <source>Home</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19441,13 +19466,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+756"/>
+        <location line="+780"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-699"/>
+        <location line="-723"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation type="unfinished"></translation>
@@ -19467,15 +19492,33 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+113"/>
+        <source>Archived (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <location line="+3"/>
+        <source>%n archived chat(s) with unread messages</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archived chats stay joined and keep notifying as usual</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <location line="+5"/>
+        <location line="+4"/>
         <source>All</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6"/>
-        <location line="+7"/>
+        <location line="-8"/>
+        <location line="+9"/>
         <source>People</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19485,7 +19528,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+269"/>
+        <location line="+270"/>
         <source>%n selected</source>
         <translation>
             <numerusform>%n selected</numerusform>
@@ -19515,6 +19558,16 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Remove low priority</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unarchive</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -19579,7 +19632,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="-117"/>
+        <location line="-119"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>Leave %n room?</numerusform>
@@ -19607,29 +19660,30 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+206"/>
         <source>Expand %1 room list</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+23"/>
+        <location line="+12"/>
         <source>Show all rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-12"/>
         <source>Show unread rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-468"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="-473"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Unreads</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-205"/>
+        <location line="-226"/>
         <source>Start or join a conversation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19666,14 +19720,14 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-127"/>
         <location line="+1"/>
-        <location line="+256"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="+275"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Favourites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+158"/>
+        <location line="+159"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19879,12 +19933,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2682"/>
+        <location line="+2691"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2696"/>
+        <location line="-2705"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19897,7 +19951,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4562"/>
+        <location line="+4579"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19906,29 +19960,29 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4941"/>
+        <location line="-4958"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4748"/>
+        <location line="+4765"/>
         <source>Unknown room: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4943"/>
+        <location line="-4960"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+757"/>
-        <location line="+2613"/>
+        <location line="+766"/>
+        <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1352"/>
+        <location line="-1360"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19968,7 +20022,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+158"/>
         <source>Matrix session is no longer authorized.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19978,7 +20032,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+299"/>
+        <location line="+300"/>
         <location line="+41"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -20020,7 +20074,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6501"/>
+        <location line="-6518"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20050,7 +20104,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5635"/>
+        <location line="+5652"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20090,7 +20144,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+472"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -27995,7 +28049,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+836"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+850"/>
         <source>Create Room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -35176,6 +35230,11 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
+        <source>Could not archive or unarchive this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Could not mark this room as read.</source>
         <translation type="unfinished"></translation>
     </message>

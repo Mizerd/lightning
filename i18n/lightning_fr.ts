@@ -3894,7 +3894,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+87"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
         <source>%1, invitation</source>
         <translation>%1, invitation</translation>
     </message>
@@ -3934,7 +3934,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>%1, priorité basse</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>%1 · Low priority</source>
         <translation>%1 · Priorité basse</translation>
     </message>
@@ -16866,6 +16866,16 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Passer à une priorité faible</translation>
     </message>
     <message>
+        <location line="+17"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Archive</source>
+        <translation type="unfinished">Archive</translation>
+    </message>
+    <message>
         <location line="+12"/>
         <source>Mark as read</source>
         <translation>Marquer comme lu</translation>
@@ -17138,6 +17148,11 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+2"/>
         <source>Nothing unread. Everything in this view has been read.</source>
         <translation>Rien de non lu. Tout dans cette vue a été lu.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats in this view.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
@@ -17700,7 +17715,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Hier</translation>
     </message>
     <message>
-        <location line="+282"/>
+        <location line="+300"/>
         <source>%1 invited you to a Space</source>
         <translation>%1 vous a invité à un espace</translation>
     </message>
@@ -18206,17 +18221,17 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Chiffré de bout en bout</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Not encrypted</source>
         <translation>Non chiffré</translation>
     </message>
     <message>
-        <location line="-545"/>
+        <location line="-546"/>
         <source>Widgets</source>
         <translation>Widgets</translation>
     </message>
     <message>
-        <location line="+2120"/>
+        <location line="+2121"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
@@ -18226,7 +18241,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Exporter le salon…</translation>
     </message>
     <message>
-        <location line="-548"/>
+        <location line="-549"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>Tout le monde peut lire l’historique de ce salon sans le rejoindre, même si tout le monde ne peut pas le rejoindre.</translation>
     </message>
@@ -18277,7 +18292,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Ce salon n&apos;a pas de réglage propre : les paramètres de notification de votre compte s&apos;appliquent.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+119"/>
         <source>Show less</source>
         <translation>Afficher moins</translation>
     </message>
@@ -19037,12 +19052,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+180"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+181"/>
         <source>Invites</source>
         <translation>Invitations</translation>
     </message>
     <message>
-        <location line="-123"/>
+        <location line="-124"/>
         <source>People</source>
         <translation>Personnes</translation>
     </message>
@@ -19057,7 +19072,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Non lu</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Conversations</source>
         <translation>Conversations</translation>
     </message>
@@ -19067,13 +19082,18 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>En communication</translation>
     </message>
     <message>
-        <location line="-118"/>
-        <location line="+122"/>
+        <location line="-119"/>
+        <location line="+123"/>
         <source>Favourites</source>
         <translation>Favoris</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-122"/>
+        <source>Archived</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>Low priority</source>
         <translation>Priorité basse</translation>
     </message>
@@ -19106,6 +19126,11 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+2"/>
         <source>No favourites yet</source>
         <translation>Aucun favori pour l&apos;instant</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19444,13 +19469,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+1"/>
-        <location line="+756"/>
+        <location line="+780"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>Rechercher des salons</translation>
     </message>
     <message>
-        <location line="-699"/>
+        <location line="-723"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>Options de la liste des salons</translation>
@@ -19470,15 +19495,33 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Activité</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+113"/>
+        <source>Archived (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <location line="+3"/>
+        <source>%n archived chat(s) with unread messages</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archived chats stay joined and keep notifying as usual</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <location line="+5"/>
+        <location line="+4"/>
         <source>All</source>
         <translation>Tous</translation>
     </message>
     <message>
-        <location line="-6"/>
-        <location line="+7"/>
+        <location line="-8"/>
+        <location line="+9"/>
         <source>People</source>
         <translation>Personnes</translation>
     </message>
@@ -19488,7 +19531,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Salons</translation>
     </message>
     <message numerus="yes">
-        <location line="+269"/>
+        <location line="+270"/>
         <source>%n selected</source>
         <translation>
             <numerusform>%n sélectionné</numerusform>
@@ -19519,6 +19562,16 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+1"/>
         <source>Remove low priority</source>
         <translation>Supprimer la faible priorité</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archive</source>
+        <translation type="unfinished">Archive</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19590,7 +19643,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>En attente</translation>
     </message>
     <message numerus="yes">
-        <location line="-117"/>
+        <location line="-119"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>Quitter %n salon ?</numerusform>
@@ -19618,29 +19671,30 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Quitter les salons</translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+206"/>
         <source>Expand %1 room list</source>
         <translation>Déplier la liste des salons de %1</translation>
     </message>
     <message>
         <location line="+23"/>
+        <location line="+12"/>
         <source>Show all rooms</source>
         <translation>Afficher tous les salons</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-12"/>
         <source>Show unread rooms</source>
         <translation>Afficher les salons non lus</translation>
     </message>
     <message>
-        <location line="-468"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="-473"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Unreads</source>
         <translation>Non lus</translation>
     </message>
     <message>
-        <location line="-205"/>
+        <location line="-226"/>
         <source>Start or join a conversation</source>
         <translation>Démarrer ou rejoindre une conversation</translation>
     </message>
@@ -19677,14 +19731,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-127"/>
         <location line="+1"/>
-        <location line="+256"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="+275"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Favourites</source>
         <translation>Favoris</translation>
     </message>
     <message>
-        <location line="+158"/>
+        <location line="+159"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
         <translation>Impossible de quitter « %1 »</translation>
     </message>
@@ -19890,12 +19944,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2682"/>
+        <location line="+2691"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning n&apos;a pas pu réinitialiser complètement la session locale de ce compte. Vérifiez les journaux de l&apos;application et les permissions du système de fichiers, puis réessayez.</translation>
     </message>
     <message>
-        <location line="-2696"/>
+        <location line="-2705"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Session Lightning locale reconstruite. Le magasin de chiffrement précédent a été mis de côté, pas supprimé, et se trouve toujours dans le dossier de données de ce compte. Vous pouvez vous reconnecter.</translation>
     </message>
@@ -19908,7 +19962,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4562"/>
+        <location line="+4579"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19917,29 +19971,29 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4941"/>
+        <location line="-4958"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4748"/>
+        <location line="+4765"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
     </message>
     <message>
-        <location line="-4943"/>
+        <location line="-4960"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Envoi impossible vers des salons chiffrés pour l&apos;instant : l&apos;envoi chiffré du Rust SDK n&apos;est pas vérifié.</translation>
     </message>
     <message>
-        <location line="+757"/>
-        <location line="+2613"/>
+        <location line="+766"/>
+        <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>L&apos;autocollant n&apos;a pas pu être envoyé.</translation>
     </message>
     <message>
-        <location line="-1352"/>
+        <location line="-1360"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning ne peut pas encore envoyer cela.</translation>
     </message>
@@ -19979,7 +20033,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>La reconnexion de cet appareil a échoué. Rien sur cet appareil n&apos;a été modifié. Réessayez, ou supprimez ce compte ci-dessous.</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+158"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>La session Matrix n&apos;est plus autorisée.</translation>
     </message>
@@ -19989,7 +20043,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>L&apos;action d&apos;invitation a échoué. Réessayez.</translation>
     </message>
     <message>
-        <location line="+299"/>
+        <location line="+300"/>
         <location line="+41"/>
         <source>The reaction could not be applied.</source>
         <translation>La réaction n&apos;a pas pu être appliquée.</translation>
@@ -20031,7 +20085,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>L&apos;action sur le sondage n&apos;a pas pu être effectuée.</translation>
     </message>
     <message>
-        <location line="-6501"/>
+        <location line="-6518"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Les données de ce compte sont encore utilisées par une session en arrière-plan. Patientez un instant et réessayez.</translation>
     </message>
@@ -20061,7 +20115,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Saisissez votre mot de passe.</translation>
     </message>
     <message>
-        <location line="+5635"/>
+        <location line="+5652"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Le message n&apos;a pas pu être envoyé. Vous pouvez réessayer depuis l&apos;action Réessayer du message.</translation>
     </message>
@@ -20101,7 +20155,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>La file d&apos;événements du Rust SDK a débordé.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+472"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -28015,7 +28069,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+836"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+850"/>
         <source>Create Room</source>
         <translation>Créer une salle</translation>
     </message>
@@ -35196,6 +35250,11 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+5"/>
+        <source>Could not archive or unarchive this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Could not mark this room as read.</source>
         <translation>Impossible de marquer ce salon comme lu.</translation>
     </message>

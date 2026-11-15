@@ -3894,7 +3894,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+87"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
         <source>%1, invitation</source>
         <translation>%1, Einladung</translation>
     </message>
@@ -3934,7 +3934,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>%1, niedrige Priorität</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>%1 · Low priority</source>
         <translation>%1 · Niedrige Priorität</translation>
     </message>
@@ -16866,6 +16866,16 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Zur niedrigen Priorität wechseln</translation>
     </message>
     <message>
+        <location line="+17"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Archive</source>
+        <translation type="unfinished">Archiv</translation>
+    </message>
+    <message>
         <location line="+12"/>
         <source>Mark as read</source>
         <translation>Als gelesen markieren</translation>
@@ -17138,6 +17148,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+2"/>
         <source>Nothing unread. Everything in this view has been read.</source>
         <translation>Nichts Ungelesenes. Alles in dieser Ansicht wurde gelesen.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats in this view.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
@@ -17700,7 +17715,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Gestern</translation>
     </message>
     <message>
-        <location line="+282"/>
+        <location line="+300"/>
         <source>%1 invited you to a Space</source>
         <translation>%1 hat dich zu einem Space eingeladen</translation>
     </message>
@@ -18262,7 +18277,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Ende-zu-Ende-verschlüsselt</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Not encrypted</source>
         <translation>Nicht verschlüsselt</translation>
     </message>
@@ -19052,7 +19067,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Ungelesen</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Conversations</source>
         <translation>Unterhaltungen</translation>
     </message>
@@ -19067,13 +19082,18 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Einladungen</translation>
     </message>
     <message>
-        <location line="-120"/>
-        <location line="+122"/>
+        <location line="-121"/>
+        <location line="+123"/>
         <source>Favourites</source>
         <translation>Favoriten</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-122"/>
+        <source>Archived</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>Low priority</source>
         <translation>Niedrige Priorität</translation>
     </message>
@@ -19106,6 +19126,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+2"/>
         <source>No favourites yet</source>
         <translation>Noch keine Favoriten</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19444,13 +19469,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+756"/>
+        <location line="+780"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>Räume suchen</translation>
     </message>
     <message>
-        <location line="-699"/>
+        <location line="-723"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>Optionen der Raumliste</translation>
@@ -19505,22 +19530,22 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Aktivität</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+130"/>
+        <location line="+5"/>
         <location line="+4"/>
-        <location line="+3"/>
         <source>All</source>
         <translation>Alle</translation>
     </message>
     <message>
-        <location line="-6"/>
-        <location line="+7"/>
+        <location line="-8"/>
+        <location line="+9"/>
         <source>People</source>
         <translation>Personen</translation>
     </message>
     <message>
-        <location line="-5"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="-7"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Unreads</source>
         <translation>Ungelesene</translation>
     </message>
@@ -19530,16 +19555,34 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Räume</translation>
     </message>
     <message>
-        <location line="-264"/>
+        <location line="-285"/>
         <location line="+1"/>
-        <location line="+256"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="+275"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Favourites</source>
         <translation>Favoriten</translation>
     </message>
     <message>
-        <location line="+158"/>
+        <location line="-29"/>
+        <source>Archived (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>%n archived chat(s) with unread messages</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archived chats stay joined and keep notifying as usual</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+183"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
         <translation>„%1“ konnte nicht verlassen werden</translation>
     </message>
@@ -19580,6 +19623,16 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+1"/>
         <source>Remove low priority</source>
         <translation>Niedrige Priorität entfernen</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archive</source>
+        <translation type="unfinished">Archiv</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19651,7 +19704,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Ausstehend</translation>
     </message>
     <message numerus="yes">
-        <location line="-117"/>
+        <location line="-119"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>%n Raum verlassen?</numerusform>
@@ -19679,17 +19732,18 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Räume verlassen</translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+206"/>
         <source>Expand %1 room list</source>
         <translation>Raumliste von %1 aufklappen</translation>
     </message>
     <message>
         <location line="+23"/>
+        <location line="+12"/>
         <source>Show all rooms</source>
         <translation>Alle Räume anzeigen</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-12"/>
         <source>Show unread rooms</source>
         <translation>Ungelesene Räume anzeigen</translation>
     </message>
@@ -19920,12 +19974,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2682"/>
+        <location line="+2691"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning konnte die lokale Sitzung dieses Kontos nicht vollständig zurücksetzen. Prüfe die Anwendungsprotokolle und die Dateisystemberechtigungen und versuche es dann erneut.</translation>
     </message>
     <message>
-        <location line="-2696"/>
+        <location line="-2705"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Lokale Lightning-Sitzung neu aufgebaut. Der vorherige Verschlüsselungsspeicher wurde beiseitegelegt, nicht gelöscht, und liegt weiterhin im Datenverzeichnis dieses Kontos. Du kannst dich erneut anmelden.</translation>
     </message>
@@ -19938,7 +19992,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4562"/>
+        <location line="+4579"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19947,29 +20001,29 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4941"/>
+        <location line="-4958"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4748"/>
+        <location line="+4765"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
     </message>
     <message>
-        <location line="-4943"/>
+        <location line="-4960"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>An verschlüsselte Räume kann noch nicht gesendet werden: Das verschlüsselte Senden des Rust-SDK ist nicht verifiziert.</translation>
     </message>
     <message>
-        <location line="+757"/>
-        <location line="+2613"/>
+        <location line="+766"/>
+        <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>Der Sticker konnte nicht gesendet werden.</translation>
     </message>
     <message>
-        <location line="-1352"/>
+        <location line="-1360"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning kann das noch nicht senden.</translation>
     </message>
@@ -20009,7 +20063,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die erneute Anmeldung als dieses Gerät hat nicht funktioniert. Auf diesem Gerät wurde nichts geändert. Versuche es erneut oder entferne dieses Konto unten.</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+158"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>Die Matrix-Sitzung ist nicht mehr autorisiert.</translation>
     </message>
@@ -20019,7 +20073,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die Einladungsaktion ist fehlgeschlagen. Versuche es erneut.</translation>
     </message>
     <message>
-        <location line="+299"/>
+        <location line="+300"/>
         <location line="+41"/>
         <source>The reaction could not be applied.</source>
         <translation>Die Reaktion konnte nicht angewendet werden.</translation>
@@ -20101,7 +20155,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die Ereigniswarteschlange des Rust-SDK ist übergelaufen.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+472"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -28015,7 +28069,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+836"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+850"/>
         <source>Create Room</source>
         <translation>Raum erstellen</translation>
     </message>
@@ -35196,6 +35250,11 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+5"/>
+        <source>Could not archive or unarchive this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Could not mark this room as read.</source>
         <translation>Dieser Raum konnte nicht als gelesen markiert werden.</translation>
     </message>

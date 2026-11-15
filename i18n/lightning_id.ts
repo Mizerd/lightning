@@ -3876,7 +3876,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+87"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
         <source>%1, invitation</source>
         <translation>%1, undangan</translation>
     </message>
@@ -3915,7 +3915,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>%1, prioritas rendah</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>%1 · Low priority</source>
         <translation>%1 · Prioritas rendah</translation>
     </message>
@@ -16812,6 +16812,16 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Pindah ke prioritas rendah</translation>
     </message>
     <message>
+        <location line="+17"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Archive</source>
+        <translation type="unfinished">Arsip</translation>
+    </message>
+    <message>
         <location line="+12"/>
         <source>Mark as read</source>
         <translation>Tandai telah dibaca</translation>
@@ -17083,6 +17093,11 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+2"/>
         <source>Nothing unread. Everything in this view has been read.</source>
         <translation>Tidak ada yang belum dibaca. Segala sesuatu dalam tampilan ini telah dibaca.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats in this view.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
@@ -17641,7 +17656,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Kemarin</translation>
     </message>
     <message>
-        <location line="+282"/>
+        <location line="+300"/>
         <source>%1 invited you to a Space</source>
         <translation>%1 mengundang Anda ke Space</translation>
     </message>
@@ -18145,17 +18160,17 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Terenkripsi ujung ke ujung</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Not encrypted</source>
         <translation>Tidak terenkripsi</translation>
     </message>
     <message>
-        <location line="-545"/>
+        <location line="-546"/>
         <source>Widgets</source>
         <translation>Widget</translation>
     </message>
     <message>
-        <location line="+2120"/>
+        <location line="+2121"/>
         <source>Open</source>
         <translation>Buka</translation>
     </message>
@@ -18165,7 +18180,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Ekspor ruang…</translation>
     </message>
     <message>
-        <location line="-548"/>
+        <location line="-549"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>Siapa pun dapat membaca riwayat ruang ini tanpa bergabung, meskipun tidak semua orang dapat bergabung.</translation>
     </message>
@@ -18216,7 +18231,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Ruang ini tidak memiliki penggantian — pengaturan notifikasi akun Anda berlaku.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+119"/>
         <source>Show less</source>
         <translation>Tampilkan lebih sedikit</translation>
     </message>
@@ -18971,12 +18986,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+180"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+181"/>
         <source>Invites</source>
         <translation>Undangan</translation>
     </message>
     <message>
-        <location line="-123"/>
+        <location line="-124"/>
         <source>People</source>
         <translation>Orang</translation>
     </message>
@@ -18991,7 +19006,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Belum dibaca</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Conversations</source>
         <translation>Percakapan</translation>
     </message>
@@ -19001,13 +19016,18 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Dalam panggilan</translation>
     </message>
     <message>
-        <location line="-118"/>
-        <location line="+122"/>
+        <location line="-119"/>
+        <location line="+123"/>
         <source>Favourites</source>
         <translation>Favorit</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-122"/>
+        <source>Archived</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>Low priority</source>
         <translation>Prioritas rendah</translation>
     </message>
@@ -19040,6 +19060,11 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+2"/>
         <source>No favourites yet</source>
         <translation>Belum ada favorit</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19377,13 +19402,13 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+756"/>
+        <location line="+780"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>Cari ruang</translation>
     </message>
     <message>
-        <location line="-699"/>
+        <location line="-723"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>Opsi daftar ruang</translation>
@@ -19402,15 +19427,32 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Aktivitas</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+113"/>
+        <source>Archived (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <location line="+3"/>
+        <source>%n archived chat(s) with unread messages</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archived chats stay joined and keep notifying as usual</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <location line="+5"/>
+        <location line="+4"/>
         <source>All</source>
         <translation>Semua</translation>
     </message>
     <message>
-        <location line="-6"/>
-        <location line="+7"/>
+        <location line="-8"/>
+        <location line="+9"/>
         <source>People</source>
         <translation>Orang</translation>
     </message>
@@ -19420,7 +19462,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Ruang</translation>
     </message>
     <message numerus="yes">
-        <location line="+269"/>
+        <location line="+270"/>
         <source>%n selected</source>
         <translation>
             <numerusform>%n dipilih</numerusform>
@@ -19450,6 +19492,16 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+1"/>
         <source>Remove low priority</source>
         <translation>Hapus prioritas rendah</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archive</source>
+        <translation type="unfinished">Arsip</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19520,7 +19572,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tertunda</translation>
     </message>
     <message numerus="yes">
-        <location line="-117"/>
+        <location line="-119"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>Tinggalkan %n ruang?</numerusform>
@@ -19547,29 +19599,30 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tinggalkan ruang</translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+206"/>
         <source>Expand %1 room list</source>
         <translation>Bentangkan daftar ruang %1</translation>
     </message>
     <message>
         <location line="+23"/>
+        <location line="+12"/>
         <source>Show all rooms</source>
         <translation>Tampilkan semua ruang</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-12"/>
         <source>Show unread rooms</source>
         <translation>Tampilkan ruang belum dibaca</translation>
     </message>
     <message>
-        <location line="-468"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="-473"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Unreads</source>
         <translation>Belum dibaca</translation>
     </message>
     <message>
-        <location line="-205"/>
+        <location line="-226"/>
         <source>Start or join a conversation</source>
         <translation>Mulai atau bergabung ke percakapan</translation>
     </message>
@@ -19606,14 +19659,14 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="-127"/>
         <location line="+1"/>
-        <location line="+256"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="+275"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Favourites</source>
         <translation>Favorit</translation>
     </message>
     <message>
-        <location line="+158"/>
+        <location line="+159"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
         <translation>Tidak dapat meninggalkan &quot;%1&quot;</translation>
     </message>
@@ -19819,12 +19872,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2682"/>
+        <location line="+2691"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning tidak dapat mereset sepenuhnya sesi lokal untuk akun ini. Periksa log aplikasi dan izin sistem berkas, lalu coba lagi.</translation>
     </message>
     <message>
-        <location line="-2696"/>
+        <location line="-2705"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Sesi Lightning lokal telah dibangun ulang. Penyimpanan enkripsi sebelumnya disingkirkan, bukan dihapus, dan masih ada di direktori data akun ini. Anda dapat masuk lagi.</translation>
     </message>
@@ -19837,7 +19890,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4562"/>
+        <location line="+4579"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19846,29 +19899,29 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-4941"/>
+        <location line="-4958"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4748"/>
+        <location line="+4765"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-4943"/>
+        <location line="-4960"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Belum dapat mengirim ke ruang terenkripsi: pengiriman terenkripsi Rust SDK belum terverifikasi.</translation>
     </message>
     <message>
-        <location line="+757"/>
-        <location line="+2613"/>
+        <location line="+766"/>
+        <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>Stiker tidak dapat dikirim.</translation>
     </message>
     <message>
-        <location line="-1352"/>
+        <location line="-1360"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning belum dapat mengirim itu.</translation>
     </message>
@@ -19908,7 +19961,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Masuk lagi sebagai perangkat ini tidak berhasil. Tidak ada yang di perangkat ini diubah. Coba lagi, atau hapus akun ini di bawah.</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+158"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>Sesi Matrix tidak lagi diotorisasi.</translation>
     </message>
@@ -19918,7 +19971,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tindakan undangan gagal. Coba lagi.</translation>
     </message>
     <message>
-        <location line="+299"/>
+        <location line="+300"/>
         <location line="+41"/>
         <source>The reaction could not be applied.</source>
         <translation>Reaksi tidak dapat diterapkan.</translation>
@@ -19960,7 +20013,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tindakan jajak pendapat tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="-6501"/>
+        <location line="-6518"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Data akun ini masih digunakan oleh sesi latar belakang. Tunggu sebentar lalu coba lagi.</translation>
     </message>
@@ -19990,7 +20043,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Masukkan kata sandi Anda.</translation>
     </message>
     <message>
-        <location line="+5635"/>
+        <location line="+5652"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Pesan tidak dapat dikirim. Anda dapat mencoba lagi dari tindakan Coba lagi pada pesan.</translation>
     </message>
@@ -20030,7 +20083,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Antrean peristiwa Rust SDK meluap.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+472"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -27923,7 +27976,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+836"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+850"/>
         <source>Create Room</source>
         <translation>Buat Ruangan</translation>
     </message>
@@ -35043,6 +35096,11 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+5"/>
+        <source>Could not archive or unarchive this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Could not mark this room as read.</source>
         <translation>Ruang ini tidak dapat ditandai sudah dibaca.</translation>
     </message>

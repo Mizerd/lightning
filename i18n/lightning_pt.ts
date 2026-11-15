@@ -3894,7 +3894,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+87"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
         <source>%1, invitation</source>
         <translation>%1, convite</translation>
     </message>
@@ -3934,7 +3934,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>%1, prioridade baixa</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>%1 · Low priority</source>
         <translation>%1 · Prioridade baixa</translation>
     </message>
@@ -16866,6 +16866,16 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Mover para baixa prioridade</translation>
     </message>
     <message>
+        <location line="+17"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Archive</source>
+        <translation type="unfinished">Arquivo</translation>
+    </message>
+    <message>
         <location line="+12"/>
         <source>Mark as read</source>
         <translation>Marcar como lida</translation>
@@ -17138,6 +17148,11 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+2"/>
         <source>Nothing unread. Everything in this view has been read.</source>
         <translation>Nada não lido. Tudo nesta visão foi lido.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats in this view.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
@@ -17700,7 +17715,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Ontem</translation>
     </message>
     <message>
-        <location line="+282"/>
+        <location line="+300"/>
         <source>%1 invited you to a Space</source>
         <translation>%1 convidou-o para um espaço</translation>
     </message>
@@ -18206,17 +18221,17 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Encriptada ponta a ponta</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Not encrypted</source>
         <translation>Não encriptada</translation>
     </message>
     <message>
-        <location line="-545"/>
+        <location line="-546"/>
         <source>Widgets</source>
         <translation>Widgets</translation>
     </message>
     <message>
-        <location line="+2120"/>
+        <location line="+2121"/>
         <source>Open</source>
         <translation>Abrir</translation>
     </message>
@@ -18226,7 +18241,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Exportar sala…</translation>
     </message>
     <message>
-        <location line="-548"/>
+        <location line="-549"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>Qualquer pessoa pode ler o histórico desta sala sem entrar, embora nem todos possam entrar.</translation>
     </message>
@@ -18277,7 +18292,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Esta sala não tem substituição — aplicam-se as definições de notificação da sua conta.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+119"/>
         <source>Show less</source>
         <translation>Mostrar menos</translation>
     </message>
@@ -19037,12 +19052,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+180"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+181"/>
         <source>Invites</source>
         <translation>Convites</translation>
     </message>
     <message>
-        <location line="-123"/>
+        <location line="-124"/>
         <source>People</source>
         <translation>Pessoas</translation>
     </message>
@@ -19057,7 +19072,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Não lido</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Conversations</source>
         <translation>Conversas</translation>
     </message>
@@ -19067,13 +19082,18 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Numa chamada</translation>
     </message>
     <message>
-        <location line="-118"/>
-        <location line="+122"/>
+        <location line="-119"/>
+        <location line="+123"/>
         <source>Favourites</source>
         <translation>Favoritos</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-122"/>
+        <source>Archived</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>Low priority</source>
         <translation>Prioridade baixa</translation>
     </message>
@@ -19106,6 +19126,11 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+2"/>
         <source>No favourites yet</source>
         <translation>Ainda sem favoritos</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No archived chats</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19444,13 +19469,13 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+756"/>
+        <location line="+780"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>Procurar salas</translation>
     </message>
     <message>
-        <location line="-699"/>
+        <location line="-723"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>Opções da lista de salas</translation>
@@ -19470,15 +19495,33 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Atividade</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+113"/>
+        <source>Archived (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <location line="+3"/>
+        <source>%n archived chat(s) with unread messages</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archived chats stay joined and keep notifying as usual</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <location line="+5"/>
+        <location line="+4"/>
         <source>All</source>
         <translation>Todas</translation>
     </message>
     <message>
-        <location line="-6"/>
-        <location line="+7"/>
+        <location line="-8"/>
+        <location line="+9"/>
         <source>People</source>
         <translation>Pessoas</translation>
     </message>
@@ -19488,7 +19531,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Salas</translation>
     </message>
     <message numerus="yes">
-        <location line="+269"/>
+        <location line="+270"/>
         <source>%n selected</source>
         <translation>
             <numerusform>%n selecionada</numerusform>
@@ -19519,6 +19562,16 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+1"/>
         <source>Remove low priority</source>
         <translation>Remover baixa prioridade</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Archive</source>
+        <translation type="unfinished">Arquivo</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unarchive</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19590,7 +19643,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Pendente</translation>
     </message>
     <message numerus="yes">
-        <location line="-117"/>
+        <location line="-119"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>Sair de %n sala?</numerusform>
@@ -19618,29 +19671,30 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Sair das salas</translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+206"/>
         <source>Expand %1 room list</source>
         <translation>Expandir a lista de salas de %1</translation>
     </message>
     <message>
         <location line="+23"/>
+        <location line="+12"/>
         <source>Show all rooms</source>
         <translation>Mostrar todas as salas</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-12"/>
         <source>Show unread rooms</source>
         <translation>Mostrar salas não lidas</translation>
     </message>
     <message>
-        <location line="-468"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="-473"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Unreads</source>
         <translation>Não lidas</translation>
     </message>
     <message>
-        <location line="-205"/>
+        <location line="-226"/>
         <source>Start or join a conversation</source>
         <translation>Iniciar ou entrar numa conversa</translation>
     </message>
@@ -19677,14 +19731,14 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="-127"/>
         <location line="+1"/>
-        <location line="+256"/>
-        <location line="+3"/>
-        <location line="+5"/>
+        <location line="+275"/>
+        <location line="+4"/>
+        <location line="+6"/>
         <source>Favourites</source>
         <translation>Favoritos</translation>
     </message>
     <message>
-        <location line="+158"/>
+        <location line="+159"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
         <translation>Não foi possível sair de «%1»</translation>
     </message>
@@ -19890,12 +19944,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2682"/>
+        <location line="+2691"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>O Lightning não conseguiu repor completamente a sessão local desta conta. Verifique os registos da aplicação e as permissões do sistema de ficheiros e tente novamente.</translation>
     </message>
     <message>
-        <location line="-2696"/>
+        <location line="-2705"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Sessão local do Lightning reconstruída. O armazenamento de encriptação anterior foi posto de lado, não eliminado, e continua na pasta de dados desta conta. Pode iniciar sessão novamente.</translation>
     </message>
@@ -19908,7 +19962,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4562"/>
+        <location line="+4579"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19917,29 +19971,29 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-4941"/>
+        <location line="-4958"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4748"/>
+        <location line="+4765"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconhecida: %1</translation>
     </message>
     <message>
-        <location line="-4943"/>
+        <location line="-4960"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Ainda não é possível enviar para salas encriptadas: o envio encriptado do Rust SDK não está verificado.</translation>
     </message>
     <message>
-        <location line="+757"/>
-        <location line="+2613"/>
+        <location line="+766"/>
+        <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
         <translation>Não foi possível enviar o adesivo.</translation>
     </message>
     <message>
-        <location line="-1352"/>
+        <location line="-1360"/>
         <source>Lightning cannot send that yet.</source>
         <translation>O Lightning ainda não consegue enviar isso.</translation>
     </message>
@@ -19979,7 +20033,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Voltar a iniciar sessão como este dispositivo não funcionou. Nada neste dispositivo foi alterado. Tente novamente, ou remova esta conta abaixo.</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+158"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>A sessão Matrix já não está autorizada.</translation>
     </message>
@@ -19989,7 +20043,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>A ação de convite falhou. Tente novamente.</translation>
     </message>
     <message>
-        <location line="+299"/>
+        <location line="+300"/>
         <location line="+41"/>
         <source>The reaction could not be applied.</source>
         <translation>Não foi possível aplicar a reação.</translation>
@@ -20031,7 +20085,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Não foi possível concluir a ação da sondagem.</translation>
     </message>
     <message>
-        <location line="-6501"/>
+        <location line="-6518"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Os dados desta conta ainda estão em uso por uma sessão em segundo plano. Aguarde um momento e tente novamente.</translation>
     </message>
@@ -20061,7 +20115,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Introduza a sua palavra-passe.</translation>
     </message>
     <message>
-        <location line="+5635"/>
+        <location line="+5652"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Não foi possível enviar a mensagem. Pode tentar de novo a partir da ação Tentar novamente da mensagem.</translation>
     </message>
@@ -20101,7 +20155,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>A fila de eventos do Rust SDK transbordou.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+472"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -28015,7 +28069,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+836"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+850"/>
         <source>Create Room</source>
         <translation>Criar sala</translation>
     </message>
@@ -35196,6 +35250,11 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+5"/>
+        <source>Could not archive or unarchive this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Could not mark this room as read.</source>
         <translation>Não foi possível marcar esta sala como lida.</translation>
     </message>
