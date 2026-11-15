@@ -334,6 +334,21 @@ RoomsPanel { width: 380; height: 700 }
         f.controller->roomList()->setSearchQuery(QString());
     }
 
+    void anEmptyArchivedListExplainsArchivingInsteadOfJoiningRooms()
+    {
+        Fixture f;
+        QVERIFY(load(f, kPresenter, 320, 400));
+        f.controller->roomList()->setFilterMode(5);
+        auto *empty = byName(f.item.get(), QStringLiteral("roomListEmptyState"));
+        QVERIFY(empty);
+        QTRY_VERIFY_WITH_TIMEOUT(empty->isVisible(), kTimeoutMs);
+        auto *hint = byName(f.item.get(), QStringLiteral("roomListEmptyHint"));
+        QVERIFY(hint);
+        const QString text = hint->property("text").toString();
+        QVERIFY2(text.contains(QStringLiteral("Archive a chat")), qPrintable(text));
+        f.controller->roomList()->setFilterMode(0);
+    }
+
     void aListThatEmptiesAndRefillsDrawsOnlyItsOwnSectionHeaders()
     {
         Fixture f;

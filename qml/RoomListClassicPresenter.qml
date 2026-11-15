@@ -328,6 +328,7 @@ Item {
         }
 
         Label {
+            objectName: "roomListEmptyHint"
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
@@ -349,6 +350,8 @@ Item {
                         return qsTr("Rooms with unread messages " + "appear here.");
                     if (app.roomList.filterMode === 4)
                         return qsTr("Favourite a room from its menu to pin it here.");
+                    if (app.roomList.filterMode === 5)
+                        return qsTr("Archive a chat from its menu to keep it out of your other lists.");
                     return roomListEmptyState.inSpace ? qsTr("Rooms added to this Space will " + "show up here.") : qsTr("Start a direct message, or find " + "a room to join.");
                 }
             }
