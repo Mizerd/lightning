@@ -12278,12 +12278,7 @@ async fn run_modern_sync(
                     if !first_sync {
                         spawn_preview_looks(&client, backfill_results.as_ref(), &mut preview_backfill,
                                             &mut backfill_tasks, &mut forced_looks, false);
-                        scan_due.get_or_insert_with(|| {
-                            tokio::time::Instant::from_std(last_backfill_scan.map_or_else(
-                                std::time::Instant::now,
-                                |at| at + std::time::Duration::from_secs(3),
-                            ))
-                        });
+                        arm_preview_scan(&mut scan_due, last_backfill_scan);
                     }
                 }
                 _ = tokio::time::sleep_until(scan_due.unwrap_or_else(tokio::time::Instant::now)),
@@ -12349,6 +12344,7 @@ async fn run_modern_sync(
                             spawn_preview_looks(&client, backfill_results.as_ref(),
                                                 &mut preview_backfill, &mut backfill_tasks,
                                                 &mut forced_looks, false);
+                            arm_preview_scan(&mut scan_due, last_backfill_scan);
                         }
                         enqueue(&events, json!({
                             "type": "ignored_users_changed",
@@ -12385,6 +12381,7 @@ async fn run_modern_sync(
                         }
                         if first_sync {
                             first_sync = false;
+                            arm_preview_scan(&mut scan_due, last_backfill_scan);
                             first_response.store(false, Ordering::SeqCst);
                             enqueue(&events, json!({ "type": "initial_sync_done" }));
                         }
@@ -13535,6 +13532,16 @@ fn finish_preview_look(
     }
     let now_ms = backfill.now_ms();
     backfill.finish(&room_id, &outcome, now_ms);
+}
+
+/// The scan runs on room-list batches, which an idle account does not get.
+fn arm_preview_scan(due: &mut Option<tokio::time::Instant>, last: Option<std::time::Instant>) {
+    due.get_or_insert_with(|| {
+        tokio::time::Instant::from_std(last.map_or_else(
+            std::time::Instant::now,
+            |at| at + std::time::Duration::from_secs(3),
+        ))
+    });
 }
 
 fn latest_sender_ignored(room: &Room, latest: &matrix_sdk_base::latest_event::LatestEventValue) -> bool {
