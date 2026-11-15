@@ -39,7 +39,6 @@
 #include "media/MediaManager.h"
 #include "media/MprisServer.h"
 #include "models/MessageComposer.h"
-#include "models/MessageHtml.h"
 #include "models/EmojiCatalog.h"
 #include "models/MessageHtml.h"
 #include "models/RoomListModel.h"

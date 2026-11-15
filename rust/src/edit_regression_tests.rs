@@ -800,7 +800,10 @@ async fn an_edit_uses_the_timeline_that_holds_the_event() {
     let empty = Arc::new(TimelineBuilder::new(&other).build().await.unwrap());
     let id = matrix_sdk::ruma::event_id!("$old");
     let picked = timeline_holding(Arc::clone(&empty), Some(Arc::clone(&holder)), id).await;
-    assert!(Arc::ptr_eq(&picked, &holder), "a jumped-to event is edited through the live timeline");
+    assert!(
+        Arc::ptr_eq(&picked, &holder),
+        "an event the live timeline does not hold is edited through the context timeline"
+    );
     let picked = timeline_holding(Arc::clone(&holder), Some(Arc::clone(&empty)), id).await;
     assert!(Arc::ptr_eq(&picked, &holder));
     let picked = timeline_holding(Arc::clone(&empty), None, id).await;

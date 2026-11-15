@@ -410,8 +410,15 @@ QString MessageHtml::userIdFromLink(const QString &link)
         trimmed.mid(9).section(QLatin1Char('?'), 0, 0).toUtf8());
     if (!id.startsWith(QLatin1Char('@')))
         id.prepend(QLatin1Char('@'));
-    return id.size() > 3 && id.indexOf(QLatin1Char(':')) > 1
-            && !id.contains(QLatin1Char('/')) ? id : QString();
+    const int colon = id.indexOf(QLatin1Char(':'));
+    if (colon <= 1 || colon == id.size() - 1)
+        return {};
+    for (const QChar c : id) {
+        if (c.isSpace() || c.category() == QChar::Other_Control || c == QLatin1Char('#')
+            || c == QLatin1Char('?') || c == QLatin1Char('/'))
+            return {};
+    }
+    return id;
 }
 
 namespace {

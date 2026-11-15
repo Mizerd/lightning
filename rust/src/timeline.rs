@@ -4314,8 +4314,9 @@ fn fetch_missing_reply_details<'a, I>(
     tokio::spawn(async move {
         for event_id in wanted {
             // The SDK re-emits an event it already holds (a synced copy of a
-            // sent reply) with fresh, unfetched details: only a failed fetch,
-            // which would loop, stays recorded.
+            // sent reply) with fresh, unfetched details, so release it after
+            // Ok. An Err (item gone, unsupported) stays recorded; a network
+            // failure returns Ok as Error, which the Unavailable filter skips.
             if timeline.fetch_details_for_event(&event_id).await.is_ok() {
                 if let Ok(mut guard) = fetched.lock() {
                     guard.remove(event_id.as_str());

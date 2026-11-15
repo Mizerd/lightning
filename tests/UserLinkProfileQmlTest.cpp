@@ -1,6 +1,4 @@
-// A matrix:u/ or matrix.to user link (command line, second launch, a clicked
-// link) opens that person's profile card with no room context, not the
-// Discover dialog. Real shell, mock backend.
+// A user link opens the profile card, not Discover.
 
 #include <QtTest/QtTest>
 
@@ -123,6 +121,12 @@ private Q_SLOTS:
         QTest::newRow("matrix.to room") << "https://matrix.to/#/#general:mock.local"
                                         << "";
         QTest::newRow("no server") << "matrix:u/bob" << "";
+        QTest::newRow("empty server") << "matrix:u/bob:" << "";
+        QTest::newRow("space") << "matrix:u/bo%20b:mock.local" << "";
+        QTest::newRow("control") << "matrix:u/bo%07b:mock.local" << "";
+        QTest::newRow("hash") << "matrix:u/bob:mock.local%23x" << "";
+        QTest::newRow("question") << "matrix:u/bob:mock.local%3Fx" << "";
+        QTest::newRow("slash") << "matrix:u/bob:mock.local%2Fx" << "";
         QTest::newRow("web") << "https://example.org/@bob:mock.local" << "";
     }
 
