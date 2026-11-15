@@ -374,8 +374,8 @@ private Q_SLOTS:
         QCOMPARE(topLeft.row(), 3);
         QCOMPARE(bottomRight.row(), 3);
         QCOMPARE(model->data(model->index(3),
-                             TimelineModel::SenderDisplayNameRole).toString(),
-                 QStringLiteral("Resolved Name"));
+                             TimelineModel::SenderAvatarMxcRole).toString(),
+                 QStringLiteral("mxc://mock.local/avatar3"));
 
         changed.clear();
         TimelineEvent senderChange = updated;

@@ -614,9 +614,18 @@ Item {
         rootItem->setParentItem(window.contentItem());
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto *list = rootItem->findChild<QQuickItem *>(QStringLiteral("list"));
+        QVERIFY(list);
         QObject *label = nullptr;
-        QTRY_VERIFY((label = rootItem->findChild<QObject *>(
-                         QStringLiteral("roomActivityLabel"))));
+        QTRY_VERIFY([&] {
+            const auto kids =
+                list->property("contentItem").value<QQuickItem *>()->childItems();
+            for (QQuickItem *k : kids)
+                if ((label = k->findChild<QObject *>(
+                         QStringLiteral("roomActivityLabel"))))
+                    return true;
+            return false;
+        }());
 
         AppLocale::instance()->setToday(QDate(2026, 11, 14));
         QTRY_COMPARE(label->property("text").toString(), QStringLiteral("23:58"));
