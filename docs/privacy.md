@@ -431,5 +431,5 @@ linked.
 
 ## Contact
 
-Rokas Smetonis — <antrasrokas@gmail.com> ·
+Rokas Smetonis — <contact@lightning-matrix.org> ·
 <https://github.com/Mizerd/lightning>

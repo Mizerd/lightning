@@ -59,7 +59,7 @@ cd lightning
 git format-patch origin/main --stdout > lightning-<topic>.patch
 ```
 
-Send the `.patch` file to <antrasrokas@gmail.com> (`git send-email` works too).
+Send the `.patch` file to <contact@lightning-matrix.org> (`git send-email` works too).
 It applies with `git am`, so your name and email stay on the commit as its
 author.
 

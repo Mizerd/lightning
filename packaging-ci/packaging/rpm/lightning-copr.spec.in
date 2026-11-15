@@ -260,5 +260,5 @@ grep -qE '[(]Qt_6[.][0-9]+[)][[:space:]]+qt_version_tag$' dynsym.txt
 %{_metainfodir}/lightning.metainfo.xml
 
 %changelog
-* Wed Sep 30 2026 Mizerd <rsmetonis@gmail.com> - @VERSION@-1
+* Wed Sep 30 2026 Rokas Smetonis <contact@lightning-matrix.org> - @VERSION@-1
 - Built from source %{commit}

@@ -160,5 +160,5 @@ and intended use of that installer.
 ## Corrections
 
 If anything here is wrong, incomplete, or out of date, please report it to the
-maintainer (<antrasrokas@gmail.com>) — misattributing third-party work is a
+maintainer (<contact@lightning-matrix.org>) — misattributing third-party work is a
 defect, not a detail.

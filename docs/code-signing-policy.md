@@ -96,4 +96,4 @@ crash reporting, and no update check.
 
 Security-relevant reports, including anything about a signed artifact that does
 not match this policy, go to the maintainer: Rokas Smetonis,
-<antrasrokas@gmail.com>.
+<contact@lightning-matrix.org>.

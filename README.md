@@ -188,4 +188,4 @@ formally security audited.
 Copyright © 2026 Rokas Smetonis. Lightning is free software licensed under the GNU
 General Public License v3.0 **or later** — see [LICENSE](LICENSE).
 
-**Maintainer:** Rokas Smetonis — [antrasrokas@gmail.com](mailto:antrasrokas@gmail.com)
+**Maintainer:** Rokas Smetonis — [contact@lightning-matrix.org](mailto:contact@lightning-matrix.org)

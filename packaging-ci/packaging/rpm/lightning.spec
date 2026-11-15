@@ -107,5 +107,5 @@ update-desktop-database -q %{_datadir}/applications || :
 update-desktop-database -q %{_datadir}/applications || :
 
 %changelog
-* Fri Jul 17 2026 Mizerd <rsmetonis@gmail.com> - %{pkg_version}-%{pkg_release}
+* Fri Jul 17 2026 Rokas Smetonis <contact@lightning-matrix.org> - %{pkg_version}-%{pkg_release}
 - Automated package build from Lightning source %{pkg_source_sha}
