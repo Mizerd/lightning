@@ -1051,7 +1051,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7199"/>
+        <location filename="../src/app/AppController.cpp" line="+7245"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -1176,7 +1176,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5561"/>
+        <location filename="../src/app/AppController.cpp" line="-5607"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>أُلغي تسجيل الخروج لأن الحساب تغيّر. لم يُعَد ضبط أي شيء.</translation>
     </message>
@@ -1228,13 +1228,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4151"/>
+        <location line="+4197"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-4999"/>
+        <location line="-5045"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1295,24 +1295,24 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2956"/>
+        <location line="+3002"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-2962"/>
+        <location line="-3008"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3932"/>
+        <location line="+3978"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3930"/>
+        <location line="-3976"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
@@ -1434,14 +1434,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1740"/>
+        <location line="+1786"/>
         <location line="+41"/>
         <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>هذه النسخة لا تتضمن خلفية Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1681"/>
+        <location line="-1727"/>
         <source>Choose a local image file.</source>
         <translation>اختر ملف صورة محلي.</translation>
     </message>
@@ -1501,7 +1501,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>اختر ملفًا على هذا الحاسوب.</translation>
     </message>
     <message>
-        <location line="+328"/>
+        <location line="+374"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>تعذّر تحميل الصورة (%1).</translation>
     </message>
@@ -11670,7 +11670,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+554"/>
+        <location filename="../qml/MainScreen.qml" line="+570"/>
         <source>Resize room list</source>
         <translation>تغيير حجم قائمة الغرف</translation>
     </message>
@@ -19307,12 +19307,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+181"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+189"/>
         <source>Invites</source>
         <translation>الدعوات</translation>
     </message>
     <message>
-        <location line="-124"/>
+        <location line="-132"/>
         <source>People</source>
         <translation>الأشخاص</translation>
     </message>
@@ -19332,23 +19332,23 @@ Signing out and signing in again is the only fix.</source>
         <translation>المحادثات</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+125"/>
         <source>In a call</source>
         <translation>في مكالمة</translation>
     </message>
     <message>
-        <location line="-119"/>
-        <location line="+123"/>
+        <location line="-127"/>
+        <location line="+131"/>
         <source>Favourites</source>
         <translation>المفضلة</translation>
     </message>
     <message>
-        <location line="-122"/>
+        <location line="-130"/>
         <source>Archived</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+132"/>
         <source>Low priority</source>
         <translation>أولوية منخفضة</translation>
     </message>
@@ -27604,7 +27604,7 @@ Note: importing keys does not verify this session.</source>
         <translation>مربعات الحوار</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+60"/>
         <source>Select the previous item or Settings section</source>
         <translation>تحديد العنصر أو قسم الإعدادات السابق</translation>
     </message>
@@ -27699,7 +27699,7 @@ Note: importing keys does not verify this session.</source>
         <translation>عندما يكون التركيز على الخط الزمني، يُنفَّذ «%1» بدلًا من ذلك.</translation>
     </message>
     <message>
-        <location line="-731"/>
+        <location line="-737"/>
         <source>Application</source>
         <translation>التطبيق</translation>
     </message>
@@ -27787,6 +27787,16 @@ Note: importing keys does not verify this session.</source>
         <location line="+3"/>
         <source>Go forward to the next conversation</source>
         <translation>التقدم إلى المحادثة التالية</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the next conversation in the list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the previous conversation in the list</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
@@ -28200,12 +28210,12 @@ Note: importing keys does not verify this session.</source>
         <translation>أثناء التركيز على مربع الرسالة، يتم تشغيل &quot;%1&quot; بدلاً من ذلك.</translation>
     </message>
     <message>
-        <location line="-737"/>
+        <location line="-743"/>
         <source>Settings navigation</source>
         <translation>التنقل في الإعدادات</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+69"/>
         <source>Open the previous Settings page</source>
         <translation>فتح صفحة الإعدادات السابقة</translation>
     </message>

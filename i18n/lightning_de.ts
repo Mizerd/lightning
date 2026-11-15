@@ -1014,13 +1014,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6259"/>
+        <location filename="../src/app/AppController.cpp" line="+6305"/>
         <location line="+1018"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6685"/>
+        <location filename="../src/app/AppController.cpp" line="-6731"/>
         <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1093,13 +1093,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4151"/>
+        <location line="+4197"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-4999"/>
+        <location line="-5045"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1155,24 +1155,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2956"/>
+        <location line="+3002"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning konnte die ausgewählte Datei nicht lesen.</translation>
     </message>
     <message>
-        <location line="-2962"/>
+        <location line="-3008"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ein Raumschlüssel-Import läuft bereits.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3932"/>
+        <location line="+3978"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-3930"/>
+        <location line="-3976"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1248,14 +1248,14 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1740"/>
+        <location line="+1786"/>
         <location line="+41"/>
         <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Diese Version enthält kein Rust-SDK-Backend.</translation>
     </message>
     <message>
-        <location line="-1681"/>
+        <location line="-1727"/>
         <source>Choose a local image file.</source>
         <translation>Wähle eine lokale Bilddatei aus.</translation>
     </message>
@@ -1330,7 +1330,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Verwende gültige Daten im Format JJJJ-MM-TT, wobei „Von“ nicht nach „Bis“ liegen darf.</translation>
     </message>
     <message>
-        <location line="+294"/>
+        <location line="+340"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Das Bild konnte nicht geladen werden (%1).</translation>
     </message>
@@ -11527,7 +11527,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+554"/>
+        <location filename="../qml/MainScreen.qml" line="+570"/>
         <source>Resize room list</source>
         <translation>Raumliste in der Größe ändern</translation>
     </message>
@@ -19072,7 +19072,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Unterhaltungen</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+125"/>
         <source>In a call</source>
         <translation>In einem Anruf</translation>
     </message>
@@ -19082,18 +19082,18 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Einladungen</translation>
     </message>
     <message>
-        <location line="-121"/>
-        <location line="+123"/>
+        <location line="-129"/>
+        <location line="+131"/>
         <source>Favourites</source>
         <translation>Favoriten</translation>
     </message>
     <message>
-        <location line="-122"/>
+        <location line="-130"/>
         <source>Archived</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+132"/>
         <source>Low priority</source>
         <translation>Niedrige Priorität</translation>
     </message>
@@ -27241,7 +27241,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dialoge</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+60"/>
         <source>Select the previous item or Settings section</source>
         <translation>Vorherigen Eintrag oder Einstellungsbereich auswählen</translation>
     </message>
@@ -27336,7 +27336,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Solange die Zeitleiste den Fokus hat, wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
-        <location line="-731"/>
+        <location line="-737"/>
         <source>Application</source>
         <translation>Anwendung</translation>
     </message>
@@ -27424,6 +27424,16 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+3"/>
         <source>Go forward to the next conversation</source>
         <translation>Zur nächsten Unterhaltung vorwärts gehen</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the next conversation in the list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the previous conversation in the list</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27837,12 +27847,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Solange das Nachrichtenfeld den Fokus hat, wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
-        <location line="-737"/>
+        <location line="-743"/>
         <source>Settings navigation</source>
         <translation>Navigation in den Einstellungen</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+69"/>
         <source>Open the previous Settings page</source>
         <translation>Vorherige Einstellungsseite öffnen</translation>
     </message>

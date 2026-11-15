@@ -1013,7 +1013,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7199"/>
+        <location filename="../src/app/AppController.cpp" line="+7245"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1134,7 +1134,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Llamada entrante</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5561"/>
+        <location filename="../src/app/AppController.cpp" line="-5607"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>El cierre de sesión se canceló porque la cuenta cambió. No se restableció nada.</translation>
     </message>
@@ -1186,13 +1186,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4151"/>
+        <location line="+4197"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Sin conexión</translation>
     </message>
     <message>
-        <location line="-4999"/>
+        <location line="-5045"/>
         <source>Connecting…</source>
         <translation>Conectando…</translation>
     </message>
@@ -1253,24 +1253,24 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2956"/>
+        <location line="+3002"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning no pudo leer el archivo seleccionado.</translation>
     </message>
     <message>
-        <location line="-2962"/>
+        <location line="-3008"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ya hay una importación de claves de sala en curso.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3932"/>
+        <location line="+3978"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3930"/>
+        <location line="-3976"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
@@ -1392,14 +1392,14 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1740"/>
+        <location line="+1786"/>
         <location line="+41"/>
         <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Esta compilación no incluye el backend del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="-1681"/>
+        <location line="-1727"/>
         <source>Choose a local image file.</source>
         <translation>Elige un archivo de imagen local.</translation>
     </message>
@@ -1459,7 +1459,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Elige un archivo de este equipo.</translation>
     </message>
     <message>
-        <location line="+328"/>
+        <location line="+374"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>No se pudo cargar la imagen (%1).</translation>
     </message>
@@ -11527,7 +11527,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+554"/>
+        <location filename="../qml/MainScreen.qml" line="+570"/>
         <source>Resize room list</source>
         <translation>Cambiar el tamaño de la lista de salas</translation>
     </message>
@@ -19052,12 +19052,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+181"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+189"/>
         <source>Invites</source>
         <translation>Invitaciones</translation>
     </message>
     <message>
-        <location line="-124"/>
+        <location line="-132"/>
         <source>People</source>
         <translation>Personas</translation>
     </message>
@@ -19077,23 +19077,23 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Conversaciones</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+125"/>
         <source>In a call</source>
         <translation>En una llamada</translation>
     </message>
     <message>
-        <location line="-119"/>
-        <location line="+123"/>
+        <location line="-127"/>
+        <location line="+131"/>
         <source>Favourites</source>
         <translation>Favoritos</translation>
     </message>
     <message>
-        <location line="-122"/>
+        <location line="-130"/>
         <source>Archived</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+132"/>
         <source>Low priority</source>
         <translation>Prioridad baja</translation>
     </message>
@@ -27241,7 +27241,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Diálogos</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+60"/>
         <source>Select the previous item or Settings section</source>
         <translation>Seleccionar el elemento o la sección de ajustes anterior</translation>
     </message>
@@ -27336,7 +27336,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Mientras la línea de tiempo tiene el foco, se ejecuta «%1» en su lugar.</translation>
     </message>
     <message>
-        <location line="-731"/>
+        <location line="-737"/>
         <source>Application</source>
         <translation>Solicitud</translation>
     </message>
@@ -27424,6 +27424,16 @@ Nota: importar claves no verifica esta sesión.</translation>
         <location line="+3"/>
         <source>Go forward to the next conversation</source>
         <translation>Ir a la conversación siguiente</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the next conversation in the list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the previous conversation in the list</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27837,12 +27847,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Mientras el cuadro de mensaje tiene el foco, se ejecuta &quot;%1&quot;.</translation>
     </message>
     <message>
-        <location line="-737"/>
+        <location line="-743"/>
         <source>Settings navigation</source>
         <translation>Navegación por los ajustes</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+69"/>
         <source>Open the previous Settings page</source>
         <translation>Abrir la página de ajustes anterior</translation>
     </message>

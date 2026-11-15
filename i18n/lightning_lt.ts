@@ -1023,7 +1023,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7199"/>
+        <location filename="../src/app/AppController.cpp" line="+7245"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1145,7 +1145,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Įeinantis skambutis</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5561"/>
+        <location filename="../src/app/AppController.cpp" line="-5607"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Atsijungimas atšauktas, nes paskyra pasikeitė. Nieko iš naujo nenustatyta.</translation>
     </message>
@@ -1197,13 +1197,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4151"/>
+        <location line="+4197"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-4999"/>
+        <location line="-5045"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -1264,24 +1264,24 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2956"/>
+        <location line="+3002"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-2962"/>
+        <location line="-3008"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3932"/>
+        <location line="+3978"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3930"/>
+        <location line="-3976"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
@@ -1403,14 +1403,14 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1740"/>
+        <location line="+1786"/>
         <location line="+41"/>
         <location line="+189"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Šioje versijoje nėra Rust SDK posistemės.</translation>
     </message>
     <message>
-        <location line="-1681"/>
+        <location line="-1727"/>
         <source>Choose a local image file.</source>
         <translation>Pasirinkite vietinį vaizdo failą.</translation>
     </message>
@@ -1470,7 +1470,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Pasirinkite failą šiame kompiuteryje.</translation>
     </message>
     <message>
-        <location line="+328"/>
+        <location line="+374"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Nepavyko įkelti vaizdo (%1).</translation>
     </message>
@@ -11565,7 +11565,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+554"/>
+        <location filename="../qml/MainScreen.qml" line="+570"/>
         <source>Resize room list</source>
         <translation>Keisti kambarių sąrašo dydį</translation>
     </message>
@@ -19118,12 +19118,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+181"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+189"/>
         <source>Invites</source>
         <translation>Kvietimai</translation>
     </message>
     <message>
-        <location line="-124"/>
+        <location line="-132"/>
         <source>People</source>
         <translation>Žmonės</translation>
     </message>
@@ -19143,23 +19143,23 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Pokalbiai</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+125"/>
         <source>In a call</source>
         <translation>Dalyvauja skambutyje</translation>
     </message>
     <message>
-        <location line="-119"/>
-        <location line="+123"/>
+        <location line="-127"/>
+        <location line="+131"/>
         <source>Favourites</source>
         <translation>Mėgstamiausi</translation>
     </message>
     <message>
-        <location line="-122"/>
+        <location line="-130"/>
         <source>Archived</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+132"/>
         <source>Low priority</source>
         <translation>Žemas prioritetas</translation>
     </message>
@@ -27334,7 +27334,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Dialogai</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+60"/>
         <source>Select the previous item or Settings section</source>
         <translation>Pasirinkti ankstesnį elementą arba nustatymų skiltį</translation>
     </message>
@@ -27429,7 +27429,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kol fokusas yra laiko juostoje, vietoj to vykdoma „%1“.</translation>
     </message>
     <message>
-        <location line="-731"/>
+        <location line="-737"/>
         <source>Application</source>
         <translation>Taikymas</translation>
     </message>
@@ -27517,6 +27517,16 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+3"/>
         <source>Go forward to the next conversation</source>
         <translation>Pereiti į kitą pokalbį</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the next conversation in the list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Go to the previous conversation in the list</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27930,12 +27940,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kol žinučių laukelis yra sufokusuotas, vietoj jo veikia „%1“.</translation>
     </message>
     <message>
-        <location line="-737"/>
+        <location line="-743"/>
         <source>Settings navigation</source>
         <translation>Naršymas nustatymuose</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+69"/>
         <source>Open the previous Settings page</source>
         <translation>Atverti ankstesnį nustatymų puslapį</translation>
     </message>
