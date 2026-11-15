@@ -286,6 +286,13 @@ Popup {
         flick.contentY = Math.max(0, Math.min(holderH - flick.height,
             off1y + uy * newZoom - viewportPoint.y))
     }
+    // The wheel and pinch never zoom out past fit; the buttons and keys still can.
+    function gestureZoomAt(viewportPoint, factor) {
+        var z = zoom * factor
+        if (factor < 1)
+            z = Math.max(z, Math.min(1.0, zoom))
+        zoomAt(viewportPoint, Math.abs(z - 1.0) < 0.001 ? 1.0 : z)
+    }
     function zoomStep(factor) {
         zoomAt(Qt.point(flick.width / 2, flick.height / 2), zoom * factor)
     }
@@ -545,13 +552,22 @@ Popup {
 
                 WheelHandler {
                     target: null
+                    // Qt's Wayland plugin can report every pointer, the mouse included,
+                    // as a TouchPad; Mouse alone left the wheel dead there.
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     onWheel: (event) => {
-                        var wantsZoom = !flick.interactive
-                                || (event.modifiers & Qt.ControlModifier)
-                        if (wantsZoom) {
-                            const factor = event.angleDelta.y > 0 ? 1.2 : 1 / 1.2
-                            viewer.zoomAt(Qt.point(event.x, event.y),
-                                          viewer.zoom * factor)
+                        // A touchpad reports pixels and pans; a vertical mouse wheel zooms.
+                        const touchpad = event.pixelDelta.x !== 0
+                                       || event.pixelDelta.y !== 0
+                        if ((event.modifiers & Qt.ControlModifier)
+                                || (!touchpad && event.angleDelta.y !== 0
+                                    && !(event.modifiers & Qt.ShiftModifier))) {
+                            const steps = (touchpad ? event.pixelDelta.y
+                                                    : event.angleDelta.y) / 120
+                            // event.x/y are content coordinates here, not the viewport's.
+                            viewer.gestureZoomAt(
+                                flick.mapFromItem(null, point.scenePosition),
+                                Math.pow(1.2, steps))
                             return
                         }
                         var dx = event.pixelDelta.x !== 0
@@ -573,6 +589,15 @@ Popup {
                             0, Math.min(flick.contentHeight - flick.height,
                                         flick.contentY - dy))
                     }
+                }
+                PinchHandler {
+                    target: null
+                    property real startZoom: 1.0
+                    onActiveChanged: if (active) startZoom = viewer.zoom
+                    onActiveScaleChanged: if (active)
+                        viewer.gestureZoomAt(
+                            flick.mapFromItem(null, centroid.scenePosition),
+                            startZoom * activeScale / viewer.zoom)
                 }
             }
 
@@ -775,7 +800,9 @@ Popup {
                 objectName: "viewerThumbnailWheel"
                 target: null
                 acceptedModifiers: Qt.NoModifier
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 property real residual: 0
+                property real angleResidual: 0
                 onWheel: (event) => {
                     var px = event.pixelDelta.x !== 0 ? event.pixelDelta.x
                                                       : event.pixelDelta.y
@@ -787,7 +814,9 @@ Popup {
                         cells = Math.trunc(residual / thumbStrip.cell)
                         residual -= cells * thumbStrip.cell
                     } else {
-                        cells = Math.round(d / 120)
+                        angleResidual += d
+                        cells = Math.trunc(angleResidual / 120)
+                        angleResidual -= cells * 120
                     }
                     var maxX = thumbStrip.contentWidth - thumbStrip.width
                                + thumbStrip.originX

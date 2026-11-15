@@ -67,6 +67,17 @@ ApplicationWindow {
     }
     function zoomNow() { return viewer.zoom }
     function setZoom(z) { viewer.zoom = z }
+    function fitView() { viewer.fitView() }
+    function maxZoom() { return viewer.maxZoom }
+    // The picture point, in fit-scale units, under a window position.
+    function imagePointAt(sx, sy) {
+        var f = flickOf()
+        var p = f.mapFromItem(null, sx, sy)
+        var offX = Math.max(0, (f.width - viewer.baseWidth * viewer.zoom) / 2)
+        var offY = Math.max(0, (f.height - viewer.baseHeight * viewer.zoom) / 2)
+        return Qt.point((f.contentX + p.x - offX) / viewer.zoom,
+                        (f.contentY + p.y - offY) / viewer.zoom)
+    }
     // The production entry point the Image's onStatusChanged uses.
     function fitTo(w, h) { viewer.fitImage(w, h); viewer.zoom = 4.0 }
     // Park the viewport in the MIDDLE of its range, so a move in either
@@ -712,7 +723,191 @@ private Q_SLOTS:
         QCOMPARE(call("contentY").toReal(), y0 + 40.0);
     }
 
+    void theWheelZoomsInAndBackOutToFitInBothModes()
+    {
+        openZoomFixture();
+        const QPointF at(m_window->width() / 2.0 + 60,
+                         m_window->height() / 2.0 - 40);
+        for (Qt::KeyboardModifiers mods : { Qt::KeyboardModifiers(Qt::NoModifier),
+                                            Qt::KeyboardModifiers(Qt::ControlModifier) }) {
+            QMetaObject::invokeMethod(m_root, "fitView");
+            QCoreApplication::processEvents();
+            QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+            QTest::wheelEvent(m_window, at, QPoint(0, 120), QPoint(), mods);
+            QTest::wheelEvent(m_window, at, QPoint(0, 120), QPoint(), mods);
+            QTRY_VERIFY(qFuzzyCompare(call("zoomNow").toReal(), 1.44));
+            QTest::wheelEvent(m_window, at, QPoint(0, -120), QPoint(), mods);
+            QTRY_VERIFY2(qFuzzyCompare(call("zoomNow").toReal(), 1.2),
+                         "the wheel did not zoom back out once zoomed in");
+            for (int i = 0; i < 3; ++i)
+                QTest::wheelEvent(m_window, at, QPoint(0, -120), QPoint(), mods);
+            QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+            QCOMPARE(call("contentX").toReal(), 0.0);
+            QCOMPARE(call("contentY").toReal(), 0.0);
+            QVERIFY2(!call("pannable").toBool(), "fit did not recentre");
+        }
+    }
+
+    void theWheelZoomKeepsThePointUnderTheCursor()
+    {
+        openZoomFixture();
+        QVERIFY(QMetaObject::invokeMethod(m_root, "setZoom",
+                                          Q_ARG(QVariant, QVariant(3.0))));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("pannable").toBool());
+        QVERIFY(call("centreContent").toBool());
+        QCoreApplication::processEvents();
+        const QPointF at(m_window->width() / 2.0 + 120,
+                         m_window->height() / 2.0 - 90);
+        for (int delta : { -120, -120, 120 }) {
+            QVariant before;
+            QMetaObject::invokeMethod(m_root, "imagePointAt",
+                                      Q_RETURN_ARG(QVariant, before),
+                                      Q_ARG(QVariant, at.x()), Q_ARG(QVariant, at.y()));
+            const qreal z0 = call("zoomNow").toReal();
+            QTest::wheelEvent(m_window, at, QPoint(0, delta));
+            QTRY_VERIFY(call("zoomNow").toReal() != z0);
+            QVariant after;
+            QMetaObject::invokeMethod(m_root, "imagePointAt",
+                                      Q_RETURN_ARG(QVariant, after),
+                                      Q_ARG(QVariant, at.x()), Q_ARG(QVariant, at.y()));
+            const QPointF b = before.toPointF();
+            const QPointF a = after.toPointF();
+            QVERIFY2(qAbs(a.x() - b.x()) < 0.5 && qAbs(a.y() - b.y()) < 0.5,
+                     qPrintable(QStringLiteral("(%1,%2) moved to (%3,%4)")
+                                    .arg(b.x()).arg(b.y()).arg(a.x()).arg(a.y())));
+        }
+    }
+
+    void theWheelStopsAtTheMaximumZoom()
+    {
+        openZoomFixture();
+        const qreal max = call("maxZoom").toReal();
+        QVERIFY(QMetaObject::invokeMethod(m_root, "setZoom",
+                                          Q_ARG(QVariant, QVariant(max / 1.1))));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("pannable").toBool());
+        const QPointF centre(m_window->width() / 2.0, m_window->height() / 2.0);
+        for (int i = 0; i < 3; ++i)
+            QTest::wheelEvent(m_window, centre, QPoint(0, 120));
+        QTRY_COMPARE(call("zoomNow").toReal(), max);
+    }
+
+    void aTouchpadScrollPansAndNeverZooms()
+    {
+        openZoomFixture();
+        QMetaObject::invokeMethod(m_root, "fitView");
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+        const QPointF centre(m_window->width() / 2.0, m_window->height() / 2.0);
+        QTest::wheelEvent(m_window, centre, QPoint(0, 0), QPoint(0, 30));
+        QCoreApplication::processEvents();
+        QCOMPARE(call("zoomNow").toReal(), 1.0);
+
+        QVERIFY(QMetaObject::invokeMethod(m_root, "setZoom",
+                                          Q_ARG(QVariant, QVariant(3.0))));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("pannable").toBool());
+        QVERIFY(call("centreContent").toBool());
+        QCoreApplication::processEvents();
+        const qreal y0 = call("contentY").toReal();
+        QTest::wheelEvent(m_window, centre, QPoint(0, 0), QPoint(0, -30));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(call("contentY").toReal(), y0 + 30.0);
+        QCOMPARE(call("zoomNow").toReal(), 3.0);
+    }
+
+    void aHighResolutionWheelZoomsInSmallSteps()
+    {
+        openZoomFixture();
+        QMetaObject::invokeMethod(m_root, "fitView");
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+        const QPointF centre(m_window->width() / 2.0, m_window->height() / 2.0);
+        for (int i = 0; i < 8; ++i)
+            QTest::wheelEvent(m_window, centre, QPoint(0, 15));
+        QTRY_VERIFY2(qFuzzyCompare(call("zoomNow").toReal(), 1.2),
+                     qPrintable(QStringLiteral("eight 15-unit steps reached %1, not "
+                                               "one notch").arg(call("zoomNow").toReal())));
+        for (int i = 0; i < 8; ++i)
+            QTest::wheelEvent(m_window, centre, QPoint(0, -15));
+        QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+    }
+
+    // Qt's Wayland plugin hands a mouse wheel to Qt Quick from a TouchPad device
+    // when the compositor offers pointer gestures (KDE Plasma does).
+    void aWheelFromAWaylandStyleTouchPadDeviceStillZooms()
+    {
+        openZoomFixture();
+        QMetaObject::invokeMethod(m_root, "fitView");
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+        static QPointingDevice *pad =
+            QTest::createTouchDevice(QInputDevice::DeviceType::TouchPad);
+        const QPointF centre(m_window->width() / 2.0, m_window->height() / 2.0);
+        const auto send = [&](int dy) {
+            QWheelEvent ev(centre, m_window->mapToGlobal(centre), QPoint(),
+                           QPoint(0, dy), Qt::NoButton, Qt::NoModifier,
+                           Qt::NoScrollPhase, false, Qt::MouseEventNotSynthesized,
+                           pad);
+            QCoreApplication::sendEvent(m_window, &ev);
+            QCoreApplication::processEvents();
+        };
+        send(120);
+        QTRY_VERIFY2(qFuzzyCompare(call("zoomNow").toReal(), 1.2),
+                     "a wheel from a TouchPad-typed device did not zoom at fit");
+        send(-120);
+        QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+    }
+
+    void aWheelFromATouchPadTypedDeviceStepsTheStripByWholeCells()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(40))),
+            Q_ARG(QVariant, QVariant(0))));
+        QQuickItem *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY(strip);
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        QTRY_VERIFY(!strip->property("moving").toBool());
+        const qreal cell = strip->property("cell").toReal();
+        const qreal x0 = strip->property("contentX").toReal();
+        const qreal zoom0 = call("zoomNow").toReal();
+        static QPointingDevice *pad =
+            QTest::createTouchDevice(QInputDevice::DeviceType::TouchPad);
+        const QPointF at = strip->mapToScene(
+            QPointF(strip->width() / 2, strip->height() / 2));
+        const auto send = [&](int dy) {
+            QWheelEvent ev(at, m_window->mapToGlobal(at), QPoint(), QPoint(0, dy),
+                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false,
+                           Qt::MouseEventNotSynthesized, pad);
+            QCoreApplication::sendEvent(m_window, &ev);
+            QCoreApplication::processEvents();
+        };
+        send(-120);
+        QCOMPARE(strip->property("contentX").toReal(), x0 + cell);
+        // A high-resolution wheel's eighth-notches add up to one cell.
+        for (int i = 0; i < 8; ++i)
+            send(-15);
+        QCOMPARE(strip->property("contentX").toReal(), x0 + 2 * cell);
+        QCOMPARE(call("zoomNow").toReal(), zoom0);
+    }
+
 private:
+    void openZoomFixture()
+    {
+        const QVariantList history = { historyEntry(QStringLiteral("$a")),
+                                       historyEntry(QStringLiteral("$b")) };
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(call("isOpen").toBool());
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "fitTo", Q_ARG(QVariant, QVariant(4000)),
+            Q_ARG(QVariant, QVariant(4000))));
+        QCoreApplication::processEvents();
+    }
+
     QTemporaryDir m_configHome;
 };
 
