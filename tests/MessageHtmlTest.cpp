@@ -639,6 +639,24 @@ private Q_SLOTS:
                  QStringLiteral("<a href=\"https://example.com/x\">site</a>"));
     }
 
+    void matrixUriLinksSurviveAndAUserOneBecomesAMention()
+    {
+        const QString room = QStringLiteral(
+            "<a href=\"matrix:roomid/abc:example.org/e/def?via=example.org\">msg</a>");
+        QCOMPARE(sanitize(room).count(QStringLiteral("<a href=\"matrix:roomid/")), 1);
+        const QString alias = sanitize(QStringLiteral(
+            "<a href=\"matrix:r/general:example.org\">room</a>"));
+        QVERIFY2(alias.contains(QStringLiteral("<a href=\"matrix:r/general:example.org\"")),
+                 qPrintable(alias));
+        const QString user = sanitize(QStringLiteral(
+            "<a href=\"matrix:u/bob:example.org\">Bob</a> hey"));
+        QVERIFY2(user.contains(QStringLiteral("<a href=\"mention:@bob:example.org\"")),
+                 qPrintable(user));
+        const QString bogus = sanitize(QStringLiteral(
+            "<a href=\"matrix://evil.example/r/x\">x</a>"));
+        QVERIFY2(!bogus.contains(QStringLiteral("<a ")), qPrintable(bogus));
+    }
+
     void aBareUrlInAFormattedBodyBecomesALink()
     {
         const QString out = sanitize(QStringLiteral(

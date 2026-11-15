@@ -383,6 +383,16 @@ bool isSafeHttp(const QUrl &url)
         && url.userInfo().isEmpty();
 }
 
+// matrix: URIs (MSC2312) open in-app; only the room and event forms reach here.
+bool isMatrixUri(const QUrl &url)
+{
+    if (!url.isValid() || url.scheme().compare(QLatin1String("matrix"), Qt::CaseInsensitive) != 0
+        || !url.host().isEmpty())
+        return false;
+    const QString path = url.path();
+    return path.startsWith(QLatin1String("r/")) || path.startsWith(QLatin1String("roomid/"));
+}
+
 QString matrixToUserId(const QString &href)
 {
     const QUrl u(href);
@@ -967,7 +977,7 @@ QString MessageHtml::sanitize(
             }
             const QString href = extractHref(t.raw);
             const bool coveredSpoiler = !revealSpoilers && spanIsSpoiler.contains(true);
-            const QString mentionUser = matrixToUserId(href);
+            const QString mentionUser = MessageHtml::userIdFromLink(href);
             if (!mentionUser.isEmpty() && coveredSpoiler) {
                 QString disp =
                     resolveDisplayName ? resolveDisplayName(mentionUser) : QString();
@@ -1028,7 +1038,7 @@ QString MessageHtml::sanitize(
                 continue;
             }
             const QUrl u(href);
-            if (isSafeHttp(u)) {
+            if (isSafeHttp(u) || isMatrixUri(u)) {
                 const QString linkInk = mentionStyle.linkColor.isEmpty()
                     ? mentionStyle.accentColor
                     : mentionStyle.linkColor;
