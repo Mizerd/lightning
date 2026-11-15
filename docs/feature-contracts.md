@@ -1813,7 +1813,11 @@ advice) by `rust/src/profilefields.rs` and `ProfileFieldsManager`
   "Not set" deletes both. The profile card shows `Local time 14:32 (UTC+2)`,
   refreshed while open, in the user's clock format. A name must have the shape
   of an IANA zone (Rust) and be in Qt's zone list (C++) before it is used or
-  sent; anything else is treated as not set.
+  sent; anything else is treated as not set. Qt also lists fixed offsets
+  (`UTC+05:30`); those are not IANA names and are not offered. With no zone
+  database (Qt reads `TZDIR`, then `/usr/share/zoneinfo`; 6.8.2 and 6.11 are
+  the same here) the picker is replaced by a note and no local time is shown;
+  `--build-info` prints `iana_time_zones: N` so a package can be asked.
 - **Pronouns (MSC4247).** Read `m.pronouns`, then `io.fsky.nyx.pronouns`; write
   the unstable key in Sable's shape (`[{summary, language}]`, summary at most
   16 characters, at most four sets). The editor takes `she/her, de:sie/ihr`.

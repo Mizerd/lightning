@@ -67,6 +67,8 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
+
+#include "profile/ProfileFieldsManager.h"
 #include <QAudioDevice>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
@@ -420,6 +422,9 @@ QString buildInfoString()
 #endif
     out += QStringLiteral("secret_store: %1\n").arg(secretStore);
     out += QStringLiteral("artifact_kind: %1\n").arg(QLatin1String(LIGHTNING_ARTIFACT_KIND));
+    // 0 means Qt found no zone database, so no profile shows a local time.
+    out += QStringLiteral("iana_time_zones: %1\n")
+        .arg(ProfileFieldsManager::ianaZoneCount());
     return out;
 }
 
@@ -514,7 +519,8 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "  -v, --version        Show version and exit.\n"
                 "  --build-info         Print non-secret build metadata (version,\n"
                 "                       source, target, backends, default backend,\n"
-                "                       secret store, artifact kind) and exit.\n"
+                "                       secret store, artifact kind, IANA time zone\n"
+                "                       count) and exit.\n"
                 "  --log-file PATH      Mirror the diagnostic log to PATH as well as\n"
                 "                       the console. Use this to capture a log from a\n"
                 "                       packaged build: --console reopens stdout onto\n"

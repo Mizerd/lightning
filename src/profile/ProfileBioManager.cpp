@@ -50,8 +50,18 @@ void ProfileBioManager::request(const QString &userId)
         return;
     if (m_asked.contains(userId))
         return;
-    if (m_cache.size() >= kMaxCached)
-        return;
+    // At the cap the longest-held answer gives way, never this account's own.
+    if (m_cache.size() >= kMaxCached) {
+        const QString own = m_client->currentUserId();
+        for (qsizetype i = 0; i < m_order.size(); ++i) {
+            if (m_order.at(i) == own)
+                continue;
+            const QString oldest = m_order.takeAt(i);
+            m_cache.remove(oldest);
+            m_asked.remove(oldest);
+            break;
+        }
+    }
     m_asked.insert(userId);
     const quint64 opId = m_nextOpId++;
     m_inFlight.insert(opId, userId);
@@ -87,6 +97,8 @@ void ProfileBioManager::cache(const QString &userId, const QString &bio)
         return;
     const QString previous = m_cache.value(userId);
     const bool existed = m_cache.contains(userId);
+    if (!existed)
+        m_order.append(userId);
     m_cache.insert(userId, bio);
     if (existed && previous == bio)
         return;
@@ -135,6 +147,7 @@ void ProfileBioManager::handleSet(quint64 opId, bool ok, const QString &bio,
 void ProfileBioManager::clearSession()
 {
     m_cache.clear();
+    m_order.clear();
     m_asked.clear();
     m_inFlight.clear();
     m_pendingWrite = 0;

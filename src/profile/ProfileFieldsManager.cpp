@@ -4,14 +4,33 @@
 #include <QSet>
 #include <QTimeZone>
 
+#include <algorithm>
+
 namespace {
 
-const QSet<QByteArray> &knownZones()
+// Mirrors tz_shape in rust/src/profilefields.rs.
+bool hasZoneShape(const QByteArray &id)
 {
-    static const QSet<QByteArray> zones = [] {
-        const QList<QByteArray> ids = QTimeZone::availableTimeZoneIds();
-        return QSet<QByteArray>(ids.cbegin(), ids.cend());
-    }();
+    if (id.isEmpty() || id.size() > 64 || id.startsWith('/') || id.endsWith('/')
+            || id.contains("//"))
+        return false;
+    return std::all_of(id.cbegin(), id.cend(), [](char ch) {
+        return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+            || (ch >= '0' && ch <= '9') || ch == '_' || ch == '+' || ch == '-'
+            || ch == '/';
+    });
+}
+
+const QStringList &zoneList()
+{
+    static const QStringList zones =
+        ProfileFieldsManager::writableZones(QTimeZone::availableTimeZoneIds());
+    return zones;
+}
+
+const QSet<QString> &knownZones()
+{
+    static const QSet<QString> zones(zoneList().cbegin(), zoneList().cend());
     return zones;
 }
 
@@ -51,17 +70,36 @@ bool ProfileFieldsManager::available() const
 // on Linux the zone database is a directory and the name is a path into it.
 bool ProfileFieldsManager::isKnownTimezone(const QString &zoneId)
 {
-    return !zoneId.isEmpty() && knownZones().contains(zoneId.toLatin1());
+    return knownZones().contains(zoneId);
+}
+
+QStringList ProfileFieldsManager::writableZones(const QList<QByteArray> &ids)
+{
+    QStringList zones;
+    for (const QByteArray &id : ids) {
+        if (hasZoneShape(id))
+            zones.append(QString::fromLatin1(id));
+    }
+    zones.sort();
+    zones.removeDuplicates();
+    return zones;
+}
+
+int ProfileFieldsManager::ianaZoneCount()
+{
+    return ianaZoneCount(zoneList());
+}
+
+int ProfileFieldsManager::ianaZoneCount(const QStringList &zones)
+{
+    return int(std::count_if(zones.cbegin(), zones.cend(), [](const QString &id) {
+        return id.contains(QLatin1Char('/'));
+    }));
 }
 
 QStringList ProfileFieldsManager::timezones() const
 {
-    QStringList ids;
-    ids.reserve(knownZones().size());
-    for (const QByteArray &id : knownZones())
-        ids.append(QString::fromLatin1(id));
-    ids.sort();
-    return ids;
+    return zoneList();
 }
 
 QString ProfileFieldsManager::systemTimezone() const
@@ -133,12 +171,27 @@ void ProfileFieldsManager::request(const QString &userId)
     const auto asked = m_askedAt.constFind(userId);
     if (asked != m_askedAt.constEnd() && now - *asked < kFreshSeconds)
         return;
-    if (m_cache.size() >= kMaxCached && !m_cache.contains(userId))
-        return;
+    makeRoomFor(userId);
     m_askedAt.insert(userId, now);
     const quint64 opId = m_nextOpId++;
     m_inFlight.insert(opId, userId);
     m_client->fetchProfileFields(userId, opId);
+}
+
+// At the cap the longest-held answer gives way, never this account's own.
+void ProfileFieldsManager::makeRoomFor(const QString &userId)
+{
+    if (m_cache.size() < kMaxCached || m_cache.contains(userId))
+        return;
+    const QString own = m_client ? m_client->currentUserId() : QString();
+    for (qsizetype i = 0; i < m_order.size(); ++i) {
+        if (m_order.at(i) == own)
+            continue;
+        const QString oldest = m_order.takeAt(i);
+        m_cache.remove(oldest);
+        m_askedAt.remove(oldest);
+        return;
+    }
 }
 
 void ProfileFieldsManager::requestOwn()
@@ -199,6 +252,8 @@ void ProfileFieldsManager::handleReceived(quint64 opId, const QString &userId,
         m_canEditTimezone = tz;
         m_canEditPronouns = pronouns;
     }
+    if (!m_cache.contains(userId))
+        m_order.append(userId);
     m_cache.insert(userId, cleaned);
     if (!changed)
         return;
@@ -234,6 +289,7 @@ void ProfileFieldsManager::handleSet(quint64 opId, bool ok, const QString &name,
 void ProfileFieldsManager::clearSession()
 {
     m_cache.clear();
+    m_order.clear();
     m_askedAt.clear();
     m_inFlight.clear();
     m_pendingWrite = 0;

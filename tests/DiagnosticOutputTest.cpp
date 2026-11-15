@@ -1,3 +1,4 @@
+#include <QRegularExpression>
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -160,6 +161,15 @@ private Q_SLOTS:
         QVERIFY(QFile::exists(path));
         QVERIFY2(r.out.contains(QStringLiteral("version:")),
                  qUtf8Printable("--build-info printed nothing useful:\n" + r.out));
+    }
+
+    void buildInfoSaysHowManyTimeZonesThisInstallCanSee()
+    {
+        const Run r = run({ QStringLiteral("--build-info") });
+        QCOMPARE(r.exitCode, 0);
+        const auto m = QRegularExpression(QStringLiteral("(?m)^iana_time_zones: (\\d+)$"))
+                           .match(r.out);
+        QVERIFY2(m.hasMatch(), qUtf8Printable(r.out));
     }
 
     void theLogFilePathIsNotItselfParsedAsAFlag()

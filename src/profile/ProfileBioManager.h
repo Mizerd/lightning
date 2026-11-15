@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 
 #include "matrix/MatrixClient.h"
 
@@ -62,6 +63,7 @@ private:
     MatrixClient *m_client = nullptr;
     QHash<QString, QString> m_cache;
     QSet<QString> m_asked;
+    QStringList m_order;
     QHash<quint64, QString> m_inFlight;
     quint64 m_nextOpId = 1;
     quint64 m_pendingWrite = 0;

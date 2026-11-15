@@ -71,6 +71,31 @@ private Q_SLOTS:
     // A user with no bio answers M_NOT_FOUND (supported == true, empty
     // string), which must not look like a server without extended profiles:
     // that hides the editing surface.
+    void aFullCacheGivesUpItsOldestBioAndKeepsThisAccounts()
+    {
+        FakeBioClient client;
+        ProfileBioManager bios;
+        bios.setClient(&client);
+        bios.request(client.self);
+        Q_EMIT client.profileBioReceived(client.fetches.last().opId, client.self,
+                                         QStringLiteral("mine"), true);
+        const auto user = [](int i) {
+            return QStringLiteral("@u%1:example.org").arg(i);
+        };
+        for (int i = 0; i < 300; ++i) {
+            bios.request(user(i));
+            QCOMPARE(client.fetches.last().userId, user(i));
+            Q_EMIT client.profileBioReceived(client.fetches.last().opId, user(i),
+                                             QStringLiteral("bio"), true);
+        }
+        QCOMPARE(bios.bioFor(user(299)), QStringLiteral("bio"));
+        QCOMPARE(bios.bioFor(user(0)), QString());
+        QCOMPARE(bios.ownBio(), QStringLiteral("mine"));
+        const int before = client.fetches.size();
+        bios.request(user(0));
+        QCOMPARE(client.fetches.size(), before + 1);
+    }
+
     void anAbsentBioIsNotAnUnsupportedServer()
     {
         FakeBioClient client;

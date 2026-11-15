@@ -24,6 +24,7 @@ class ProfileFieldsManager : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QStringList timezones READ timezones CONSTANT)
+    Q_PROPERTY(bool timezonesAvailable READ timezonesAvailable CONSTANT)
     Q_PROPERTY(QString systemTimezone READ systemTimezone CONSTANT)
 
 public:
@@ -40,6 +41,7 @@ public:
     bool canEditTimezone() const { return m_canEditTimezone; }
     bool canEditPronouns() const { return m_canEditPronouns; }
     QStringList timezones() const;
+    bool timezonesAvailable() const { return ianaZoneCount() > 0; }
     QString systemTimezone() const;
 
     Q_INVOKABLE QVariantMap fieldsFor(const QString &userId) const;
@@ -51,6 +53,12 @@ public:
     Q_INVOKABLE void setOwnTimezone(const QString &zoneId);
     Q_INVOKABLE void setOwnPronouns(const QString &text);
 
+    // The ids that can be published: Qt also lists fixed offsets such as
+    // "UTC+05:30", which are not IANA names and which the bridge refuses.
+    static QStringList writableZones(const QList<QByteArray> &ids);
+    // Region/City names. Without a zone database Qt still lists UTC.
+    static int ianaZoneCount(const QStringList &zones);
+    static int ianaZoneCount();
     static bool isKnownTimezone(const QString &zoneId);
     static QString offsetText(int offsetSeconds);
     static QString localTimeText(const QString &zoneId, const QDateTime &when,
@@ -70,6 +78,7 @@ private:
     void write(const QString &name, const QString &value);
     void clearSession();
     void setLastError(const QString &error);
+    void makeRoomFor(const QString &userId);
 
     static constexpr int kMaxCached = 256;
     // MSC4175 recommends caching a zone for 12 to 24 hours.
@@ -78,6 +87,7 @@ private:
     MatrixClient *m_client = nullptr;
     QHash<QString, QVariantMap> m_cache;
     QHash<QString, qint64> m_askedAt;
+    QStringList m_order;
     QHash<quint64, QString> m_inFlight;
     quint64 m_nextOpId = 1;
     quint64 m_pendingWrite = 0;

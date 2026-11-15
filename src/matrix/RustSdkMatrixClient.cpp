@@ -3928,8 +3928,10 @@ void RustSdkMatrixClient::fetchProfileFields(const QString &userId, quint64 opId
 void RustSdkMatrixClient::setProfileField(const QString &name,
                                           const QString &value, quint64 opId)
 {
-    if (!m_loggedIn || !m_rustHandle)
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT profileFieldSet(opId, false, name, QStringLiteral("rejected"));
         return;
+    }
     const QByteArray field = name.toUtf8();
     const QByteArray payload = value.toUtf8();
     const QString result = takeRustString(mx_rust_set_profile_field(

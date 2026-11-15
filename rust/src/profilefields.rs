@@ -48,7 +48,17 @@ fn clean_line(text: &str, max_chars: usize) -> String {
     let visible: String = text
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
-        .filter(|c| !matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'))
+        .filter(|c| {
+            !matches!(
+                c,
+                '\u{061C}'
+                    | '\u{200B}'..='\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2060}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{FEFF}'
+            )
+        })
         .collect();
     visible
         .split_whitespace()
@@ -235,6 +245,21 @@ pub(crate) fn plan_write(
     }
 }
 
+/// A value is published once any key holds it, but it is only gone when no
+/// key still does: a delete that leaves one behind keeps showing the old value.
+pub(crate) fn write_outcome(deleting: bool, results: &[Result<(), String>]) -> Result<(), String> {
+    let succeeded = results.iter().filter(|r| r.is_ok()).count();
+    let done = if deleting { succeeded == results.len() } else { succeeded > 0 };
+    if done {
+        return Ok(());
+    }
+    Err(results
+        .iter()
+        .rev()
+        .find_map(|r| r.as_ref().err().cloned())
+        .unwrap_or_default())
+}
+
 pub(crate) fn fetch_profile_fields(
     bridge: &RustClient,
     op_id: u64,
@@ -301,30 +326,29 @@ pub(crate) fn set_own_profile_field(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let mut last_error: Option<String> = None;
-        let mut wrote_any = false;
+        let mut results: Vec<Result<(), String>> = Vec::new();
         for field in keys {
             let answer = match &new_value {
                 Some(v) => profile_field::set_json(&client, uid.as_str(), field, v, TIMEOUT).await,
                 None => profile_field::delete(&client, uid.as_str(), field, TIMEOUT).await,
             };
-            match answer {
-                Ok(a) if (200..300).contains(&a.status) => wrote_any = true,
+            results.push(match answer {
+                Ok(a) if (200..300).contains(&a.status) => Ok(()),
                 Ok(a) if new_value.is_none() && a.status == 404 && !is_unsupported(&a.body) => {
-                    wrote_any = true
+                    Ok(())
                 }
-                Ok(a) => last_error = Some(a.body),
-                Err(text) => last_error = Some(text),
-            }
+                Ok(a) => Err(a.body),
+                Err(text) => Err(text),
+            });
         }
+        let outcome = write_outcome(new_value.is_none(), &results);
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        let category = if wrote_any {
-            ""
-        } else {
-            let text = last_error.unwrap_or_default();
-            if is_unsupported(&text) { "unsupported" } else { classify_room_error(&text) }
+        let category = match &outcome {
+            Ok(()) => "",
+            Err(text) if is_unsupported(text) => "unsupported",
+            Err(text) => classify_room_error(text),
         };
         enqueue(
             &events,
@@ -332,7 +356,7 @@ pub(crate) fn set_own_profile_field(
                 "type": "profile_field_set",
                 "op_id": op_id,
                 "lifecycle": lifecycle,
-                "ok": wrote_any,
+                "ok": outcome.is_ok(),
                 "name": name,
                 "category": category,
             }),
@@ -439,6 +463,23 @@ mod tests {
         );
         assert_eq!(f["pronouns"], "a b c");
         assert_eq!(f["animal_is"], "fox <b>");
+    }
+
+    #[test]
+    fn invisible_and_direction_characters_are_removed() {
+        let dirty = "a\u{061C}b\u{200B}c\u{200C}d\u{200D}e\u{2060}f\u{FEFF}g\u{200E}h\u{2067}i";
+        assert_eq!(clean_line(dirty, 64), "abcdefghi");
+    }
+
+    #[test]
+    fn a_delete_that_leaves_a_key_behind_is_a_failure() {
+        let failed = || Err::<(), String>("M_FORBIDDEN".to_owned());
+        assert_eq!(write_outcome(true, &[Ok(()), Ok(())]), Ok(()));
+        assert_eq!(write_outcome(true, &[Ok(()), failed()]), Err("M_FORBIDDEN".to_owned()));
+        assert_eq!(write_outcome(true, &[failed(), Ok(())]), Err("M_FORBIDDEN".to_owned()));
+        // A set is published as soon as one key carries it.
+        assert_eq!(write_outcome(false, &[Ok(()), failed()]), Ok(()));
+        assert_eq!(write_outcome(false, &[failed(), failed()]), Err("M_FORBIDDEN".to_owned()));
     }
 
     #[test]

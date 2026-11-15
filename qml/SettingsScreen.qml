@@ -8530,9 +8530,25 @@ Item {
                                         color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.settingsHintSize
                                     }
+                                    Label {
+                                        objectName: "ownTimezoneUnavailableNote"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
+                                        visible: !(app.profileFields
+                                                   && app.profileFields.timezonesAvailable)
+                                        text: qsTr("This device has no time zone list, so your time zone cannot be set here and local times are not shown.")
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.settingsHintSize
+                                    }
                                     RowLayout {
+                                        id: ownTimezoneRow
+                                        objectName: "ownTimezoneRow"
                                         Layout.fillWidth: true
                                         spacing: AppTheme.spacing8
+                                        visible: !!(app.profileFields
+                                                 && app.profileFields.timezonesAvailable)
                                         AppComboBox {
                                             id: ownTimezoneCombo
                                             objectName: "ownTimezoneCombo"

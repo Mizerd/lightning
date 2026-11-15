@@ -71,6 +71,20 @@ private Q_SLOTS:
         QCOMPARE(resets.count(), 0);
     }
 
+    void aProfileFieldWriteWithNoSessionStillReportsAResult()
+    {
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy finished(&client, &MatrixClient::profileFieldSet);
+        client.setProfileField(QStringLiteral("timezone"),
+                               QStringLiteral("Europe/Vilnius"), 7);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.at(0).at(0).toULongLong(), quint64(7));
+        QCOMPARE(finished.at(0).at(1).toBool(), false);
+        QCOMPARE(finished.at(0).at(2).toString(), QStringLiteral("timezone"));
+        QCOMPARE(finished.at(0).at(3).toString(), QStringLiteral("rejected"));
+    }
+
     void aRedactionRefusedBeforeTheTimelineIsLiveStillReportsAResult()
     {
         SettingsManager settings;

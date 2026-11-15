@@ -2,6 +2,7 @@
 #include "profile/ProfileFieldsManager.h"
 #include "ZoneDataForTests.h"
 
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTimeZone>
 #include <QtTest>
@@ -137,6 +138,61 @@ private Q_SLOTS:
         QVERIFY(zones.contains(QStringLiteral("Europe/Vilnius")));
         QVERIFY(zones.contains(QStringLiteral("America/New_York")));
         QVERIFY(std::is_sorted(zones.cbegin(), zones.cend()));
+        // Every offered zone must be one the bridge will write.
+        const QRegularExpression writable(QStringLiteral("^[A-Za-z0-9_+/-]{1,64}$"));
+        for (const QString &zone : zones)
+            QVERIFY2(writable.match(zone).hasMatch(), qPrintable(zone));
+        QVERIFY(fields.timezonesAvailable());
+    }
+
+    void fixedOffsetsAndMalformedIdsAreNotOffered()
+    {
+        QCOMPARE(ProfileFieldsManager::writableZones(
+                     { "UTC+05:30", "Europe/Vilnius", "UTC", "UTC-14:00",
+                       "Bad Zone", "/abs", "Europe/Vilnius" }),
+                 (QStringList{ QStringLiteral("Europe/Vilnius"),
+                               QStringLiteral("UTC") }));
+        QVERIFY(!ProfileFieldsManager::isKnownTimezone(QStringLiteral("UTC+05:30")));
+    }
+
+    // What Qt lists with no zone database: UTC and its fixed offsets.
+    void aMachineWithoutAZoneDatabaseHasNoZonesToOffer()
+    {
+        const QStringList bare = ProfileFieldsManager::writableZones(
+            { "UTC", "UTC+05:30", "UTC-14:00", "UTC+00:00" });
+        QCOMPARE(ProfileFieldsManager::ianaZoneCount(bare), 0);
+        QCOMPARE(ProfileFieldsManager::ianaZoneCount(
+                     { QStringLiteral("UTC"), QStringLiteral("Europe/Vilnius") }),
+                 1);
+        QVERIFY(ProfileFieldsManager::ianaZoneCount() > 100);
+    }
+
+    void aFullCacheGivesUpItsOldestAnswerAndKeepsThisAccounts()
+    {
+        FakeFieldsClient client;
+        ProfileFieldsManager fields;
+        fields.setClient(&client);
+        const QVariantMap answer{ { QStringLiteral("pronouns"),
+                                    QStringLiteral("she/her") } };
+        fields.requestOwn();
+        Q_EMIT client.profileFieldsReceived(client.lastFetchOp, client.self, true,
+                                            answer);
+        const auto user = [](int i) {
+            return QStringLiteral("@u%1:example.org").arg(i);
+        };
+        for (int i = 0; i < 300; ++i) {
+            fields.request(user(i));
+            QCOMPARE(client.fetches.last(), user(i));
+            Q_EMIT client.profileFieldsReceived(client.lastFetchOp, user(i), true,
+                                                answer);
+        }
+        QVERIFY(!fields.fieldsFor(user(299)).isEmpty());
+        QVERIFY(fields.fieldsFor(user(0)).isEmpty());
+        QVERIFY(!fields.fieldsFor(client.self).isEmpty());
+        // An evicted user is asked again.
+        const int before = client.fetches.size();
+        fields.request(user(0));
+        QCOMPARE(client.fetches.size(), before + 1);
     }
 
     void aUserIsAskedOnceAndTheAnswerIsServed()
