@@ -1023,7 +1023,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7182"/>
+        <location filename="../src/app/AppController.cpp" line="+7186"/>
         <source>Room invitation</source>
         <translation>Приглашение в комнату</translation>
     </message>
@@ -1145,7 +1145,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Входящий вызов</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5553"/>
+        <location filename="../src/app/AppController.cpp" line="-5556"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Выход отменён, потому что учётная запись изменилась. Ничего не сброшено.</translation>
     </message>
@@ -1165,7 +1165,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Вы пропустили голосовой вызов в %1</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+675"/>
+        <location filename="../src/app/AppController.cpp" line="+676"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Комната создана, но добавить её в пространство не удалось.</translation>
     </message>
@@ -1197,13 +1197,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4144"/>
+        <location line="+4146"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Нет подключения</translation>
     </message>
     <message>
-        <location line="-4992"/>
+        <location line="-4994"/>
         <source>Connecting…</source>
         <translation>Подключение…</translation>
     </message>
@@ -1264,29 +1264,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2949"/>
+        <location line="+2951"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning не смог прочитать выбранный файл.</translation>
     </message>
     <message>
-        <location line="-2955"/>
+        <location line="-2957"/>
         <source>A room-key import is already in progress.</source>
         <translation>Импорт ключей комнат уже выполняется.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3925"/>
+        <location line="+3927"/>
         <source>Not signed in.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-3923"/>
+        <location line="-3925"/>
         <source>Room-key import failed.</source>
         <translation>Не удалось импортировать ключи комнат.</translation>
     </message>
     <message>
-        <location line="+2223"/>
+        <location line="+2225"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Введите ограничение размера от 1 до 2000 МБ.</translation>
     </message>
@@ -1301,13 +1301,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Используйте реальные даты в формате YYYY-MM-DD; дата «С» не должна быть позже даты «По».</translation>
     </message>
     <message>
-        <location line="-4729"/>
-        <location line="+2695"/>
+        <location line="-4732"/>
+        <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2694"/>
+        <location line="-2695"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Это тестовое уведомление. Если вы его видите, уведомления на рабочем столе работают.</translation>
     </message>
@@ -1322,7 +1322,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Звонок начался</translation>
     </message>
     <message>
-        <location line="+937"/>
+        <location line="+938"/>
         <source>Joined the space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1337,7 +1337,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Это уведомление относилось к другой учётной записи, поэтому ничего не отправлено. Переключитесь обратно на эту учётную запись и повторите попытку.</translation>
     </message>
     <message>
-        <location line="+649"/>
+        <location line="+651"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>Звонки недоступны, пока эта учётная запись использует прокси.</translation>
     </message>
@@ -12086,19 +12086,19 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+438"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+490"/>
         <source>Profile for %1</source>
         <translation>Профиль %1</translation>
     </message>
     <message>
-        <location line="+221"/>
-        <location line="+352"/>
+        <location line="+223"/>
+        <location line="+391"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Присутствие недоступно</translation>
     </message>
     <message>
-        <location line="-719"/>
+        <location line="-812"/>
         <source>Invited</source>
         <translation>Приглашён</translation>
     </message>
@@ -12113,12 +12113,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Заблокирован</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+87"/>
         <source>Profile link copied</source>
         <translation>Ссылка на профиль скопирована.</translation>
     </message>
     <message>
-        <location line="+596"/>
+        <location line="+639"/>
         <source>Bio</source>
         <translation>Био</translation>
     </message>
@@ -12168,12 +12168,42 @@ Signing out and signing in again is the only fix.</source>
         <translation>Сообщение</translation>
     </message>
     <message>
-        <location line="-9"/>
+        <location line="-541"/>
+        <source>%1 with %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Is %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Has %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1, give %2!</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+437"/>
+        <source>Pronouns: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+65"/>
         <source>Double-click to copy</source>
         <translation>Дважды щёлкните, чтобы скопировать</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+8"/>
+        <source>Local time %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
         <source>Start or open a direct message with %1</source>
         <translation>Начать или открыть личную переписку с %1</translation>
     </message>
@@ -12349,7 +12379,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-1252"/>
+        <location line="-1295"/>
         <source>Matrix ID copied</source>
         <translation>Идентификатор Matrix скопирован</translation>
     </message>
@@ -19931,12 +19961,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2654"/>
+        <location line="+2680"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning не смог полностью сбросить локальный сеанс этой учётной записи. Проверьте журналы приложения и права доступа к файловой системе, затем повторите попытку.</translation>
     </message>
     <message>
-        <location line="-2668"/>
+        <location line="-2694"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Локальный сеанс Lightning пересоздан. Предыдущее хранилище шифрования отложено в сторону, а не удалено, и по-прежнему находится в каталоге данных этой учётной записи. Вы можете войти снова.</translation>
     </message>
@@ -19949,7 +19979,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4541"/>
+        <location line="+4567"/>
         <location line="+92"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19958,22 +19988,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-4920"/>
+        <location line="-4946"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4727"/>
+        <location line="+4753"/>
         <source>Unknown room: %1</source>
         <translation>Неизвестная комната: %1</translation>
     </message>
     <message>
-        <location line="-4922"/>
+        <location line="-4948"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Пока нельзя отправлять в зашифрованные комнаты: зашифрованная отправка Rust SDK не проверена.</translation>
     </message>
     <message>
-        <location line="+731"/>
+        <location line="+757"/>
         <location line="+2611"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
@@ -20072,7 +20102,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Не удалось выполнить действие с опросом.</translation>
     </message>
     <message>
-        <location line="-6473"/>
+        <location line="-6499"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Данные этой учётной записи всё ещё используются фоновым сеансом. Подождите немного и повторите попытку.</translation>
     </message>
@@ -20102,7 +20132,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Введите пароль.</translation>
     </message>
     <message>
-        <location line="+5607"/>
+        <location line="+5633"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Не удалось отправить сообщение. Можно повторить через действие «Повторить» у сообщения.</translation>
     </message>
@@ -21476,36 +21506,36 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+4"/>
         <location line="+3"/>
-        <location line="+1484"/>
+        <location line="+1489"/>
         <location line="+876"/>
-        <location line="+5382"/>
+        <location line="+5396"/>
         <source>Account</source>
         <translation>Учётная запись</translation>
     </message>
     <message>
-        <location line="-7754"/>
+        <location line="-7773"/>
         <source>account profile</source>
         <translation>учётная запись профиль</translation>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+8636"/>
+        <location line="+8807"/>
         <source>Homeserver</source>
         <translation>Домашний сервер</translation>
     </message>
     <message>
-        <location line="-8636"/>
+        <location line="-8807"/>
         <source>homeserver server url</source>
         <translation>домашний сервер url</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8671"/>
+        <location line="+8842"/>
         <source>Start minimized</source>
         <translation>Запускать свёрнутым</translation>
     </message>
     <message>
-        <location line="-8671"/>
+        <location line="-8842"/>
         <source>startup minimized</source>
         <translation>запуск свёрнутым</translation>
     </message>
@@ -21516,13 +21546,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+872"/>
+        <location line="+877"/>
         <location line="+1757"/>
         <source>Theme</source>
         <translation>Тема</translation>
     </message>
     <message>
-        <location line="-2628"/>
+        <location line="-2633"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>тема moss indigo teal светлая тёмная graphite midnight nordic purple warm</translation>
     </message>
@@ -21533,7 +21563,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <location line="+3"/>
         <location line="+11"/>
-        <location line="+596"/>
+        <location line="+601"/>
         <location line="+785"/>
         <location line="+900"/>
         <location line="+231"/>
@@ -21541,15 +21571,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>Внешний вид</translation>
     </message>
     <message>
-        <location line="-2606"/>
-        <location line="+2145"/>
+        <location line="-2611"/>
+        <location line="+2150"/>
         <location line="+937"/>
         <location line="+43"/>
         <source>Match system light/dark</source>
         <translation>Как в системе (светлая/тёмная)</translation>
     </message>
     <message>
-        <location line="-3124"/>
+        <location line="-3129"/>
         <source>match system auto theme</source>
         <translation>как в системе автоматическая тема</translation>
     </message>
@@ -21560,64 +21590,64 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+4185"/>
+        <location line="+4204"/>
         <source>Message layout</source>
         <translation>Оформление сообщений</translation>
     </message>
     <message>
-        <location line="-4125"/>
-        <location line="+3093"/>
+        <location line="-4144"/>
+        <location line="+3098"/>
         <source>Text size</source>
         <translation>Размер текста</translation>
     </message>
     <message>
-        <location line="-3093"/>
+        <location line="-3098"/>
         <source>text size font scale</source>
         <translation>размер текста шрифт масштаб</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3183"/>
+        <location line="+3188"/>
         <location line="+20"/>
         <source>Interface zoom</source>
         <translation>Масштаб интерфейса</translation>
     </message>
     <message>
-        <location line="-3202"/>
+        <location line="-3207"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>масштаб интерфейса размер ui крупнее</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3263"/>
+        <location line="+3268"/>
         <location line="+26"/>
         <source>Text rendering</source>
         <translation>Отрисовка текста</translation>
     </message>
     <message>
-        <location line="-3288"/>
+        <location line="-3293"/>
         <source>text rendering anti-aliasing antialiasing aliasing smooth hinting font native blurry fuzzy sharp subpixel fontconfig</source>
         <translation>отрисовка текста сглаживание антиалиасинг гладкий хинтинг шрифт системный размытый нечёткий чёткий субпиксельный fontconfig</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3300"/>
+        <location line="+3305"/>
         <source>Font</source>
         <translation>Шрифт</translation>
     </message>
     <message>
-        <location line="-3300"/>
+        <location line="-3305"/>
         <source>font family typeface</source>
         <translation>шрифт гарнитура семейство</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3438"/>
+        <location line="+3443"/>
         <source>Code font</source>
         <translation>Шрифт кода</translation>
     </message>
     <message>
-        <location line="-3437"/>
+        <location line="-3442"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>кодовый шрифт моноширинный моногарнитура фиксированной ширины</translation>
     </message>
@@ -21629,92 +21659,92 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3506"/>
+        <location line="+3511"/>
         <source>Your own fonts</source>
         <translation>Ваши собственные шрифты</translation>
     </message>
     <message>
-        <location line="-3505"/>
+        <location line="-3510"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>импортировать файл шрифта ttf otf установить собственный шрифт</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+782"/>
+        <location line="+787"/>
         <location line="+2935"/>
         <source>Language</source>
         <translation>Язык</translation>
     </message>
     <message>
-        <location line="-3717"/>
+        <location line="-3722"/>
         <source>language locale</source>
         <translation>язык локаль</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2058"/>
-        <location line="+2559"/>
+        <location line="+2063"/>
+        <location line="+2573"/>
         <location line="+28"/>
         <location line="+12"/>
         <source>Show room activity</source>
         <translation>Показывать активность комнаты</translation>
     </message>
     <message>
-        <location line="-4656"/>
+        <location line="-4675"/>
         <source>room activity membership joins leaves profile</source>
         <translation>активность комнаты вступления выходы профиль</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4830"/>
+        <location line="+4849"/>
         <source>Mouse-wheel speed</source>
         <translation>Скорость колеса мыши</translation>
     </message>
     <message>
-        <location line="-4829"/>
+        <location line="-4848"/>
         <source>wheel speed scroll timeline</source>
         <translation>скорость колеса прокрутка лента</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+2066"/>
-        <location line="+2556"/>
+        <location line="+2071"/>
+        <location line="+2570"/>
         <source>Joins, leaves and invites</source>
         <translation>Присоединяется, уходит и приглашает</translation>
     </message>
     <message>
-        <location line="-4621"/>
+        <location line="-4640"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>членство присоединиться выйти приглашение удалить запрет активность скрыть</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2070"/>
-        <location line="+2559"/>
+        <location line="+2075"/>
+        <location line="+2573"/>
         <source>Display name and avatar changes</source>
         <translation>Изменение отображаемого имени и аватара</translation>
     </message>
     <message>
-        <location line="-4628"/>
+        <location line="-4647"/>
         <source>profile change display name avatar activity hide</source>
         <translation>изменение профиля отображаемое имя аватар активность скрыть</translation>
     </message>
     <message>
         <location line="+40"/>
-        <location line="+2069"/>
-        <location line="+1726"/>
+        <location line="+2074"/>
+        <location line="+1740"/>
         <source>Reduce motion</source>
         <translation>Уменьшите движение</translation>
     </message>
     <message>
-        <location line="-3794"/>
+        <location line="-3813"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>уменьшенная анимация движения, вестибулярный доступ, доступность</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+8"/>
-        <location line="+20"/>
+        <location line="+25"/>
         <location line="+5"/>
         <location line="+6"/>
         <source>Appearance · Motion and time</source>
@@ -21723,47 +21753,47 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-9"/>
         <location line="+2044"/>
-        <location line="+1736"/>
+        <location line="+1750"/>
         <source>Smooth scrolling</source>
         <translation>Плавная прокрутка</translation>
     </message>
     <message>
-        <location line="-3779"/>
+        <location line="-3793"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>плавная прокрутка, скольжение колеса прокрутки, анимация, мгновенная прыгающая мышь</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3844"/>
+        <location line="+3858"/>
         <source>Clock</source>
         <translation>Часы</translation>
     </message>
     <message>
-        <location line="-3843"/>
+        <location line="-3857"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>часы 24-часовой формат времени am pm метка времени</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+2041"/>
-        <location line="+2334"/>
+        <location line="+2348"/>
         <location line="+12"/>
         <source>Show Space banners</source>
         <translation>Показать баннеры Space</translation>
     </message>
     <message>
-        <location line="-4386"/>
+        <location line="-4400"/>
         <source>space banner header image hide show</source>
         <translation>пространство баннер заголовок изображения скрыть показать</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+4322"/>
+        <location line="+4336"/>
         <source>Conversation list width</source>
         <translation>Ширина списка разговоров</translation>
     </message>
     <message>
-        <location line="-4321"/>
+        <location line="-4335"/>
         <source>room list width panel size sidebar</source>
         <translation>Ширина списка комнат, размер панели, боковая панель</translation>
     </message>
@@ -21779,70 +21809,70 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4370"/>
+        <location line="+4384"/>
         <source>Side panel width</source>
         <translation>Ширина боковой панели</translation>
     </message>
     <message>
-        <location line="-4369"/>
+        <location line="-4383"/>
         <source>side panel width members threads size</source>
         <translation>ширина боковой панели, размер резьбы</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+2019"/>
-        <location line="+2788"/>
+        <location line="+2802"/>
         <source>Enter starts a new line</source>
         <translation>Enter начинает новую строку</translation>
     </message>
     <message>
-        <location line="-4806"/>
+        <location line="-4820"/>
         <source>enter newline send composer message box return</source>
         <translation>введите новую строку отправить окно сообщения композитора возврат</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+2024"/>
-        <location line="+3114"/>
+        <location line="+3128"/>
         <source>Send text with an attachment as its caption</source>
         <translation>Отправьте текст с вложением в качестве заголовка</translation>
     </message>
     <message>
-        <location line="-5137"/>
+        <location line="-5151"/>
         <source>caption attachment upload text description</source>
         <translation>подпись вложение загрузить текст описание</translation>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+5165"/>
+        <location line="+5179"/>
         <source>Message box buttons</source>
         <translation>Кнопки поля сообщения</translation>
     </message>
     <message>
-        <location line="-5164"/>
+        <location line="-5178"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation>кнопки ввода скрыть показать эмодзи gif стикер стикеры голосовое микрофон форматирование расписание отправить позже убрать упростить</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+4813"/>
+        <location line="+4827"/>
         <source>Check spelling as you type</source>
         <translation>Проверять орфографию при вводе</translation>
     </message>
     <message>
-        <location line="-4812"/>
+        <location line="-4826"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation>орфография проверка орфографии словарь опечатка подчёркивание язык spell spelling</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4820"/>
+        <location line="+4834"/>
         <location line="+14"/>
         <source>Spelling language</source>
         <translation>Язык проверки орфографии</translation>
     </message>
     <message>
-        <location line="-4833"/>
+        <location line="-4847"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation>орфография язык словарь автоматически системный spell language dictionary</translation>
     </message>
@@ -21854,23 +21884,23 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+1167"/>
         <location line="+915"/>
-        <location line="+3120"/>
+        <location line="+3134"/>
         <source>Keyboard shortcuts</source>
         <translation>Сочетания клавиш</translation>
     </message>
     <message>
-        <location line="-5211"/>
+        <location line="-5225"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>сочетания клавиш сочетания клавиш привязка клавиш перепривязка горячей клавиши</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+5378"/>
+        <location line="+5392"/>
         <source>Reset all shortcuts</source>
         <translation>Сбросить все ярлыки</translation>
     </message>
     <message>
-        <location line="-5377"/>
+        <location line="-5391"/>
         <source>reset shortcuts default keys</source>
         <translation>сбросить сочетания клавиш по умолчанию</translation>
     </message>
@@ -21902,13 +21932,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+7183"/>
+        <location line="+7197"/>
         <location line="+10"/>
         <source>Album art</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7188"/>
+        <location line="-7202"/>
         <location line="+549"/>
         <source>Camera</source>
         <translation>Камера</translation>
@@ -21922,13 +21952,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+24"/>
         <location line="+506"/>
         <location line="+1277"/>
-        <location line="+4858"/>
+        <location line="+4872"/>
         <location line="+207"/>
         <source>Desktop notifications</source>
         <translation>Уведомления рабочего стола</translation>
     </message>
     <message>
-        <location line="-6847"/>
+        <location line="-6861"/>
         <source>notifications desktop enable</source>
         <translation>уведомления рабочий стол включить</translation>
     </message>
@@ -21943,48 +21973,48 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+1059"/>
         <location line="+925"/>
-        <location line="+4613"/>
+        <location line="+4627"/>
         <source>Notifications</source>
         <translation>Уведомления</translation>
     </message>
     <message>
-        <location line="-6796"/>
+        <location line="-6810"/>
         <location line="+2032"/>
-        <location line="+2292"/>
+        <location line="+2306"/>
         <source>Keep the room list still while I use it</source>
         <translation>Не двигать список комнат, пока я им пользуюсь</translation>
     </message>
     <message>
-        <location line="-4323"/>
+        <location line="-4337"/>
         <source>room list order sort reorder jump move still hold freeze stable recent activity conversation list sidebar channels new message</source>
         <translation>порядок списка комнат сортировка переупорядочивание перемещение удерживать заморозить стабильный недавние активность беседы боковая панель каналы новое сообщение</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+4417"/>
+        <location line="+4431"/>
         <source>Keep running in the tray</source>
         <translation>Продолжать работать в трее</translation>
     </message>
     <message>
-        <location line="-4381"/>
+        <location line="-4395"/>
         <location line="+2022"/>
-        <location line="+3126"/>
+        <location line="+3140"/>
         <source>Convert :shortcode: to emoji</source>
         <translation>Превращать :shortcode: в эмодзи</translation>
     </message>
     <message>
-        <location line="-5147"/>
+        <location line="-5161"/>
         <source>emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</source>
         <translation>эмодзи двоеточие короткий код преобразовать автопреобразование thumbsup smiley slack discord</translation>
     </message>
     <message>
         <location line="+138"/>
-        <location line="+6631"/>
+        <location line="+6645"/>
         <source>Notification preview</source>
         <translation>Предпросмотр уведомлений</translation>
     </message>
     <message>
-        <location line="-6630"/>
+        <location line="-6644"/>
         <source>notification preview privacy sender message</source>
         <translation>предпросмотр уведомление конфиденциальность отправитель сообщение</translation>
     </message>
@@ -22000,23 +22030,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6687"/>
+        <location line="+6701"/>
         <source>Notification sound</source>
         <translation>Звук уведомлений</translation>
     </message>
     <message>
-        <location line="-6686"/>
+        <location line="-6700"/>
         <source>notification sound mute</source>
         <translation>звук уведомление без звука</translation>
     </message>
     <message>
         <location line="+45"/>
-        <location line="+5298"/>
+        <location line="+5312"/>
         <source>Only exchange messages with verified devices</source>
         <translation>Обмениваться сообщениями только с проверенными устройствами</translation>
     </message>
     <message>
-        <location line="-5297"/>
+        <location line="-5311"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation>невидимый криптография msc4153 перекрёстно подписанное проверенное доверие устройства небезопасно исключить шифрование</translation>
     </message>
@@ -22027,12 +22057,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6317"/>
+        <location line="+6331"/>
         <source>Keep downloaded media on this device</source>
         <translation>Хранить скачанные медиа на этом устройстве</translation>
     </message>
     <message>
-        <location line="-6316"/>
+        <location line="-6330"/>
         <source>media cache video image picture file download offline storage disk keep clear</source>
         <translation>кэш медиа видео изображение картинка файл загрузка офлайн хранилище диск хранить очистить</translation>
     </message>
@@ -22042,15 +22072,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>Конфиденциальность и безопасность · Медиа, хранимые на этом устройстве</translation>
     </message>
     <message>
-        <location line="-329"/>
-        <location line="+345"/>
-        <location line="+4355"/>
+        <location line="-334"/>
+        <location line="+350"/>
+        <location line="+4369"/>
         <location line="+968"/>
         <source>Read receipts</source>
         <translation>Отчёты о прочтении</translation>
     </message>
     <message>
-        <location line="-5322"/>
+        <location line="-5336"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation>отчёт о прочтении прочитано приватно просмотрено галочки синие m.read.private конфиденциальность</translation>
     </message>
@@ -22062,23 +22092,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+5361"/>
+        <location line="+5375"/>
         <source>Let others see when I am typing</source>
         <translation>Показывать другим, когда я печатаю</translation>
     </message>
     <message>
-        <location line="-5360"/>
+        <location line="-5374"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation>уведомление о печати набор текста индикатор конфиденциальность</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+5401"/>
+        <location line="+5415"/>
         <source>Share my online status</source>
         <translation>Показывать мой сетевой статус</translation>
     </message>
     <message>
-        <location line="-5400"/>
+        <location line="-5414"/>
         <source>presence online idle offline status share</source>
         <translation>присутствие в сети отошёл не в сети статус</translation>
     </message>
@@ -22091,12 +22121,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <location line="+410"/>
-        <location line="+5038"/>
+        <location line="+5052"/>
         <source>Ignored users</source>
         <translation>Игнорируемые пользователи</translation>
     </message>
     <message>
-        <location line="-5447"/>
+        <location line="-5461"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>игнорировать блокировать пользователя скрыть человека</translation>
     </message>
@@ -22135,20 +22165,20 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+862"/>
         <location line="+880"/>
-        <location line="+6716"/>
+        <location line="+6882"/>
         <location line="+509"/>
         <source>Sessions</source>
         <translation>Сеансы</translation>
     </message>
     <message>
-        <location line="-9053"/>
+        <location line="-9219"/>
         <location line="+1628"/>
-        <location line="+4244"/>
+        <location line="+4258"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Автоматически загружать предпросмотры в незашифрованных комнатах</translation>
     </message>
     <message>
-        <location line="-5871"/>
+        <location line="-5885"/>
         <source>link preview privacy</source>
         <translation>предпросмотр ссылки конфиденциальность</translation>
     </message>
@@ -22161,12 +22191,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-7"/>
-        <location line="+5870"/>
+        <location line="+5884"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Загружать предпросмотры в зашифрованных комнатах</translation>
     </message>
     <message>
-        <location line="-5869"/>
+        <location line="-5883"/>
         <source>link preview encrypted</source>
         <translation>предпросмотр ссылки зашифрованные</translation>
     </message>
@@ -22179,12 +22209,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6022"/>
+        <location line="+6036"/>
         <source>GIF safe search</source>
         <translation>Безопасный поиск GIF</translation>
     </message>
     <message>
-        <location line="-6021"/>
+        <location line="-6035"/>
         <source>gif safe search rating</source>
         <translation>gif безопасный поиск рейтинг</translation>
     </message>
@@ -22197,36 +22227,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+6045"/>
+        <location line="+6059"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Предпочитаемый поставщик GIF</translation>
     </message>
     <message>
-        <location line="-6051"/>
+        <location line="-6065"/>
         <source>gif provider giphy klipy</source>
         <translation>поставщик gif giphy klipy</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6087"/>
+        <location line="+6101"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Хранить недавно использованные GIF</translation>
     </message>
     <message>
-        <location line="-6089"/>
+        <location line="-6103"/>
         <source>gif recents store</source>
         <translation>gif недавние хранить</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8165"/>
+        <location line="+8331"/>
         <source>Security status</source>
         <translation>Состояние безопасности</translation>
     </message>
     <message>
-        <location line="-8164"/>
+        <location line="-8330"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee шифрование состояние перекрёстная подпись резервная копия</translation>
     </message>
@@ -22234,18 +22264,18 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+896"/>
         <location line="+875"/>
-        <location line="+3349"/>
+        <location line="+3363"/>
         <source>Privacy &amp; security</source>
         <translation>Конфиденциальность и безопасность</translation>
     </message>
     <message>
-        <location line="-5118"/>
-        <location line="+9509"/>
+        <location line="-5132"/>
+        <location line="+9675"/>
         <source>Recovery key or passphrase</source>
         <translation>Ключ восстановления или парольная фраза</translation>
     </message>
     <message>
-        <location line="-9508"/>
+        <location line="-9674"/>
         <source>recovery key passphrase backup restore</source>
         <translation>ключ восстановления парольная фраза резервная копия</translation>
     </message>
@@ -22259,23 +22289,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-11"/>
-        <location line="+9519"/>
+        <location line="+9685"/>
         <source>Import room keys</source>
         <translation>Импорт ключей комнат</translation>
     </message>
     <message>
-        <location line="-9518"/>
+        <location line="-9684"/>
         <source>import room keys export</source>
         <translation>импорт ключей комнат экспорт</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9734"/>
+        <location line="+9900"/>
         <source>Danger Zone</source>
         <translation>Опасная зона</translation>
     </message>
     <message>
-        <location line="-9733"/>
+        <location line="-9899"/>
         <source>reset danger local session</source>
         <translation>сброс опасно локальный сеанс</translation>
     </message>
@@ -22286,34 +22316,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+9287"/>
+        <location line="+9453"/>
         <source>Current session</source>
         <translation>Текущий сеанс</translation>
     </message>
     <message>
-        <location line="-9286"/>
+        <location line="-9452"/>
         <source>device id session status</source>
         <translation>идентификатор устройства состояние сеанса</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8489"/>
+        <location line="+8655"/>
         <source>Sign in another device</source>
         <translation>Войти на другом устройстве</translation>
     </message>
     <message>
-        <location line="-8488"/>
+        <location line="-8654"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation>qr-код сканировать вход на другом устройстве телефон связка msc4108 логин</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+9332"/>
+        <location line="+9498"/>
         <source>Verify this session</source>
         <translation>Проверить этот сеанс</translation>
     </message>
     <message>
-        <location line="-9331"/>
+        <location line="-9497"/>
         <source>verify verification sas cross-signing</source>
         <translation>проверка sas перекрёстная подпись</translation>
     </message>
@@ -22338,12 +22368,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+831"/>
         <location line="+933"/>
-        <location line="+8013"/>
+        <location line="+8179"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-9785"/>
+        <location line="-9951"/>
         <source>Sync mode</source>
         <translation>Режим синхронизации</translation>
     </message>
@@ -22364,12 +22394,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+9899"/>
+        <location line="+10065"/>
         <source>Refresh current room</source>
         <translation>Обновить текущую комнату</translation>
     </message>
     <message>
-        <location line="-9898"/>
+        <location line="-10064"/>
         <source>refresh reload timeline</source>
         <translation>обновить перезагрузить ленту</translation>
     </message>
@@ -22379,12 +22409,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+820"/>
         <location line="+971"/>
         <location line="+11"/>
-        <location line="+8116"/>
+        <location line="+8282"/>
         <source>About</source>
         <translation>О программе</translation>
     </message>
     <message>
-        <location line="-9919"/>
+        <location line="-10085"/>
         <source>about version license</source>
         <translation>о программе версия лицензия</translation>
     </message>
@@ -22423,14 +22453,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+48"/>
-        <location line="+6816"/>
+        <location line="+6830"/>
         <location line="+183"/>
-        <location line="+1232"/>
+        <location line="+1384"/>
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-7974"/>
+        <location line="-8140"/>
         <source>Needs attention</source>
         <translation>Требуется внимание</translation>
     </message>
@@ -22441,12 +22471,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4449"/>
+        <location line="+4463"/>
         <source>Clear index</source>
         <translation>Очистить индекс</translation>
     </message>
     <message>
-        <location line="-4439"/>
+        <location line="-4453"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation>Поиск по истории перестанет работать, пока Lightning снова не проиндексирует её, что он делает сам. Сообщения не удаляются — индекс это лишь копия, которую Lightning построил для поиска.</translation>
     </message>
@@ -22462,14 +22492,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+6208"/>
+        <location line="+6222"/>
         <location line="+366"/>
-        <location line="+1816"/>
+        <location line="+1968"/>
         <source>Clear</source>
         <translation>Очистить</translation>
     </message>
     <message>
-        <location line="-8380"/>
+        <location line="-8546"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Удалить с этого устройства все GIF поставщиков, которые вы сохранили? GIF, сохранённые из переписок, не затрагиваются. Отменить это нельзя.</translation>
     </message>
@@ -22537,26 +22567,26 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+62"/>
-        <location line="+2100"/>
+        <location line="+2114"/>
         <source>Modern</source>
         <translation>Современное</translation>
     </message>
     <message>
-        <location line="-2099"/>
-        <location line="+2100"/>
+        <location line="-2113"/>
+        <location line="+2114"/>
         <source>Bubbles</source>
         <translation>Пузырьки</translation>
     </message>
     <message>
-        <location line="-2099"/>
-        <location line="+2100"/>
+        <location line="-2113"/>
+        <location line="+2114"/>
         <location line="+67"/>
         <location line="+3286"/>
         <source>Compact</source>
         <translation>Компактное</translation>
     </message>
     <message>
-        <location line="-5249"/>
+        <location line="-5263"/>
         <source>theme</source>
         <translation>тема</translation>
     </message>
@@ -22581,7 +22611,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Storm</translation>
     </message>
     <message>
-        <location line="+2781"/>
+        <location line="+2795"/>
         <source>Typing a shortcode like &quot;:thumbsup:&quot; turns it into the emoji as soon as it is complete. Custom pack shortcodes are unaffected.</source>
         <translation>Ввод короткого кода вроде «:thumbsup:» сразу превращает его в эмодзи, как только он полностью введён. Пользовательские короткие коды паков не затрагиваются.</translation>
     </message>
@@ -22616,8 +22646,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Параметры отправки</translation>
     </message>
     <message>
-        <location line="-4545"/>
-        <location line="+4803"/>
+        <location line="-4559"/>
+        <location line="+4817"/>
         <source>Device trust</source>
         <translation>Доверие устройствам</translation>
     </message>
@@ -22632,8 +22662,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Вступит в силу при следующем запуске Lightning.</translation>
     </message>
     <message>
-        <location line="-4871"/>
-        <location line="+4878"/>
+        <location line="-4885"/>
+        <location line="+4892"/>
         <source>Reading and typing</source>
         <translation>Чтение и печать</translation>
     </message>
@@ -22958,7 +22988,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+82"/>
-        <location line="+315"/>
+        <location line="+467"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)</source>
         <translation>Изображения (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)</translation>
     </message>
@@ -23013,12 +23043,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Сброс удаляет только локальное хранилище Rust SDK в Lightning для этой учётной записи (это также доступно из терминала: lightning-matrix --reset-crypto-store). Сообщения на сервере и данные Element не затрагиваются. После этого нужно будет войти снова.</translation>
     </message>
     <message>
-        <location line="-7716"/>
+        <location line="-7882"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
     <message>
-        <location line="-2660"/>
+        <location line="-2665"/>
         <source>Change password</source>
         <translation>Сменить пароль</translation>
     </message>
@@ -23029,29 +23059,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+80"/>
-        <location line="+4384"/>
+        <location line="+4403"/>
         <source>Spaces rail depth</source>
         <translation>Глубина панели пространств</translation>
     </message>
     <message>
-        <location line="-4383"/>
+        <location line="-4402"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
         <translation>глубина панели пространств полоса пространств боковая панель вложенность регионы классический старый стиль плоский оттенок отступ</translation>
     </message>
     <message>
         <location line="+61"/>
-        <location line="+2081"/>
-        <location line="+2554"/>
+        <location line="+2086"/>
+        <location line="+2568"/>
         <source>Collapse media and link embeds</source>
         <translation>Сворачивать вложения медиа и ссылок</translation>
     </message>
     <message>
-        <location line="-4634"/>
+        <location line="-4653"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
         <translation>вложение вложения свернуть свёрнутое компактно одна строка беспорядок упростить медиа изображение картинка gif стикер видео аудио голосовое файл превью ссылки развернуть стрелка</translation>
     </message>
     <message>
-        <location line="+195"/>
+        <location line="+200"/>
         <source>microphone mic input device voice call audio sound</source>
         <translation>микрофон входное устройство голос звонок аудио звук</translation>
     </message>
@@ -23085,13 +23115,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7149"/>
+        <location line="+7163"/>
         <location line="+20"/>
         <source>Media playback volume</source>
         <translation>Громкость воспроизведения медиа</translation>
     </message>
     <message>
-        <location line="-7168"/>
+        <location line="-7182"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation>громкость звук аудио видео уровень воспроизведения голосовое сообщение медиа громко</translation>
     </message>
@@ -23109,12 +23139,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <location line="+546"/>
-        <location line="+6659"/>
+        <location line="+6673"/>
         <source>Call sounds</source>
         <translation>Звуки звонка</translation>
     </message>
     <message>
-        <location line="-7204"/>
+        <location line="-7218"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
         <translation>звуки звонка вход выход отключение звука включение звука демонстрация экрана рука сигнал бип эффекты</translation>
     </message>
@@ -23126,13 +23156,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-3"/>
-        <location line="+7303"/>
+        <location line="+7317"/>
         <location line="+28"/>
         <source>Ringer volume</source>
         <translation>Громкость звонка</translation>
     </message>
     <message>
-        <location line="-7330"/>
+        <location line="-7344"/>
         <source>ringer ringtone ring volume incoming call loud</source>
         <translation>звонок рингтон громкость входящий звонок громко</translation>
     </message>
@@ -23158,30 +23188,30 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+168"/>
-        <location line="+5878"/>
+        <location line="+5892"/>
         <source>Show images and videos from links inline</source>
         <translation>Показывать изображения и видео из ссылок встроенными</translation>
     </message>
     <message>
-        <location line="-5877"/>
+        <location line="-5891"/>
         <source>link preview image video embed inline media player viewer</source>
         <translation>предпросмотр ссылки изображение видео встроенное медиа проигрыватель просмотр</translation>
     </message>
     <message>
         <location line="+926"/>
         <location line="+930"/>
-        <location line="+4988"/>
+        <location line="+5002"/>
         <source>Sound &amp; video</source>
         <translation>Звук и видео</translation>
     </message>
     <message>
-        <location line="-5281"/>
-        <location line="+2342"/>
+        <location line="-5295"/>
+        <location line="+2356"/>
         <source>Regions</source>
         <translation>Регионы</translation>
     </message>
     <message>
-        <location line="-1819"/>
+        <location line="-1833"/>
         <source>Indigo Night</source>
         <translation>Indigo Night</translation>
     </message>
@@ -23201,12 +23231,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Другие темы</translation>
     </message>
     <message>
-        <location line="-2759"/>
+        <location line="-2764"/>
         <source>Custom theme</source>
         <translation>Своя тема</translation>
     </message>
     <message>
-        <location line="+2901"/>
+        <location line="+2906"/>
         <source>Build your own theme</source>
         <translation>Создайте свою тему</translation>
     </message>
@@ -23386,7 +23416,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Шрифты (*.ttf *.otf)</translation>
     </message>
     <message>
-        <location line="+712"/>
+        <location line="+726"/>
         <source>Show the Spaces rail (Ctrl+Shift+B)</source>
         <translation>Показывать панель пространств (Ctrl+Shift+B)</translation>
     </message>
@@ -23421,8 +23451,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Регионы подкрашивают панель за пространством и всем, что в нём есть. Классический — плоская панель из предыдущих версий, где вложенное пространство вместо этого сдвигается. Оба показывают одни и те же пространства.</translation>
     </message>
     <message>
-        <location line="-3596"/>
-        <location line="+3731"/>
+        <location line="-3610"/>
+        <location line="+3745"/>
         <source>System tray</source>
         <translation>Системный лоток</translation>
     </message>
@@ -23432,13 +23462,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>Продолжать работу в лотке при закрытии окна</translation>
     </message>
     <message>
-        <location line="-4393"/>
-        <location line="+4408"/>
+        <location line="-4407"/>
+        <location line="+4422"/>
         <source>Start in the tray</source>
         <translation>Запускаться в лоток</translation>
     </message>
     <message>
-        <location line="-4603"/>
+        <location line="-4622"/>
         <source>Chat background</source>
         <translation>Фон чата</translation>
     </message>
@@ -23448,7 +23478,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Глубина</translation>
     </message>
     <message>
-        <location line="+360"/>
+        <location line="+365"/>
         <source>Notification sound style and volume</source>
         <translation>Стиль звука и громкость уведомлений</translation>
     </message>
@@ -23459,12 +23489,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+61"/>
-        <location line="+6494"/>
+        <location line="+6508"/>
         <source>Always ask where to save files</source>
         <translation>Всегда спрашивать, куда сохранять файлы</translation>
     </message>
     <message>
-        <location line="-6493"/>
+        <location line="-6507"/>
         <source>download downloads save folder location directory ask where file</source>
         <translation>загрузка загрузки папка сохранить расположение каталог спрашивать куда файл</translation>
     </message>
@@ -23476,24 +23506,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+140"/>
-        <location line="+6820"/>
-        <location line="+3002"/>
+        <location line="+6834"/>
+        <location line="+3154"/>
         <source>Microphone noise suppression</source>
         <translation>Шумоподавление микрофона</translation>
     </message>
     <message>
-        <location line="-9821"/>
+        <location line="-9987"/>
         <source>noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</source>
         <translation>шумоподавление подавление эха микрофон фон webrtc rnnoise deepfilternet шум</translation>
     </message>
     <message>
-        <location line="+4041"/>
+        <location line="+4055"/>
         <source>Click the tray icon to bring the window back. Ctrl+Q quits.</source>
         <translation>Нажмите значок в лотке, чтобы вернуть окно. Ctrl+Q завершает работу.</translation>
     </message>
     <message>
-        <location line="-3778"/>
-        <location line="+3818"/>
+        <location line="-3792"/>
+        <location line="+3832"/>
         <source>Timeline</source>
         <translation>Лента</translation>
     </message>
@@ -23553,7 +23583,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Насколько один физический щелчок колеса сдвигает ленту. Тачпад и точная прокрутка остаются плавными независимо от этой настройки.</translation>
     </message>
     <message>
-        <location line="-4281"/>
+        <location line="-4295"/>
         <location line="+186"/>
         <location line="+2841"/>
         <source>Application icon</source>
@@ -23571,12 +23601,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+4749"/>
+        <location line="+4915"/>
         <source>Choose image…</source>
         <translation>Выбрать изображение…</translation>
     </message>
     <message>
-        <location line="-4742"/>
+        <location line="-4908"/>
         <source>Reset to Lightning default</source>
         <translation>Вернуть значок Lightning по умолчанию</translation>
     </message>
@@ -23617,7 +23647,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2978"/>
-        <location line="+3070"/>
+        <location line="+3084"/>
         <source>Motion and time</source>
         <translation>Движение и время</translation>
     </message>
@@ -23677,8 +23707,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Ширина боковой панели: %1 пикселей</translation>
     </message>
     <message>
-        <location line="-3707"/>
-        <location line="+4153"/>
+        <location line="-3721"/>
+        <location line="+4167"/>
         <source>Message box</source>
         <translation>Окно сообщения</translation>
     </message>
@@ -24022,8 +24052,8 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Приватно</translation>
     </message>
     <message>
-        <location line="-3167"/>
-        <location line="+3187"/>
+        <location line="-3181"/>
+        <location line="+3201"/>
         <location line="+209"/>
         <source>Off</source>
         <translation>Выключено</translation>
@@ -24044,7 +24074,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Звук воспроизводится только при показе уведомления, поэтому заглушённые и активные комнаты остаются беззвучными. Всплески объединяются в одно оповещение.</translation>
     </message>
     <message>
-        <location line="+3310"/>
+        <location line="+3462"/>
         <source>Experimental features, and diagnostics.</source>
         <translation>Экспериментальные функции и диагностика.</translation>
     </message>
@@ -24054,8 +24084,8 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Убирает фоновый шум из вашего микрофона во время звонков. Одновременно работает один метод; изменение применяется к текущему звонку.</translation>
     </message>
     <message>
-        <location line="-10070"/>
-        <location line="+6838"/>
+        <location line="-10236"/>
+        <location line="+6852"/>
         <source>Ring for incoming voice calls</source>
         <translation>Звонок при входящих голосовых вызовах</translation>
     </message>
@@ -24098,28 +24128,29 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="-25"/>
+        <location line="+535"/>
         <source>Not set</source>
         <translation>Не задано</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-526"/>
         <source>Edit</source>
         <translation>Изменить</translation>
     </message>
     <message>
-        <location line="-4774"/>
+        <location line="-4788"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>Во включенном состоянии Lightning следует системной схеме: Moss Light в светлом режиме, Indigo Night в темном режиме.</translation>
     </message>
     <message>
         <location line="-2473"/>
-        <location line="+3687"/>
+        <location line="+3701"/>
         <source>Conversation list</source>
         <translation>Список разговоров</translation>
     </message>
     <message>
-        <location line="-2245"/>
-        <location line="+2256"/>
+        <location line="-2259"/>
+        <location line="+2270"/>
         <location line="+86"/>
         <source>Classic</source>
         <translation>Классический</translation>
@@ -24173,11 +24204,12 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="-376"/>
         <location line="+376"/>
+        <location line="+160"/>
         <source>Save</source>
         <translation>Сохранить</translation>
     </message>
     <message>
-        <location line="-151"/>
+        <location line="-311"/>
         <source>Profile picture</source>
         <translation>Изображение профиля</translation>
     </message>
@@ -24227,7 +24259,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Ваш домашний сервер еще не поддерживает биос профиля.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+170"/>
         <source>Open Privacy &amp; security</source>
         <translation>Открыть «Конфиденциальность и безопасность»</translation>
     </message>
@@ -24247,14 +24279,14 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Баннера нет</translation>
     </message>
     <message>
-        <location line="-4870"/>
-        <location line="+4604"/>
-        <location line="+285"/>
+        <location line="-5036"/>
+        <location line="+4618"/>
+        <location line="+437"/>
         <source>Remove</source>
         <translation>Удалить</translation>
     </message>
     <message>
-        <location line="-8484"/>
+        <location line="-8655"/>
         <source>chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</source>
         <translation>фон чата обои картинка изображение фото подложка комната беседа свой заданный пользовательский другие общий скрыть</translation>
     </message>
@@ -24291,7 +24323,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>глубина градиент затенение тень плоский поверхности 3d</translation>
     </message>
     <message>
-        <location line="+272"/>
+        <location line="+277"/>
         <source>Microphone test</source>
         <translation>Проверка микрофона</translation>
     </message>
@@ -24322,12 +24354,12 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+42"/>
-        <location line="+5848"/>
+        <location line="+5862"/>
         <source>Index encrypted rooms</source>
         <translation>Индексировать зашифрованные комнаты</translation>
     </message>
     <message>
-        <location line="-4059"/>
+        <location line="-4073"/>
         <source>background</source>
         <translation>фон</translation>
     </message>
@@ -24355,12 +24387,12 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="+605"/>
         <location line="+905"/>
-        <location line="+1706"/>
+        <location line="+1720"/>
         <source>Layout</source>
         <translation>Разметка</translation>
     </message>
     <message>
-        <location line="-3214"/>
+        <location line="-3228"/>
         <source>Text and fonts</source>
         <translation>Текст и шрифты</translation>
     </message>
@@ -24400,7 +24432,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Использовать эту тему</translation>
     </message>
     <message>
-        <location line="-3050"/>
+        <location line="-3055"/>
         <source>Network and proxy</source>
         <translation>Сеть и прокси</translation>
     </message>
@@ -24411,12 +24443,12 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+18"/>
-        <location line="+4110"/>
+        <location line="+4129"/>
         <source>Layout preset</source>
         <translation>Набор оформления</translation>
     </message>
     <message>
-        <location line="-4109"/>
+        <location line="-4128"/>
         <source>layout preset nheko compact density dense lightning one click</source>
         <translation>оформление набор nheko компактный плотность плотный lightning один щелчок layout preset compact</translation>
     </message>
@@ -24427,126 +24459,126 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4202"/>
+        <location line="+4221"/>
         <location line="+29"/>
         <source>Use bubbles in</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4230"/>
+        <location line="-4249"/>
         <source>bubbles bubble scope direct messages private public group rooms all rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4296"/>
+        <location line="+4315"/>
         <source>Thread style</source>
         <translation>Вид обсуждений</translation>
     </message>
     <message>
-        <location line="-4295"/>
+        <location line="-4314"/>
         <source>thread threads style panel inline nheko element interleaved</source>
         <translation>обсуждение обсуждения вид панель лента nheko element thread</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4261"/>
+        <location line="+4280"/>
         <source>Threads open in</source>
         <translation>Обсуждения открываются</translation>
     </message>
     <message>
-        <location line="-4260"/>
+        <location line="-4279"/>
         <source>thread threads open placement main view side panel column full width nheko element</source>
         <translation>обсуждение обсуждения открыть расположение основное окно боковая панель колонка во всю ширину nheko element thread</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2169"/>
-        <location line="+2147"/>
+        <location line="+2174"/>
+        <location line="+2161"/>
         <source>Collapse the thread&apos;s first message</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4315"/>
+        <location line="-4334"/>
         <source>thread threads root first message original header card collapse collapsed compact one line expand</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+4229"/>
+        <location line="+4248"/>
         <source>Message spacing</source>
         <translation>Интервал сообщений</translation>
     </message>
     <message>
-        <location line="-4228"/>
+        <location line="-4247"/>
         <source>message spacing density compact cozy roomy gap padding</source>
         <translation>интервал сообщений плотность компактно уютно просторно промежуток отступ</translation>
     </message>
     <message>
         <location line="+70"/>
-        <location line="+4870"/>
+        <location line="+4889"/>
         <source>When returning to a conversation</source>
         <translation>При возвращении в беседу</translation>
     </message>
     <message>
-        <location line="-4869"/>
+        <location line="-4888"/>
         <source>return reopen room position latest selected message reading restore remember scroll</source>
         <translation>возврат открыть комната место последние выбранное сообщение чтение восстановить запомнить прокрутка</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4916"/>
+        <location line="+4935"/>
         <source>Show the message selection outline when returning</source>
         <translation>Показывать рамку выбранного сообщения при возвращении</translation>
     </message>
     <message>
-        <location line="-4915"/>
+        <location line="-4934"/>
         <source>selection outline highlight return reopen keyboard</source>
         <translation>выбор рамка подсветка возврат открыть клавиатура</translation>
     </message>
     <message>
         <location line="+34"/>
-        <location line="+4723"/>
+        <location line="+4742"/>
         <source>Message actions on hover</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4722"/>
+        <location line="-4741"/>
         <source>message actions hover bar toolbar react reply thread popup hide declutter irc</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+2066"/>
-        <location line="+2701"/>
+        <location line="+2071"/>
+        <location line="+2715"/>
         <source>Go to the newest message when I send</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4766"/>
+        <location line="-4785"/>
         <source>send jump scroll bottom latest newest stay place history</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+3828"/>
+        <location line="+3847"/>
         <location line="+10"/>
         <source>Animated images</source>
         <translation>Анимированные изображения</translation>
     </message>
     <message>
-        <location line="-3837"/>
+        <location line="-3856"/>
         <source>gif gifs autoplay animated animation avatar avatars banner sticker stickers emoji webp background play hover pause stop focus cpu battery resources</source>
         <translation>gif гиф автовоспроизведение анимированные анимация аватар аватары баннер стикер стикеры эмодзи webp фон воспроизведение наведение пауза стоп фокус процессор батарея ресурсы</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+3715"/>
+        <location line="+3720"/>
         <source>Increase contrast</source>
         <translation>Повысить контраст</translation>
     </message>
     <message>
-        <location line="-3714"/>
+        <location line="-3719"/>
         <source>high contrast accessibility borders text readable vision</source>
         <translation>высокий контраст доступность границы текст читаемость зрение</translation>
     </message>
@@ -24554,39 +24586,51 @@ Escape и отдельные буквы, которые меню сообщен�
         <location line="+2"/>
         <location line="+5"/>
         <location line="+5"/>
+        <location line="+5"/>
         <source>Appearance · Accessibility</source>
         <translation>Оформление · Доступность</translation>
     </message>
     <message>
-        <location line="-8"/>
-        <location line="+3723"/>
+        <location line="-13"/>
+        <location line="+3728"/>
         <source>Always underline links</source>
         <translation>Всегда подчёркивать ссылки</translation>
     </message>
     <message>
-        <location line="-3722"/>
+        <location line="-3727"/>
         <source>underline links mentions accessibility colour blind</source>
         <translation>подчёркивание ссылок упоминания доступность дальтонизм</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3731"/>
+        <location line="+3736"/>
         <source>Name colour readability</source>
         <translation>Читаемость цвета имени</translation>
     </message>
     <message>
-        <location line="-3730"/>
+        <location line="-3735"/>
         <source>name color colour contrast sender readable strong weak off</source>
         <translation>цвет имени контраст отправитель читаемый сильный слабый выкл</translation>
     </message>
     <message>
+        <location line="+4"/>
+        <location line="+3759"/>
+        <source>Show profile colours from other users</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3758"/>
+        <source>profile card colour color background name sable theme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+25"/>
-        <location line="+4293"/>
+        <location line="+4307"/>
         <source>Show bridge badges in the room list</source>
         <translation>Показывать значки мостов в списке комнат</translation>
     </message>
     <message>
-        <location line="-4292"/>
+        <location line="-4306"/>
         <source>bridge network badge chip tag whatsapp rcs sms telegram room list hide</source>
         <translation>мост сеть значок метка whatsapp rcs sms telegram список комнат скрыть</translation>
     </message>
@@ -24603,12 +24647,12 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="+33"/>
         <location line="+2022"/>
-        <location line="+2800"/>
+        <location line="+2814"/>
         <source>Vim-style editing in the composer</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4821"/>
+        <location line="-4835"/>
         <source>vim modal normal insert mode keys editor composer message box hjkl</source>
         <translation type="unfinished"></translation>
     </message>
@@ -24625,34 +24669,34 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+25"/>
-        <location line="+4903"/>
+        <location line="+4917"/>
         <source>Also check</source>
         <translation>Также проверять</translation>
     </message>
     <message>
-        <location line="-4902"/>
+        <location line="-4916"/>
         <source>spell spelling languages several multiple second extra dictionary bilingual</source>
         <translation>орфография проверка языки несколько второй дополнительный словарь двуязычный</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5018"/>
+        <location line="+5032"/>
         <source>Correct obvious typos as you type</source>
         <translation>Исправлять явные опечатки при вводе</translation>
     </message>
     <message>
-        <location line="-5017"/>
+        <location line="-5031"/>
         <source>autocorrect auto correct autocorrection typo fix replace capital</source>
         <translation>автозамена автоисправление опечатки исправить заменить заглавные</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5036"/>
+        <location line="+5050"/>
         <source>Personal dictionary</source>
         <translation>Личный словарь</translation>
     </message>
     <message>
-        <location line="-5035"/>
+        <location line="-5049"/>
         <source>spell spelling dictionary personal words added learned remove</source>
         <translation>орфография словарь личный слова добавленные выученные удалить</translation>
     </message>
@@ -24694,45 +24738,45 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="+32"/>
         <location line="+506"/>
-        <location line="+6368"/>
+        <location line="+6382"/>
         <source>Unread dot</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6873"/>
+        <location line="-6887"/>
         <source>unread dot badge indicator room list bold muted mentions hide</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6902"/>
+        <location line="+6916"/>
         <source>Mark all rooms read automatically</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6901"/>
+        <location line="-6915"/>
         <source>mark all read automatically auto timer interval minutes unread clear</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+106"/>
-        <location line="+5416"/>
+        <location line="+5430"/>
         <source>Show online status dots</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5415"/>
+        <location line="-5429"/>
         <source>presence online idle offline status dot show hide matrix.org</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+5716"/>
+        <location line="+5730"/>
         <source>Index older messages in the background</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5715"/>
+        <location line="-5729"/>
         <source>message search index background automatic startup older messages encrypted history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -24764,35 +24808,35 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+13"/>
-        <location line="+5939"/>
+        <location line="+5953"/>
         <location line="+3"/>
         <source>Preload videos and audio</source>
         <translation>Предзагрузка видео и аудио</translation>
     </message>
     <message>
-        <location line="-5941"/>
+        <location line="-5955"/>
         <source>video audio voice preload prefetch download size megabytes data disk instant play</source>
         <translation>видео аудио голос предзагрузка предварительная загрузка скачивание размер мегабайты данные диск мгновенное воспроизведение</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6014"/>
+        <location line="+6028"/>
         <source>Spoiler blur</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6013"/>
+        <location line="-6027"/>
         <source>spoiler blur hidden image video msc4193</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6024"/>
+        <location line="+6038"/>
         <source>Photo details when sending</source>
         <translation>Данные фото при отправке</translation>
     </message>
     <message>
-        <location line="-6023"/>
+        <location line="-6037"/>
         <source>photo image exif gps location metadata strip remove privacy upload picture camera</source>
         <translation>фото изображение exif gps местоположение метаданные удалить конфиденциальность загрузка картинка камера</translation>
     </message>
@@ -24818,12 +24862,12 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9868"/>
+        <location line="+10034"/>
         <source>Music activity</source>
         <translation>Музыкальная активность</translation>
     </message>
     <message>
-        <location line="-9867"/>
+        <location line="-10033"/>
         <source>listening music spotify song status presence activity</source>
         <translation>слушает музыка spotify песня статус присутствие активность</translation>
     </message>
@@ -24985,12 +25029,12 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+2"/>
-        <location line="+9148"/>
+        <location line="+9314"/>
         <source>Recovery key</source>
         <translation>Ключ восстановления</translation>
     </message>
     <message>
-        <location line="-8692"/>
+        <location line="-8858"/>
         <source>Collapse %1</source>
         <translation>Свернуть %1</translation>
     </message>
@@ -25049,7 +25093,17 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+873"/>
+        <location line="+698"/>
+        <source>Use the card and name colours people set on their profile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Some clients let people colour their profile card and name. When off, profiles use your theme only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+185"/>
         <source>Nheko compact</source>
         <translation>Nheko компактный</translation>
     </message>
@@ -25104,8 +25158,8 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Интервал между сообщениями и между отправителями</translation>
     </message>
     <message>
-        <location line="-3595"/>
-        <location line="+3789"/>
+        <location line="-3609"/>
+        <location line="+3803"/>
         <source>Show the Spaces rail</source>
         <translation>Показывать панель пространств</translation>
     </message>
@@ -25155,7 +25209,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Обводить последнее выбранное сообщение, не перемещая фокус клавиатуры</translation>
     </message>
     <message>
-        <location line="-1138"/>
+        <location line="-1152"/>
         <source>Make secondary text and borders stronger</source>
         <translation>Сделать вторичный текст и границы заметнее</translation>
     </message>
@@ -25195,7 +25249,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Имена отправителей осветляются или затемняются, пока не станут читаемыми на фоне: «Сильная» стремится к 4,5:1, «Слабая» — к 3:1, «Выкл.» оставляет цвет точно таким, как выбран.</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+85"/>
         <source>Whether GIFs, stickers and animated avatars play on their own, only under the pointer, or not at all</source>
         <translation>Воспроизводятся ли GIF, стикеры и анимированные аватары сами, только под курсором или никогда</translation>
     </message>
@@ -25370,7 +25424,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+990"/>
+        <location line="+1142"/>
         <source>That file is not an image Lightning can upload. PNG, JPEG, GIF, WebP and BMP work; the file&apos;s contents decide, not its name.</source>
         <translation>Этот файл не является изображением, которое Lightning может загрузить. Работают PNG, JPEG, GIF, WebP и BMP; решающее значение имеет содержимое файла, а не его имя.</translation>
     </message>
@@ -25479,13 +25533,13 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Нет</translation>
     </message>
     <message>
-        <location line="-8150"/>
-        <location line="+8150"/>
+        <location line="-8316"/>
+        <location line="+8316"/>
         <source>Unknown</source>
         <translation>Неизвестно</translation>
     </message>
     <message>
-        <location line="-8453"/>
+        <location line="-8619"/>
         <source>Mute all notifications</source>
         <translation>Отключить все уведомления</translation>
     </message>
@@ -25561,12 +25615,12 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+180"/>
-        <location line="+9862"/>
+        <location line="+10028"/>
         <source>Game activity</source>
         <translation>Игровая активность</translation>
     </message>
     <message>
-        <location line="-9861"/>
+        <location line="-10027"/>
         <source>playing game status steam presence activity</source>
         <translation>играет игра статус steam присутствие активность</translation>
     </message>
@@ -25614,7 +25668,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Системный режим передаёт текст системной отрисовке шрифтов, поэтому учитываются её настройки хинтинга и сглаживания. Вступает в силу при следующем запуске Lightning.</translation>
     </message>
     <message>
-        <location line="+1259"/>
+        <location line="+1273"/>
         <source>Notifications need the menu bar icon</source>
         <translation>Для уведомлений нужен значок в строке меню</translation>
     </message>
@@ -25629,8 +25683,8 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Закрытие окна всегда скрывает его, а Lightning продолжает работать. Нажмите на значок в строке меню, чтобы вернуть окно. Cmd+Q завершает работу.</translation>
     </message>
     <message>
-        <location line="-4357"/>
-        <location line="+5233"/>
+        <location line="-4371"/>
+        <location line="+5247"/>
         <source>Use call keys from any window</source>
         <translation>Клавиши звонка из любого окна</translation>
     </message>
@@ -25645,7 +25699,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>В основном окне</translation>
     </message>
     <message>
-        <location line="-4282"/>
+        <location line="-4301"/>
         <location line="+4"/>
         <location line="+6"/>
         <location line="+4"/>
@@ -25657,7 +25711,7 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+30"/>
-        <location line="+140"/>
+        <location line="+145"/>
         <location line="+5"/>
         <location line="+4"/>
         <location line="+4"/>
@@ -25670,7 +25724,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Разметка · Список комнат и панели</translation>
     </message>
     <message>
-        <location line="-588"/>
+        <location line="-593"/>
         <location line="+5"/>
         <location line="+5"/>
         <location line="+4"/>
@@ -25687,7 +25741,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Чат · Лента</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+79"/>
         <location line="+5"/>
         <source>Layout · System tray</source>
         <translation>Разметка · Системный лоток</translation>
@@ -25738,30 +25792,30 @@ Escape и отдельные буквы, которые меню сообщен�
     </message>
     <message>
         <location line="+191"/>
-        <location line="+3227"/>
+        <location line="+3241"/>
         <source>Messages and threads</source>
         <translation>Сообщения и обсуждения</translation>
     </message>
     <message>
-        <location line="-3225"/>
-        <location line="+3474"/>
+        <location line="-3239"/>
+        <location line="+3488"/>
         <source>Room list and panels</source>
         <translation>Список комнат и панели</translation>
     </message>
     <message>
-        <location line="-2879"/>
+        <location line="-2893"/>
         <location line="+910"/>
-        <location line="+2296"/>
+        <location line="+2310"/>
         <source>Chat</source>
         <translation>Чат</translation>
     </message>
     <message>
-        <location line="-2069"/>
+        <location line="-2083"/>
         <source>Theme, colours and gradients, chat background, text and fonts — per account. How the window is arranged is under Layout; the timeline and the message box are under Chat.</source>
         <translation>Тема, цвета и градиенты, фон чата, текст и шрифты — для каждой учётной записи. Расположение окна — в разделе «Разметка»; лента и поле сообщения — в разделе «Чат».</translation>
     </message>
     <message>
-        <location line="+1481"/>
+        <location line="+1495"/>
         <source>How the window is arranged: messages and threads, the room list, the Spaces rail and the panels — per account.</source>
         <translation>Расположение окна: сообщения и обсуждения, список комнат, панель пространств и панели — для каждой учётной записи.</translation>
     </message>
@@ -25943,7 +25997,54 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1506"/>
+        <location line="+1038"/>
+        <location line="+48"/>
+        <source>Time zone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-37"/>
+        <source>Your profile shows your local time. Your time zone and pronouns are public: anyone can read them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>This device has no time zone list, so your time zone cannot be set here and local times are not shown.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Search time zones</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Use %1</source>
+        <translation type="unfinished">Использовать %1</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <location line="+19"/>
+        <source>Pronouns</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>she/her, they/them</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Your homeserver does not allow these profile fields.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Could not update your profile (%1).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+485"/>
         <source>Current session verified: %1</source>
         <translation>Текущий сеанс проверен: %1</translation>
     </message>
@@ -26315,15 +26416,15 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Этот сеанс</translation>
     </message>
     <message>
-        <location line="-9007"/>
-        <location line="+8913"/>
+        <location line="-9173"/>
+        <location line="+9079"/>
         <location line="+100"/>
         <source>Verified</source>
         <translation>Проверен</translation>
     </message>
     <message>
-        <location line="-9012"/>
-        <location line="+9014"/>
+        <location line="-9178"/>
+        <location line="+9180"/>
         <source>Not verified</source>
         <translation>Не проверен</translation>
     </message>
@@ -26479,14 +26580,14 @@ Note: importing keys does not verify this session.</source>
         <translation>Проверка устанавливает доверие к этому сеансу. Защищённая резервная копия и импорт ключей комнат дают ключи расшифровки для истории сообщений. Это разные операции.</translation>
     </message>
     <message>
-        <location line="-10333"/>
-        <location line="+10366"/>
+        <location line="-10504"/>
+        <location line="+10537"/>
         <source>Hide</source>
         <translation>Скрыть</translation>
     </message>
     <message>
-        <location line="-10368"/>
-        <location line="+10368"/>
+        <location line="-10539"/>
+        <location line="+10539"/>
         <source>Show</source>
         <translation>Показать</translation>
     </message>
@@ -26561,51 +26662,51 @@ Note: importing keys does not verify this session.</source>
         <translation>Лицензия: GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location line="-10454"/>
-        <location line="+3776"/>
+        <location line="-10620"/>
+        <location line="+3790"/>
         <source>Disable cursor blinking</source>
         <translation>Отключить мигание курсора</translation>
     </message>
     <message>
-        <location line="-3775"/>
+        <location line="-3789"/>
         <source>text cursor caret blink steady accessibility</source>
         <translation>текстовый курсор каретка мигание постоянный специальные возможности</translation>
     </message>
     <message>
-        <location line="+3778"/>
+        <location line="+3792"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
         <translation>Не мигать текстовым курсором во всех полях ввода. Если выключено, используется системная настройка курсора.</translation>
     </message>
     <message>
-        <location line="-491"/>
+        <location line="-505"/>
         <location line="+57"/>
         <source>Search fonts</source>
         <translation>Поиск шрифтов</translation>
     </message>
     <message>
-        <location line="-3559"/>
+        <location line="-3564"/>
         <source>On hover</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+158"/>
-        <location line="+4655"/>
+        <location line="+4674"/>
         <source>Avatars in messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4654"/>
+        <location line="-4673"/>
         <source>avatar avatars picture profile sender hide hover gutter declutter</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4677"/>
+        <location line="+4696"/>
         <source>Reactions</source>
         <translation type="unfinished">Реакции</translation>
     </message>
     <message>
-        <location line="-4676"/>
+        <location line="-4695"/>
         <source>reaction reactions emoji chips hide hover declutter</source>
         <translation type="unfinished"></translation>
     </message>
@@ -26616,18 +26717,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+2063"/>
-        <location line="+2700"/>
+        <location line="+2068"/>
+        <location line="+2714"/>
         <source>Show emoji-only messages large</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4762"/>
+        <location line="-4781"/>
         <source>big large emoji jumbo size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4659"/>
+        <location line="+4678"/>
         <source>Show sender pictures beside messages, only on the message under the pointer, or not at all</source>
         <translation type="unfinished"></translation>
     </message>
@@ -28006,7 +28107,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+819"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+836"/>
         <source>Create Room</source>
         <translation>Создать комнату</translation>
     </message>
@@ -35190,7 +35291,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2412"/>
+        <location filename="../src/main.cpp" line="+2418"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Нативный клиент Matrix на Qt/QML. Бэкенд: --backend={mock,http,rust}. По умолчанию: rust (http в сборках без Rust SDK).</translation>
     </message>
