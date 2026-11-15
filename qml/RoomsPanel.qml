@@ -99,6 +99,12 @@ Rectangle {
     signal messageSearchRequested()
 
     function openDiscoverForLink(link) {
+        var userId = app.userIdFromMatrixLink(link)
+        if (userId.length > 0) {
+            inviterProfilePopover.openFor({ userId: userId, roomScoped: false },
+                                          null)
+            return
+        }
         discoverJoinDialog.openForLink(link)
     }
 

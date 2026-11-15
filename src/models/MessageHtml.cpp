@@ -399,6 +399,23 @@ QString matrixToUserId(const QString &href)
     return {};
 }
 
+}
+
+QString MessageHtml::userIdFromLink(const QString &link)
+{
+    const QString trimmed = link.trimmed();
+    if (!trimmed.startsWith(QLatin1String("matrix:u/"), Qt::CaseInsensitive))
+        return matrixToUserId(trimmed);
+    QString id = QUrl::fromPercentEncoding(
+        trimmed.mid(9).section(QLatin1Char('?'), 0, 0).toUtf8());
+    if (!id.startsWith(QLatin1Char('@')))
+        id.prepend(QLatin1Char('@'));
+    return id.size() > 3 && id.indexOf(QLatin1Char(':')) > 1
+            && !id.contains(QLatin1Char('/')) ? id : QString();
+}
+
+namespace {
+
 QString localpart(const QString &userId)
 {
     QString lp = userId.startsWith(QLatin1Char('@')) ? userId.mid(1) : userId;

@@ -730,6 +730,7 @@ public Q_SLOTS:
         Q_EMIT externalMatrixLinkQueued();
     }
     QString takeExternalMatrixLink() { return std::exchange(m_externalMatrixLink, {}); }
+    QString userIdFromMatrixLink(const QString &link) const;
 
     void openSpaceHome(const QString &spaceId);
     Q_INVOKABLE void openLobby();

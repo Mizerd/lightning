@@ -37,6 +37,9 @@ struct Segment {
     QString language;
 };
 
+// The user a matrix:u/ or matrix.to link names; empty for any other link.
+QString userIdFromLink(const QString &link);
+
 QString markRoomMention(const QString &safeHtml, const QString &color,
                         const QString &fill = QString());
 

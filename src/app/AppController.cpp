@@ -39,6 +39,7 @@
 #include "media/MediaManager.h"
 #include "media/MprisServer.h"
 #include "models/MessageComposer.h"
+#include "models/MessageHtml.h"
 #include "models/EmojiCatalog.h"
 #include "models/MessageHtml.h"
 #include "models/RoomListModel.h"
@@ -3476,6 +3477,11 @@ void AppController::prepareForShutdown()
 bool AppController::loggedIn() const
 {
     return m_auth && m_auth->isLoggedIn();
+}
+
+QString AppController::userIdFromMatrixLink(const QString &link) const
+{
+    return MessageHtml::userIdFromLink(link);
 }
 
 QString AppController::backendName() const

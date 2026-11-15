@@ -764,11 +764,13 @@ Item {
                 root.timelineModel.toggleSpoilers(model.eventId)
             return
         }
-        if (link.indexOf("mention:") === 0) {
+        var linkUser = link.indexOf("mention:") === 0
+            ? link.substring(8) : app.userIdFromMatrixLink(link)
+        if (linkUser.length > 0) {
             if (root.timelineView
                 && root.timelineView.openSenderProfile) {
                 root.timelineView.openSenderProfile({
-                    userId: link.substring(8),
+                    userId: linkUser,
                     displayName: "",
                     avatarUrl: ""
                 }, root.pointerAnchor())

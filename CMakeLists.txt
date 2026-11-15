@@ -5377,6 +5377,16 @@ if(BUILD_TESTING)
     set_tests_properties(composer-focus-on-open-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # A link to a person opens their profile card, not the Discover dialog.
+    qt_add_executable(user-link-profile-qml-test
+        tests/UserLinkProfileQmlTest.cpp
+    )
+    lightning_configure_qml_test(user-link-profile-qml-test)
+    target_include_directories(user-link-profile-qml-test PRIVATE src)
+    add_test(NAME user-link-profile-qml COMMAND user-link-profile-qml-test)
+    set_tests_properties(user-link-profile-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Explicit, rebindable composer focus preserves drafts and popup ownership.
     qt_add_executable(composer-focus-shortcut-qml-test
         tests/ComposerFocusShortcutQmlTest.cpp
