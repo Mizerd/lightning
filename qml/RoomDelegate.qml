@@ -85,11 +85,12 @@ Item {
     function activityLabel(when) {
         if (!when || isNaN(when.getTime()) || when.getTime() <= 0)
             return ""
-        var now = new Date()
-        var days = Math.floor((now - when) / 86400000)
-        if (when.toDateString() === now.toDateString())
+        var now = new Date(AppLocale.dayStartMs)
+        var days = Math.round((now - new Date(when.getFullYear(), when.getMonth(),
+                                              when.getDate())) / 86400000)
+        if (days <= 0)
             return Qt.formatTime(when, app.settings.clockTimeFormat)
-        if (days < 2) return qsTr("Yesterday")
+        if (days === 1) return qsTr("Yesterday")
         if (days < 7) return Qt.locale(AppLocale.name).toString(when, "ddd")
         if (when.getFullYear() === now.getFullYear())
             return Qt.locale(AppLocale.name).toString(when, "d MMM")

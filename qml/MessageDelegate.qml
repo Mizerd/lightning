@@ -1145,9 +1145,8 @@ Item {
         var stamp = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate())
         if (isNaN(stamp.getTime()))
             return ""
-        var now = new Date()
-        var today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        var days = Math.round((today.getTime() - stamp.getTime()) / 86400000)
+        var now = new Date(AppLocale.dayStartMs)
+        var days = Math.round((now.getTime() - stamp.getTime()) / 86400000)
         if (days === 0) return qsTr("Today")
         if (days === 1) return qsTr("Yesterday")
         if (days > 1 && days < 7)

@@ -1,6 +1,8 @@
 
 #include <QtTest/QtTest>
 
+#include "i18n/LocalizationManager.h"
+
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -579,6 +581,49 @@ Item {
         QTest::mouseMove(&window, QPoint(150, 10));
         QTRY_VERIFY(!label->isVisible());
         QCOMPARE(unread->width(), idleWidth);
+    }
+
+    void aRowsTimeBecomesYesterdayWhenTheDateChanges()
+    {
+        QQmlEngine engine;
+        std::unique_ptr<QObject> app;
+        QVERIFY(makeApp(engine, kMenuApp, app));
+        QString src = QString::fromUtf8(kRowScene);
+        const qsizetype from = src.indexOf(QStringLiteral("ListElement"));
+        const qsizetype to = src.indexOf(QStringLiteral("memberCount: 3 }"));
+        QVERIFY(from > 0 && to > from);
+        src.replace(from, to + 16 - from, QStringLiteral(R"(
+            Component.onCompleted: append({
+                roomId: "!r:x", name: "Room", membership: "joined",
+                hasUnread: false, markedUnread: false, unreadCount: 0,
+                highlightCount: 0, threadUnreadKind: 0, isDirect: false,
+                lastMessagePreview: "hello",
+                lastActivity: new Date(2026, 10, 14, 23, 58),
+                avatarUrl: "", encrypted: false, isSpace: false,
+                invitePending: false, inviter: "", isFavourite: false,
+                identityColorKey: "!r:x", network: "", networkLabel: "",
+                category: "conversation", memberCount: 3 })
+        )"));
+        QQmlComponent c(&engine);
+        c.setData(src.toUtf8(), QUrl(QStringLiteral("qrc:/datedrow.qml")));
+        std::unique_ptr<QObject> owner(c.create());
+        QVERIFY2(owner, qPrintable(c.errorString()));
+        auto *rootItem = qobject_cast<QQuickItem *>(owner.get());
+        QQuickWindow window;
+        window.resize(400, 300);
+        rootItem->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QObject *label = nullptr;
+        QTRY_VERIFY((label = rootItem->findChild<QObject *>(
+                         QStringLiteral("roomActivityLabel"))));
+
+        AppLocale::instance()->setToday(QDate(2026, 11, 14));
+        QTRY_COMPARE(label->property("text").toString(), QStringLiteral("23:58"));
+        AppLocale::instance()->setToday(QDate(2026, 11, 15));
+        const QString after = label->property("text").toString();
+        AppLocale::instance()->setToday(QDate::currentDate());
+        QCOMPARE(after, QStringLiteral("Yesterday"));
     }
 };
 

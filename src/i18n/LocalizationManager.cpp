@@ -7,6 +7,7 @@
 #include <QGuiApplication>
 #include <QJSEngine>
 #include <QLocale>
+#include <QTimer>
 #include <QTranslator>
 #include <QVariantMap>
 #include <QtGlobal>
@@ -63,9 +64,35 @@ AppLocale *AppLocale::instance()
     return self;
 }
 
+double AppLocale::dayStartMs() const
+{
+    return double(m_today.startOfDay().toMSecsSinceEpoch());
+}
+
+void AppLocale::setToday(const QDate &today)
+{
+    if (!today.isValid() || today == m_today)
+        return;
+    m_today = today;
+    Q_EMIT todayChanged();
+}
+
 AppLocale *AppLocale::create(QQmlEngine *, QJSEngine *)
 {
     AppLocale *self = instance();
+    // Polled, not armed for midnight: a monotonic timer does not advance
+    // across suspend, and the time zone can change under us.
+    static QTimer *const poll = [self] {
+        auto *timer = new QTimer(self);
+        timer->setTimerType(Qt::VeryCoarseTimer);
+        timer->setInterval(30000);
+        QObject::connect(timer, &QTimer::timeout, self,
+                         [self] { self->setToday(QDate::currentDate()); });
+        timer->start();
+        return timer;
+    }();
+    Q_UNUSED(poll);
+    self->setToday(QDate::currentDate());
     QJSEngine::setObjectOwnership(self, QJSEngine::CppOwnership);
     return self;
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDate>
 #include <QLocale>
 #include <QObject>
 #include <QString>
@@ -20,6 +21,7 @@ class AppLocale : public QObject
     QML_ELEMENT
     QML_SINGLETON
     Q_PROPERTY(QString name READ name NOTIFY changed)
+    Q_PROPERTY(double dayStartMs READ dayStartMs NOTIFY todayChanged)
 
 public:
     static AppLocale *instance();
@@ -29,11 +31,19 @@ public:
 
     void notifyChanged() { Q_EMIT changed(); }
 
+    // Local midnight of the current day; relative dates in QML bind to it so
+    // they re-evaluate when the date changes.
+    double dayStartMs() const;
+    void setToday(const QDate &today);
+
 Q_SIGNALS:
     void changed();
+    void todayChanged();
 
 private:
     AppLocale() = default;
+
+    QDate m_today = QDate::currentDate();
 };
 
 class LocalizationManager : public QObject
