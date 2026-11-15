@@ -1558,7 +1558,8 @@ function(_lightning_configure_qml_module target _scope)
         target_compile_definitions(${target} ${_scope}
             LIGHTNING_HAVE_QPA_SCREEN=1)
         # Shortcut capture asks the key mapper what Qt's shortcut map matches.
-        if(Qt6_VERSION VERSION_GREATER_EQUAL 6.7)
+        # It reads a private-ABI symbol, so never on the distro-Qt RPM lanes.
+        if(Qt6_VERSION VERSION_GREATER_EQUAL 6.7 AND NOT LIGHTNING_PORTABLE_QT_ABI)
             target_compile_definitions(${target} ${_scope}
                 LIGHTNING_HAVE_QPA_KEYMAPPER=1)
         endif()
