@@ -33257,20 +33257,29 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5239"/>
+        <location line="+5263"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5238"/>
+        <location filename="../qml/TimelinePane.qml" line="-5262"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
     <message>
-        <location line="+37"/>
-        <location line="+2"/>
+        <location line="+47"/>
         <source>Room encrypted</source>
         <translation>الغرفة معمّاة</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not encrypted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Public room</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+87"/>
@@ -33999,8 +34008,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6522"/>
-        <location line="+6699"/>
+        <location filename="../qml/TimelinePane.qml" line="-6546"/>
+        <location line="+6723"/>
         <source>Room</source>
         <translation>غرفة</translation>
     </message>
@@ -34091,13 +34100,13 @@ Note: importing keys does not verify this session.</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-5826"/>
+        <location line="-5850"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>عرض الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+5058"/>
+        <location line="+5082"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>الصور (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>

@@ -32684,7 +32684,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+6867"/>
+        <location filename="../qml/TimelinePane.qml" line="+6891"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -32728,8 +32728,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5719"/>
-        <location line="+5239"/>
+        <location filename="../qml/TimelinePane.qml" line="-5743"/>
+        <location line="+5263"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32753,8 +32753,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="+141"/>
-        <location filename="../qml/TimelinePane.qml" line="-6062"/>
-        <location line="+6699"/>
+        <location filename="../qml/TimelinePane.qml" line="-6086"/>
+        <location line="+6723"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -32808,7 +32808,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6303"/>
+        <location filename="../qml/TimelinePane.qml" line="-6327"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -32837,10 +32837,19 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Start</translation>
     </message>
     <message>
-        <location line="+37"/>
-        <location line="+2"/>
+        <location line="+47"/>
         <source>Room encrypted</source>
         <translation>Raum verschlüsselt</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not encrypted</source>
+        <translation type="unfinished">Nicht verschlüsselt</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Public room</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+87"/>
