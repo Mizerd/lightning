@@ -188,6 +188,7 @@ private Q_SLOTS:
     void pollRolesExposeOutcomeAndEndPermission();
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
     void reactorsUseSeenNamesAndResolveProfilesWithRepaint();
+    void aRowShowsItsSendersRosterNameNotTheOneItCarries();
     void aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows();
     void aSenderNameLosesItsDirectionOverridesFromEverySource();
     void theQuoteTypingLineAndPillsLoseDirectionOverridesToo();
@@ -869,6 +870,24 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
              QByteArrayLiteral("readReceipts"));
     QCOMPARE(m_model->roleNames().value(TimelineModel::ReadReceiptsTotalRole),
              QByteArrayLiteral("readReceiptsTotal"));
+}
+
+void TimelineModelDiffTest::aRowShowsItsSendersRosterNameNotTheOneItCarries()
+{
+    const QString bo = QStringLiteral("@bo:example.org");
+    auto said = makeEvent(QStringLiteral("$said"), QStringLiteral("hello"));
+    said.sender = bo;
+    said.senderDisplayName = QStringLiteral("Bo Helper");
+    m_client->mirror = { said };
+    Q_EMIT m_client->timelineReset(kRoom);
+    const auto shown = [this] {
+        return m_model->data(m_model->index(0),
+                             TimelineModel::SenderDisplayNameRole).toString();
+    };
+    QCOMPARE(shown(), QStringLiteral("Bo Helper"));
+    m_client->displayNames.insert(bo, QStringLiteral("Bo Renamed"));
+    Q_EMIT m_client->membersChanged(kRoom);
+    QCOMPARE(shown(), QStringLiteral("Bo Renamed"));
 }
 
 void TimelineModelDiffTest::reactorsUseSeenNamesAndResolveProfilesWithRepaint()

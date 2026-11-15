@@ -600,6 +600,29 @@ private Q_SLOTS:
                  "a local row lost its sender display name — the producers "
                  "and MessageSearchController disagree on the key");
     }
+    void aRowShowsItsSendersCurrentRoomNameNotTheIndexedOne()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        model.setSource(QStringLiteral("server"));
+        QVariantMap row = resultRow(QStringLiteral("!general:mock.local"),
+                                    QStringLiteral("$e1"), QStringLiteral("hello"));
+        row.insert(QStringLiteral("senderDisplayName"), QStringLiteral("Old Bob"));
+        client.mockSearchResults = { row };
+        model.setQuery(QStringLiteral("hello"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QCOMPARE(model.data(model.index(0),
+                            MessageSearchController::SenderDisplayNameRole)
+                     .toString(),
+                 QStringLiteral("Bob"));
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        Q_EMIT client.membersChanged(QStringLiteral("!general:mock.local"));
+        QCOMPARE(changed.count(), 1);
+    }
+
     void aRowWithNoAvatarGetsTheSendersGlobalProfile()
     {
         MockMatrixClient client;

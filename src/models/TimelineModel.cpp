@@ -86,9 +86,8 @@ TimelineModel::TimelineModel(QObject *parent)
 
 QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
 {
-    const QString carried = shownName(event.senderDisplayName, event.sender);
-    if (!carried.isEmpty())
-        return carried;
+    // The roster first: the name a row carries is the one its sender had
+    // when the row was built, and the SDK does not rebuild it on a rename.
     if (m_client) {
         const QString display = shownName(
             m_client->displayNameFor(memberLookupRoomId(event.roomId),
@@ -97,6 +96,9 @@ QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
         if (!display.isEmpty())
             return display;
     }
+    const QString carried = shownName(event.senderDisplayName, event.sender);
+    if (!carried.isEmpty())
+        return carried;
     const QString seen = shownName(m_senderNameIndex.value(event.sender),
                                    event.sender);
     if (!seen.isEmpty())

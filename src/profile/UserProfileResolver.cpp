@@ -25,6 +25,11 @@ void UserProfileResolver::setClient(MatrixClient *client)
         // next account. The sibling profile managers do the same.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &UserProfileResolver::clear);
+        connect(m_client, &MatrixClient::userProfileChanged, this,
+                [this](const QString &userId) {
+                    if (m_profiles.contains(userId) && !m_asking.contains(userId))
+                        fetch(userId);
+                });
     }
 }
 
@@ -66,6 +71,11 @@ void UserProfileResolver::request(const QString &userId)
         return;
     if (m_profiles.size() >= kMaxProfiles)
         return;
+    fetch(userId);
+}
+
+void UserProfileResolver::fetch(const QString &userId)
+{
     const quint64 op = m_client->fetchUserProfile(userId);
     if (op == 0)
         return;

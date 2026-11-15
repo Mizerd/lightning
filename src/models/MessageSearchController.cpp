@@ -139,6 +139,11 @@ void MessageSearchController::setClient(MatrixClient *client)
     }
     connect(m_client, &MatrixClient::messageSearchFinished, this,
             &MessageSearchController::onSearchFinished);
+    connect(m_client, &MatrixClient::membersChanged, this, [this] {
+        if (!m_rows.isEmpty())
+            Q_EMIT dataChanged(index(0), index(m_rows.size() - 1),
+                               { SenderDisplayNameRole });
+    });
     connect(m_client, &MatrixClient::localSearchFinished, this,
             &MessageSearchController::onLocalSearchFinished);
     connect(m_client, &MatrixClient::searchIndexStatsReceived, this,
@@ -621,6 +626,14 @@ QVariant MessageSearchController::data(const QModelIndex &index,
     case EventIdRole: return row.value(QStringLiteral("eventId"));
     case SenderRole: return row.value(QStringLiteral("sender"));
     case SenderDisplayNameRole: {
+        // A row carries the name its sender had when it was indexed.
+        const QString sender = row.value(QStringLiteral("sender")).toString();
+        const QString current = m_client
+            ? m_client->displayNameFor(
+                  row.value(QStringLiteral("roomId")).toString(), sender)
+            : QString();
+        if (!current.isEmpty() && current != sender)
+            return current;
         const QVariant own = row.value(QStringLiteral("senderDisplayName"));
         if (!own.toString().isEmpty() || !m_profiles)
             return own;

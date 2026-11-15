@@ -274,6 +274,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomList     = std::make_unique<RoomListModel>(this);
     m_allRooms     = std::make_unique<RoomListModel>(this);
     m_roomList->setDirectAvatarResolver(m_directAvatars.get());
+    m_roomList->setInviterNameSource([this](const QString &userId) {
+        m_userProfiles->request(userId);
+        return m_userProfiles->profile(userId).displayName;
+    });
+    connect(m_userProfiles.get(), &UserProfileResolver::resolved,
+            m_roomList.get(), [this](const QString &userId) {
+                m_roomList->inviterNameChanged(userId);
+            });
     m_allRooms->setDirectAvatarResolver(m_directAvatars.get());
     m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);

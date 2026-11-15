@@ -39,6 +39,7 @@ Q_SIGNALS:
                   const QString &avatarUrl);
 
 private:
+    void fetch(const QString &userId);
     void onFinished(quint64 opId, bool ok, const QString &userId,
                     const QString &displayName, const QString &avatarUrl,
                     const QString &category);

@@ -80,6 +80,10 @@ public:
 
     void setSpaceManager(SpaceManager *spaces);
     void setNotificationModeSource(std::function<int(const QString &)> modeOf);
+    // An invite carries the inviter's name as of the invite; the source
+    // answers with their current one, or nothing when it is not known.
+    void setInviterNameSource(std::function<QString(const QString &)> nameOf);
+    void inviterNameChanged(const QString &userId);
     void notificationModeChanged();
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -178,6 +182,8 @@ private:
     int notificationModeOf(const QString &roomId) const;
     int shownUnread(const RoomInfo &room) const;
     std::function<int(const QString &)> m_modeOf;
+    std::function<QString(const QString &)> m_inviterNameOf;
+    QString inviterName(const RoomInfo &room) const;
     MatrixClient *m_client = nullptr;
     QSet<QString> m_pendingMarkRead;
     SpaceManager *m_spaces = nullptr;

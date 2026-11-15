@@ -7,6 +7,7 @@
 
 #include "matrix/BridgeNetwork.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/PresentableName.h"
 #include "spaces/SpaceManager.h"
 
 #include <algorithm>
@@ -216,8 +217,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case IsFavouriteRole:        return r.isFavourite;
     case IsLowPriorityRole:      return r.lowPriority;
     case DirectUserIdRole:       return r.directUserId;
-    case InviterRole:            return r.inviterDisplayName.isEmpty()
-                                     ? r.inviterUserId : r.inviterDisplayName;
+    case InviterRole:            return inviterName(r);
     case InviterUserIdRole:      return r.inviterUserId;
     case InvitePendingRole:      return r.invitePending;
     case InviteErrorRole:        return r.inviteError;
@@ -304,8 +304,7 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("bridgeNetwork"), badge.networkId },
                 { QStringLiteral("bridgeLabel"),   badge.label },
                 { QStringLiteral("membership"), membershipName(r.membership) },
-                { QStringLiteral("inviter"), r.inviterDisplayName.isEmpty()
-                      ? r.inviterUserId : r.inviterDisplayName },
+                { QStringLiteral("inviter"), inviterName(r) },
                 { QStringLiteral("inviterUserId"), r.inviterUserId },
                 { QStringLiteral("invitePending"), r.invitePending },
                 { QStringLiteral("inviteError"),   r.inviteError },
@@ -966,6 +965,34 @@ QString RoomListModel::categoryOf(const RoomInfo &room)
     case 3: return QStringLiteral("lowpriority");
     default: return QStringLiteral("conversation");
     }
+}
+
+void RoomListModel::setInviterNameSource(
+    std::function<QString(const QString &)> nameOf)
+{
+    m_inviterNameOf = std::move(nameOf);
+}
+
+void RoomListModel::inviterNameChanged(const QString &userId)
+{
+    for (int row = 0; row < m_rooms.size(); ++row) {
+        if (m_rooms.at(row).inviterUserId == userId)
+            Q_EMIT dataChanged(index(row), index(row), {InviterRole});
+    }
+}
+
+QString RoomListModel::inviterName(const RoomInfo &room) const
+{
+    if (m_inviterNameOf && room.membership == RoomInfo::Invited
+        && !room.inviterUserId.isEmpty()) {
+        const QString current =
+            matrix::presentable_name::withoutDirectionalControls(
+                m_inviterNameOf(room.inviterUserId)).trimmed();
+        if (!current.isEmpty())
+            return current;
+    }
+    return room.inviterDisplayName.isEmpty() ? room.inviterUserId
+                                             : room.inviterDisplayName;
 }
 
 void RoomListModel::setNotificationModeSource(

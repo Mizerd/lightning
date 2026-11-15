@@ -276,6 +276,33 @@ private Q_SLOTS:
         RoomListModel detached;
         QCOMPARE(detached.markAllRoomsRead(), 0);
     }
+
+    void anInviteRowShowsTheInvitersCurrentName()
+    {
+        CapableClient client;
+        RoomInfo invite = makeRoom(QStringLiteral("!f:example.org"));
+        invite.membership = RoomInfo::Invited;
+        invite.inviterUserId = QStringLiteral("@bo:example.org");
+        invite.inviterDisplayName = QStringLiteral("Bo Helper");
+        client.roomSet = { invite };
+        RoomListModel model;
+        model.setClient(&client);
+        QCOMPARE(model.rowCount(), 1);
+        const QModelIndex row = model.index(0);
+        QCOMPARE(model.data(row, RoomListModel::InviterRole).toString(),
+                 QStringLiteral("Bo Helper"));
+
+        QString current;
+        model.setInviterNameSource([&current](const QString &) { return current; });
+        QCOMPARE(model.data(row, RoomListModel::InviterRole).toString(),
+                 QStringLiteral("Bo Helper"));
+        current = QStringLiteral("Bo Renamed");
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        model.inviterNameChanged(QStringLiteral("@bo:example.org"));
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(model.data(row, RoomListModel::InviterRole).toString(),
+                 QStringLiteral("Bo Renamed"));
+    }
 };
 
 QTEST_MAIN(MarkRoomReadTest)

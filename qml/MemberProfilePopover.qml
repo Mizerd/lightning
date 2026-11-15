@@ -156,16 +156,14 @@ Popup {
     function _fillFromRoster() {
         if (userId.length === 0)
             return
-        if (displayName.length > 0 && avatarMxc.length > 0
-            && membership.length > 0)
-            return
         if (!app.roomInfo)
             return
         var row = app.roomInfo.memberFor(userId, app.currentRoomId)
         if (!row || !row.userId)
             return
-        if (displayName.length === 0)
-            displayName = row.displayName || ""
+        // The caller's name can be a row's, older than the roster's.
+        if (row.displayName)
+            displayName = row.displayName
         if (avatarMxc.length === 0)
             avatarMxc = row.avatarUrl || ""
         if (membership.length === 0)
@@ -175,12 +173,12 @@ Popup {
     function _fillFromServer() {
         if (userId.length === 0 || typeof app === "undefined" || !app.userProfiles)
             return
-        if (displayName.length > 0 && avatarMxc.length > 0)
+        if (roomScoped && displayName.length > 0 && avatarMxc.length > 0)
             return
         var p = app.userProfiles.lookup(userId)
         if (!p || !p.known)
             return
-        if (displayName.length === 0)
+        if (displayName.length === 0 || (!roomScoped && p.displayName))
             displayName = p.displayName || ""
         if (avatarMxc.length === 0)
             avatarMxc = p.avatarUrl || ""
@@ -191,7 +189,7 @@ Popup {
         function onResolved(uid, name, avatar) {
             if (uid !== root.userId || !root.opened)
                 return
-            if (root.displayName.length === 0)
+            if (root.displayName.length === 0 || (!root.roomScoped && name))
                 root.displayName = name || ""
             if (root.avatarMxc.length === 0)
                 root.avatarMxc = avatar || ""

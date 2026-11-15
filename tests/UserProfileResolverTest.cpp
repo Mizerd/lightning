@@ -176,6 +176,31 @@ private Q_SLOTS:
         resolver.request(QStringLiteral("@nobody:example.org"));
         QCOMPARE(resolver.inFlightCount(), 1);
     }
+
+    void aCachedProfileIsAskedAgainWhenItsUserChanges()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        const QString bo = QStringLiteral("@bo:example.org");
+        client.mockDisplayNames.insert(bo, QStringLiteral("Bo Helper"));
+        UserProfileResolver resolver;
+        resolver.setClient(&client);
+        QSignalSpy resolved(&resolver, &UserProfileResolver::resolved);
+
+        Q_EMIT client.userProfileChanged(bo);
+        QCOMPARE(resolver.inFlightCount(), 0);
+
+        resolver.request(bo);
+        QVERIFY(resolved.wait(kSignalTimeoutMs));
+        client.mockDisplayNames.insert(bo, QStringLiteral("Bo Renamed"));
+        Q_EMIT client.userProfileChanged(bo);
+        Q_EMIT client.userProfileChanged(bo);
+        QCOMPARE(resolver.inFlightCount(), 1);
+        QCOMPARE(resolver.profile(bo).displayName, QStringLiteral("Bo Helper"));
+        QVERIFY(resolved.wait(kSignalTimeoutMs));
+        QCOMPARE(resolved.count(), 2);
+        QCOMPARE(resolver.profile(bo).displayName, QStringLiteral("Bo Renamed"));
+    }
 };
 
 QTEST_MAIN(UserProfileResolverTest)
