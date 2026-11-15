@@ -2804,10 +2804,7 @@ bool TimelineModel::canEditEvent(const QString &eventId) const
     // Own messages only (canRedactEvent without the moderator grant), and
     // never one we cannot read: its body is the "unable to decrypt"
     // placeholder, and an edit would send that text as the new content.
-    // An edit goes through the live timeline, which does not hold a jumped-to
-    // event.
     return canRedactEvent(eventId) && event
-        && !MatrixClient::isContextTimelineId(m_roomId)
         && event->type == TimelineEvent::TextMessage
         && event->status == TimelineEvent::Sent
         && !event->undecryptable;

@@ -516,6 +516,18 @@ private Q_SLOTS:
         QCOMPARE(m_client->sends.last().roomId, kRoom);
     }
 
+    void anEditFromTheJumpViewIsSentToTheRealRoom()
+    {
+        m_composer->beginEdit(
+            QStringLiteral("$old"), QStringLiteral("before"), QString(),
+            MatrixClient::contextTimelineId(kRoom, QStringLiteral("$old")));
+        m_composer->setText(QStringLiteral("after"));
+        m_composer->send();
+        QVERIFY(!m_client->sends.isEmpty());
+        QCOMPARE(m_client->sends.last().kind, QStringLiteral("edit"));
+        QCOMPARE(m_client->sends.last().roomId, kRoom);
+    }
+
     void anUnchangedEditSendsNothingAndLeavesEditMode()
     {
         m_composer->beginEdit(QStringLiteral("$same"),

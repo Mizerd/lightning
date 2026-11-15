@@ -1654,7 +1654,8 @@ void MessageComposer::beginEdit(const QString &eventId,
         m_draftDebounce.stop();
         saveDraftNow();
     }
-    m_editingTimelineId = timelineId;
+    m_editingTimelineId = MatrixClient::isContextTimelineId(timelineId)
+        ? MatrixClient::threadTimelineRoomId(timelineId) : timelineId;
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
     m_replyingToPreview.clear();

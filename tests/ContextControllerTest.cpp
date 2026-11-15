@@ -498,6 +498,29 @@ private Q_SLOTS:
         QCOMPARE(context.state(), ContextController::Closed);
     }
 
+    void anOwnMessageInTheJumpViewCanBeEdited()
+    {
+        MockMatrixClient client;
+        client.setEventContextEnabled(true);
+        QVERIFY(login(client));
+        QString own;
+        for (const auto &e : client.timeline(kGeneral)) {
+            if (e.sender == client.currentUserId() && !e.eventId.isEmpty()
+                && e.type == TimelineEvent::TextMessage
+                && e.status == TimelineEvent::Sent && e.threadRootId.isEmpty()) {
+                own = e.eventId;
+                break;
+            }
+        }
+        QVERIFY2(!own.isEmpty(), "fixture has no own text message");
+        ContextController context;
+        context.setClient(&client);
+        QVERIFY(context.open(kGeneral, own));
+        QCOMPARE(context.state(), ContextController::Ready);
+        QVERIFY(MatrixClient::isContextTimelineId(context.model()->roomId()));
+        QVERIFY(context.model()->canEditEvent(own));
+    }
+
     void contextIdsNeverLookLikeThreadOrRoomIds()
     {
         const QString id = MatrixClient::contextTimelineId(kGeneral,

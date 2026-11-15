@@ -790,6 +790,35 @@ impl TimelineRegistry {
         }
     }
 
+    // The view keeps rows of an earlier visit and asks for their media before
+    // the reopened timeline has listed them, so keys outlive a room switch.
+    // An unmarked key is judged by the active room: pin that answer before the
+    // active room changes.
+    fn retire_media(&self, client: &Client) {
+        let private = self
+            .active_room_id()
+            .and_then(|id| RoomId::parse(id).ok())
+            .and_then(|id| client.get_room(&id))
+            .map_or(true, |room| {
+                let state = room.encryption_state();
+                state.is_encrypted() || state.is_unknown()
+            });
+        let (Ok(mut sources), Ok(mut marks)) =
+            (self.media_sources.lock(), self.encrypted_room_media.lock())
+        else {
+            return;
+        };
+        if marks.overflowed {
+            sources.clear();
+            *marks = EncryptedRoomMedia::default();
+            return;
+        }
+        marks.keys.retain(|key| sources.entries.contains_key(key));
+        if private {
+            marks.keys.extend(sources.entries.keys().cloned());
+        }
+    }
+
     pub(crate) fn mark_media_from_encrypted_room(&self, key: &str) {
         if let Ok(mut guard) = self.encrypted_room_media.lock() {
             if guard.keys.len() >= MEDIA_SOURCE_CAP {
@@ -852,7 +881,7 @@ impl TimelineRegistry {
         self.close_thread_list();
         let room_gen = self.room_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
-        self.clear_media();
+        self.retire_media(&client);
 
         // Keep the previous task's handle when shrinking: the event-cache
         // subscriber lives in it, and abort() only requests cancellation.
@@ -2263,10 +2292,12 @@ impl TimelineRegistry {
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid edit target event id.".to_owned())?;
+        let context = if in_thread { None } else { self.context_timeline_for(&room_id) };
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         let room_gen_for_report = self.room_gen.load(Ordering::SeqCst);
         runtime.spawn(async move {
+            let timeline = timeline_holding(timeline, context, &event_id).await;
             let item_id = TimelineEventItemId::EventId(event_id);
             // ruma's make_replacement puts mentions in m.new_content and only newly
             // added ones at top level, so attach them before wrapping. ALWAYS, even
@@ -4212,6 +4243,18 @@ fn fill_diff_json(
     }
 }
 
+// A jumped-to event is held only by the context timeline.
+async fn timeline_holding(
+    live: Arc<Timeline>,
+    context: Option<Arc<Timeline>>,
+    event_id: &EventId,
+) -> Arc<Timeline> {
+    match context {
+        Some(context) if live.item_by_event_id(event_id).await.is_none() => context,
+        _ => live,
+    }
+}
+
 const REPLY_DETAIL_FETCH_BURST: usize = 8;
 
 fn fetch_missing_reply_details<'a, I>(
@@ -4230,6 +4273,11 @@ fn fetch_missing_reply_details<'a, I>(
             continue;
         }
         if !matches!(reply.event, TimelineDetails::Unavailable) {
+            continue;
+        }
+        // A sent local echo has an event id the SDK refuses to fetch for;
+        // recording it here would skip the remote echo that replaces it.
+        if event.is_local_echo() {
             continue;
         }
         let Some(event_id) = event.event_id() else { continue };

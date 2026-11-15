@@ -721,3 +721,111 @@ async fn a_threaded_stable_poll_stays_out_of_the_main_timeline() {
     wait_body(&timeline, "$after", "after").await;
     assert!(row(&timeline, "$tpoll").await.is_null(), "a threaded poll leaked into main");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sent_reply_to_an_unloaded_event_gets_its_quote() {
+    use matrix_sdk::deserialized_responses::TimelineEvent;
+    use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    sync(&client, vec![message("$newest", "newest", 5000)], "1").await;
+    server.mock_room_state_encryption().plain().mount().await;
+    let mut original = message("$original", "old original", 1000);
+    original["room_id"] = json!(ROOM);
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(TimelineEvent::from_plaintext(Raw::from_json_string(original.to_string()).unwrap()))
+        .mount()
+        .await;
+    server
+        .mock_room_send()
+        .ok(matrix_sdk::ruma::event_id!("$reply"))
+        .mount()
+        .await;
+
+    let timeline = Arc::new(build(&client).await);
+    let (_, mut stream) = timeline.subscribe().await;
+    {
+        let timeline = Arc::clone(&timeline);
+        tokio::spawn(async move {
+            let fetched = Arc::new(Mutex::new(HashSet::new()));
+            while let Some(diffs) = stream.next().await {
+                for diff in diffs {
+                    fetch_missing_reply_details(&timeline, diff_items(&diff).iter(), &fetched);
+                }
+            }
+        });
+    }
+    timeline
+        .send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("a reply"),
+            matrix_sdk::ruma::owned_event_id!("$original"),
+        )
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while row(&timeline, "$reply").await["is_local_echo"] != true {
+        assert!(Instant::now() < deadline, "the sent local echo never appeared");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // Let the listener see the sent echo before the remote one replaces it.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let mut remote = message("$reply", "a reply", 6000);
+    remote["sender"] = json!(client.user_id().unwrap().as_str());
+    remote["content"]["m.relates_to"] = json!({"m.in_reply_to":{"event_id":"$original"}});
+    sync(&client, vec![remote], "2").await;
+    wait_field(&timeline, "$reply", "reply_to_preview", "old original").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_edit_uses_the_timeline_that_holds_the_event() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    sync(&client, vec![message("$old", "old", 1000)], "1").await;
+    let holder = Arc::new(build(&client).await);
+    wait_body(&holder, "$old", "old").await;
+    let other = server.sync_joined_room(&client, room_id!("!empty:localhost")).await;
+    let empty = Arc::new(TimelineBuilder::new(&other).build().await.unwrap());
+    let id = matrix_sdk::ruma::event_id!("$old");
+    let picked = timeline_holding(Arc::clone(&empty), Some(Arc::clone(&holder)), id).await;
+    assert!(Arc::ptr_eq(&picked, &holder), "a jumped-to event is edited through the live timeline");
+    let picked = timeline_holding(Arc::clone(&holder), Some(Arc::clone(&empty)), id).await;
+    assert!(Arc::ptr_eq(&picked, &holder));
+    let picked = timeline_holding(Arc::clone(&empty), None, id).await;
+    assert!(Arc::ptr_eq(&picked, &empty));
+}
+
+#[test]
+fn media_keys_outlive_a_room_switch_and_keep_their_privacy() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let (_server, client) = runtime.block_on(async {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let plain = server.sync_joined_room(&client, room_id!("!plain:localhost")).await;
+        server.mock_room_state_encryption().plain().mount().await;
+        plain.latest_encryption_state().await.unwrap();
+        (server, client)
+    });
+    let stored = |name: &str| StoredMedia {
+        source: MediaSource::Plain(format!("mxc://localhost/{name}").as_str().into()),
+        thumbnail: None,
+        filename: name.to_owned(),
+        mimetype: None,
+        declared_size: None,
+    };
+    let registry = Arc::new(TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new()))));
+    registry.open_room(&runtime, client.clone(), "!plain:localhost".to_owned());
+    registry.remember_media("$public".to_owned(), stored("public"));
+    registry.open_room(&runtime, client.clone(), "!unknown:localhost".to_owned());
+    registry.remember_media("$secret".to_owned(), stored("secret"));
+    registry.open_room(&runtime, client.clone(), "!plain:localhost".to_owned());
+
+    assert!(registry.media_source("$public", false).is_some());
+    assert!(registry.media_source("$secret", false).is_some());
+    assert!(!registry.media_from_encrypted_room("$public"));
+    assert!(registry.media_from_encrypted_room("$secret"));
+}
