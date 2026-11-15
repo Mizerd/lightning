@@ -9416,8 +9416,9 @@ mod thread_list_tally_tests {
         tally.observe(&item(2, None), 5_000);
         let fresh = item(3, Some(event("$r3:example.org", 7_000)));
         tally.observe(&fresh, 7_100);
-        tally.observe(&item(4, Some(event("$r3:example.org", 7_000))), 7_200);
-        let shown = tally.corrected(&fresh);
+        let again = item(4, Some(event("$r3:example.org", 7_000)));
+        tally.observe(&again, 7_200);
+        let shown = tally.corrected(&again);
         assert_eq!(shown.num_replies, 3);
         assert_eq!(latest_id(&shown), latest_id(&fresh));
     }
