@@ -992,12 +992,18 @@ RoomsPanel { width: %1; height: 700 }
             QVERIFY2(chip && chip->isVisible(), qPrintable(QString::number(value)));
             chips << chip;
         }
-        for (int i = 1; i < chips.size(); ++i) {
-            const QRectF a = inPanel(chips.at(i - 1)), b = inPanel(chips.at(i));
-            QVERIFY2(a.right() <= b.left() + 0.5,
-                     qPrintable(QStringLiteral("chips %1 and %2 overlap: %3 / %4")
-                                    .arg(i - 1).arg(i).arg(fmt(a), fmt(b))));
-        }
+        QString overlap;
+        const auto chipsApart = [&] {
+            overlap.clear();
+            for (int i = 1; i < chips.size(); ++i) {
+                const QRectF a = inPanel(chips.at(i - 1)), b = inPanel(chips.at(i));
+                if (a.right() > b.left() + 0.5)
+                    overlap = QStringLiteral("chips %1 and %2 overlap: %3 / %4")
+                                  .arg(i - 1).arg(i).arg(fmt(a), fmt(b));
+            }
+            return overlap.isEmpty();
+        };
+        QTRY_VERIFY2(chipsApart(), qPrintable(overlap));
         const qreal fade = 16;
         for (int value : { 5, 0, 3 }) {
             settings->setRoomFilterMode(value);

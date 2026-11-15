@@ -1036,109 +1036,116 @@ Popup {
                 userId: root.userId
             }
 
-            Flow {
-                id: profileChipRow
+            RowLayout {
                 objectName: "profileActionRow"
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
-                readonly property int uniformHeight: AppTheme.chipHeight + 6
 
-                StatusChip {
-                    objectName: "profileHomeserverChip"
-                    height: profileChipRow.uniformHeight
-                    visible: root.homeserver.length > 0
-                    storm: true
-                    tone: "neutral"
-                    iconName: "alternate_email"
-                    label: root.homeserver
-                }
+                Flow {
+                    id: profileChipRow
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    spacing: AppTheme.spacing6
+                    readonly property int uniformHeight: AppTheme.chipHeight + 6
 
-                ProfileChipButton {
-                    height: profileChipRow.uniformHeight
-                    objectName: "profileShareButton"
-                    iconName: "link"
-                    label: qsTr("Share")
-                    accessibleName: qsTr("Copy profile link")
-                    onClicked: root.copyProfileLink()
-                }
-
-                Rectangle {
-                    objectName: "profileMembershipChip"
-                    visible: root.membershipLabel.length > 0
-                    height: profileChipRow.uniformHeight
-                    implicitWidth: membershipRow.implicitWidth
-                                   + 2 * AppTheme.chipPaddingH
-                    implicitHeight: Math.max(AppTheme.chipHeight,
-                                             membershipRow.implicitHeight
-                                             + 2 * AppTheme.spacing2)
-                    radius: AppTheme.chipRadius
-                    color: Qt.alpha(AppTheme.stormTextMuted, 0.14)
-                    border.width: 1
-                    border.color: Qt.alpha(AppTheme.stormTextMuted, 0.32)
-                    Row {
-                        id: membershipRow
-                        anchors.centerIn: parent
-                        spacing: AppTheme.spacing6
-                        PresenceDot {
-                            id: chipPresenceDot
-                            anchors.verticalCenter: parent.verticalCenter
-                            dotSize: 10
-                            ring: "transparent"
-                            userId: root.opened ? root.userId : ""
-                            hoverStatus: true
-                        }
-                        Label {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: root.membershipLabel
-                            color: AppTheme.stormTextMuted
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMicro
-                            font.weight: AppTheme.weightStrong
-                            textFormat: Text.PlainText
-                        }
+                    StatusChip {
+                        objectName: "profileHomeserverChip"
+                        height: profileChipRow.uniformHeight
+                        visible: root.homeserver.length > 0
+                        storm: true
+                        tone: "neutral"
+                        iconName: "alternate_email"
+                        label: root.homeserver
                     }
-                    ToolTip.text: chipPresenceDot.statusText.length > 0
-                                  ? chipPresenceDot.statusText
-                                  : qsTr("Presence unavailable")
-                    ToolTip.visible: membershipHover.hovered
-                                     && (chipPresenceDot.statusText.length > 0
-                                         || root.presenceUnavailable)
-                    ToolTip.delay: 300
-                    HoverHandler { id: membershipHover }
-                    Accessible.role: Accessible.StaticText
-                    Accessible.name: root.membershipLabel
-                    Accessible.description:
-                        chipPresenceDot.statusText.length > 0
-                        ? chipPresenceDot.statusText
-                        : (root.presenceUnavailable
-                           ? qsTr("Presence unavailable") : "")
-                }
 
-                StatusChip {
-                    height: profileChipRow.uniformHeight
-                    visible: root.badgeRole === "administrator" || root.badgeRole === "creator"
-                    storm: true
-                    tone: "accent"
-                    label: root.badgeRole === "creator" ? qsTr("Creator")
-                                                        : qsTr("Administrator")
-                }
-                StatusChip {
-                    height: profileChipRow.uniformHeight
-                    visible: root.badgeRole === "moderator"
-                    storm: true
-                    tone: "info"
-                    label: qsTr("Moderator")
-                }
-                StatusChip {
-                    height: profileChipRow.uniformHeight
-                    visible: root.isOwn
-                    storm: true
-                    tone: "neutral"
-                    label: qsTr("You")
+                    ProfileChipButton {
+                        height: profileChipRow.uniformHeight
+                        objectName: "profileShareButton"
+                        iconName: "link"
+                        label: qsTr("Share")
+                        accessibleName: qsTr("Copy profile link")
+                        onClicked: root.copyProfileLink()
+                    }
+
+                    Rectangle {
+                        objectName: "profileMembershipChip"
+                        visible: root.membershipLabel.length > 0
+                        height: profileChipRow.uniformHeight
+                        implicitWidth: membershipRow.implicitWidth
+                                       + 2 * AppTheme.chipPaddingH
+                        implicitHeight: Math.max(AppTheme.chipHeight,
+                                                 membershipRow.implicitHeight
+                                                 + 2 * AppTheme.spacing2)
+                        radius: AppTheme.chipRadius
+                        color: Qt.alpha(AppTheme.stormTextMuted, 0.14)
+                        border.width: 1
+                        border.color: Qt.alpha(AppTheme.stormTextMuted, 0.32)
+                        Row {
+                            id: membershipRow
+                            anchors.centerIn: parent
+                            spacing: AppTheme.spacing6
+                            PresenceDot {
+                                id: chipPresenceDot
+                                anchors.verticalCenter: parent.verticalCenter
+                                dotSize: 10
+                                ring: "transparent"
+                                userId: root.opened ? root.userId : ""
+                                hoverStatus: true
+                            }
+                            Label {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.membershipLabel
+                                color: AppTheme.stormTextMuted
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMicro
+                                font.weight: AppTheme.weightStrong
+                                textFormat: Text.PlainText
+                            }
+                        }
+                        ToolTip.text: chipPresenceDot.statusText.length > 0
+                                      ? chipPresenceDot.statusText
+                                      : qsTr("Presence unavailable")
+                        ToolTip.visible: membershipHover.hovered
+                                         && (chipPresenceDot.statusText.length > 0
+                                             || root.presenceUnavailable)
+                        ToolTip.delay: 300
+                        HoverHandler { id: membershipHover }
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: root.membershipLabel
+                        Accessible.description:
+                            chipPresenceDot.statusText.length > 0
+                            ? chipPresenceDot.statusText
+                            : (root.presenceUnavailable
+                               ? qsTr("Presence unavailable") : "")
+                    }
+
+                    StatusChip {
+                        height: profileChipRow.uniformHeight
+                        visible: root.badgeRole === "administrator" || root.badgeRole === "creator"
+                        storm: true
+                        tone: "accent"
+                        label: root.badgeRole === "creator" ? qsTr("Creator")
+                                                            : qsTr("Administrator")
+                    }
+                    StatusChip {
+                        height: profileChipRow.uniformHeight
+                        visible: root.badgeRole === "moderator"
+                        storm: true
+                        tone: "info"
+                        label: qsTr("Moderator")
+                    }
+                    StatusChip {
+                        height: profileChipRow.uniformHeight
+                        visible: root.isOwn
+                        storm: true
+                        tone: "neutral"
+                        label: qsTr("You")
+                    }
                 }
 
                 ProfileChipButton {
-                    height: profileChipRow.uniformHeight
+                    Layout.preferredHeight: profileChipRow.uniformHeight
+                    Layout.alignment: Qt.AlignTop
                     objectName: "profileOverflowButton"
                     iconName: "more_horiz"
                     label: ""
