@@ -592,6 +592,25 @@ private Q_SLOTS:
         QCOMPARE(right, 1);
     }
 
+    void roomCyclingShipsOnCtrlTabAndCtrlShiftTab()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const auto resolved = resolvedById(registry);
+        QCOMPARE(resolved.value(QStringLiteral("nav.nextRoom")),
+                 QStringLiteral("Ctrl+Tab"));
+        QCOMPARE(resolved.value(QStringLiteral("nav.previousRoom")),
+                 QStringLiteral("Ctrl+Shift+Tab"));
+        QCOMPARE(registry.conflictCount(), 0);
+        QCOMPARE(registry.sequenceFromKeyEvent(Qt::Key_Backtab,
+                                               Qt::ControlModifier | Qt::ShiftModifier),
+                 QStringLiteral("Ctrl+Shift+Tab"));
+        QCOMPARE(registry.setBinding(QStringLiteral("nav.nextRoom"),
+                                     QStringLiteral("Alt+Down")), QString());
+        QCOMPARE(registry.sequenceFor(QStringLiteral("nav.nextRoom")),
+                 QStringLiteral("Alt+Down"));
+    }
+
     void theDiscordAuditAdditionsShipOnExactlyTheseKeys()
     {
         SettingsManager settings;

@@ -15,6 +15,8 @@
 #include "models/QuickSwitcherModel.h"
 #include "models/MessageComposer.h"
 #include "models/RoomListModel.h"
+#include "models/SpaceChannelModel.h"
+#include "spaces/SpaceManager.h"
 #include "models/TimelineModel.h"
 
 class ComposerFocusShortcutQmlTest : public QObject
@@ -94,6 +96,79 @@ private:
         QTRY_VERIFY_WITH_TIMEOUT(item("composerInput")->hasActiveFocus(), 1500);
         QTRY_VERIFY(m_controller->timeline()->realEventCount() > 2);
         QTest::qWait(300);
+    }
+
+private:
+    // The rooms a reader can open from the list, top to bottom.
+    QStringList listedRooms() const
+    {
+        QStringList ids;
+        if (m_controller->settings()->roomNavigationLayout() == 1) {
+            auto *model = m_controller->spaceChannels();
+            for (int row = 0; row < model->rowCount(); ++row) {
+                const QModelIndex at = model->index(row);
+                if (at.data(SpaceChannelModel::KindRole).toString() == QStringLiteral("room")
+                    && !at.data(SpaceChannelModel::IsInviteRole).toBool())
+                    ids.append(at.data(SpaceChannelModel::RoomIdRole).toString());
+            }
+            return ids;
+        }
+        auto *model = m_controller->roomList();
+        for (int row = 0; row < model->rowCount(); ++row) {
+            const QModelIndex at = model->index(row);
+            if (at.data(RoomListModel::MembershipRole).toString() == QStringLiteral("joined")
+                && !at.data(RoomListModel::IsSpaceRole).toBool())
+                ids.append(at.data(RoomListModel::RoomIdRole).toString());
+        }
+        return ids;
+    }
+
+    bool listHasInvite() const
+    {
+        auto *model = m_controller->roomList();
+        for (int row = 0; row < model->rowCount(); ++row) {
+            if (model->index(row).data(RoomListModel::MembershipRole).toString()
+                == QStringLiteral("invited"))
+                return true;
+        }
+        return false;
+    }
+
+    void ctrlTab(bool backward)
+    {
+        if (backward)
+            QTest::keyClick(m_window, Qt::Key_Backtab,
+                            Qt::ControlModifier | Qt::ShiftModifier);
+        else
+            QTest::keyClick(m_window, Qt::Key_Tab, Qt::ControlModifier);
+    }
+
+    // Walks the whole list from the composer in one direction and back to the start.
+    void walkWholeList(bool backward)
+    {
+        const QString start = listedRooms().value(0);
+        m_controller->openRoom(start);
+        QTRY_COMPARE(m_controller->currentRoomId(), start);
+        QTest::qWait(300);
+        const QStringList rooms = listedRooms();
+        QVERIFY2(rooms.size() >= 2 && rooms.first() == start,
+                 qPrintable(rooms.join(QLatin1Char(' '))));
+        item("composerInput")->forceActiveFocus();
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        for (int step = 1; step <= rooms.size(); ++step) {
+            const qsizetype n = rooms.size();
+            const QString want = rooms.at(backward ? (n - step % n) % n : step % n);
+            ctrlTab(backward);
+            QTRY_VERIFY2(m_controller->currentRoomId() == want,
+                         qPrintable(QStringLiteral("at %1 want %2 in [%3] focus %4")
+                                        .arg(m_controller->currentRoomId(), want,
+                                             listedRooms().join(QLatin1Char(' ')),
+                                             m_window->activeFocusItem()
+                                                 ? m_window->activeFocusItem()->objectName()
+                                                 : QStringLiteral("none"))));
+            QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        }
+        QCOMPARE(m_controller->currentRoomId(), start);
     }
 
 private slots:
@@ -327,6 +402,106 @@ Popup {
         timeline->forceActiveFocus();
         QVERIFY(registry->eventFilter(m_window, &numpad));
         QCOMPARE(fired.count(), 1);
+    }
+
+    void ctrlTabCyclesTheListedRoomsFromTheComposerAndWraps()
+    {
+        QVERIFY(listHasInvite());
+        walkWholeList(false);
+    }
+
+    void ctrlShiftTabCyclesBackwardsAndWraps()
+    {
+        walkWholeList(true);
+    }
+
+    void plainTabInTheComposerDoesNotChangeRoom()
+    {
+        openJoinedRoom();
+        const QString room = m_controller->currentRoomId();
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTest::keyClick(m_window, Qt::Key_Backtab, Qt::ShiftModifier);
+        QTest::qWait(100);
+        QCOMPARE(m_controller->currentRoomId(), room);
+    }
+
+    void ctrlTabFollowsTheFilteredList()
+    {
+        m_controller->settings()->setRoomFilterMode(1);
+        QTRY_COMPARE(m_controller->roomList()->filterMode(), 1);
+        const QStringList all = listedRooms();
+        walkWholeList(false);
+        QCOMPARE(listedRooms(), all);
+    }
+
+    void ctrlTabStaysInsideTheActiveSpace()
+    {
+        const int everything = listedRooms().size();
+        m_controller->spaces()->setActiveSpaceId(
+            QStringLiteral("!space-studio:lightning.example"));
+        QTRY_VERIFY(listedRooms().size() < everything);
+        walkWholeList(false);
+    }
+
+    void ctrlTabFollowsTheChannelsLayout()
+    {
+        m_controller->settings()->setRoomNavigationLayout(1);
+        QTRY_VERIFY(m_controller->spaceChannels()->rowCount() > 0);
+        walkWholeList(false);
+    }
+
+    void cyclingScrollsTheOpenedRoomIntoView()
+    {
+        m_window->resize(1100, 480);
+        auto *list = item("roomListView");
+        QVERIFY(list);
+        const QStringList rooms = listedRooms();
+        m_controller->openRoom(rooms.first());
+        QTRY_COMPARE(m_controller->currentRoomId(), rooms.first());
+        list->setProperty("contentY", list->property("originY"));
+        QTRY_VERIFY2(list->property("contentHeight").toDouble() > list->height() + 200,
+                     qPrintable(QStringLiteral("content %1 view %2")
+                                    .arg(list->property("contentHeight").toDouble())
+                                    .arg(list->height())));
+        const double topY = list->property("contentY").toDouble();
+
+        ctrlTab(true);
+        QTRY_COMPARE(m_controller->currentRoomId(), rooms.last());
+        int row = -1;
+        auto *model = m_controller->roomList();
+        for (int r = 0; r < model->rowCount(); ++r) {
+            if (model->index(r).data(RoomListModel::RoomIdRole).toString() == rooms.last())
+                row = r;
+        }
+        QVERIFY(row >= 0);
+        QQuickItem *delegate = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, delegate),
+                                              Q_ARG(int, row))
+                    && delegate);
+        const double y = list->property("contentY").toDouble();
+        QVERIFY(y > topY);
+        QVERIFY(delegate->y() >= y - 0.5 && delegate->y() + delegate->height() <= y + list->height() + 0.5);
+
+        // Already visible: the list must not move.
+        ctrlTab(true);
+        QTRY_COMPARE(m_controller->currentRoomId(), rooms.at(rooms.size() - 2));
+        QTest::qWait(100);
+        QCOMPARE(list->property("contentY").toDouble(), y);
+    }
+
+    void ctrlTabIsRebindable()
+    {
+        const QStringList rooms = listedRooms();
+        m_controller->openRoom(rooms.first());
+        QTRY_COMPARE(m_controller->currentRoomId(), rooms.first());
+        QCOMPARE(m_controller->shortcuts()->setBinding(QStringLiteral("nav.nextRoom"),
+                                                       QStringLiteral("Alt+Down")),
+                 QString());
+        QTest::keyClick(m_window, Qt::Key_Tab, Qt::ControlModifier);
+        QTest::qWait(100);
+        QCOMPARE(m_controller->currentRoomId(), rooms.first());
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::AltModifier);
+        QTRY_COMPARE(m_controller->currentRoomId(), rooms.at(1));
     }
 
     void focusShortcutRefusesHiddenComposer()

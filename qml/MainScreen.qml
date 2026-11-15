@@ -411,6 +411,22 @@ Item {
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.nextRoom")]
+        }
+        enabled: app.loggedIn && app.currentScreen !== 2
+        onActivated: app.openAdjacentRoom(false)
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.previousRoom")]
+        }
+        enabled: app.loggedIn && app.currentScreen !== 2
+        onActivated: app.openAdjacentRoom(true)
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("room.markAllRead")]
         }
         enabled: app.loggedIn

@@ -88,6 +88,14 @@ Item {
         cacheBuffer: 600
         reuseItems: true
         keyNavigationEnabled: false
+        Connections {
+            target: app
+            // Again once the rows it jumped past have their real heights.
+            function onRoomCycled(row) {
+                roomList.positionViewAtIndex(row, ListView.Contain)
+                Qt.callLater(roomList.positionViewAtIndex, row, ListView.Contain)
+            }
+        }
         function focusRow(i) {
             if (count <= 0)
                 return

@@ -23,6 +23,14 @@ Item {
         visible: !root.channels
         model: visible ? app.roomList : null
         clip: true
+        Connections {
+            target: classicList.visible ? app : null
+            // Again once the rows it jumped past have their real heights.
+            function onRoomCycled(row) {
+                classicList.positionViewAtIndex(row, ListView.Contain)
+                Qt.callLater(classicList.positionViewAtIndex, row, ListView.Contain)
+            }
+        }
         currentIndex: -1
         keyNavigationEnabled: true
         reuseItems: true
@@ -58,6 +66,14 @@ Item {
         visible: root.channels
         model: visible ? app.spaceChannels : null
         clip: true
+        Connections {
+            target: channelsList.visible ? app : null
+            // Again once the rows it jumped past have their real heights.
+            function onRoomCycled(row) {
+                channelsList.positionViewAtIndex(row, ListView.Contain)
+                Qt.callLater(channelsList.positionViewAtIndex, row, ListView.Contain)
+            }
+        }
         currentIndex: -1
         keyNavigationEnabled: true
         reuseItems: true

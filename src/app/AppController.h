@@ -737,6 +737,9 @@ public Q_SLOTS:
     Q_INVOKABLE bool navigateBack();
     Q_INVOKABLE bool navigateRoomBack();
     Q_INVOKABLE bool navigateRoomForward();
+    /// Opens the next (or previous) room in the order the room list shows,
+    /// wrapping at the ends. Invites, Spaces and headers are skipped.
+    Q_INVOKABLE bool openAdjacentRoom(bool backward);
     Q_INVOKABLE void recordSearchResult(const QString &roomId,
                                       const QString &eventId);
     Q_INVOKABLE bool navigateRoomHistoryFromKeyboard(QQuickItem *within,
@@ -977,6 +980,8 @@ Q_SIGNALS:
     void callStartRefused(const QString &message);
     void matrixLinkRequested(const QString &link);
     void externalMatrixLinkQueued();
+    /// Row, in the room list's own model, of the room openAdjacentRoom() opened.
+    void roomCycled(int row);
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();
     void localSessionFailureChanged();

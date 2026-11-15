@@ -110,6 +110,14 @@ Item {
         clip: true
         model: app.spaceChannels
         currentIndex: -1
+        Connections {
+            target: app
+            // Again once the rows it jumped past have their real heights.
+            function onRoomCycled(row) {
+                channelList.positionViewAtIndex(row, ListView.Contain)
+                Qt.callLater(channelList.positionViewAtIndex, row, ListView.Contain)
+            }
+        }
         Keys.onPressed: event => {
             if (event.key === Qt.Key_Escape && app.roomBatch.selecting) {
                 app.roomBatch.exitSelection()

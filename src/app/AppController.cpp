@@ -5414,6 +5414,52 @@ bool AppController::navigateRoomForward()
     return stepRoomHistory(true);
 }
 
+bool AppController::openAdjacentRoom(bool backward)
+{
+    if (!roomHistoryNavigationAllowed() || !m_settings)
+        return false;
+    const QAbstractItemModel *model = m_settings->roomNavigationLayout() == 1
+        ? static_cast<const QAbstractItemModel *>(m_spaceChannels.get())
+        : m_roomList.get();
+    if (!model)
+        return false;
+    const QHash<int, QByteArray> names = model->roleNames();
+    const auto role = [&names](const char *name) { return names.key(name, -1); };
+    const int idRole = role("roomId");
+    const int membershipRole = role("membership");
+    const int kindRole = role("kind");
+    const int inviteRole = role("isInvite");
+    const int spaceRole = role("isSpace");
+    QStringList rooms;
+    QList<int> rows;
+    for (int row = 0; row < model->rowCount(); ++row) {
+        const QModelIndex at = model->index(row, 0);
+        const auto is = [&at](int r, const QVariant &want) {
+            return r < 0 || at.data(r) == want;
+        };
+        if (!is(membershipRole, QStringLiteral("joined"))
+            || !is(kindRole, QStringLiteral("room")) || !is(inviteRole, false)
+            || !is(spaceRole, false))
+            continue;
+        const QString id = at.data(idRole).toString();
+        if (!id.isEmpty()) {
+            rooms.append(id);
+            rows.append(row);
+        }
+    }
+    if (rooms.isEmpty())
+        return false;
+    const qsizetype here = rooms.indexOf(m_currentRoomId);
+    const qsizetype n = rooms.size();
+    const qsizetype next = here < 0 ? (backward ? n - 1 : 0)
+                                    : (here + (backward ? n - 1 : 1)) % n;
+    if (rooms.at(next) == m_currentRoomId)
+        return false;
+    openRoom(rooms.at(next));
+    Q_EMIT roomCycled(rows.at(next));
+    return true;
+}
+
 bool AppController::navigateRoomHistoryFromKeyboard(QQuickItem *within,
                                                     bool forward)
 {
