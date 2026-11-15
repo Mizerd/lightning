@@ -230,7 +230,7 @@ Popup {
                             textFormat: Text.StyledText
                             text: root.highlightedName(
                                 root.nameFor(model), root.query,
-                                rowDelegate.isSelected ? AppTheme.bolt
+                                rowDelegate.isSelected ? AppTheme.stormLink
                                                        : AppTheme.stormText)
                             color: rowDelegate.isSelected
                                    ? AppTheme.stormText

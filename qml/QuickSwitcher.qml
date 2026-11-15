@@ -933,7 +933,7 @@ Popup {
                                 textFormat: Text.StyledText
                                 text: switcher.highlightedName(
                                     model.name, app.quickSwitcher.query,
-                                    row.highlighted ? "" + AppTheme.bolt
+                                    row.highlighted ? "" + AppTheme.stormLink
                                                     : "" + AppTheme.stormText)
                                 color: row.highlighted ? AppTheme.stormText
                                                        : AppTheme.stormTextSecondary
@@ -1068,7 +1068,7 @@ Popup {
                                       : switcher.highlightedName(
                                             model.name || "",
                                             switcher.commandQueryLower,
-                                            cmdRow.highlighted ? "" + AppTheme.bolt
+                                            cmdRow.highlighted ? "" + AppTheme.stormLink
                                                                : "" + AppTheme.stormText)
                                 color: cmdRow.highlighted ? AppTheme.stormText
                                                           : AppTheme.stormTextSecondary

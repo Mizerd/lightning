@@ -28,7 +28,7 @@ ColumnLayout {
     }
 
     // HTML-escape untrusted display names before the StyledText highlight, then
-    // tint the matched substring. The caller passes bolt for the highlighted
+    // tint the matched substring. The caller passes stormLink for the highlighted
     // row only.
     function escapeHtml(s) {
         return String(s)
@@ -319,7 +319,7 @@ ColumnLayout {
                             model.displayName && model.displayName.length > 0
                                 ? model.displayName : model.userId,
                             root.model.query,
-                            row.highlighted ? "" + AppTheme.bolt
+                            row.highlighted ? "" + AppTheme.stormLink
                                             : "" + AppTheme.stormText)
                         color: row.highlighted ? AppTheme.stormText
                                                : AppTheme.stormTextSecondary

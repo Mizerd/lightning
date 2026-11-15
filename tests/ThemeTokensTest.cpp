@@ -847,6 +847,55 @@ private Q_SLOTS:
                                "reproduces the report");
     }
 
+    void aSearchMatchReadsOnTheHighlightedRowOnEveryTheme()
+    {
+        const QList<QPair<QString, QString>> tints = {
+            {QStringLiteral("SettingsScreen.qml"),
+             QStringLiteral("\"<font color=\\\"\" + AppTheme.stormLink")},
+            {QStringLiteral("QuickSwitcher.qml"),
+             QStringLiteral(" row.highlighted ? \"\" + AppTheme.stormLink")},
+            {QStringLiteral("QuickSwitcher.qml"),
+             QStringLiteral("cmdRow.highlighted ? \"\" + AppTheme.stormLink")},
+            {QStringLiteral("UserPicker.qml"),
+             QStringLiteral(" row.highlighted ? \"\" + AppTheme.stormLink")},
+            {QStringLiteral("MentionPopup.qml"),
+             QStringLiteral("rowDelegate.isSelected ? AppTheme.stormLink")},
+        };
+        for (const auto &tint : tints) {
+            const QString src = readAll(QStringLiteral(QML_DIR "/") + tint.first);
+            QVERIFY2(src.contains(tint.second),
+                     qPrintable(QStringLiteral("%1 does not tint its match with stormLink: %2")
+                                    .arg(tint.first, tint.second)));
+        }
+        QVERIFY2(contrast(m_colors.value(QStringLiteral("_indAccent")),
+                          m_colors.value(QStringLiteral("_indSelectedHover"))) < 2.0,
+                 "Indigo Night's accent reads on its row; the fixture no longer reproduces");
+        int checked = 0;
+        for (auto it = m_colors.cbegin(); it != m_colors.cend(); ++it) {
+            if (!it.key().endsWith(QStringLiteral("SelectedHover"))
+                || !it.key().startsWith(QLatin1Char('_')))
+                continue;
+            const QString prefix = it.key().chopped(13);
+            const QString link = m_colors.value(prefix + QStringLiteral("Link"));
+            const QString row = m_colors.value(prefix == QStringLiteral("_sto")
+                                                   ? QStringLiteral("_stoSelection")
+                                                   : prefix + QStringLiteral("Hover"));
+            if (link.isEmpty() || row.isEmpty())
+                continue;
+            ++checked;
+            QVERIFY2(contrast(link, row) >= 3.9,
+                     qPrintable(QStringLiteral("%1: match %2 is %3:1 on the highlighted row %4")
+                                    .arg(prefix, link).arg(contrast(link, row), 0, 'f', 2)
+                                    .arg(row)));
+            QVERIFY2(contrast(link, it.value()) >= 2.7,
+                     qPrintable(QStringLiteral("%1: match %2 is %3:1 on a hovered result %4")
+                                    .arg(prefix, link).arg(contrast(link, it.value()), 0, 'f', 2)
+                                    .arg(it.value())));
+        }
+        QVERIFY2(checked >= 9, qPrintable(QStringLiteral("only %1 palettes measured")
+                                              .arg(checked)));
+    }
+
     void messageTextEditsUseTheThemedSelection()
     {
         QFile f(QStringLiteral(QML_DIR "/MessageDelegate.qml"));

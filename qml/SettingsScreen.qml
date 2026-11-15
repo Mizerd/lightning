@@ -863,7 +863,7 @@ Item {
             }
         }
         if (idx === -1) return safe
-        return safe.slice(0, idx) + "<font color=\"" + AppTheme.bolt + "\">"
+        return safe.slice(0, idx) + "<font color=\"" + AppTheme.stormLink + "\">"
              + safe.slice(idx, idx + lowerQ.length) + "</font>"
              + safe.slice(idx + lowerQ.length)
     }
