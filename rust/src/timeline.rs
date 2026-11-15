@@ -4310,9 +4310,17 @@ fn fetch_missing_reply_details<'a, I>(
         return;
     }
     let timeline = Arc::clone(timeline);
+    let fetched = Arc::clone(fetched);
     tokio::spawn(async move {
         for event_id in wanted {
-            let _ = timeline.fetch_details_for_event(&event_id).await;
+            // The SDK re-emits an event it already holds (a synced copy of a
+            // sent reply) with fresh, unfetched details: only a failed fetch,
+            // which would loop, stays recorded.
+            if timeline.fetch_details_for_event(&event_id).await.is_ok() {
+                if let Ok(mut guard) = fetched.lock() {
+                    guard.remove(event_id.as_str());
+                }
+            }
         }
     });
 }
