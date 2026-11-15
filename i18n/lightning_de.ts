@@ -1014,13 +1014,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6254"/>
+        <location filename="../src/app/AppController.cpp" line="+6259"/>
         <location line="+1018"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6680"/>
+        <location filename="../src/app/AppController.cpp" line="-6685"/>
         <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1093,13 +1093,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4146"/>
+        <location line="+4151"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-4994"/>
+        <location line="-4999"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1155,24 +1155,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2951"/>
+        <location line="+2956"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning konnte die ausgewählte Datei nicht lesen.</translation>
     </message>
     <message>
-        <location line="-2957"/>
+        <location line="-2962"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ein Raumschlüssel-Import läuft bereits.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3927"/>
+        <location line="+3932"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-3925"/>
+        <location line="-3930"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1182,7 +1182,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Diese Benachrichtigung gehörte zu einem anderen Konto, daher wurde nichts gesendet. Wechsle zu diesem Konto zurück und versuche es erneut.</translation>
     </message>
     <message>
-        <location line="+651"/>
+        <location line="+656"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>Anrufe sind nicht verfügbar, solange dieses Konto einen Proxy verwendet.</translation>
     </message>
@@ -12987,14 +12987,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+570"/>
+        <location line="+572"/>
         <source>Sticker</source>
         <translation>Sticker</translation>
     </message>
     <message>
-        <location line="-569"/>
+        <location line="-571"/>
         <location line="+57"/>
-        <location line="+509"/>
+        <location line="+511"/>
         <location line="+4099"/>
         <location line="+1058"/>
         <location line="+93"/>
@@ -13002,19 +13002,19 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-5814"/>
+        <location line="-5816"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+564"/>
+        <location line="+566"/>
         <source>Audio</source>
         <translation>Audio</translation>
     </message>
     <message>
-        <location line="-562"/>
-        <location line="+560"/>
+        <location line="-564"/>
+        <location line="+562"/>
         <location line="+3552"/>
         <location line="+405"/>
         <location line="+518"/>
@@ -13022,16 +13022,16 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5035"/>
+        <location line="-5037"/>
         <location line="+53"/>
-        <location line="+506"/>
+        <location line="+508"/>
         <location line="+4101"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-4659"/>
-        <location line="+562"/>
+        <location line="-4661"/>
+        <location line="+564"/>
         <location line="+4202"/>
         <location line="+1261"/>
         <location line="+2"/>
@@ -13040,7 +13040,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-6055"/>
+        <location line="-6057"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -13050,7 +13050,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Link</translation>
     </message>
     <message numerus="yes">
-        <location line="+492"/>
+        <location line="+494"/>
         <source>%n image(s)</source>
         <translation>
             <numerusform>%n Bild</numerusform>
@@ -19411,7 +19411,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+191"/>
+        <location filename="../qml/RoomsPanel.qml" line="+197"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>

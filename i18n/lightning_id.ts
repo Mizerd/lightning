@@ -1003,7 +1003,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7194"/>
+        <location filename="../src/app/AppController.cpp" line="+7199"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -1123,7 +1123,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Panggilan masuk</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5556"/>
+        <location filename="../src/app/AppController.cpp" line="-5561"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Keluar dibatalkan karena akun berubah. Tidak ada yang diatur ulang.</translation>
     </message>
@@ -1175,13 +1175,13 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4146"/>
+        <location line="+4151"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Tidak terhubung</translation>
     </message>
     <message>
-        <location line="-4994"/>
+        <location line="-4999"/>
         <source>Connecting…</source>
         <translation>Menghubungkan…</translation>
     </message>
@@ -1242,29 +1242,29 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2951"/>
+        <location line="+2956"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning tidak dapat membaca berkas yang dipilih.</translation>
     </message>
     <message>
-        <location line="-2957"/>
+        <location line="-2962"/>
         <source>A room-key import is already in progress.</source>
         <translation>Impor kunci ruang sedang berlangsung.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3927"/>
+        <location line="+3932"/>
         <source>Not signed in.</source>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-3925"/>
+        <location line="-3930"/>
         <source>Room-key import failed.</source>
         <translation>Impor kunci ruang gagal.</translation>
     </message>
     <message>
-        <location line="+2225"/>
+        <location line="+2230"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Masukkan batas ukuran dari 1 sampai 2000 MB.</translation>
     </message>
@@ -1279,7 +1279,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Gunakan tanggal yang valid dengan format YYYY-MM-DD, dengan “Dari” tidak setelah “Sampai”.</translation>
     </message>
     <message>
-        <location line="-4732"/>
+        <location line="-4737"/>
         <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1315,7 +1315,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Notifikasi itu untuk akun yang berbeda, jadi tidak ada yang dikirim. Beralih kembali ke akun itu dan coba lagi.</translation>
     </message>
     <message>
-        <location line="+651"/>
+        <location line="+656"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>Panggilan tidak tersedia selama akun ini menggunakan proxy.</translation>
     </message>
@@ -12929,7 +12929,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1150"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1152"/>
         <source>Today</source>
         <translation>Hari ini</translation>
     </message>
@@ -13037,12 +13037,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Pengaturan keamanan</translation>
     </message>
     <message>
-        <location line="-1917"/>
+        <location line="-1919"/>
         <source>Link</source>
         <translation>Tautan</translation>
     </message>
     <message>
-        <location line="+1341"/>
+        <location line="+1343"/>
         <source>Open this thread</source>
         <translation>Buka utas ini</translation>
     </message>
@@ -13437,7 +13437,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Sunting</translation>
     </message>
     <message>
-        <location line="-3812"/>
+        <location line="-3814"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13453,24 +13453,24 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+570"/>
+        <location line="+572"/>
         <source>Sticker</source>
         <translation>Stiker</translation>
     </message>
     <message>
-        <location line="-567"/>
+        <location line="-569"/>
         <source>Voice message</source>
         <translation>Pesan suara</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+564"/>
+        <location line="+566"/>
         <source>Audio</source>
         <translation>Audio</translation>
     </message>
     <message>
-        <location line="-562"/>
-        <location line="+560"/>
+        <location line="-564"/>
+        <location line="+562"/>
         <location line="+3552"/>
         <location line="+405"/>
         <location line="+518"/>
@@ -13478,20 +13478,20 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5035"/>
+        <location line="-5037"/>
         <location line="+53"/>
-        <location line="+506"/>
+        <location line="+508"/>
         <location line="+4101"/>
         <source>Image</source>
         <translation>Gambar</translation>
     </message>
     <message>
-        <location line="-4658"/>
+        <location line="-4660"/>
         <source>Attachment</source>
         <translation>Lampiran</translation>
     </message>
     <message numerus="yes">
-        <location line="+543"/>
+        <location line="+545"/>
         <source>%n image(s)</source>
         <translation>
             <numerusform>%n gambar</numerusform>
@@ -13814,9 +13814,9 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Stiker gagal dimuat — klik untuk mencoba lagi</translation>
     </message>
     <message>
-        <location line="-5446"/>
+        <location line="-5448"/>
         <location line="+57"/>
-        <location line="+509"/>
+        <location line="+511"/>
         <location line="+4099"/>
         <location line="+1058"/>
         <location line="+93"/>
@@ -13830,8 +13830,8 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>video</translation>
     </message>
     <message>
-        <location line="-5827"/>
-        <location line="+562"/>
+        <location line="-5829"/>
+        <location line="+564"/>
         <location line="+4202"/>
         <location line="+1261"/>
         <location line="+2"/>
@@ -19344,7 +19344,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+191"/>
+        <location filename="../qml/RoomsPanel.qml" line="+197"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>

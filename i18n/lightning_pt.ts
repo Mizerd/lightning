@@ -1013,7 +1013,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7194"/>
+        <location filename="../src/app/AppController.cpp" line="+7199"/>
         <source>Room invitation</source>
         <translation>Convite para a sala</translation>
     </message>
@@ -1134,7 +1134,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Chamada recebida</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5556"/>
+        <location filename="../src/app/AppController.cpp" line="-5561"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>O fim da sessão foi cancelado porque a conta mudou. Nada foi reposto.</translation>
     </message>
@@ -1186,13 +1186,13 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4146"/>
+        <location line="+4151"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Sem ligação</translation>
     </message>
     <message>
-        <location line="-4994"/>
+        <location line="-4999"/>
         <source>Connecting…</source>
         <translation>A ligar…</translation>
     </message>
@@ -1253,29 +1253,29 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2951"/>
+        <location line="+2956"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>O Lightning não conseguiu ler o ficheiro selecionado.</translation>
     </message>
     <message>
-        <location line="-2957"/>
+        <location line="-2962"/>
         <source>A room-key import is already in progress.</source>
         <translation>Já está em curso uma importação de chaves de sala.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3927"/>
+        <location line="+3932"/>
         <source>Not signed in.</source>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-3925"/>
+        <location line="-3930"/>
         <source>Room-key import failed.</source>
         <translation>A importação de chaves de sala falhou.</translation>
     </message>
     <message>
-        <location line="+2225"/>
+        <location line="+2230"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Introduza um limite de tamanho de 1 a 2000 MB.</translation>
     </message>
@@ -1290,7 +1290,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Use datas reais no formato YYYY-MM-DD, com «De» não posterior a «Até».</translation>
     </message>
     <message>
-        <location line="-4732"/>
+        <location line="-4737"/>
         <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1326,7 +1326,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Essa notificação era para outra conta, por isso não foi enviada nada. Mude para essa conta e tente novamente.</translation>
     </message>
     <message>
-        <location line="+651"/>
+        <location line="+656"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>As chamadas não estão disponíveis enquanto esta conta usa um proxy.</translation>
     </message>
@@ -12971,7 +12971,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1150"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1152"/>
         <source>Today</source>
         <translation>Hoje</translation>
     </message>
@@ -13080,12 +13080,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Definições de segurança</translation>
     </message>
     <message>
-        <location line="-1917"/>
+        <location line="-1919"/>
         <source>Link</source>
         <translation>Ligação</translation>
     </message>
     <message>
-        <location line="+1341"/>
+        <location line="+1343"/>
         <source>Open this thread</source>
         <translation>Abrir este tópico</translation>
     </message>
@@ -13480,7 +13480,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Editar</translation>
     </message>
     <message>
-        <location line="-3812"/>
+        <location line="-3814"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13496,24 +13496,24 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+570"/>
+        <location line="+572"/>
         <source>Sticker</source>
         <translation>Autocolante</translation>
     </message>
     <message>
-        <location line="-567"/>
+        <location line="-569"/>
         <source>Voice message</source>
         <translation>Mensagem de voz</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+564"/>
+        <location line="+566"/>
         <source>Audio</source>
         <translation>Áudio</translation>
     </message>
     <message>
-        <location line="-562"/>
-        <location line="+560"/>
+        <location line="-564"/>
+        <location line="+562"/>
         <location line="+3552"/>
         <location line="+405"/>
         <location line="+518"/>
@@ -13521,20 +13521,20 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5035"/>
+        <location line="-5037"/>
         <location line="+53"/>
-        <location line="+506"/>
+        <location line="+508"/>
         <location line="+4101"/>
         <source>Image</source>
         <translation>Imagem</translation>
     </message>
     <message>
-        <location line="-4658"/>
+        <location line="-4660"/>
         <source>Attachment</source>
         <translation>Anexo</translation>
     </message>
     <message numerus="yes">
-        <location line="+543"/>
+        <location line="+545"/>
         <source>%n image(s)</source>
         <translation>
             <numerusform>%n imagem</numerusform>
@@ -13860,9 +13860,9 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>O autocolante não carregou — clique para tentar novamente</translation>
     </message>
     <message>
-        <location line="-5446"/>
+        <location line="-5448"/>
         <location line="+57"/>
-        <location line="+509"/>
+        <location line="+511"/>
         <location line="+4099"/>
         <location line="+1058"/>
         <location line="+93"/>
@@ -13876,8 +13876,8 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>vídeo</translation>
     </message>
     <message>
-        <location line="-5827"/>
-        <location line="+562"/>
+        <location line="-5829"/>
+        <location line="+564"/>
         <location line="+4202"/>
         <location line="+1261"/>
         <location line="+2"/>
@@ -19411,7 +19411,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+191"/>
+        <location filename="../qml/RoomsPanel.qml" line="+197"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>

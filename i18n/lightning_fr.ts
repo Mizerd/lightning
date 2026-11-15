@@ -1013,7 +1013,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7194"/>
+        <location filename="../src/app/AppController.cpp" line="+7199"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1134,7 +1134,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5556"/>
+        <location filename="../src/app/AppController.cpp" line="-5561"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1186,13 +1186,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4146"/>
+        <location line="+4151"/>
         <location line="+807"/>
         <source>Not connected</source>
         <translation>Non connecté</translation>
     </message>
     <message>
-        <location line="-4994"/>
+        <location line="-4999"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
     </message>
@@ -1253,29 +1253,29 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2951"/>
+        <location line="+2956"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning n&apos;a pas pu lire le fichier sélectionné.</translation>
     </message>
     <message>
-        <location line="-2957"/>
+        <location line="-2962"/>
         <source>A room-key import is already in progress.</source>
         <translation>Un import de clés de salon est déjà en cours.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3927"/>
+        <location line="+3932"/>
         <source>Not signed in.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-3925"/>
+        <location line="-3930"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
     <message>
-        <location line="+2225"/>
+        <location line="+2230"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Saisissez une limite de taille entre 1 et 2000 Mo.</translation>
     </message>
@@ -1290,7 +1290,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-4732"/>
+        <location line="-4737"/>
         <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1326,7 +1326,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Cette notification concernait un autre compte, elle n&apos;a donc pas été envoyée. Revenez sur ce compte et réessayez.</translation>
     </message>
     <message>
-        <location line="+651"/>
+        <location line="+656"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>Les appels ne sont pas disponibles tant que ce compte utilise un proxy.</translation>
     </message>
@@ -12971,7 +12971,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1150"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1152"/>
         <source>Today</source>
         <translation>Aujourd&apos;hui</translation>
     </message>
@@ -13080,12 +13080,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Paramètres de sécurité</translation>
     </message>
     <message>
-        <location line="-1917"/>
+        <location line="-1919"/>
         <source>Link</source>
         <translation>Lien</translation>
     </message>
     <message>
-        <location line="+1341"/>
+        <location line="+1343"/>
         <source>Open this thread</source>
         <translation>Ouvrir ce fil</translation>
     </message>
@@ -13480,7 +13480,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-3812"/>
+        <location line="-3814"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -13496,24 +13496,24 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+19"/>
-        <location line="+570"/>
+        <location line="+572"/>
         <source>Sticker</source>
         <translation>Autocollant</translation>
     </message>
     <message>
-        <location line="-567"/>
+        <location line="-569"/>
         <source>Voice message</source>
         <translation>Message vocal</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+564"/>
+        <location line="+566"/>
         <source>Audio</source>
         <translation>Audio</translation>
     </message>
     <message>
-        <location line="-562"/>
-        <location line="+560"/>
+        <location line="-564"/>
+        <location line="+562"/>
         <location line="+3552"/>
         <location line="+405"/>
         <location line="+518"/>
@@ -13521,20 +13521,20 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5035"/>
+        <location line="-5037"/>
         <location line="+53"/>
-        <location line="+506"/>
+        <location line="+508"/>
         <location line="+4101"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-4658"/>
+        <location line="-4660"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
     <message numerus="yes">
-        <location line="+543"/>
+        <location line="+545"/>
         <source>%n image(s)</source>
         <translation>
             <numerusform>%n image</numerusform>
@@ -13860,9 +13860,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-5446"/>
+        <location line="-5448"/>
         <location line="+57"/>
-        <location line="+509"/>
+        <location line="+511"/>
         <location line="+4099"/>
         <location line="+1058"/>
         <location line="+93"/>
@@ -13876,8 +13876,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-5827"/>
-        <location line="+562"/>
+        <location line="-5829"/>
+        <location line="+564"/>
         <location line="+4202"/>
         <location line="+1261"/>
         <location line="+2"/>
@@ -19411,7 +19411,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+191"/>
+        <location filename="../qml/RoomsPanel.qml" line="+197"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
