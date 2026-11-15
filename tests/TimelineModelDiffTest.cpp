@@ -189,6 +189,7 @@ private Q_SLOTS:
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
     void reactorsUseSeenNamesAndResolveProfilesWithRepaint();
     void aRowShowsItsSendersRosterNameNotTheOneItCarries();
+    void aQuoteAndAThreadSummaryShowTheRosterNameToo();
     void aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows();
     void aSenderNameLosesItsDirectionOverridesFromEverySource();
     void theQuoteTypingLineAndPillsLoseDirectionOverridesToo();
@@ -888,6 +889,30 @@ void TimelineModelDiffTest::aRowShowsItsSendersRosterNameNotTheOneItCarries()
     m_client->displayNames.insert(bo, QStringLiteral("Bo Renamed"));
     Q_EMIT m_client->membersChanged(kRoom);
     QCOMPARE(shown(), QStringLiteral("Bo Renamed"));
+}
+
+void TimelineModelDiffTest::aQuoteAndAThreadSummaryShowTheRosterNameToo()
+{
+    const QString bo = QStringLiteral("@bo:example.org");
+    auto row = makeEvent(QStringLiteral("$row"), QStringLiteral("hello"));
+    row.replyToEventId = QStringLiteral("$notLoaded");
+    row.replyToSenderId = bo;
+    row.replyToSender = QStringLiteral("Bo Helper");
+    row.threadLatestSender = bo;
+    row.threadLatestSenderDisplayName = QStringLiteral("Bo Helper");
+    m_client->mirror = { row };
+    Q_EMIT m_client->timelineReset(kRoom);
+    const auto shown = [this](int role) {
+        return m_model->data(m_model->index(0), role).toString();
+    };
+    QCOMPARE(shown(TimelineModel::ReplyToSenderRole), QStringLiteral("Bo Helper"));
+    QCOMPARE(shown(TimelineModel::ThreadLatestSenderDisplayNameRole),
+             QStringLiteral("Bo Helper"));
+    m_client->displayNames.insert(bo, QStringLiteral("Bo Renamed"));
+    Q_EMIT m_client->membersChanged(kRoom);
+    QCOMPARE(shown(TimelineModel::ReplyToSenderRole), QStringLiteral("Bo Renamed"));
+    QCOMPARE(shown(TimelineModel::ThreadLatestSenderDisplayNameRole),
+             QStringLiteral("Bo Renamed"));
 }
 
 void TimelineModelDiffTest::reactorsUseSeenNamesAndResolveProfilesWithRepaint()

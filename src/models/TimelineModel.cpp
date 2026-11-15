@@ -1400,10 +1400,6 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             return data(this->index(rowForEventId(target->eventId)),
                         SenderDisplayNameRole);
         if (!e.replyToSenderId.isEmpty()) {
-            const QString carried =
-                shownName(e.replyToSender, e.replyToSenderId);
-            if (!carried.isEmpty())
-                return carried;
             if (m_client) {
                 const QString display = shownName(
                     m_client->displayNameFor(memberLookupRoomId(e.roomId),
@@ -1412,6 +1408,10 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
                 if (!display.isEmpty())
                     return display;
             }
+            const QString carried =
+                shownName(e.replyToSender, e.replyToSenderId);
+            if (!carried.isEmpty())
+                return carried;
             return matrix::user_lookup::localpartOrUserId(e.replyToSenderId);
         }
         if (e.replyToSender.isEmpty())
@@ -1542,13 +1542,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ThreadLatestKindRole:      return e.threadLatestKind;
     case ThreadLatestSenderRole:    return e.threadLatestSender;
     case ThreadLatestSenderDisplayNameRole: {
-        const QString carried = shownName(e.threadLatestSenderDisplayName,
-                                          e.threadLatestSender);
-        if (!carried.isEmpty())
-            return carried;
-        if (e.threadLatestSender.isEmpty())
-            return QString();
-        if (m_client) {
+        if (m_client && !e.threadLatestSender.isEmpty()) {
             const QString display = shownName(
                 m_client->displayNameFor(memberLookupRoomId(e.roomId),
                                          e.threadLatestSender),
@@ -1556,6 +1550,12 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             if (!display.isEmpty())
                 return display;
         }
+        const QString carried = shownName(e.threadLatestSenderDisplayName,
+                                          e.threadLatestSender);
+        if (!carried.isEmpty())
+            return carried;
+        if (e.threadLatestSender.isEmpty())
+            return QString();
         return matrix::user_lookup::localpartOrUserId(e.threadLatestSender);
     }
     case ThreadLatestSenderAvatarMxcRole:
