@@ -185,7 +185,7 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance"),
           anchor: "languageCombo" },
         { title: qsTr("Show room activity"),
-          keywords: QT_TR_NOOP("room activity membership joins leaves profile"),
+          keywords: QT_TR_NOOP("room activity membership joins leaves profile routine"),
           section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           control: "showRoomActivity",
           anchor: "showRoomActivityCheck" },

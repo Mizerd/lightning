@@ -5122,6 +5122,22 @@ private slots:
         QCOMPARE(trayHits, m_controller->trayAvailable() ? 2 : 0);
     }
 
+    void routineFindsTheRoomActivitySetting()
+    {
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        QVERIFY(screen && search);
+        search->setProperty("text", QStringLiteral("routine"));
+        QCoreApplication::processEvents();
+        QStringList anchors;
+        const QVariantList hits = screen->property("matchedSearchResults").toList();
+        for (const QVariant &hit : hits)
+            anchors << hit.toMap().value(QStringLiteral("anchor")).toString();
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QCOMPARE(anchors, QStringList{QStringLiteral("showRoomActivityCheck")});
+    }
+
     void callKeysIsFindableInSettingsSearch()
     {
         openSection(QStringLiteral("shortcuts"));

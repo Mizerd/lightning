@@ -789,6 +789,41 @@ false);
         QCOMPARE(client.mutualCalls.size(), 2);
     }
 
+    void aHintStillOnScreenFollowsMemberDataHoweverLongItHasBeenShown()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        const QString inviter = QStringLiteral("@stranger:evil.example");
+        const QVariantList one{
+            QVariantMap{{QStringLiteral("roomId"), QStringLiteral("!a:x")}}};
+        // Stands in for the invite row's binding on mutualSummaryRevision.
+        QString shown;
+        const auto show = [&] { shown = controller.mutualRoomHint(inviter); };
+        connect(&controller, &RoomInfoController::mutualSummariesChanged,
+                &controller, show);
+        show();
+        Q_EMIT client.mutualRoomsReceived(client.lastOpId, inviter, {}, false);
+        QCOMPARE(shown, QStringLiteral("No known rooms in common"));
+
+        client.mutualCalls.clear();
+        Q_EMIT client.roomMembersReceived(0, QStringLiteral("!a:x"), {});
+        QTRY_COMPARE_WITH_TIMEOUT(client.mutualCalls, QStringList{inviter}, 5000);
+        Q_EMIT client.mutualRoomsReceived(client.mutualOpFor.value(inviter),
+                                          inviter, one, false);
+        QCOMPARE(shown, QStringLiteral("At least 1 room(s) in common"));
+
+        controller.setMutualHintWindowMs(300);
+        QTest::qWait(500);
+        client.mutualCalls.clear();
+        Q_EMIT client.roomMemberEventSeen(QStringLiteral("!a:x"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.mutualCalls, QStringList{inviter}, 5000);
+        QCOMPARE(shown, QStringLiteral("At least 1 room(s) in common"));
+        Q_EMIT client.mutualRoomsReceived(client.mutualOpFor.value(inviter),
+                                          inviter, {}, true);
+        QCOMPARE(shown, QStringLiteral("No rooms in common"));
+    }
+
     void onlyRecentlyShownHintsAreRescannedAndTheRestDropped()
     {
         FakeClient client;

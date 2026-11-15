@@ -197,6 +197,32 @@ private slots:
         QCOMPARE(limiter.suppressedTotal(), quint64(4 * 20000 - 20));
     }
 
+    void twoSpuriousQtWarningsAreDroppedAndNothingElse()
+    {
+        using lightning::logging::isSpuriousQtWarning;
+        QVERIFY(isSpuriousQtWarning(QStringLiteral(
+            "QQuickPixmap: connectFinished() called when not loading.")));
+        QVERIFY(!isSpuriousQtWarning(QStringLiteral(
+            "QQuickPixmap: connectDownloadProgress() called when not loading.")));
+        QVERIFY(!isSpuriousQtWarning(QStringLiteral("QQuickPixmap: failed")));
+        QVERIFY(isSpuriousQtWarning(QStringLiteral(
+            "DelegateModel::cancel: index out range 7 1")));
+        QVERIFY(!isSpuriousQtWarning(QStringLiteral(
+            "DelegateModel::item: index out range 7 1")));
+
+        QFile file(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString code = QString::fromUtf8(file.readAll());
+        const int handler = code.indexOf(
+            QStringLiteral("void repeatLimitedMessageHandler("));
+        const int drop = code.indexOf(
+            QStringLiteral("if (lightning::logging::isSpuriousQtWarning(msg))\n"
+                           "        return;"), handler);
+        const int admit = code.indexOf(QStringLiteral("g_repeatLimiter->admit("), handler);
+        QVERIFY2(handler >= 0 && drop > handler && drop < admit,
+                 "the message handler does not drop the spurious warning");
+    }
+
     void theApplicationInstallsItBetweenTheLogFileAndTheVaapiGate()
     {
         QFile file(QStringLiteral(SOURCE_DIR "/src/main.cpp"));

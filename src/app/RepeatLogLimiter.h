@@ -70,4 +70,16 @@ private:
     quint64 m_suppressedTotal = 0;
 };
 
+// Two warnings Qt prints for states it then handles correctly:
+// - its rich-text <img> loader connects to the download of an image it already
+//   holds when a synchronous image provider served it;
+// - a view cancels the row it was buffering after a model reset shrank the
+//   model below that row.
+inline bool isSpuriousQtWarning(const QString &message)
+{
+    return message
+            == QLatin1String("QQuickPixmap: connectFinished() called when not loading.")
+        || message.startsWith(QLatin1String("DelegateModel::cancel: index out range"));
+}
+
 }

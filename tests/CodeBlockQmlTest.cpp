@@ -1460,6 +1460,37 @@ private Q_SLOTS:
         }
     }
 
+    void aCodeBlockNarrowerThanTheCapReportsNoBindingLoop_data()
+    {
+        QTest::addColumn<bool>("bubbles");
+        QTest::addColumn<QVariantList>("segments");
+        const QVariantMap prose = richSegment(QStringLiteral("<p>Thread root two</p>"));
+        const QVariantMap tall = codeSegment(repeatedLines(60, QStringLiteral("l")),
+                                             QString());
+        const QVariantMap tiny = codeSegment(QStringLiteral("x"), QString());
+        for (bool bubbles : {false, true}) {
+            const QByteArray layout = bubbles ? "bubbles" : "modern";
+            QTest::newRow(layout + ", one character") << bubbles << QVariantList{tiny};
+            QTest::newRow(layout + ", prose and sixty short lines")
+                << bubbles << QVariantList{prose, tall};
+        }
+    }
+
+    void aCodeBlockNarrowerThanTheCapReportsNoBindingLoop()
+    {
+        QFETCH(bool, bubbles);
+        QFETCH(QVariantList, segments);
+        RowHarness h;
+        QVERIFY(buildRow(h, segments, QStringLiteral("body"), bubbles));
+        const QList<QQuickItem *> rows = segmentRows(h);
+        QCOMPARE(rows.size(), segments.size());
+        auto *block = rows.last()->findChild<QQuickItem *>(
+            QStringLiteral("codeBlockScroll"));
+        QVERIFY(block != nullptr);
+        QVERIFY(rows.last()->width() > 0);
+        QCOMPARE(h.bindingLoops(), QStringList{});
+    }
+
     void aShortSegmentStaysNarrowAndAParagraphReachesTheCap()
     {
         RowHarness h;

@@ -989,6 +989,8 @@ void repeatLimitedMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
         next(type, ctx, msg);
         return;
     }
+    if (lightning::logging::isSpuriousQtWarning(msg))
+        return;
     const lightning::logging::RepeatLogLimiter::Decision decision =
         g_repeatLimiter->admit(type, ctx.category, msg, steadyNowMs());
     for (const auto &summary : decision.summaries) {

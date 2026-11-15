@@ -2215,9 +2215,11 @@ Item {
                                         width: !segmentLoader.item
                                                ? segmentsLoader.segmentCap
                                                : segmentRow.isCode
+                                                 // The item's, not the Loader's: the Loader
+                                                 // refreshes its own inside this resize.
                                                  ? Math.min(
                                                        segmentsLoader.segmentCap,
-                                                       segmentLoader.implicitWidth)
+                                                       segmentLoader.item.implicitWidth)
                                                  : (segmentRow.width > 8
                                                     ? Math.min(
                                                           segmentsLoader.segmentCap,

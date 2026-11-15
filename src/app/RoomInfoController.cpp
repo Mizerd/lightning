@@ -35,15 +35,21 @@ RoomInfoController::RoomInfoController(QObject *parent)
     m_mutualSummaryRefresh.setInterval(2000);
     connect(&m_mutualSummaryRefresh, &QTimer::timeout, this, [this] {
         const qint64 now = m_mutualSummaryClock.elapsed();
-        const QStringList users = m_mutualSummaryAsked.keys();
-        for (const QString &user : users) {
-            if (now - m_mutualSummaryAsked.value(user) > m_mutualHintWindowMs) {
-                m_mutualSummaryAsked.remove(user);
-                m_mutualSummaries.remove(user);
-                continue;
-            }
-            startMutualSummaryScan(user);
+        const bool aged = m_mutualSummaryAsked.removeIf([&](const auto &asked) {
+            return now - asked.value() > m_mutualHintWindowMs;
+        }) > 0;
+        if (aged) {
+            // A hint still on screen asks again from this signal; only the
+            // ones that do not are dropped.
+            ++m_mutualSummaryRevision;
+            Q_EMIT mutualSummariesChanged();
         }
+        m_mutualSummaries.removeIf([this](const auto &summary) {
+            return !m_mutualSummaryAsked.contains(summary.key());
+        });
+        const QStringList users = m_mutualSummaryAsked.keys();
+        for (const QString &user : users)
+            startMutualSummaryScan(user);
     });
 }
 
@@ -118,11 +124,16 @@ void RoomInfoController::setClient(MatrixClient *client)
         });
         connect(m_client, &MatrixClient::roomMemberEventSeen,
                 this, &RoomInfoController::onMembersChanged);
-        connect(m_client, &MatrixClient::roomMemberEventSeen, this, [this] {
+        const auto refreshMutualHints = [this] {
             if (!m_mutualSummaryAsked.isEmpty()
                 && !m_mutualSummaryRefresh.isActive())
                 m_mutualSummaryRefresh.start();
-        });
+        };
+        connect(m_client, &MatrixClient::roomMemberEventSeen, this,
+                refreshMutualHints);
+        // A member list that finishes loading can reveal shared rooms too.
+        connect(m_client, &MatrixClient::roomMembersReceived, this,
+                refreshMutualHints);
         connect(m_client, &MatrixClient::loggedOut,
                 this, &RoomInfoController::onLoggedOut);
     }

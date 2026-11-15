@@ -527,6 +527,38 @@ private slots:
 #endif
     }
 
+    void aServerWithoutTheSeedEndpointIsNotAWarning()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        static QStringList seedWarnings;
+        seedWarnings.clear();
+        const QtMessageHandler previous = qInstallMessageHandler(
+            [](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+                if (type == QtWarningMsg && msg.contains(QLatin1String("activity seed")))
+                    seedWarnings << msg;
+            });
+        const auto restore = qScopeGuard([previous] { qInstallMessageHandler(previous); });
+        const auto seed = [&client](bool ok, const QString &category) {
+            QJsonObject event;
+            event.insert(QStringLiteral("type"), QStringLiteral("activity_seed"));
+            event.insert(QStringLiteral("ok"), ok);
+            event.insert(QStringLiteral("entries"), QJsonArray{});
+            event.insert(QStringLiteral("category"), category);
+            client.handleRustEventForTest(event);
+        };
+        seed(true, QString());
+        seed(false, QStringLiteral("http_404_M_UNRECOGNIZED"));
+        QCOMPARE(seedWarnings, QStringList{});
+        seed(true, QString());
+        seed(false, QStringLiteral("timeout"));
+        QCOMPARE(seedWarnings.size(), 1);
+#endif
+    }
+
     void anInviteAnsweredHereIsAnnouncedOnTheServersDone()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

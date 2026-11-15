@@ -33,6 +33,7 @@
 #include "matrix/RustTimelineMirror.h"
 #include "matrix/RustTimelineIngest.h"
 #include "matrix_rust.h"
+#include "models/ActivityModel.h"
 #include "models/UserLookup.h"
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
@@ -12712,7 +12713,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             }
             ++seedFailuresInARow;
             const QString category = event.value(QStringLiteral("category")).toString();
-            if (seedFailuresInARow == 1) {
+            if (ActivityModel::seedFailureIsPermanent(category)) {
+                // No such endpoint here: the application says so once, at info.
+            } else if (seedFailuresInARow == 1) {
                 qCWarning(lcRust) << "activity seed failed"
                                   << "category=" << (category.isEmpty()
                                                          ? QStringLiteral("unknown")
