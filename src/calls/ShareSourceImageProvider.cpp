@@ -33,6 +33,13 @@ QImage ShareSourceImageProvider::requestImage(const QString &id, QSize *size,
         const int index = QStringView(id).mid(1).toInt(&ok);
         if (ok && index >= 0)
             image = lightning::wincap::captureScreenThumbnail(index, edge);
+    } else if (id.startsWith(QLatin1Char('r'))) {
+        const QStringList parts = id.mid(1).split(QLatin1Char(','));
+        if (parts.size() == 4)
+            image = lightning::wincap::captureAreaThumbnail(
+                QRect(parts.at(0).toInt(), parts.at(1).toInt(),
+                      parts.at(2).toInt(), parts.at(3).toInt()),
+                edge);
     }
 
     if (size)

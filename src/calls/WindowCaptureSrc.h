@@ -12,10 +12,15 @@
 // top of it (another app, a password prompt). Limitation: a window rendering
 // through its own swapchain may print blank; that is reported as a black
 // frame, not a failure to start.
+//
+// On an X11 session (the fallback when there is no ScreenCast portal) the
+// same element reads the window's composited pixmap, after redirecting it so
+// an uncomposited desktop keeps its contents too.
 #pragma once
 
 #include <QImage>
 #include <QList>
+#include <QRect>
 #include <QString>
 
 typedef struct _GstElement GstElement;
@@ -39,6 +44,21 @@ struct Size {
 
 Size fitInto(int srcW, int srcH, int maxW, int maxH);
 
+struct X11WindowFacts {
+    bool viewable = false;
+    bool hidden = false;
+    bool skipTaskbar = false;
+    bool normalType = true;
+    bool ours = false;
+    int width = 0;
+    int height = 0;
+    QString title;
+};
+
+/// Same rules as the Windows list: top-level, on screen, not minimised, not
+/// a tool window, titled, and not one of ours.
+bool x11WindowListed(const X11WindowFacts &facts);
+
 bool available();
 
 struct ProcessInfo {
@@ -54,6 +74,9 @@ QList<WindowInfo> enumerateWindows();
 QImage captureThumbnail(quint64 handle, int maxEdge);
 
 QImage captureScreenThumbnail(int displayIndex, int maxEdge);
+
+/// X11: a root-window area in native pixels.
+QImage captureAreaThumbnail(const QRect &area, int maxEdge);
 
 bool displayForDeviceName(const QString &deviceName, int *index, int *width,
                           int *height);

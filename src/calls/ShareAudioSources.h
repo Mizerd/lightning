@@ -74,6 +74,7 @@ struct Application {
     int streams = 0;
     bool active = false;
     bool containsUs = false;
+    QList<qint64> pids;
 };
 
 QList<Application> groupByApplication(const QList<Stream> &streams);

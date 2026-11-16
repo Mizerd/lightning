@@ -88,6 +88,8 @@ stdenv.mkDerivation {
     qt6.qtmultimedia
     pipewire
     libsecret
+    # X11 single-window share (xcb-composite).
+    libxcb
     glib
     xkeyboard_config
     # image format support, test using `lightning-matrix --image-format-status`

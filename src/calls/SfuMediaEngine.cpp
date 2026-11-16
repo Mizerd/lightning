@@ -5399,6 +5399,11 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
                           "capture-screen-cursor=true device-index=%1")
         .arg(nodeId < 0 ? 0 : nodeId);
 #else
+    if (windowHandle != 0) {
+        return QStringLiteral("%1 xid=%2")
+            .arg(QLatin1String(lightning::wincap::windowCaptureSrcName()))
+            .arg(windowHandle);
+    }
     if (captureRect.isValid()) {
         return QStringLiteral("%1 startx=%2 starty=%3 endx=%4 endy=%5 "
                               "use-damage=false show-pointer=true "

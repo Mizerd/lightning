@@ -4893,6 +4893,40 @@ true,2147483,
                  "the window capture element is never registered");
     }
 
+    void theLinuxNoPortalFallbackSharesAWindowByItsXid()
+    {
+#if !defined(LIGHTNING_HAVE_X11_WINDOW_CAPTURE)
+        QSKIP("built without X11 window capture");
+#else
+        const QString source =
+            SfuMediaEngine::screenShareSource(-1, -1, 0x3a00007, QRect());
+        QCOMPARE(source,
+                 QStringLiteral("lightningwindowcapturesrc xid=60817415"));
+        QVERIFY2(!source.contains(QStringLiteral("ximagesrc")),
+                 "a window share must not crop the screen: whatever is "
+                 "stacked on top of the window would be shared");
+
+        lightning::wincap::registerWindowCaptureSrc();
+        GstElement *pipeline = gst_parse_launch(
+            "lightningwindowcapturesrc name=src xid=0 ! fakesink", nullptr);
+        QVERIFY(pipeline != nullptr);
+        auto cleanup = qScopeGuard([pipeline] {
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(pipeline);
+        });
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        GstBus *bus = gst_element_get_bus(pipeline);
+        GstMessage *msg = gst_bus_timed_pop_filtered(
+            bus, 5 * GST_SECOND,
+            static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
+        gst_object_unref(bus);
+        QVERIFY2(msg && GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR,
+                 "a window that does not exist must fail the capture, not "
+                 "publish frames");
+        gst_message_unref(msg);
+#endif
+    }
+
     void theLinuxNoPortalFallbackCapturesAnX11RootRectangle()
     {
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)

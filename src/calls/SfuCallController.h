@@ -322,6 +322,11 @@ public:
     static QString cameraPortalNotice(const QString &category, bool flatpak);
 
     static QRect validX11CaptureRect(const QRect &nativeGeometry);
+    /// Picker rows for shareable windows. A window whose process contains
+    /// Lightning carries no audio key: capturing it would capture us.
+    static QVariantList
+    windowShareRows(const QList<lightning::wincap::WindowInfo> &windows,
+                    const QSet<qint64> &ourAncestors);
 
     /// One screen's native, root-relative rectangle (what `ximagesrc`
     /// addresses), or an invalid rect.
@@ -609,6 +614,8 @@ private Q_SLOTS:
 
 private:
     bool populateLinuxDisplaySources();
+    static QVariantList
+    windowShareRows(const QList<lightning::wincap::WindowInfo> &windows);
     void offerLinuxDisplayPicker(bool autoSelectSingle);
     static QRect physicalRectForScreenNamed(const QString &name);
 

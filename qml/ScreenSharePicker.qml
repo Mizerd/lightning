@@ -24,9 +24,11 @@ AppDialog {
             && row.windowHandle !== undefined && row.windowHandle !== 0;
     }
     function shareSourceId(row) {
-        return root.isWindowRow(row)
-            ? "w" + row.windowHandle
-            : "s" + (row.index !== undefined ? row.index : 0);
+        if (root.isWindowRow(row))
+            return "w" + row.windowHandle;
+        if (row !== undefined && row !== null && row.nativeRect !== undefined)
+            return "r" + row.nativeRect;
+        return "s" + (row.index !== undefined ? row.index : 0);
     }
     readonly property int screenCount: {
         var n = 0;
@@ -158,10 +160,26 @@ AppDialog {
     readonly property var selectedRow:
         (root.selected >= 0 && root.selected < root.sources.length)
             ? root.sources[root.selected] : null
-    readonly property string selectedWindowAudioKey:
-        (root.selectedRow && root.isWindowRow(root.selectedRow)
-         && root.selectedRow.audioAppKey !== undefined)
-            ? String(root.selectedRow.audioAppKey) : ""
+    // A Windows row names its executable; a PipeWire one is matched to the
+    // window's process id among the applications currently playing.
+    function windowAudioKey(row, apps) {
+        if (!row || !root.isWindowRow(row))
+            return "";
+        if (row.audioAppKey !== undefined && String(row.audioAppKey).length > 0)
+            return String(row.audioAppKey);
+        var pid = row.audioPid !== undefined ? Number(row.audioPid) : 0;
+        if (pid <= 0 || !apps)
+            return "";
+        for (var i = 0; i < apps.length; ++i) {
+            var pids = apps[i].pids;
+            if (pids !== undefined && pids.indexOf(pid) >= 0)
+                return String(apps[i].key);
+        }
+        return "";
+    }
+    readonly property string selectedWindowAudioKey: root.windowAudioKey(
+        root.selectedRow,
+        app.groupCall ? app.groupCall.shareAudioApplications : [])
     function restoreAutoSound() {
         if (!root.soundAutoChosen || !app.groupCall)
             return;
@@ -492,15 +510,11 @@ AppDialog {
                                 asynchronous: true
                                 cache: false
                                 sourceSize.width: root.previewPixelWidth
-                                // ShareSourceImageProvider always answers null
-                                // off Windows (see its header — Linux uses the
-                                // portal's own picker and never reaches this
-                                // dialog with a real screen; macOS lists
-                                // displays only), so asking it there bought
-                                // nothing but a "Failed to get image from
-                                // provider" warning on every tile, every open.
-                                // Only ask where an answer is possible.
-                                source: Qt.platform.os === "windows"
+                                // The provider answers only where window
+                                // capture exists (Windows, X11 without a
+                                // portal); elsewhere asking just logs a
+                                // provider warning per tile.
+                                source: root.windowCaptureSupported
                                     ? "image://lightning-sharesource/"
                                       + root.shareSourceId(tile.row)
                                     : ""

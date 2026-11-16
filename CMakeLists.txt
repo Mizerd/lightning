@@ -488,6 +488,26 @@ if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
             set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
                 INTERFACE_COMPILE_DEFINITIONS LIGHTNING_HAVE_GST_ALLOCATORS=1)
         endif()
+        # Single-window share on X11 desktops with no ScreenCast portal
+        # (WindowCaptureSrc.cpp). Debian/Ubuntu: libxcb1-dev
+        # libxcb-composite0-dev; Fedora: libxcb-devel.
+        pkg_check_modules(XCBCAPTURE IMPORTED_TARGET xcb xcb-composite)
+        if(XCBCAPTURE_FOUND)
+            set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
+                INTERFACE_LINK_LIBRARIES PkgConfig::XCBCAPTURE)
+            set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
+                INTERFACE_COMPILE_DEFINITIONS
+                LIGHTNING_HAVE_X11_WINDOW_CAPTURE=1)
+            message(STATUS "X11 window sharing: yes")
+        elseif(LIGHTNING_REQUIRE_WEBRTC)
+            message(FATAL_ERROR
+                "LIGHTNING_REQUIRE_WEBRTC=ON but xcb/xcb-composite were not "
+                "found, so X11 desktops without a ScreenCast portal could "
+                "share whole screens only. Install libxcb1-dev and "
+                "libxcb-composite0-dev (Fedora: libxcb-devel).")
+        else()
+            message(STATUS "X11 window sharing: no (xcb-composite not found)")
+        endif()
     endif()
     if(GSTWEBRTC_FOUND)
         set(HAVE_LIGHTNING_WEBRTC ON)

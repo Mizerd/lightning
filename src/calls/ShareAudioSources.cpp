@@ -177,6 +177,8 @@ QList<Application> groupByApplication(const QList<Stream> &streams)
             app.streams = 1;
             app.active = s.active;
             app.containsUs = s.containsUs;
+            if (s.pid > 0)
+                app.pids.append(s.pid);
             at.insert(s.appKey, out.size());
             out.append(app);
             continue;
@@ -185,6 +187,8 @@ QList<Application> groupByApplication(const QList<Stream> &streams)
         ++app.streams;
         app.active = app.active || s.active;
         app.containsUs = app.containsUs || s.containsUs;
+        if (s.pid > 0 && !app.pids.contains(s.pid))
+            app.pids.append(s.pid);
         if (app.iconName.isEmpty())
             app.iconName = s.iconName;
     }

@@ -1059,6 +1059,55 @@ ApplicationWindow {
                  "Windows");
     }
 
+    void anX11WindowFindsItsAudioByProcessId()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+
+Item { property alias picker: pick
+    ScreenSharePicker { id: pick } }
+)"), QUrl(QStringLiteral("qrc:/sharepickeraudiokey.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        const QVariantList apps{
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("spotify") },
+                         { QStringLiteral("pids"), QVariantList{ qint64(10) } } },
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("game") },
+                         { QStringLiteral("pids"),
+                           QVariantList{ qint64(41), qint64(4242) } } },
+        };
+        const auto keyFor = [picker, &apps](const QVariantMap &row) {
+            QVariant out;
+            QMetaObject::invokeMethod(picker, "windowAudioKey",
+                                      Q_RETURN_ARG(QVariant, out),
+                                      Q_ARG(QVariant, row),
+                                      Q_ARG(QVariant, apps));
+            return out.toString();
+        };
+        QVariantMap window{ { QStringLiteral("windowHandle"), 0x3a00007 },
+                            { QStringLiteral("audioAppKey"), QString() },
+                            { QStringLiteral("audioPid"), qint64(4242) } };
+        QCOMPARE(keyFor(window), QStringLiteral("game"));
+        window.insert(QStringLiteral("audioPid"), qint64(5));
+        QCOMPARE(keyFor(window), QString());
+        window.insert(QStringLiteral("audioPid"), qint64(0));
+        QCOMPARE(keyFor(window), QString());
+        window.insert(QStringLiteral("audioAppKey"), QStringLiteral("game.exe"));
+        QCOMPARE(keyFor(window), QStringLiteral("game.exe"));
+        const QVariantMap screen{ { QStringLiteral("index"), 0 },
+                                  { QStringLiteral("audioPid"), qint64(10) } };
+        QCOMPARE(keyFor(screen), QString());
+    }
+
     void theFilteredGridMapsBackToTheUnfilteredSourceIndex()
     {
         AppController controller(AppController::MockBackend);

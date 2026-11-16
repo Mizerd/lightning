@@ -18,6 +18,17 @@ Size fitInto(int srcW, int srcH, int maxW, int maxH)
     return {width, height};
 }
 
+bool x11WindowListed(const X11WindowFacts &facts)
+{
+    return facts.viewable && !facts.hidden && !facts.skipTaskbar
+        && facts.normalType && !facts.ours && facts.width >= 2
+        && facts.height >= 2 && !facts.title.trimmed().isEmpty();
+}
+
+#ifndef LIGHTNING_HAVE_X11_WINDOW_CAPTURE
+QImage captureAreaThumbnail(const QRect &, int) { return {}; }
+#endif
+
 }
 
 #ifdef Q_OS_WIN
@@ -1002,6 +1013,708 @@ QList<WindowInfo> enumerateWindows()
     EnumContext ctx{&windows, GetCurrentProcessId()};
     EnumWindows(enumProc, reinterpret_cast<LPARAM>(&ctx));
     return windows;
+}
+
+void registerWindowCaptureSrc()
+{
+    static std::once_flag once;
+    std::call_once(once, [] {
+        GST_DEBUG_CATEGORY_INIT(lightning_wincap_debug,
+                                "lightningwindowcapture", 0,
+                                "Lightning window capture");
+        gst_element_register(nullptr, windowCaptureSrcName(), GST_RANK_NONE,
+                             LIGHTNING_TYPE_WINDOW_CAPTURE_SRC);
+    });
+}
+
+const char *windowCaptureSrcName() { return "lightningwindowcapturesrc"; }
+
+}
+
+#elif defined(LIGHTNING_HAVE_X11_WINDOW_CAPTURE)
+
+#include <cstring>
+#include <memory>
+#include <mutex>
+
+#include <QByteArray>
+#include <QGuiApplication>
+#include <QPainter>
+#include <QSet>
+#include <QWindow>
+
+#include <gst/gst.h>
+#include <gst/base/gstpushsrc.h>
+#include <gst/video/video.h>
+
+#include <xcb/composite.h>
+#include <xcb/xcb.h>
+
+namespace {
+
+constexpr int kFramerate = 30;
+constexpr GstClockTime kFrameDuration = GST_SECOND / kFramerate;
+
+struct XcbDeleter {
+    void operator()(xcb_connection_t *c) const { xcb_disconnect(c); }
+};
+using Connection = std::unique_ptr<xcb_connection_t, XcbDeleter>;
+
+template <typename T> using Reply = std::unique_ptr<T, decltype(&free)>;
+template <typename T> Reply<T> reply(T *raw) { return Reply<T>(raw, &free); }
+
+Connection connectX(xcb_window_t *root)
+{
+    int screen = 0;
+    Connection c(xcb_connect(nullptr, &screen));
+    if (!c || xcb_connection_has_error(c.get()))
+        return {};
+    xcb_screen_iterator_t it = xcb_setup_roots_iterator(xcb_get_setup(c.get()));
+    for (int i = 0; i < screen && it.rem; ++i)
+        xcb_screen_next(&it);
+    if (!it.rem)
+        return {};
+    if (root)
+        *root = it.data->root;
+    return c;
+}
+
+xcb_atom_t atom(xcb_connection_t *c, const char *name)
+{
+    auto r = reply(xcb_intern_atom_reply(
+        c, xcb_intern_atom(c, 0, static_cast<uint16_t>(std::strlen(name)), name),
+        nullptr));
+    return r ? r->atom : xcb_atom_t(XCB_ATOM_NONE);
+}
+
+QByteArray property(xcb_connection_t *c, xcb_window_t w, xcb_atom_t prop,
+                    xcb_atom_t type, uint32_t maxWords = 4096)
+{
+    auto r = reply(xcb_get_property_reply(
+        c, xcb_get_property(c, 0, w, prop, type, 0, maxWords), nullptr));
+    if (!r || r->type == XCB_ATOM_NONE)
+        return {};
+    return QByteArray(static_cast<const char *>(xcb_get_property_value(r.get())),
+                      xcb_get_property_value_length(r.get()));
+}
+
+QList<quint32> words(const QByteArray &bytes)
+{
+    QList<quint32> out;
+    for (qsizetype i = 0; i + 4 <= bytes.size(); i += 4) {
+        quint32 v;
+        std::memcpy(&v, bytes.constData() + i, 4);
+        out.append(v);
+    }
+    return out;
+}
+
+/// The window's own contents as RGB32, independent of what overlaps it on
+/// screen. Needs the window redirected (by a compositor or by us): GetImage
+/// on the window itself is refused off-screen and, without a compositor,
+/// returns whatever covers it.
+QImage windowPixels(xcb_connection_t *c, xcb_window_t w, int *width,
+                    int *height)
+{
+    auto attrs = reply(xcb_get_window_attributes_reply(
+        c, xcb_get_window_attributes(c, w), nullptr));
+    if (!attrs || attrs->map_state != XCB_MAP_STATE_VIEWABLE)
+        return {};
+    auto geo = reply(xcb_get_geometry_reply(c, xcb_get_geometry(c, w), nullptr));
+    if (!geo)
+        return {};
+    if (width)
+        *width = geo->width;
+    if (height)
+        *height = geo->height;
+    if (geo->depth != 24 && geo->depth != 32)
+        return {};
+    const xcb_pixmap_t pixmap = xcb_generate_id(c);
+    if (xcb_generic_error_t *e = xcb_request_check(
+            c, xcb_composite_name_window_pixmap_checked(c, w, pixmap))) {
+        free(e);
+        return {};
+    }
+    auto image = reply(xcb_get_image_reply(
+        c,
+        xcb_get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, pixmap,
+                      static_cast<int16_t>(geo->border_width),
+                      static_cast<int16_t>(geo->border_width), geo->width,
+                      geo->height, ~0u),
+        nullptr));
+    xcb_free_pixmap(c, pixmap);
+    if (!image)
+        return {};
+    const int stride = geo->width * 4;
+    if (xcb_get_image_data_length(image.get()) < stride * geo->height)
+        return {};
+    QImage out(xcb_get_image_data(image.get()), geo->width, geo->height, stride,
+               QImage::Format_RGB32);
+    return out.copy();
+}
+
+bool redirect(xcb_connection_t *c, xcb_window_t w)
+{
+    auto version = reply(xcb_composite_query_version_reply(
+        c, xcb_composite_query_version(c, 0, 4), nullptr));
+    if (!version)
+        return false;
+    xcb_generic_error_t *e = xcb_request_check(
+        c, xcb_composite_redirect_window_checked(
+               c, w, XCB_COMPOSITE_REDIRECT_AUTOMATIC));
+    free(e);
+    return e == nullptr;
+}
+
+bool littleEndianServer(xcb_connection_t *c)
+{
+    return xcb_get_setup(c)->image_byte_order == XCB_IMAGE_ORDER_LSB_FIRST;
+}
+
+struct LightningWindowCaptureSrc {
+    GstPushSrc parent;
+    guint64 xid;
+    xcb_connection_t *conn;
+    gint outWidth;
+    gint outHeight;
+    gint startWidth;
+    gint startHeight;
+    gint lastWidth;
+    gint lastHeight;
+    guint64 frameIndex;
+    GstClockTime pacingBase;
+    gboolean pacingStarted;
+    gboolean windowGone;
+};
+
+struct LightningWindowCaptureSrcClass {
+    GstPushSrcClass parent;
+};
+
+enum { PROP_0, PROP_XID };
+
+#define LIGHTNING_TYPE_WINDOW_CAPTURE_SRC \
+    (lightning_window_capture_src_get_type())
+
+G_DEFINE_TYPE(LightningWindowCaptureSrc, lightning_window_capture_src,
+              GST_TYPE_PUSH_SRC)
+
+// BGRx: a depth-24/32 ZPixmap is 32 bpp, little-endian BGRX; alpha is ignored.
+GstStaticPadTemplate kSrcTemplate = GST_STATIC_PAD_TEMPLATE(
+    "src", GST_PAD_SRC, GST_PAD_ALWAYS,
+    GST_STATIC_CAPS("video/x-raw, format=(string)BGRx, "
+                    "width=(int)[1,16384], height=(int)[1,16384], "
+                    "framerate=(fraction)30/1"));
+
+GST_DEBUG_CATEGORY_STATIC(lightning_wincap_debug);
+#define GST_CAT_DEFAULT lightning_wincap_debug
+
+bool valueAdmits(const GValue *value, int wanted)
+{
+    if (!value)
+        return true;
+    if (G_VALUE_HOLDS_INT(value))
+        return g_value_get_int(value) == wanted;
+    if (GST_VALUE_HOLDS_INT_RANGE(value)) {
+        return wanted >= gst_value_get_int_range_min(value)
+            && wanted <= gst_value_get_int_range_max(value);
+    }
+    if (GST_VALUE_HOLDS_LIST(value)) {
+        for (guint i = 0; i < gst_value_list_get_size(value); ++i) {
+            if (valueAdmits(gst_value_list_get_value(value, i), wanted))
+                return true;
+        }
+        return false;
+    }
+    return true;
+}
+
+int valueMax(const GValue *value, int fallback)
+{
+    if (!value)
+        return fallback;
+    if (G_VALUE_HOLDS_INT(value))
+        return g_value_get_int(value);
+    if (GST_VALUE_HOLDS_INT_RANGE(value))
+        return gst_value_get_int_range_max(value);
+    if (GST_VALUE_HOLDS_LIST(value)) {
+        int best = 0;
+        for (guint i = 0; i < gst_value_list_get_size(value); ++i)
+            best = std::max(best,
+                            valueMax(gst_value_list_get_value(value, i), 0));
+        return best > 0 ? best : fallback;
+    }
+    return fallback;
+}
+
+/// False only when the window no longer exists. Unmapped (minimised, on
+/// another workspace) or unreadable frames are black, never another window.
+bool paintWindow(LightningWindowCaptureSrc *self, uchar *dst)
+{
+    xcb_connection_t *c = self->conn;
+    const auto window = static_cast<xcb_window_t>(self->xid);
+    QImage frame(dst, self->outWidth, self->outHeight, self->outWidth * 4,
+                 QImage::Format_RGB32);
+    frame.fill(Qt::black);
+
+    xcb_generic_error_t *error = nullptr;
+    auto attrs = reply(xcb_get_window_attributes_reply(
+        c, xcb_get_window_attributes(c, window), &error));
+    if (!attrs) {
+        const bool gone = xcb_connection_has_error(c)
+            || (error && error->error_code == XCB_WINDOW);
+        free(error);
+        return !gone;
+    }
+    if (attrs->map_state != XCB_MAP_STATE_VIEWABLE)
+        return true;
+
+    int width = 0;
+    int height = 0;
+    const QImage pixels = windowPixels(c, window, &width, &height);
+    if (pixels.isNull())
+        return true;
+    if (width != self->lastWidth || height != self->lastHeight) {
+        self->lastWidth = width;
+        self->lastHeight = height;
+        GST_INFO_OBJECT(self,
+                        "shared window resized to %dx%d; publishing at %dx%d",
+                        width, height, self->outWidth, self->outHeight);
+    }
+    if (pixels.width() == self->outWidth && pixels.height() == self->outHeight) {
+        std::memcpy(dst, pixels.constBits(),
+                    static_cast<size_t>(self->outWidth) * self->outHeight * 4);
+        return true;
+    }
+    const lightning::wincap::Size fit = lightning::wincap::fitInto(
+        pixels.width(), pixels.height(), self->outWidth, self->outHeight);
+    if (fit.width < 2 || fit.height < 2)
+        return true;
+    QPainter painter(&frame);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    painter.drawImage(QRect((self->outWidth - fit.width) / 2,
+                            (self->outHeight - fit.height) / 2, fit.width,
+                            fit.height),
+                      pixels);
+    return true;
+}
+
+void waitForFrameSlot(LightningWindowCaptureSrc *self)
+{
+    GstClock *clock = gst_element_get_clock(GST_ELEMENT(self));
+    if (!clock)
+        return;
+    const GstClockTime base = gst_element_get_base_time(GST_ELEMENT(self));
+    const GstClockTime now = gst_clock_get_time(clock);
+    if (!GST_CLOCK_TIME_IS_VALID(base) || !GST_CLOCK_TIME_IS_VALID(now)
+        || now < base) {
+        gst_object_unref(clock);
+        return;
+    }
+    const GstClockTime running = now - base;
+    if (!self->pacingStarted) {
+        self->pacingStarted = TRUE;
+        self->pacingBase = running;
+    }
+    if (self->pacingBase > running + GST_SECOND) {
+        const GstClockTime span = self->frameIndex * kFrameDuration;
+        self->pacingBase = running > span ? running - span : 0;
+    }
+    const guint64 elapsed =
+        running > self->pacingBase ? (running - self->pacingBase) : 0;
+    const guint64 dueIndex = elapsed / kFrameDuration;
+    if (dueIndex > self->frameIndex)
+        self->frameIndex = dueIndex;
+    const GstClockTime due =
+        self->pacingBase + self->frameIndex * kFrameDuration;
+    if (due > running) {
+        GstClockID id = gst_clock_new_single_shot_id(clock, base + due);
+        gst_clock_id_wait(id, nullptr);
+        gst_clock_id_unref(id);
+    }
+    gst_object_unref(clock);
+}
+
+gboolean startSrc(GstBaseSrc *base)
+{
+    auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(base);
+    Connection c = connectX(nullptr);
+    if (!c || !littleEndianServer(c.get())) {
+        GST_ELEMENT_ERROR(self, RESOURCE, OPEN_READ,
+                          ("Could not connect to the X server."),
+                          ("no usable X connection"));
+        return FALSE;
+    }
+    const auto window = static_cast<xcb_window_t>(self->xid);
+    // Without a redirect, an occluded window would share what covers it.
+    if (!self->xid || !redirect(c.get(), window)) {
+        GST_ELEMENT_ERROR(self, RESOURCE, NOT_FOUND,
+                          ("The window to share is not available."),
+                          ("no such window or no Composite extension"));
+        return FALSE;
+    }
+    int width = 0;
+    int height = 0;
+    windowPixels(c.get(), window, &width, &height);
+    if (width < 2 || height < 2) {
+        GST_ELEMENT_ERROR(self, RESOURCE, NOT_FOUND,
+                          ("The window to share has no visible area."),
+                          ("window is unmapped or empty"));
+        return FALSE;
+    }
+    self->conn = c.release();
+    self->startWidth = width & ~1;
+    self->startHeight = height & ~1;
+    self->lastWidth = width;
+    self->lastHeight = height;
+    self->frameIndex = 0;
+    self->pacingBase = 0;
+    self->pacingStarted = FALSE;
+    self->windowGone = FALSE;
+    GST_INFO_OBJECT(self, "window capture started, window is %dx%d", width,
+                    height);
+    return TRUE;
+}
+
+gboolean stopSrc(GstBaseSrc *base)
+{
+    auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(base);
+    // Disconnecting also drops our redirect.
+    if (self->conn)
+        xcb_disconnect(self->conn);
+    self->conn = nullptr;
+    self->outWidth = 0;
+    self->outHeight = 0;
+    return TRUE;
+}
+
+GstCaps *fixateSrc(GstBaseSrc *base, GstCaps *caps)
+{
+    auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(base);
+    caps = gst_caps_make_writable(caps);
+
+    // Prefer a structure that can carry the window's own size: through
+    // videoconvertscale the downstream-restricted structure comes first.
+    const guint count = gst_caps_get_size(caps);
+    guint pick = 0;
+    for (guint i = 0; i < count; ++i) {
+        const GstStructure *candidate = gst_caps_get_structure(caps, i);
+        if (valueAdmits(gst_structure_get_value(candidate, "width"),
+                        self->startWidth)
+            && valueAdmits(gst_structure_get_value(candidate, "height"),
+                           self->startHeight)) {
+            pick = i;
+            break;
+        }
+    }
+    if (pick != 0) {
+        GstCaps *reordered = gst_caps_new_empty();
+        for (guint i = 0; i < count; ++i) {
+            const guint from = i == 0 ? pick : (i <= pick ? i - 1 : i);
+            GstCapsFeatures *features = gst_caps_get_features(caps, from);
+            gst_caps_append_structure_full(
+                reordered,
+                gst_structure_copy(gst_caps_get_structure(caps, from)),
+                features ? gst_caps_features_copy(features) : nullptr);
+        }
+        gst_caps_unref(caps);
+        caps = reordered;
+    }
+
+    GstStructure *structure = gst_caps_get_structure(caps, 0);
+    const lightning::wincap::Size want = lightning::wincap::fitInto(
+        self->startWidth, self->startHeight,
+        valueMax(gst_structure_get_value(structure, "width"),
+                 self->startWidth),
+        valueMax(gst_structure_get_value(structure, "height"),
+                 self->startHeight));
+    gst_structure_fixate_field_nearest_int(
+        structure, "width", want.width > 0 ? want.width : self->startWidth);
+    gst_structure_fixate_field_nearest_int(
+        structure, "height",
+        want.height > 0 ? want.height : self->startHeight);
+    gst_structure_fixate_field_nearest_fraction(structure, "framerate",
+                                                kFramerate, 1);
+    // An unfixated PAR range falls to 1/2147483647 and overflows videoscale.
+    gst_structure_fixate_field_nearest_fraction(structure,
+                                                "pixel-aspect-ratio", 1, 1);
+    return GST_BASE_SRC_CLASS(lightning_window_capture_src_parent_class)
+        ->fixate(base, caps);
+}
+
+gboolean setCapsSrc(GstBaseSrc *base, GstCaps *caps)
+{
+    auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(base);
+    GstVideoInfo info;
+    if (!gst_video_info_from_caps(&info, caps))
+        return FALSE;
+    const gint width = GST_VIDEO_INFO_WIDTH(&info);
+    const gint height = GST_VIDEO_INFO_HEIGHT(&info);
+    if (width < 2 || height < 2)
+        return FALSE;
+    self->outWidth = width;
+    self->outHeight = height;
+    GST_INFO_OBJECT(self, "window capture publishing %dx%d from a %dx%d window",
+                    width, height, self->startWidth, self->startHeight);
+    return TRUE;
+}
+
+GstFlowReturn createFrame(GstPushSrc *push, GstBuffer **out)
+{
+    auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(push);
+    if (self->windowGone)
+        return GST_FLOW_EOS;
+    if (!self->conn || self->outWidth < 2 || self->outHeight < 2)
+        return GST_FLOW_NOT_NEGOTIATED;
+
+    waitForFrameSlot(self);
+
+    const gsize size =
+        static_cast<gsize>(self->outWidth) * self->outHeight * 4;
+    GstBuffer *buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
+    if (!buffer)
+        return GST_FLOW_ERROR;
+    GstMapInfo map;
+    if (!gst_buffer_map(buffer, &map, GST_MAP_WRITE)) {
+        gst_buffer_unref(buffer);
+        return GST_FLOW_ERROR;
+    }
+    const bool alive = paintWindow(self, map.data);
+    gst_buffer_unmap(buffer, &map);
+    if (!alive) {
+        gst_buffer_unref(buffer);
+        GST_INFO_OBJECT(self, "shared window closed; ending capture");
+        self->windowGone = TRUE;
+        return GST_FLOW_EOS;
+    }
+    gst_buffer_add_video_meta(buffer, GST_VIDEO_FRAME_FLAG_NONE,
+                              GST_VIDEO_FORMAT_BGRx, self->outWidth,
+                              self->outHeight);
+    const GstClockTime pts = self->frameIndex * kFrameDuration;
+    GST_BUFFER_PTS(buffer) = pts;
+    GST_BUFFER_DTS(buffer) = pts;
+    GST_BUFFER_DURATION(buffer) = kFrameDuration;
+    self->frameIndex++;
+    *out = buffer;
+    return GST_FLOW_OK;
+}
+
+void setProperty(GObject *object, guint id, const GValue *value,
+                 GParamSpec *spec)
+{
+    auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(object);
+    if (id == PROP_XID)
+        self->xid = g_value_get_uint64(value);
+    else
+        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, id, spec);
+}
+
+void getProperty(GObject *object, guint id, GValue *value, GParamSpec *spec)
+{
+    auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(object);
+    if (id == PROP_XID)
+        g_value_set_uint64(value, self->xid);
+    else
+        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, id, spec);
+}
+
+void lightning_window_capture_src_class_init(
+    LightningWindowCaptureSrcClass *klass)
+{
+    auto *object = G_OBJECT_CLASS(klass);
+    auto *element = GST_ELEMENT_CLASS(klass);
+    auto *base = GST_BASE_SRC_CLASS(klass);
+    auto *push = GST_PUSH_SRC_CLASS(klass);
+
+    object->set_property = setProperty;
+    object->get_property = getProperty;
+    g_object_class_install_property(
+        object, PROP_XID,
+        g_param_spec_uint64("xid", "Window id", "X11 window to capture", 0,
+                            G_MAXUINT32, 0,
+                            static_cast<GParamFlags>(G_PARAM_READWRITE
+                                                     | G_PARAM_STATIC_STRINGS)));
+
+    gst_element_class_add_static_pad_template(element, &kSrcTemplate);
+    gst_element_class_set_static_metadata(
+        element, "Lightning window capture", "Source/Video",
+        "Captures a single X11 window from its composited pixmap, so nothing "
+        "stacked on top of it is shared",
+        "Lightning");
+
+    base->start = startSrc;
+    base->stop = stopSrc;
+    base->fixate = fixateSrc;
+    base->set_caps = setCapsSrc;
+    push->create = createFrame;
+}
+
+void lightning_window_capture_src_init(LightningWindowCaptureSrc *self)
+{
+    self->xid = 0;
+    self->conn = nullptr;
+    self->outWidth = 0;
+    self->outHeight = 0;
+    self->startWidth = 0;
+    self->startHeight = 0;
+    self->lastWidth = 0;
+    self->lastHeight = 0;
+    self->frameIndex = 0;
+    self->pacingBase = 0;
+    self->pacingStarted = FALSE;
+    self->windowGone = FALSE;
+    gst_base_src_set_live(GST_BASE_SRC(self), TRUE);
+    gst_base_src_set_format(GST_BASE_SRC(self), GST_FORMAT_TIME);
+    gst_base_src_set_do_timestamp(GST_BASE_SRC(self), FALSE);
+}
+
+QSet<xcb_window_t> ownWindows()
+{
+    QSet<xcb_window_t> out;
+    const auto windows = QGuiApplication::allWindows();
+    for (const QWindow *w : windows) {
+        if (w && w->handle())
+            out.insert(static_cast<xcb_window_t>(w->winId()));
+    }
+    return out;
+}
+
+QImage scaledThumbnail(const QImage &image, int maxEdge)
+{
+    if (image.isNull())
+        return {};
+    return image.scaled(maxEdge, maxEdge, Qt::KeepAspectRatio,
+                        Qt::SmoothTransformation);
+}
+
+}
+
+namespace lightning::wincap {
+
+bool available()
+{
+    return QGuiApplication::platformName().startsWith(QLatin1String("xcb"))
+        && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY");
+}
+
+ProcessInfo processInfo(quint64) { return {}; }
+QString applicationNameForExecutablePath(const QString &) { return {}; }
+
+QList<WindowInfo> enumerateWindows()
+{
+    QList<WindowInfo> out;
+    if (!available())
+        return out;
+    xcb_window_t root = 0;
+    Connection conn = connectX(&root);
+    if (!conn)
+        return out;
+    xcb_connection_t *c = conn.get();
+    const xcb_atom_t utf8 = atom(c, "UTF8_STRING");
+    const xcb_atom_t netName = atom(c, "_NET_WM_NAME");
+    const xcb_atom_t netPid = atom(c, "_NET_WM_PID");
+    const xcb_atom_t netType = atom(c, "_NET_WM_WINDOW_TYPE");
+    const xcb_atom_t typeNormal = atom(c, "_NET_WM_WINDOW_TYPE_NORMAL");
+    const xcb_atom_t netState = atom(c, "_NET_WM_STATE");
+    const xcb_atom_t stateHidden = atom(c, "_NET_WM_STATE_HIDDEN");
+    const xcb_atom_t stateSkip = atom(c, "_NET_WM_STATE_SKIP_TASKBAR");
+
+    QList<quint32> clients = words(property(
+        c, root, atom(c, "_NET_CLIENT_LIST_STACKING"), XCB_ATOM_WINDOW));
+    if (clients.isEmpty())
+        clients = words(property(c, root, atom(c, "_NET_CLIENT_LIST"),
+                                 XCB_ATOM_WINDOW));
+    const QSet<xcb_window_t> ours = ownWindows();
+
+    // Stacking order is bottom to top; list the topmost first.
+    for (auto it = clients.crbegin(); it != clients.crend(); ++it) {
+        const xcb_window_t w = *it;
+        X11WindowFacts facts;
+        auto attrs = reply(xcb_get_window_attributes_reply(
+            c, xcb_get_window_attributes(c, w), nullptr));
+        auto geo =
+            reply(xcb_get_geometry_reply(c, xcb_get_geometry(c, w), nullptr));
+        if (!attrs || !geo)
+            continue;
+        facts.viewable = attrs->map_state == XCB_MAP_STATE_VIEWABLE;
+        facts.width = geo->width;
+        facts.height = geo->height;
+        facts.ours = ours.contains(w);
+        const QList<quint32> types =
+            words(property(c, w, netType, XCB_ATOM_ATOM));
+        facts.normalType = types.isEmpty() || types.contains(typeNormal);
+        const QList<quint32> states =
+            words(property(c, w, netState, XCB_ATOM_ATOM));
+        facts.hidden = states.contains(stateHidden);
+        facts.skipTaskbar = states.contains(stateSkip);
+        facts.title = QString::fromUtf8(property(c, w, netName, utf8));
+        if (facts.title.isEmpty())
+            facts.title = QString::fromLatin1(
+                property(c, w, XCB_ATOM_WM_NAME, XCB_ATOM_STRING));
+        if (!x11WindowListed(facts))
+            continue;
+
+        WindowInfo info;
+        info.handle = w;
+        info.title = facts.title;
+        // WM_CLASS is "instance\0Class\0"; the class is the application name.
+        const QList<QByteArray> wmClass =
+            property(c, w, XCB_ATOM_WM_CLASS, XCB_ATOM_STRING).split('\0');
+        info.application = QString::fromLocal8Bit(
+            wmClass.size() > 1 ? wmClass.at(1) : wmClass.value(0));
+        const QList<quint32> pid = words(property(c, w, netPid,
+                                                  XCB_ATOM_CARDINAL, 1));
+        info.pid = pid.isEmpty() ? 0 : pid.first();
+        info.width = facts.width;
+        info.height = facts.height;
+        out.append(info);
+    }
+    return out;
+}
+
+QImage captureThumbnail(quint64 handle, int maxEdge)
+{
+    Connection c = connectX(nullptr);
+    if (!c || !handle || !littleEndianServer(c.get()))
+        return {};
+    // No redirect here: only the local user sees this, and redirecting and
+    // dropping it per thumbnail would make an uncomposited desktop repaint.
+    return scaledThumbnail(
+        windowPixels(c.get(), static_cast<xcb_window_t>(handle), nullptr,
+                     nullptr),
+        maxEdge);
+}
+
+QImage captureScreenThumbnail(int, int) { return {}; }
+
+QImage captureAreaThumbnail(const QRect &area, int maxEdge)
+{
+    xcb_window_t root = 0;
+    Connection conn = connectX(&root);
+    if (!conn || !area.isValid() || area.x() < 0 || area.y() < 0
+        || !littleEndianServer(conn.get()))
+        return {};
+    xcb_connection_t *c = conn.get();
+    auto image = reply(xcb_get_image_reply(
+        c,
+        xcb_get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, root,
+                      static_cast<int16_t>(area.x()),
+                      static_cast<int16_t>(area.y()),
+                      static_cast<uint16_t>(area.width()),
+                      static_cast<uint16_t>(area.height()), ~0u),
+        nullptr));
+    const int stride = area.width() * 4;
+    if (!image || (image->depth != 24 && image->depth != 32)
+        || xcb_get_image_data_length(image.get()) < stride * area.height())
+        return {};
+    return scaledThumbnail(QImage(xcb_get_image_data(image.get()), area.width(),
+                                  area.height(), stride, QImage::Format_RGB32),
+                           maxEdge);
+}
+
+bool displayForDeviceName(const QString &, int *, int *, int *)
+{
+    return false;
 }
 
 void registerWindowCaptureSrc()

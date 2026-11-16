@@ -46,6 +46,8 @@
           libsecret
           glib
           xkeyboard_config
+          # X11 single-window share (xcb-composite).
+          libxcb
           # Call media engine: webrtcbin (gst-plugins-bad), linked directly.
           # libnice provides the nicesrc/nicesink elements webrtcbin needs.
           gst_all_1.gstreamer

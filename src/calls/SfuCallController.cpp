@@ -1106,9 +1106,60 @@ bool SfuCallController::populateLinuxDisplaySources()
             { QStringLiteral("primary"),
               screen == QGuiApplication::primaryScreen() },
             { QStringLiteral("current"), screen == ownScreen },
+            { QStringLiteral("nativeRect"), QStringLiteral("%1,%2,%3,%4")
+                                                .arg(rect.x())
+                                                .arg(rect.y())
+                                                .arg(rect.width())
+                                                .arg(rect.height()) },
         });
     }
-    return !m_screenShareSources.isEmpty();
+    if (m_screenShareSources.isEmpty())
+        return false;
+    m_screenShareSources.append(
+        windowShareRows(lightning::wincap::enumerateWindows()));
+    return true;
+}
+
+QVariantList SfuCallController::windowShareRows(
+    const QList<lightning::wincap::WindowInfo> &windows)
+{
+    QSet<qint64> ourAncestors;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!windows.isEmpty())
+        ourAncestors = lightning::shareaudio::ancestorsOf(
+            QCoreApplication::applicationPid(),
+            lightning::shareaudio::processParents());
+#endif
+    return windowShareRows(windows, ourAncestors);
+}
+
+QVariantList SfuCallController::windowShareRows(
+    const QList<lightning::wincap::WindowInfo> &windows,
+    const QSet<qint64> &ourAncestors)
+{
+    QVariantList rows;
+    for (const lightning::wincap::WindowInfo &window : windows) {
+        const bool containsUs =
+            ourAncestors.contains(static_cast<qint64>(window.pid));
+        rows.append(QVariantMap{
+            { QStringLiteral("index"), -1 },
+            { QStringLiteral("windowHandle"), window.handle },
+            { QStringLiteral("name"), window.title },
+            { QStringLiteral("application"), window.application },
+            { QStringLiteral("geometry"),
+              QStringLiteral("%1 x %2").arg(window.width).arg(window.height) },
+            { QStringLiteral("primary"), false },
+            { QStringLiteral("current"), false },
+            // Windows keys share audio by executable; PipeWire streams are
+            // matched to the window's process id instead.
+            { QStringLiteral("audioAppKey"),
+              containsUs ? QString() : window.executable },
+            { QStringLiteral("audioPid"),
+              containsUs ? qint64(0) : static_cast<qint64>(window.pid) },
+            { QStringLiteral("audioAppContainsUs"), containsUs },
+        });
+    }
+    return rows;
 }
 
 void SfuCallController::requestScreenShare()
@@ -1169,30 +1220,8 @@ void SfuCallController::requestScreenShare()
             { QStringLiteral("current"), screen == ownScreen },
         });
     }
-    const QList<lightning::wincap::WindowInfo> windows =
-        lightning::wincap::enumerateWindows();
-    const QSet<qint64> ourAncestors = windows.isEmpty()
-        ? QSet<qint64>()
-        : lightning::shareaudio::ancestorsOf(
-              QCoreApplication::applicationPid(),
-              lightning::shareaudio::processParents());
-    for (const lightning::wincap::WindowInfo &window : windows) {
-        const bool containsUs =
-            ourAncestors.contains(static_cast<qint64>(window.pid));
-        m_screenShareSources.append(QVariantMap{
-            { QStringLiteral("index"), -1 },
-            { QStringLiteral("windowHandle"), window.handle },
-            { QStringLiteral("name"), window.title },
-            { QStringLiteral("application"), window.application },
-            { QStringLiteral("geometry"),
-              QStringLiteral("%1 x %2").arg(window.width).arg(window.height) },
-            { QStringLiteral("primary"), false },
-            { QStringLiteral("current"), false },
-            { QStringLiteral("audioAppKey"),
-              containsUs ? QString() : window.executable },
-            { QStringLiteral("audioAppContainsUs"), containsUs },
-        });
-    }
+    m_screenShareSources.append(
+        windowShareRows(lightning::wincap::enumerateWindows()));
 
     if (m_screenShareSources.isEmpty()) {
         Q_EMIT callFailed(tr("No display is available to share."));
@@ -5050,7 +5079,11 @@ void SfuCallController::refreshShareAudioApplications()
                 if (a.key.isEmpty())
                     continue;
                 m_shareAudioAppLabels.insert(a.key, a.label);
+                QVariantList pids;
+                for (const qint64 pid : a.pids)
+                    pids.append(pid);
                 apps.append(QVariantMap{
+                    { QStringLiteral("pids"), pids },
                     { QStringLiteral("key"), a.key },
                     { QStringLiteral("label"), a.label },
                     { QStringLiteral("iconName"), a.iconName },
@@ -5087,6 +5120,7 @@ void SfuCallController::rebuildShareAudioApplications()
             { QStringLiteral("failed"), m_shareAudioFailed.contains(key) },
             { QStringLiteral("containsUs"),
               a.value(QStringLiteral("containsUs")) },
+            { QStringLiteral("pids"), a.value(QStringLiteral("pids")) },
         });
     }
     for (const QString &key : std::as_const(m_shareAudioApps)) {
@@ -5103,6 +5137,7 @@ void SfuCallController::rebuildShareAudioApplications()
             { QStringLiteral("carried"), false },
             { QStringLiteral("failed"), m_shareAudioFailed.contains(key) },
             { QStringLiteral("containsUs"), false },
+            { QStringLiteral("pids"), QVariantList() },
         });
     }
     if (rows == m_shareAudioApplications)

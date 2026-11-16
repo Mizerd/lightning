@@ -329,6 +329,28 @@ private slots:
         QCOMPARE(apps.at(1).label, QStringLiteral("mpv"));
     }
 
+    // A window picked on X11 finds its audio by process id.
+    void anApplicationCarriesEveryProcessThatPlaysForIt()
+    {
+        Stream a1;
+        a1.serial = QStringLiteral("1");
+        a1.appKey = QStringLiteral("firefox");
+        a1.pid = 100;
+        Stream a2 = a1;
+        a2.serial = QStringLiteral("2");
+        a2.pid = 101;
+        Stream a3 = a1;
+        a3.serial = QStringLiteral("3");
+        Stream unknown;
+        unknown.serial = QStringLiteral("4");
+        unknown.appKey = QStringLiteral("mpv");
+        const QList<Application> apps =
+            groupByApplication({ a1, a2, a3, unknown });
+        QCOMPARE(apps.size(), 2);
+        QCOMPARE(apps.at(0).pids, (QList<qint64>{ 100, 101 }));
+        QVERIFY(apps.at(1).pids.isEmpty());
+    }
+
     // Before PipeWire 1.6 pipewiresrc has no `on-disconnect`, and naming a
     // missing property fails the whole parse. Requiring it switched
     // per-application capture off in every package (the AppImage bundles

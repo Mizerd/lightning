@@ -7403,6 +7403,72 @@ QString(),
         QVERIFY2(!populate.contains(QStringLiteral("devicePixelRatio")),
                  "populateLinuxDisplaySources scales a screen rectangle by "
                  "devicePixelRatio() again");
+        QVERIFY2(populate.contains(QStringLiteral(
+                     "windowShareRows(lightning::wincap::enumerateWindows())")),
+                 "the X11 fallback picker lists screens only: no window can "
+                 "be shared on a desktop without a ScreenCast portal");
+    }
+
+    void anX11WindowIsListedOnlyWhenItIsAShareableTopLevel()
+    {
+        using lightning::wincap::X11WindowFacts;
+        using lightning::wincap::x11WindowListed;
+        X11WindowFacts game;
+        game.viewable = true;
+        game.width = 1920;
+        game.height = 1080;
+        game.title = QStringLiteral("Game");
+        QVERIFY(x11WindowListed(game));
+
+        auto with = [&game](auto change) {
+            X11WindowFacts f = game;
+            change(f);
+            return x11WindowListed(f);
+        };
+        QVERIFY2(!with([](X11WindowFacts &f) { f.viewable = false; }),
+                 "an unmapped window has no pixels to share");
+        QVERIFY2(!with([](X11WindowFacts &f) { f.hidden = true; }),
+                 "a minimised window is listed");
+        QVERIFY2(!with([](X11WindowFacts &f) { f.skipTaskbar = true; }),
+                 "a window the desktop hides from the taskbar is listed");
+        QVERIFY2(!with([](X11WindowFacts &f) { f.normalType = false; }),
+                 "a dock, desktop or utility window is listed");
+        QVERIFY2(!with([](X11WindowFacts &f) { f.ours = true; }),
+                 "Lightning offers to share its own window");
+        QVERIFY(!with([](X11WindowFacts &f) { f.title = QStringLiteral(" "); }));
+        QVERIFY(!with([](X11WindowFacts &f) { f.width = 1; }));
+        QVERIFY(!with([](X11WindowFacts &f) { f.height = 0; }));
+    }
+
+    void aWindowRowCarriesItsProcessForShareAudioUnlessItContainsUs()
+    {
+        lightning::wincap::WindowInfo game;
+        game.handle = 0x3a00007;
+        game.title = QStringLiteral("Game");
+        game.application = QStringLiteral("Game");
+        game.pid = 4242;
+        game.width = 1280;
+        game.height = 720;
+        lightning::wincap::WindowInfo terminal = game;
+        terminal.handle = 0x1e00004;
+        terminal.pid = 77;
+
+        const QVariantList rows = SfuCallController::windowShareRows(
+            { game, terminal }, QSet<qint64>{ 77 });
+        QCOMPARE(rows.size(), 2);
+        const QVariantMap first = rows.at(0).toMap();
+        QCOMPARE(first.value(QStringLiteral("windowHandle")).toULongLong(),
+                 quint64(0x3a00007));
+        QCOMPARE(first.value(QStringLiteral("index")).toInt(), -1);
+        QCOMPARE(first.value(QStringLiteral("audioPid")).toLongLong(), 4242);
+        QCOMPARE(first.value(QStringLiteral("audioAppContainsUs")).toBool(),
+                 false);
+        const QVariantMap second = rows.at(1).toMap();
+        QCOMPARE(second.value(QStringLiteral("audioPid")).toLongLong(), 0);
+        QCOMPARE(second.value(QStringLiteral("audioAppKey")).toString(),
+                 QString());
+        QCOMPARE(second.value(QStringLiteral("audioAppContainsUs")).toBool(),
+                 true);
     }
 
     void aCaptureRectangleIsAcceptedAsTheNativeRectangleOrNotAtAll()
