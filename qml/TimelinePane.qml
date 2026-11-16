@@ -5672,9 +5672,11 @@ Rectangle {
                     font.pixelSize: AppTheme.textBody
                 }
                 Label {
-                    visible: app.forward.error.length > 0
+                    readonly property string message: app.forward.error.length > 0
+                        ? app.forward.error : app.bulkRedaction.error
+                    visible: message.length > 0
                     textFormat: Text.PlainText
-                    text: app.forward.error
+                    text: message
                     color: AppTheme.danger
                     font.pixelSize: AppTheme.textMeta
                 }
@@ -5693,8 +5695,9 @@ Rectangle {
                     onClicked: {
                         var m = root.selectionDeleteModel()
                         var ids = app.forward.selectedEventIds()
-                        app.forward.cancelSelecting()
                         app.bulkRedaction.adopt(m, ids, root.selectionCanRedactOthers)
+                        if (app.bulkRedaction.selecting)
+                            app.forward.cancelSelecting()
                     }
                 }
                 AppButton {

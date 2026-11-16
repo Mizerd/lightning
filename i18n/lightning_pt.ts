@@ -24385,7 +24385,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="-7"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>sobre si bio biografia perfil nota estado descrição</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -33258,7 +33258,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar…</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35350,7 +35350,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Já não está nesta sala. Pode ter sido eliminada no servidor. Use «Sair da sala» para a remover da sua lista.</translation>
     </message>
 </context>
 </TS>

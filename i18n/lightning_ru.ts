@@ -24475,7 +24475,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-7"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>о вас био биография профиль заметка статус описание</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -33404,7 +33404,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>Удалить…</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35504,7 +35504,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вы больше не состоите в этой комнате. Возможно, она была удалена на сервере. Используйте «Покинуть комнату», чтобы убрать её из списка.</translation>
     </message>
 </context>
 </TS>

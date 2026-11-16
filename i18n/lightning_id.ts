@@ -24295,7 +24295,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="-7"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>tentang anda bio biografi profil catatan status deskripsi</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -33112,7 +33112,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>Hapus…</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35196,7 +35196,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Anda tidak lagi berada di ruang ini. Ruang ini mungkin telah dihapus di server. Gunakan “Tinggalkan ruang” untuk menghapusnya dari daftar Anda.</translation>
     </message>
 </context>
 </TS>

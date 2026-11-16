@@ -96,10 +96,37 @@ async fn fetch_joined(client: &Client) -> Option<HashSet<OwnedRoomId>> {
     Some(answer.joined_rooms.into_iter().collect())
 }
 
+const JOINED_PROBE_TTL: Duration = Duration::from_secs(15);
+
+type JoinedProbe = std::sync::Arc<tokio::sync::Mutex<Option<(std::time::Instant, Option<HashSet<OwnedRoomId>>)>>>;
+
+static JOINED_PROBES: OnceLock<Mutex<HashMap<String, JoinedProbe>>> = OnceLock::new();
+
+/// One joined-rooms answer per account is shared by every refusal within the TTL; a failed probe is cached too and reads as "not gone".
+async fn joined_cached(client: &Client) -> Option<HashSet<OwnedRoomId>> {
+    let key = format!("{:?}|{}", client.user_id(), client.homeserver());
+    let slot = {
+        let mut map = JOINED_PROBES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+        map.retain(|_, s| {
+            s.try_lock().map_or(true, |g| g.as_ref().map_or(true, |(at, _)| at.elapsed() < JOINED_PROBE_TTL))
+        });
+        map.entry(key).or_default().clone()
+    };
+    let mut guard = slot.lock().await;
+    if let Some((at, answer)) = guard.as_ref() {
+        if at.elapsed() < JOINED_PROBE_TTL {
+            return answer.clone();
+        }
+    }
+    let answer = fetch_joined(client).await;
+    *guard = Some((std::time::Instant::now(), answer.clone()));
+    answer
+}
+
 /// True only on a complete answer: a failed probe is never "gone".
 pub(crate) async fn server_dropped_room(room: &Room) -> bool {
     room.state() == RoomState::Joined
-        && fetch_joined(&room.client()).await.is_some_and(|joined| !joined.contains(room.room_id()))
+        && joined_cached(&room.client()).await.is_some_and(|joined| !joined.contains(room.room_id()))
 }
 
 /// Marks a joined room left once the server no longer lists it; a sync that moved the room meanwhile wins.
@@ -401,5 +428,29 @@ mod tests {
         let result = leave_or_retire(&r, || async { Some(answer(&[pending], &[])) }).await;
         assert!(result.is_err(), "the server still lists it: the refusal stands");
         assert_eq!(r.state(), RoomState::Invited);
+    }
+
+    #[tokio::test]
+    async fn refusals_share_one_joined_probe_and_a_failed_one_is_not_gone() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let a = server.sync_joined_room(&client, room_id!("!a:example.org")).await;
+        let b = server.sync_joined_room(&client, room_id!("!b:example.org")).await;
+        // No /joined_rooms mock: the mock server answers 404.
+        let (x, y, z) = tokio::join!(
+            server_dropped_room(&a),
+            server_dropped_room(&b),
+            server_dropped_room(&a)
+        );
+        assert!(!x && !y && !z, "a failed probe never reads as gone");
+        let probes = server
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| r.url.path().ends_with("/joined_rooms"))
+            .count();
+        assert_eq!(probes, 1);
     }
 }

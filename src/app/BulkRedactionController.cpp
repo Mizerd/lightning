@@ -128,12 +128,26 @@ bool BulkRedactionController::adopt(TimelineModel *model,
     begin(model);
     if (!m_selecting)
         return false;
-    for (const QString &id : ids)
+    QString refusal;
+    for (const QString &id : ids) {
         add(id, canRedactOthers);
+        if (refusal.isEmpty())
+            refusal = m_error;
+    }
     if (!ids.isEmpty())
         m_anchor = ids.last();
+    const bool complete = m_ids.size() == ids.size();
+    if (!complete)
+        m_error = refusal.isEmpty()
+            ? tr("That message cannot be deleted with your current permissions.")
+            : refusal;
+    if (m_ids.isEmpty()) {
+        const QString error = m_error;
+        cancel();
+        m_error = error;
+    }
     Q_EMIT changed();
-    return m_ids.size() == ids.size();
+    return complete;
 }
 
 void BulkRedactionController::toggle(const QString &eventId,

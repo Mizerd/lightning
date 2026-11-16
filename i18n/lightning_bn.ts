@@ -24376,7 +24376,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-7"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার সম্পর্কে বায়ো জীবনী প্রোফাইল নোট স্ট্যাটাস বিবরণ</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -33249,7 +33249,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>মুছুন…</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35341,7 +35341,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনি আর এই রুমে নেই। এটি সার্ভারে মুছে ফেলা হয়ে থাকতে পারে। আপনার তালিকা থেকে সরাতে “রুম ছাড়ুন” ব্যবহার করুন।</translation>
     </message>
 </context>
 </TS>

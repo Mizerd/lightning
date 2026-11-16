@@ -21493,7 +21493,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+4"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>über mich Bio Biografie Profil Notiz Status Beschreibung</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -33403,7 +33403,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>Löschen …</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35350,7 +35350,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Du bist nicht mehr in diesem Raum. Er wurde möglicherweise auf dem Server gelöscht. Verwende „Raum verlassen“, um ihn aus deiner Liste zu entfernen.</translation>
     </message>
 </context>
 </TS>

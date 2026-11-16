@@ -25835,7 +25835,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="-7326"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>apie jus bio biografija profilis pastaba būsena aprašymas</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -33404,7 +33404,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>Ištrinti…</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35504,7 +35504,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nebepriklausote šiam kambariui. Jis galėjo būti ištrintas serveryje. Naudokite „Palikite kambarį“, kad pašalintumėte jį iš savo sąrašo.</translation>
     </message>
 </context>
 </TS>

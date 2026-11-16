@@ -411,6 +411,7 @@ ApplicationWindow {
         QVERIFY(pane.contains(QStringLiteral("deleteSelectedButton")));
         QVERIFY(pane.contains(QStringLiteral("forwardSelectedButton")));
         QVERIFY(pane.contains(QStringLiteral("app.bulkRedaction.adopt(")));
+        QVERIFY(pane.contains(QStringLiteral("if (app.bulkRedaction.selecting)")));
     }
 
     void adoptingASelectionRefusesWhatCannotBeDeleted()
@@ -430,7 +431,13 @@ ApplicationWindow {
         QCOMPARE(bulk->selectedCount(), 2);
         QVERIFY(!bulk->adopt(model, ids + QStringList{QStringLiteral("$nope")}, true));
         QCOMPARE(bulk->selectedCount(), 2);
+        QVERIFY(!bulk->error().isEmpty());
         bulk->cancel();
+        QVERIFY(!bulk->adopt(model, QStringList{QStringLiteral("$nope")}, true));
+        QVERIFY(!bulk->selecting());
+        QVERIFY(!bulk->error().isEmpty());
+        bulk->cancel();
+        QVERIFY(bulk->error().isEmpty());
     }
 
     void selectedMessageMenuOperationsReuseDelegateHandlers()

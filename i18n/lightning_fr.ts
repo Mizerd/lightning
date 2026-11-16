@@ -24385,7 +24385,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-7"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>à propos de vous bio biographie profil note statut description</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -33258,7 +33258,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>Supprimer…</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35350,7 +35350,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Vous ne faites plus partie de ce salon. Il a peut-être été supprimé sur le serveur. Utilisez « Quitter le salon » pour le retirer de votre liste.</translation>
     </message>
 </context>
 </TS>

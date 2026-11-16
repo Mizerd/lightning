@@ -24295,7 +24295,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-7"/>
         <source>about you bio biography profile note status description</source>
-        <translation type="unfinished"></translation>
+        <translation>关于你 简介 个人简介 个人资料 备注 状态 描述</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -33112,7 +33112,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+19"/>
         <source>Delete…</source>
-        <translation type="unfinished"></translation>
+        <translation>删除…</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -35196,7 +35196,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+12"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished"></translation>
+        <translation>你已不在此房间中。它可能已在服务器上被删除。请使用“离开房间”将其从列表中移除。</translation>
     </message>
 </context>
 </TS>
