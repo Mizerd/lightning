@@ -69,6 +69,10 @@ Item {
         { title: qsTr("Account"), keywords: QT_TR_NOOP("account profile"),
           section: "account", breadcrumb: qsTr("Account"),
           anchor: "accountIdentityCard" },
+        { title: qsTr("About you"),
+          keywords: QT_TR_NOOP("about you bio biography profile note status description"),
+          section: "account", breadcrumb: qsTr("Account"),
+          anchor: "ownBioSection" },
         { title: qsTr("Change password"),
           keywords: QT_TR_NOOP("password change account security"),
           section: "account", breadcrumb: qsTr("Account"),
@@ -957,6 +961,7 @@ Item {
     readonly property var pageOutlines: ({
         "account": [
             { label: qsTr("Profile"), anchors: ["accountIdentityCard"] },
+            { label: qsTr("About you"), anchors: ["ownBioSection"] },
             { label: qsTr("Password"), anchors: ["changePasswordCard"] },
             { label: qsTr("Network"), anchors: ["networkRouteCard"] },
         ],

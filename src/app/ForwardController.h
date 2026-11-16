@@ -70,6 +70,7 @@ public:
     Q_INVOKABLE void toggleSelected(const QString &eventId,
                                     const QVariantMap &snapshot);
     Q_INVOKABLE bool isSelected(const QString &eventId) const;
+    Q_INVOKABLE QStringList selectedEventIds() const { return m_selectedIds; }
 
     Q_INVOKABLE void beginSelection(const QString &sourceRoomId,
                                     const QVariantList &snapshots);

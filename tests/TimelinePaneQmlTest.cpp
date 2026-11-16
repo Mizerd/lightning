@@ -11961,10 +11961,8 @@ false);
         QCOMPARE(reactions.at(0).at(1).toString(), target);
 
         openMenu();
-        auto *bulk = row->findChild<QObject *>(
-            QStringLiteral("selectMessagesToDeleteMenuItem"));
-        QVERIFY(bulk != nullptr);
-        QVERIFY(!bulk->property("visible").toBool());
+        QVERIFY(row->findChild<QObject *>(
+                    QStringLiteral("selectMessagesToDeleteMenuItem")) == nullptr);
 
         QSignalSpy redactions(mock, &MatrixClient::redactionFinished);
         trigger("deleteMessageMenuItem");

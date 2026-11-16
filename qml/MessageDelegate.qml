@@ -4268,23 +4268,6 @@ Item {
                 }
             }
             AppMenuItem {
-                objectName: "selectMessagesToDeleteMenuItem"
-                iconName: "delete"
-                text: qsTr("Select messages to delete")
-                // The bulk-delete bar belongs to the live timeline.
-                visible: !root.readOnlyView
-                         && (root.timelineModel.roomId || "").indexOf("\u001fctx\u001f") < 0
-                         && root.timelineModel.canRedactEvent(
-                             root.menuEventId, root.canRedactOthers)
-                enabled: visible && !app.bulkRedaction.running
-                onTriggered: {
-                    app.forward.cancelSelecting()
-                    app.bulkRedaction.begin(root.timelineModel)
-                    app.bulkRedaction.toggle(root.menuEventId,
-                                             root.canRedactOthers)
-                }
-            }
-            AppMenuItem {
                 objectName: "forwardMessageMenuItem"
                 iconName: "arrow_forward"
                 text: qsTr("Forward")

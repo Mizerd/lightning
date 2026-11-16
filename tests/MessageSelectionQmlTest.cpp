@@ -397,6 +397,42 @@ ApplicationWindow {
         QVERIFY(bar.contains(QStringLiteral("app.bulkRedaction.cancel()")));
     }
 
+    void oneSelectionModeOffersForwardAndDelete()
+    {
+        auto source = [](const QString &name) {
+            QFile file(QStringLiteral(QML_DIR "/") + name);
+            return file.open(QIODevice::ReadOnly)
+                       ? QString::fromUtf8(file.readAll()) : QString{};
+        };
+        const QString row = source(QStringLiteral("MessageDelegate.qml"));
+        const QString pane = source(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(row.contains(QStringLiteral("selectMessagesMenuItem")));
+        QVERIFY(!row.contains(QStringLiteral("selectMessagesToDeleteMenuItem")));
+        QVERIFY(pane.contains(QStringLiteral("deleteSelectedButton")));
+        QVERIFY(pane.contains(QStringLiteral("forwardSelectedButton")));
+        QVERIFY(pane.contains(QStringLiteral("app.bulkRedaction.adopt(")));
+    }
+
+    void adoptingASelectionRefusesWhatCannotBeDeleted()
+    {
+        openJoinedRoom();
+        auto *model = m_controller->timeline();
+        auto *bulk = m_controller->bulkRedaction();
+        QStringList ids;
+        for (int row = 0; row < model->rowCount() && ids.size() < 2; ++row) {
+            const QString id = model->eventIdAt(row);
+            if (model->canRedactEvent(id, true))
+                ids.append(id);
+        }
+        QCOMPARE(ids.size(), 2);
+        QVERIFY(bulk->adopt(model, ids, true));
+        QVERIFY(bulk->selecting());
+        QCOMPARE(bulk->selectedCount(), 2);
+        QVERIFY(!bulk->adopt(model, ids + QStringList{QStringLiteral("$nope")}, true));
+        QCOMPARE(bulk->selectedCount(), 2);
+        bulk->cancel();
+    }
+
     void selectedMessageMenuOperationsReuseDelegateHandlers()
     {
         QFile paneFile(QStringLiteral(QML_DIR "/TimelinePane.qml"));

@@ -35,6 +35,9 @@ public:
     QString timelineId() const { return m_timelineId; }
 
     Q_INVOKABLE void begin(TimelineModel *model);
+    /// Starts a deletion selection holding `ids`; false if any was refused.
+    Q_INVOKABLE bool adopt(TimelineModel *model, const QStringList &ids,
+                           bool canRedactOthers);
     Q_INVOKABLE void toggle(const QString &eventId, bool canRedactOthers);
     Q_INVOKABLE void toggleFromPointer(const QString &eventId,
                                        bool canRedactOthers);

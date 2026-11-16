@@ -5189,6 +5189,22 @@ private slots:
         QCOMPARE(trayHits, m_controller->trayAvailable() ? 2 : 0);
     }
 
+    void aboutYouIsFindableInSettingsSearch()
+    {
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        QVERIFY(screen && search);
+        search->setProperty("text", QStringLiteral("about you"));
+        QCoreApplication::processEvents();
+        bool found = false;
+        for (const QVariant &hit : screen->property("matchedSearchResults").toList())
+            found = found || hit.toMap().value(QStringLiteral("anchor")).toString()
+                                 == QStringLiteral("ownBioSection");
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QVERIFY2(found, "searching Settings for \"about you\" finds nothing");
+    }
+
     void routineFindsTheRoomActivitySetting()
     {
         auto *screen = item("settingsScreenRoot");

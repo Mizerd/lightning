@@ -7,6 +7,34 @@ import "LeaveAdminCheck.js" as AdminCheck
 Rectangle {
     id: root
 
+    readonly property bool selectionCanRedactOthers:
+        !!app.openRoomPermissions
+        && app.openRoomPermissions.roomId === app.currentRoomId
+        && app.openRoomPermissions.redactKnown === true
+            ? app.openRoomPermissions.canRedactOthers === true
+            : (!!app.roomInfo && app.roomInfo.roomId === app.currentRoomId
+               && app.roomInfo.canRedactOthers === true)
+
+    // The timeline (room or thread) on which every selected message may be
+    // redacted, or null; the read of selectedCount carries the binding dependency.
+    function selectionDeleteModel() {
+        if (app.forward.selectedCount < 1 || app.bulkRedaction.running)
+            return null
+        var ids = app.forward.selectedEventIds()
+        var models = [app.timeline, app.thread ? app.thread.model : null]
+        for (var m = 0; m < models.length; ++m) {
+            var model = models[m]
+            if (!model || (model.roomId || "").indexOf("\u001fctx\u001f") >= 0)
+                continue
+            var ok = true
+            for (var i = 0; i < ids.length && ok; ++i)
+                ok = model.canRedactEvent(ids[i], root.selectionCanRedactOthers)
+            if (ok)
+                return model
+        }
+        return null
+    }
+
     function startDownload(mediaKey, filename, mime, ask, surface) {
         if (!mediaKey || mediaKey.length === 0 || !app.downloads)
             return
@@ -5655,6 +5683,19 @@ Rectangle {
                     kind: "ghost"
                     size: "sm"
                     onClicked: app.forward.cancelSelecting()
+                }
+                AppButton {
+                    objectName: "deleteSelectedButton"
+                    text: qsTr("Delete…")
+                    kind: "ghost"
+                    size: "sm"
+                    enabled: root.selectionDeleteModel() !== null
+                    onClicked: {
+                        var m = root.selectionDeleteModel()
+                        var ids = app.forward.selectedEventIds()
+                        app.forward.cancelSelecting()
+                        app.bulkRedaction.adopt(m, ids, root.selectionCanRedactOthers)
+                    }
                 }
                 AppButton {
                     objectName: "forwardSelectedButton"

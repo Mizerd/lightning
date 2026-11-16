@@ -121,6 +121,21 @@ void BulkRedactionController::add(const QString &eventId,
     m_error.clear();
 }
 
+bool BulkRedactionController::adopt(TimelineModel *model,
+                                    const QStringList &ids,
+                                    bool canRedactOthers)
+{
+    begin(model);
+    if (!m_selecting)
+        return false;
+    for (const QString &id : ids)
+        add(id, canRedactOthers);
+    if (!ids.isEmpty())
+        m_anchor = ids.last();
+    Q_EMIT changed();
+    return m_ids.size() == ids.size();
+}
+
 void BulkRedactionController::toggle(const QString &eventId,
                                       bool canRedactOthers)
 {
