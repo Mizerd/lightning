@@ -25,6 +25,18 @@ bool x11WindowListed(const X11WindowFacts &facts)
         && facts.height >= 2 && !facts.title.trimmed().isEmpty();
 }
 
+QString x11WindowSharingStatus(bool built, bool x11Session,
+                               const QString &missingLibrary)
+{
+    if (!built)
+        return QStringLiteral("not built (no xcb headers)");
+    if (!x11Session)
+        return QStringLiteral("not an X11 session");
+    if (!missingLibrary.isEmpty())
+        return QStringLiteral("unavailable (%1 missing)").arg(missingLibrary);
+    return QStringLiteral("available");
+}
+
 #ifndef LIGHTNING_HAVE_X11_WINDOW_CAPTURE
 QImage captureAreaThumbnail(const QRect &, int) { return {}; }
 #endif
@@ -1083,6 +1095,7 @@ struct XcbApi {
     xcb_void_cookie_t (*composite_name_window_pixmap_checked)(
         xcb_connection_t *, xcb_window_t, xcb_pixmap_t) = nullptr;
     bool complete = false;
+    const char *missing = nullptr;
 };
 
 void *dlopenResolve(const char *library, const char *symbol)
@@ -1102,10 +1115,12 @@ const XcbApi &xcb()
         return *g_xcb;
     auto api = std::make_unique<XcbApi>();
     bool all = true;
-    const auto load = [&all](auto &slot, const char *library,
-                             const char *symbol) {
+    const auto load = [&all, &api](auto &slot, const char *library,
+                                   const char *symbol) {
         slot = reinterpret_cast<std::remove_reference_t<decltype(slot)>>(
             g_xcbResolver(library, symbol));
+        if (!slot && !api->missing)
+            api->missing = library;
         all = all && slot != nullptr;
     };
 #define LT_CORE(name) load(api->name, "libxcb.so.1", "xcb_" #name);
@@ -1690,6 +1705,12 @@ QImage scaledThumbnail(const QImage &image, int maxEdge)
 namespace lightning::wincap {
 
 bool x11LibrariesLoaded() { return xcb().complete; }
+
+QString x11MissingLibrary()
+{
+    const char *missing = xcb().missing;
+    return missing ? QString::fromLatin1(missing) : QString();
+}
 
 void setX11SymbolResolverForTest(X11SymbolResolver resolver)
 {

@@ -82,6 +82,11 @@ QImage captureAreaThumbnail(const QRect &area, int maxEdge);
 /// only when every symbol resolves.
 using X11SymbolResolver = void *(*)(const char *library, const char *symbol);
 bool x11LibrariesLoaded();
+/// The first library that failed to load, empty when all did.
+QString x11MissingLibrary();
+/// The `--call-media-status` answer.
+QString x11WindowSharingStatus(bool built, bool x11Session,
+                               const QString &missingLibrary);
 /// Test seam: replaces dlopen/dlsym (nullptr restores them) and forgets what
 /// was resolved.
 void setX11SymbolResolverForTest(X11SymbolResolver resolver);

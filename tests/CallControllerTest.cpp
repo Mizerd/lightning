@@ -7440,6 +7440,20 @@ QString(),
         QVERIFY(!with([](X11WindowFacts &f) { f.height = 0; }));
     }
 
+    void callMediaStatusSaysWhyX11WindowSharingIsOff()
+    {
+        using lightning::wincap::x11WindowSharingStatus;
+        QCOMPARE(x11WindowSharingStatus(true, true, QString()),
+                 QStringLiteral("available"));
+        QCOMPARE(x11WindowSharingStatus(false, true, QString()),
+                 QStringLiteral("not built (no xcb headers)"));
+        QCOMPARE(x11WindowSharingStatus(true, false, QString()),
+                 QStringLiteral("not an X11 session"));
+        QCOMPARE(x11WindowSharingStatus(
+                     true, true, QStringLiteral("libxcb-composite.so.0")),
+                 QStringLiteral("unavailable (libxcb-composite.so.0 missing)"));
+    }
+
     void aWindowRowCarriesItsProcessForShareAudioUnlessItContainsUs()
     {
         lightning::wincap::WindowInfo game;

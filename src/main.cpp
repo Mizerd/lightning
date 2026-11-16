@@ -7,6 +7,7 @@
 #include "calls/MacSystemAudioSrc.h"
 #endif
 #include "calls/ShareSourceImageProvider.h"
+#include "calls/WindowCaptureSrc.h"
 #include "calls/GstCallMediaBackend.h"
 #include "calls/SfuMediaEngine.h"
 #include "calls/ShareAudioSources.h"
@@ -1748,6 +1749,20 @@ static int printCallMediaStatus()
                 ? QStringLiteral("available")
                 : QStringLiteral("unavailable — screen sharing on X11 needs "
                                  "the desktop's portal"))
+        << "\n";
+#if defined(LIGHTNING_HAVE_X11_WINDOW_CAPTURE)
+    const bool windowCaptureBuilt = true;
+    const QString xcbMissing = lightning::wincap::x11MissingLibrary();
+#else
+    const bool windowCaptureBuilt = false;
+    const QString xcbMissing;
+#endif
+    out << "X11 window sharing: "
+        << lightning::wincap::x11WindowSharingStatus(
+               windowCaptureBuilt,
+               !qEnvironmentVariableIsEmpty("DISPLAY")
+                   && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY"),
+               xcbMissing)
         << "\n";
 #endif
 

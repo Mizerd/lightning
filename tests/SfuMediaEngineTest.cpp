@@ -4953,6 +4953,7 @@ true,2147483,
             });
         QVERIFY2(!x11LibrariesLoaded(),
                  "without the redirect, a covered window would leak");
+        QCOMPARE(x11MissingLibrary(), QStringLiteral("libxcb-composite.so.0"));
 
         setX11SymbolResolverForTest(
             [](const char *, const char *) -> void * { return &symbol; });
