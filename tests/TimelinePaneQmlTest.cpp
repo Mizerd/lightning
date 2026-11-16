@@ -194,6 +194,18 @@ private:
                                kAnchorRowRevealTimeoutMs);
     }
 
+    static bool captureSettledAnchor(AppController &controller,
+                                     QQuickItem *timeline)
+    {
+        QCoreApplication::processEvents();
+        if (!QMetaObject::invokeMethod(timeline, "captureViewAnchor"))
+            return false;
+        const QString id = timeline->property("viewAnchorId").toString();
+        const int row = controller.timeline()->rowForStableId(id);
+        return row >= 0 && row != controller.timeline()->rowCount() - 1
+            && itemForSourceRow(timeline, row) != nullptr;
+    }
+
     struct AnchorSettle {
         bool sawRow = false;
         bool neededFlush = false;
@@ -1628,6 +1640,8 @@ private Q_SLOTS:
             timeline->property("presentationReady").toBool(), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 200,
                                  5000);
+        QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the wheel bounds below would be read while rows still arrive");
 
         const qreal viewportHeight = timeline->property("height").toReal();
         QVERIFY(viewportHeight > 0);
@@ -3981,6 +3995,12 @@ false);
         root->setHeight(window.height());
         window.show();
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 0,
+                                 kSignalTimeoutMs);
+        QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the paging keys would be measured against a growing timeline");
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
         composer->forceActiveFocus();
@@ -3991,9 +4011,10 @@ false);
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
 
         QTest::keyClick(&window, Qt::Key_PageUp);
-        QCoreApplication::processEvents();
-        QVERIFY2(timeline->property("wheelAnimating").toBool(),
-                 "PgUp from an empty composer must page the timeline");
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("wheelAnimating").toBool(),
+                 "PgUp from an empty composer must page the timeline",
+            kSignalTimeoutMs);
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
 
@@ -4007,18 +4028,22 @@ false);
                                       composer->property("length").toInt()));
         QCoreApplication::processEvents();
         QTest::keyClick(&window, Qt::Key_PageDown);
-        QCoreApplication::processEvents();
-        QVERIFY2(timeline->property("wheelAnimating").toBool(),
-                 "PgDn on the draft's last line must page the timeline");
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("wheelAnimating").toBool(),
+                 "PgDn on the draft's last line must page the timeline",
+            kSignalTimeoutMs);
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
-        QCoreApplication::processEvents();
-        QVariant maxY;
-        QVERIFY(QMetaObject::invokeMethod(timeline, "wheelMaxY",
-                                          Q_RETURN_ARG(QVariant, maxY)));
-        QCOMPARE(timeline->property("contentY").toDouble(), maxY.toDouble());
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                QVariant maxY;
+                return QMetaObject::invokeMethod(timeline, "wheelMaxY",
+                                                 Q_RETURN_ARG(QVariant, maxY))
+                    && timeline->property("contentY").toDouble()
+                        == maxY.toDouble();
+            }(), kSignalTimeoutMs);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
@@ -6250,10 +6275,15 @@ false);
                                  kSignalTimeoutMs);
 
         const int anchorRow = 5;
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, anchorRow));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
 
@@ -6364,10 +6394,15 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 5));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         QVERIFY(!timeline->property("viewAnchorId").toString().isEmpty());
 
         QSignalSpy completedSpy(controller.pagination(),
@@ -6832,8 +6867,11 @@ false);
                  "the proxy never finished revealing, so the anchor would be "
                  "captured on whichever row happened to be there");
         QVERIFY(positionAtSourceRow(timeline, 8));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
         QVERIFY2(!timeline->property("atYBeginning").toBool(),
@@ -7681,10 +7719,15 @@ kFilteredPages + 6);
 
         QVERIFY(!timeline->property("anchorStableId").isValid());
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
         const int rowBefore = controller.timeline()->rowForStableId(anchorId);
@@ -7778,11 +7821,15 @@ kFilteredPages + 6);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
@@ -7885,11 +7932,15 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 5));
-        QCoreApplication::processEvents();
-
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
@@ -7992,13 +8043,17 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-
         QVERIFY(!controller.pagination()->busy());
 
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
@@ -8099,10 +8154,15 @@ false);
                                  kSignalTimeoutMs);
         QCOMPARE(timeline->property("scrollTrace").toBool(), false);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
 
         LogCapture capture;
 
@@ -8337,11 +8397,15 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
@@ -8455,10 +8519,15 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
@@ -8674,10 +8743,15 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
@@ -8786,10 +8860,15 @@ false);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+                QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing");
+QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            captureSettledAnchor(controller, timeline),
+            "the anchor stayed on the newest row or its row was not built: "
+            "the layout had not settled",
+            kSignalTimeoutMs);
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
         const int sourceRow = controller.timeline()->rowForStableId(anchorId);
