@@ -81,6 +81,10 @@ public:
     static QString applyDevicePropertyForTest(const QString &factory,
                                               const QString &property,
                                               const QString &value);
+    // libvpx spin-waits between its threads, so more threads than the
+    // machine can spare beside a game burn CPU and lose frames.
+    static int videoThreads(int logicalCpus);
+    static int videoThreads();
     static QString shareScaleStage(int maxHeight, bool gpu,
                                    bool keepOnGpu = false);
     struct VideoCodecChain {

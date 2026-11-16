@@ -11,7 +11,12 @@
 #include <unistd.h>
 #ifdef Q_OS_LINUX
 #include <linux/videodev2.h>
+#include <sched.h>
 #include <sys/ioctl.h>
+#include <sys/resource.h>
+#endif
+#ifdef Q_OS_MACOS
+#include <pthread/qos.h>
 #endif
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -1380,10 +1385,146 @@ true);
 }
 
 namespace {
+constexpr const char kLowPriorityKey[] = "lightning-low-priority";
+
+void lowerCurrentThreadPriority()
+{
+#if defined(Q_OS_LINUX)
+    sched_param param{};
+    if (sched_setscheduler(0, SCHED_IDLE, &param) != 0)
+        setpriority(PRIO_PROCESS, 0, 19); // Linux: 0 is the calling thread
+#elif defined(Q_OS_WIN)
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+#elif defined(Q_OS_MACOS)
+    pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#endif
+}
+
+struct LowPriorityJob
+{
+    GstTaskPoolFunction func;
+    gpointer data;
+};
+
+gpointer runLowPriorityJob(gpointer p)
+{
+    std::unique_ptr<LowPriorityJob> job(static_cast<LowPriorityJob *>(p));
+    lowerCurrentThreadPriority();
+    job->func(job->data);
+    return nullptr;
+}
+}
+
+// One thread per task, never pooled: a lowered thread cannot raise itself
+// again, so it must not come back to run an audio task.
+struct LightningLowPriorityPool
+{
+    GstTaskPool parent;
+};
+struct LightningLowPriorityPoolClass
+{
+    GstTaskPoolClass parent_class;
+};
+G_DEFINE_TYPE(LightningLowPriorityPool, lightning_low_priority_pool,
+              GST_TYPE_TASK_POOL)
+
+static void lightning_low_priority_pool_prepare(GstTaskPool *, GError **) {}
+static void lightning_low_priority_pool_cleanup(GstTaskPool *) {}
+
+static gpointer lightning_low_priority_pool_push(GstTaskPool *,
+                                                 GstTaskPoolFunction func,
+                                                 gpointer data, GError **error)
+{
+    auto *job = new LowPriorityJob{func, data};
+    GThread *thread =
+        g_thread_try_new("lowprio", runLowPriorityJob, job, error);
+    if (!thread)
+        delete job;
+    return thread;
+}
+
+static void lightning_low_priority_pool_join(GstTaskPool *, gpointer id)
+{
+    if (id)
+        g_thread_join(static_cast<GThread *>(id));
+}
+
+static void lightning_low_priority_pool_dispose_handle(GstTaskPool *,
+                                                       gpointer id)
+{
+    if (id)
+        g_thread_unref(static_cast<GThread *>(id));
+}
+
+static void
+lightning_low_priority_pool_class_init(LightningLowPriorityPoolClass *klass)
+{
+    GstTaskPoolClass *pool = GST_TASK_POOL_CLASS(klass);
+    pool->prepare = lightning_low_priority_pool_prepare;
+    pool->cleanup = lightning_low_priority_pool_cleanup;
+    pool->push = lightning_low_priority_pool_push;
+    pool->join = lightning_low_priority_pool_join;
+    pool->dispose_handle = lightning_low_priority_pool_dispose_handle;
+}
+
+static void lightning_low_priority_pool_init(LightningLowPriorityPool *) {}
+
+namespace {
+void markLowPriority(GstElement *bin)
+{
+    g_object_set_data(G_OBJECT(bin), kLowPriorityKey, GINT_TO_POINTER(1));
+}
+
+GstTaskPool *lowPriorityTaskPool()
+{
+    static GstTaskPool *const pool =
+        static_cast<GstTaskPool *>(gst_object_ref_sink(
+            g_object_new(lightning_low_priority_pool_get_type(), nullptr)));
+    return pool;
+}
+
+bool insideLowPriorityBin(GstElement *element)
+{
+    GstObject *at = element ? GST_OBJECT(gst_object_ref(element)) : nullptr;
+    bool found = false;
+    while (at && !found) {
+        found = g_object_get_data(G_OBJECT(at), kLowPriorityKey) != nullptr;
+        GstObject *up = gst_object_get_parent(at);
+        gst_object_unref(at);
+        at = up;
+    }
+    if (at)
+        gst_object_unref(at);
+    return found;
+}
+
+// A video publish thread runs below the game and the call's audio: under
+// contention the leaky queues drop video frames instead. `sendq` keeps its
+// priority: encryption and webrtcbin share locks with the audio send path.
+void adoptLowPriorityTask(GstMessage *message)
+{
+    GstStreamStatusType status;
+    GstElement *owner = nullptr;
+    gst_message_parse_stream_status(message, &status, &owner);
+    if (status != GST_STREAM_STATUS_TYPE_CREATE || !owner
+        || g_strcmp0(GST_ELEMENT_NAME(owner), "sendq") == 0
+        || !insideLowPriorityBin(owner))
+        return;
+    const GValue *object = gst_message_get_stream_status_object(message);
+    if (object && G_VALUE_HOLDS(object, GST_TYPE_TASK))
+        gst_task_set_pool(GST_TASK(g_value_get_object(object)),
+                          lowPriorityTaskPool());
+}
+
 GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
 {
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     const GstMessageType type = GST_MESSAGE_TYPE(message);
+    if (type == GST_MESSAGE_STREAM_STATUS) {
+        adoptLowPriorityTask(message);
+        gst_message_unref(message);
+        return GST_BUS_DROP;
+    }
     if (type == GST_MESSAGE_ELEMENT && engine) {
         const GstStructure *fields = gst_message_get_structure(message);
         const gchar *srcName = GST_MESSAGE_SRC_NAME(message);
@@ -4615,10 +4756,21 @@ QString SfuMediaEngine::cameraPublishErrorCategory(bool screenShare,
                          : QStringLiteral("camera_failed");
 }
 
+int SfuMediaEngine::videoThreads(int logicalCpus)
+{
+    return std::clamp(logicalCpus / 4, 1, 4);
+}
+
+int SfuMediaEngine::videoThreads()
+{
+    return videoThreads(QThread::idealThreadCount());
+}
+
 QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu, bool keepOnGpu)
 {
     if (!gpu) {
-        return QStringLiteral("videoconvertscale n-threads=4");
+        return QStringLiteral("videoconvertscale n-threads=%1")
+            .arg(videoThreads());
     }
 
     const int h = maxHeight;
@@ -4917,11 +5069,12 @@ QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps,
                                           int bitrateCapKbps)
 {
     const int shareBitrate = shareBitrateFor(maxHeight, fps, bitrateCapKbps);
-    return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
+    return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=%3 "
                           "cpu-used=4 static-threshold=100 "
                           "keyframe-max-dist=%2 "
                           "end-usage=cbr target-bitrate=%1")
-        .arg(QString::number(shareBitrate), QString::number(2 * fps));
+        .arg(QString::number(shareBitrate), QString::number(2 * fps),
+             QString::number(videoThreads()));
 }
 
 QString SfuMediaEngine::cpuFallbackScaleStage(bool screenShare,
@@ -4986,11 +5139,12 @@ QString SfuMediaEngine::cameraEncoderStage(int maxHeight)
     default:
         break;
     }
-    return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
+    return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=%2 "
                           "cpu-used=2 static-threshold=0 "
                           "keyframe-max-dist=30 "
                           "end-usage=cbr target-bitrate=%1")
-        .arg(bitrate);
+        .arg(bitrate)
+        .arg(videoThreads());
 }
 
 QString SfuMediaEngine::cameraRateStage(bool portal)
@@ -5307,6 +5461,8 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                "t. ! queue max-size-buffers=0 max-size-bytes=0 "
                "max-size-time=100000000 leaky=downstream "
                "! valve name=vidvalve drop=false ! %11%3 name=videoenc %12"
+               "! queue name=sendq max-size-buffers=2 max-size-bytes=0 "
+               "max-size-time=0 "
                "! %6 pt=%14 ssrc=%5 mtu=%10 "
                "! capsfilter caps=\"application/x-rtp,media=video,"
                "%13payload=%14,clock-rate=(int)90000,"
@@ -5782,6 +5938,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
     }
     gst_element_set_name(bin, cid.toUtf8().constData());
+    markLowPriority(bin);
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {
         Q_EMIT failed(QStringLiteral("camera_failed"));
         return;
@@ -5988,9 +6145,9 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
     GstElement *frames = gst_bin_get_by_name(GST_BIN(bin), "videoframes");
     const bool h264Frames = frames != nullptr;
-    if (GstElement *encoder = frames ? frames
-                                     : gst_bin_get_by_name(GST_BIN(bin),
-                                                           "videoenc")) {
+    if (frames)
+        gst_object_unref(frames);
+    if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "sendq")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
             auto *held = new std::shared_ptr<PublishProbeState>(probeState);
             gst_pad_add_probe(
@@ -6258,6 +6415,7 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
         "pixel-aspect-ratio=(fraction)1/1,framerate=(fraction)10/1 "
         "! vp8enc name=videoenc deadline=1 lag-in-frames=0 cpu-used=8 threads=2 "
         "end-usage=cbr target-bitrate=350000 keyframe-max-dist=20 "
+        "! queue name=sendq max-size-buffers=2 max-size-bytes=0 max-size-time=0 "
         "! %2 pt=96 ssrc=%3 mtu=%4 "
         "! capsfilter caps=\"application/x-rtp,media=video,encoding-name=VP8,payload=96,"
         "clock-rate=(int)90000,ssrc=(uint)%3\"")
@@ -6297,6 +6455,7 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
         gst_object_unref(backup);
         return false;
     }
+    markLowPriority(backup);
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), backup))
         return false;
     GstPad *rtp = gst_element_get_static_pad(backup, "src");
@@ -6319,7 +6478,7 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
     stats->encoder = QStringLiteral("vp8enc backup");
     stats->source = QStringLiteral("shared capture");
     stats->scaling = glMemory ? QStringLiteral("GPU") : QStringLiteral("CPU");
-    GstElement *encoder = gst_bin_get_by_name(GST_BIN(backup), "videoenc");
+    GstElement *encoder = gst_bin_get_by_name(GST_BIN(backup), "sendq");
     GstPad *frames = gst_element_get_static_pad(encoder, "src");
     installEncryptProbe(frames, true);
     instrumentStreamInfo(frames, stats, false);

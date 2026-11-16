@@ -48,6 +48,8 @@
 #include <unistd.h>
 #ifdef Q_OS_LINUX
 #include <linux/videodev2.h>
+#include <sched.h>
+#include <sys/resource.h>
 #endif
 
 #include <arpa/inet.h>
@@ -1971,6 +1973,79 @@ private slots:
         QCOMPARE(failed.count(), 0);
         engine.stop();
     }
+
+#if defined(Q_OS_LINUX)
+    void videoPublishThreadsYieldToEverythingAndAudioDoesNot()
+    {
+        struct Seen
+        {
+            std::atomic<int> policy{-1};
+            std::atomic<int> nice{-100};
+        };
+        const auto watch = [](GstElement *bin, const char *element,
+                              const char *pad, Seen *seen) {
+            GstElement *at = element ? gst_bin_get_by_name(GST_BIN(bin), element)
+                                     : GST_ELEMENT(gst_object_ref(bin));
+            QVERIFY(at);
+            GstPad *src = gst_element_get_static_pad(at, pad);
+            QVERIFY(src);
+            gst_pad_add_probe(
+                src, GST_PAD_PROBE_TYPE_BUFFER,
+                [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                    auto *s = static_cast<Seen *>(data);
+                    errno = 0;
+                    s->nice = getpriority(PRIO_PROCESS, 0);
+                    s->policy = sched_getscheduler(0);
+                    return GST_PAD_PROBE_OK;
+                },
+                seen, nullptr);
+            gst_object_unref(src);
+            gst_object_unref(at);
+        };
+        const auto lowered = [](const Seen &s) {
+            return s.policy == SCHED_IDLE;
+        };
+        const int ownNice = getpriority(PRIO_PROCESS, 0);
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        engine.publishVideo(QStringLiteral("cid-video"), false, -1);
+        GstElement *video = engine.publishedBinForTest(QStringLiteral("cid-video"));
+        GstElement *audio = engine.publishedBinForTest(QStringLiteral("cid-audio"));
+        QVERIFY(video && audio);
+
+        Seen capture, encode, send, voice;
+        watch(video, "capsrc", "src", &capture);
+        watch(video, "videoenc", "src", &encode);
+        watch(video, "sendq", "src", &send);
+        watch(audio, nullptr, "src", &voice);
+        QTRY_VERIFY(capture.policy >= 0 && encode.policy >= 0
+                    && send.policy >= 0 && voice.policy >= 0);
+        QVERIFY2(lowered(capture), "the video capture thread runs at normal "
+                                   "priority and competes with a game");
+        QVERIFY2(lowered(encode), "the video encoder thread runs at normal "
+                                  "priority and competes with a game");
+        QVERIFY2(send.policy == SCHED_OTHER && send.nice == ownNice,
+                 "the thread that encrypts video was lowered, and it shares "
+                 "the send cryptor's lock with audio");
+        QCOMPARE(voice.policy.load(), SCHED_OTHER);
+        QCOMPARE(voice.nice.load(), ownNice);
+
+        engine.unpublish(QStringLiteral("cid-video"));
+        engine.publishAudio(QStringLiteral("cid-audio-2"));
+        GstElement *again =
+            engine.publishedBinForTest(QStringLiteral("cid-audio-2"));
+        QVERIFY(again);
+        Seen reused;
+        watch(again, nullptr, "src", &reused);
+        QTRY_VERIFY(reused.policy >= 0);
+        QVERIFY2(reused.policy == SCHED_OTHER && reused.nice == ownNice,
+                 "a lowered video thread came back to run an audio task");
+        engine.stop();
+    }
+#endif
 
     void anOfferIsOnlyMadeOnceThereIsMediaAndThenCarriesIt()
     {
@@ -4493,7 +4568,7 @@ true,2147483,
     {
         struct Lane { const char *path; int expected; };
         const QList<Lane> lanes = {
-            { SOURCE_DIR "/src/calls/SfuMediaEngine.cpp", 8 },
+            { SOURCE_DIR "/src/calls/SfuMediaEngine.cpp", 10 },
             { SOURCE_DIR "/src/calls/ShareAudioSources.cpp", 2 },
             { SOURCE_DIR "/src/calls/GstCallMediaBackend.cpp", 6 },
             { SOURCE_DIR "/src/calls/AudioDeviceTester.cpp", 1 },
@@ -4527,8 +4602,10 @@ true,2147483,
                                         .arg(QString::fromUtf8(lane.path),
                                              props.trimmed())));
                 // The video receive queue feeds a depayloader chain from
-                // ReceiveVideoCodecs.h.
-                if (next.contains(QStringLiteral("rtpvp8depay"))
+                // ReceiveVideoCodecs.h; sendq carries encoded frames, where a
+                // drop breaks every frame up to the next keyframe.
+                if (props.contains(QStringLiteral("name=sendq"))
+                    || next.contains(QStringLiteral("rtpvp8depay"))
                     || (next.trimmed() == QLatin1String("%1")
                         && code.mid(m.capturedStart(), 320).contains(QStringLiteral(
                                "receivableVideoCodec(videoCodec).chain"))))
@@ -5963,7 +6040,8 @@ true,2147483,
     {
         for (int h : { 720, 1080, 1440, 2160 }) {
             const QString cpu = SfuMediaEngine::shareScaleStage(h, false);
-            QCOMPARE(cpu, QStringLiteral("videoconvertscale n-threads=4"));
+            QCOMPARE(cpu, QStringLiteral("videoconvertscale n-threads=%1")
+                              .arg(SfuMediaEngine::videoThreads()));
 
             const QString gpu = SfuMediaEngine::shareScaleStage(h, true);
             QVERIFY2(gpu.startsWith(QStringLiteral("glupload")),
@@ -6049,10 +6127,11 @@ true,2147483,
                      qPrintable(QStringLiteral(
                          "the CPU fallback went back to two passes: %1")
                              .arg(cpu)));
-            QVERIFY2(cpu.contains(QStringLiteral("n-threads=4")),
+            QVERIFY2(cpu.contains(QStringLiteral("n-threads=%1")
+                                      .arg(SfuMediaEngine::videoThreads())),
                      qPrintable(QStringLiteral(
-                         "the CPU fallback is single-threaded again, which "
-                         "cannot keep up with a 4K capture: %1").arg(cpu)));
+                         "the CPU fallback does not size its threads to the "
+                         "machine: %1").arg(cpu)));
         }
 #if defined(Q_OS_LINUX)
         QVERIFY2(SfuMediaEngine::shareScaleStage(1080, true)
@@ -6167,6 +6246,24 @@ true,2147483,
                     .contains(QStringLiteral("target-bitrate=3000000")));
         QVERIFY(SfuMediaEngine::shareLimitsCaps(1080, 30)
                     .contains(QStringLiteral("width=(int)[1,1920]")));
+    }
+
+    void videoThreadsLeaveAGameItsCores()
+    {
+        QCOMPARE(SfuMediaEngine::videoThreads(2), 1);
+        QCOMPARE(SfuMediaEngine::videoThreads(4), 1);
+        QCOMPARE(SfuMediaEngine::videoThreads(8), 2);
+        QCOMPARE(SfuMediaEngine::videoThreads(12), 3);
+        QCOMPARE(SfuMediaEngine::videoThreads(20), 4);
+        QCOMPARE(SfuMediaEngine::videoThreads(64), 4);
+        QCOMPARE(SfuMediaEngine::videoThreads(0), 1);
+
+        const QString threads = QStringLiteral("threads=%1 ")
+                                    .arg(SfuMediaEngine::videoThreads());
+        QVERIFY2(SfuMediaEngine::shareEncoderStage(1080, 30).contains(threads),
+                 qPrintable(SfuMediaEngine::shareEncoderStage(1080, 30)));
+        QVERIFY2(SfuMediaEngine::cameraEncoderStage(720).contains(threads),
+                 qPrintable(SfuMediaEngine::cameraEncoderStage(720)));
     }
 
     void aShareBitrateCapOnlyEverLowersTheBitrate()
