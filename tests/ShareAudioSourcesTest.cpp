@@ -76,6 +76,32 @@ private slots:
                                  ours, QStringList{QStringLiteral("Lightning")}));
     }
 
+    // Measured on PipeWire 1.4: two Flatpak apps both report
+    // application.process.id 2, told apart only by the daemon-set app id.
+    void anotherFlatpakSharingOurSandboxPidIsCaptured()
+    {
+        const QString us = QStringLiteral("org.lightning_matrix.Lightning");
+        QVariantMap game = streamProps(2, QStringLiteral("Game"));
+        game.insert(QStringLiteral("pipewire.access.portal.app_id"),
+                    QStringLiteral("com.valvesoftware.Steam"));
+        QVERIFY2(streamIsForeign(game, 2, QStringList{QStringLiteral("Lightning")},
+                                 us),
+                 "a Flatpak Lightning drops every other Flatpak app's audio "
+                 "because their main processes share our namespaced pid");
+        QVariantMap ours = streamProps(2, QStringLiteral("Game"));
+        ours.insert(QStringLiteral("pipewire.access.portal.app_id"), us);
+        QVERIFY(!streamIsForeign(ours, 2, QStringList{QStringLiteral("Lightning")},
+                                 us));
+        QVERIFY2(!streamIsForeign(streamProps(2, QStringLiteral("Game")), 2,
+                                  QStringList{QStringLiteral("Lightning")}, us),
+                 "a stream with no app id and our pid must stay excluded");
+        QVariantMap sandboxed = streamProps(4242, QStringLiteral("Game"));
+        sandboxed.insert(QStringLiteral("pipewire.access.portal.app_id"),
+                         QStringLiteral("org.mozilla.firefox"));
+        QVERIFY(streamIsForeign(sandboxed, 4242,
+                                QStringList{QStringLiteral("Lightning")}));
+    }
+
     void everySpellingOfOurOwnNameIsExcluded()
     {
         const QStringList ours{ QStringLiteral("matrix-client"),

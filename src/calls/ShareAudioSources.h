@@ -79,8 +79,12 @@ struct Application {
 
 QList<Application> groupByApplication(const QList<Stream> &streams);
 
+/// `ourSandboxAppId` is our Flatpak id, empty outside one. Sandboxed
+/// processes report namespaced pids, so every Flatpak app's main process is
+/// pid 2: a pid is ours only within our own sandbox.
 bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
-                     const QStringList &ourNames);
+                     const QStringList &ourNames,
+                     const QString &ourSandboxAppId = {});
 
 Stream streamFromProperties(const QVariantMap &props);
 

@@ -1103,6 +1103,21 @@ Item { property alias picker: pick
         QCOMPARE(keyFor(window), QString());
         window.insert(QStringLiteral("audioAppKey"), QStringLiteral("game.exe"));
         QCOMPARE(keyFor(window), QStringLiteral("game.exe"));
+        const QVariantList twoFlatpaks{
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("spotify") },
+                         { QStringLiteral("pids"), QVariantList{ qint64(2) } } },
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("firefox") },
+                         { QStringLiteral("pids"), QVariantList{ qint64(2) } } },
+        };
+        QVariant ambiguous;
+        window.insert(QStringLiteral("audioAppKey"), QString());
+        window.insert(QStringLiteral("audioPid"), qint64(2));
+        QMetaObject::invokeMethod(picker, "windowAudioKey",
+                                  Q_RETURN_ARG(QVariant, ambiguous),
+                                  Q_ARG(QVariant, window),
+                                  Q_ARG(QVariant, twoFlatpaks));
+        QVERIFY2(ambiguous.toString().isEmpty(),
+                 "a pid two applications share picked one of them");
         const QVariantMap screen{ { QStringLiteral("index"), 0 },
                                   { QStringLiteral("audioPid"), qint64(10) } };
         QCOMPARE(keyFor(screen), QString());

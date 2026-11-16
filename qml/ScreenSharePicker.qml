@@ -161,7 +161,8 @@ AppDialog {
         (root.selected >= 0 && root.selected < root.sources.length)
             ? root.sources[root.selected] : null
     // A Windows row names its executable; a PipeWire one is matched to the
-    // window's process id among the applications currently playing.
+    // window's process id among the applications currently playing. Flatpak
+    // apps all report pid 2, so a pid shared by two applications names none.
     function windowAudioKey(row, apps) {
         if (!row || !root.isWindowRow(row))
             return "";
@@ -170,12 +171,16 @@ AppDialog {
         var pid = row.audioPid !== undefined ? Number(row.audioPid) : 0;
         if (pid <= 0 || !apps)
             return "";
+        var key = "";
         for (var i = 0; i < apps.length; ++i) {
             var pids = apps[i].pids;
-            if (pids !== undefined && pids.indexOf(pid) >= 0)
-                return String(apps[i].key);
+            if (pids === undefined || pids.indexOf(pid) < 0)
+                continue;
+            if (key.length > 0)
+                return "";
+            key = String(apps[i].key);
         }
-        return "";
+        return key;
     }
     readonly property string selectedWindowAudioKey: root.windowAudioKey(
         root.selectedRow,

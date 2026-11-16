@@ -327,7 +327,8 @@ Stream streamFromProperties(const QVariantMap &props)
 }
 
 bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
-                     const QStringList &ourNames)
+                     const QStringList &ourNames,
+                     const QString &ourSandboxAppId)
 {
     if (propString(props, "media.class") != QLatin1String("Stream/Output/Audio"))
         return false;
@@ -338,7 +339,11 @@ bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
     if (s.serial.isEmpty())
         return false;
 
-    if (ourPid > 0 && s.pid == ourPid)
+    // pipewire.access.portal.app_id is set by the daemon, not the client. A
+    // stream without it is still treated as ours on a pid match.
+    const QString appId = propString(props, "pipewire.access.portal.app_id");
+    if (ourPid > 0 && s.pid == ourPid
+        && (appId.isEmpty() || appId == ourSandboxAppId))
         return false;
     for (const QString &name : ourNames) {
         if (name.isEmpty())
@@ -1126,7 +1131,8 @@ Enumeration enumerate(qint64 ourPid, const QStringList &ourNames,
 #else
     Q_UNUSED(checkRunning);
     for (const QVariantMap &props : pipewireDevicePassLocked(nullptr)) {
-        if (!streamIsForeign(props, ourPid, ourNames))
+        if (!streamIsForeign(props, ourPid, ourNames,
+                             qEnvironmentVariable("FLATPAK_ID")))
             continue;
         result.streams.append(streamFromProperties(props));
     }
