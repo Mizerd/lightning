@@ -95,6 +95,7 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.roomType = obj.value(QStringLiteral("room_type")).toString();
     room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
     room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();
+    room.inviteSentMs = static_cast<qint64>(obj.value(QStringLiteral("invited_at_ms")).toDouble(0));
     room.inviterDisplayName = matrix::presentable_name::withoutDirectionalControls(
         obj.value(QStringLiteral("inviter_display_name")).toString());
     room.successorRoomId =

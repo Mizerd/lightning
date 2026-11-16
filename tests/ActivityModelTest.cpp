@@ -1011,6 +1011,19 @@ private Q_SLOTS:
         QCOMPARE(h.model.count(), 0);
     }
 
+    void anInviteIsTimedFromWhenItWasSentWhenTheServerSaidSo()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!inv:mock.local");
+        r.name = QStringLiteral("Secret club");
+        r.membership = RoomInfo::Invited;
+        r.inviterUserId = QStringLiteral("@bob:mock.local");
+        r.inviteSentMs = 1700000000000;
+        QVERIFY(h.model.noteInvite(r));
+        QCOMPARE(h.row(0).value(QStringLiteral("timestampMs")).toLongLong(), qint64(1700000000000));
+    }
+
     void anInviteAnsweredHereLeavesTheBellAtOnceAndStaysGone()
     {
         Harness h;

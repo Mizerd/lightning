@@ -92,6 +92,7 @@ struct RoomInfo {
     QString canonicalAlias;
     QString inviterUserId;
     QString inviterDisplayName;
+    qint64 inviteSentMs = 0;
     QString roomType;
     Membership membership = Joined;
     bool invitePending = false;
@@ -150,6 +151,7 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.canonicalAlias == b.canonicalAlias
         && a.inviterUserId == b.inviterUserId
         && a.inviterDisplayName == b.inviterDisplayName
+        && a.inviteSentMs == b.inviteSentMs
         && a.roomType == b.roomType && a.membership == b.membership
         && a.invitePending == b.invitePending
         && a.inviteError == b.inviteError && a.spaceId == b.spaceId

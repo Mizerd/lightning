@@ -1,5 +1,6 @@
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 use std::future::Future;
 use std::time::Duration;
 
@@ -7,7 +8,9 @@ use matrix_sdk::{
     config::RequestConfig,
     ruma::{
         api::client::{membership::joined_rooms, sync::sync_events::v5},
-        OwnedRoomId, RoomId, UInt,
+        events::room::member::StrippedRoomMemberEvent,
+        serde::Raw,
+        OwnedRoomId, OwnedUserId, RoomId, UInt, UserId,
     },
     Client, Room, RoomState,
 };
@@ -203,6 +206,51 @@ pub(crate) async fn run_stale_invite_reconciler(client: Client, events: EventQue
     }
 }
 
+type SentKey = (OwnedUserId, OwnedRoomId);
+
+fn sent_times() -> &'static Mutex<HashMap<SentKey, u64>> {
+    static TIMES: OnceLock<Mutex<HashMap<SentKey, u64>>> = OnceLock::new();
+    TIMES.get_or_init(Default::default)
+}
+
+/// matrix-sdk drops `origin_server_ts` when it types a stripped event, so the
+/// time only survives in the raw JSON; Synapse and Continuwuity include it,
+/// the spec does not require it.
+fn invite_sent_ms(raw: &str, own: &UserId, now_ms: u64) -> Option<u64> {
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    if v.get("state_key")?.as_str()? != own.as_str()
+        || v.get("content")?.get("membership")?.as_str()? != "invite"
+    {
+        return None;
+    }
+    let ts = v.get("origin_server_ts")?.as_u64()?;
+    // An absent, zero or future stamp is a server's guess, not a send time.
+    (ts > 0 && ts <= now_ms + 60_000).then_some(ts)
+}
+
+pub(crate) fn install_sent_time_handler(client: &Client) {
+    client.add_event_handler(|raw: Raw<StrippedRoomMemberEvent>, room: Room| async move {
+        if room.state() != RoomState::Invited {
+            return;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        if let Some(ts) = invite_sent_ms(raw.json().get(), room.own_user_id(), now) {
+            sent_times()
+                .lock()
+                .unwrap()
+                .insert((room.own_user_id().to_owned(), room.room_id().to_owned()), ts);
+        }
+    });
+}
+
+/// When the invitation was sent, if the server told us; 0 when unknown.
+pub(crate) fn sent_ms(room: &Room) -> u64 {
+    let key = (room.own_user_id().to_owned(), room.room_id().to_owned());
+    sent_times().lock().unwrap().get(&key).copied().unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,6 +291,24 @@ mod tests {
             invited: invited.iter().map(|r| (*r).to_owned()).collect(),
             joined: joined.iter().map(|r| (*r).to_owned()).collect(),
         }
+    }
+
+    #[test]
+    fn invite_send_time_is_read_from_the_raw_member_event() {
+        let me = matrix_sdk::ruma::user_id!("@me:example.org");
+        let ev = |ts: &str, key: &str, ms: &str| {
+            format!(
+                r#"{{"type":"m.room.member","state_key":"{key}",{ts}"sender":"@a:b.c","content":{{"membership":"{ms}"}}}}"#
+            )
+        };
+        let with = r#""origin_server_ts":1700000000000,"#;
+        let now = 1_700_000_100_000;
+        assert_eq!(invite_sent_ms(&ev(with, "@me:example.org", "invite"), me, now), Some(1_700_000_000_000));
+        assert_eq!(invite_sent_ms(&ev("", "@me:example.org", "invite"), me, now), None, "spec-compliant stripped event");
+        assert_eq!(invite_sent_ms(&ev(with, "@other:example.org", "invite"), me, now), None);
+        assert_eq!(invite_sent_ms(&ev(with, "@me:example.org", "join"), me, now), None);
+        assert_eq!(invite_sent_ms(&ev(r#""origin_server_ts":0,"#, "@me:example.org", "invite"), me, now), None);
+        assert_eq!(invite_sent_ms(&ev(with, "@me:example.org", "invite"), me, 1_000), None, "future stamp");
     }
 
     #[test]
