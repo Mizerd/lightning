@@ -489,24 +489,19 @@ if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
                 INTERFACE_COMPILE_DEFINITIONS LIGHTNING_HAVE_GST_ALLOCATORS=1)
         endif()
         # Single-window share on X11 desktops with no ScreenCast portal
-        # (WindowCaptureSrc.cpp). Debian/Ubuntu: libxcb1-dev
-        # libxcb-composite0-dev; Fedora: libxcb-devel.
-        pkg_check_modules(XCBCAPTURE IMPORTED_TARGET xcb xcb-composite)
-        if(XCBCAPTURE_FOUND)
-            set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
-                INTERFACE_LINK_LIBRARIES PkgConfig::XCBCAPTURE)
+        # (WindowCaptureSrc.cpp). Headers only: libxcb and libxcb-composite
+        # are dlopen'd at runtime, so the binary gains no dependency.
+        include(CheckIncludeFileCXX)
+        check_include_file_cxx(xcb/xcb.h LIGHTNING_HAVE_XCB_HEADER)
+        if(LIGHTNING_HAVE_XCB_HEADER)
             set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
                 INTERFACE_COMPILE_DEFINITIONS
                 LIGHTNING_HAVE_X11_WINDOW_CAPTURE=1)
+            set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
+                INTERFACE_LINK_LIBRARIES ${CMAKE_DL_LIBS})
             message(STATUS "X11 window sharing: yes")
-        elseif(LIGHTNING_REQUIRE_WEBRTC)
-            message(FATAL_ERROR
-                "LIGHTNING_REQUIRE_WEBRTC=ON but xcb/xcb-composite were not "
-                "found, so X11 desktops without a ScreenCast portal could "
-                "share whole screens only. Install libxcb1-dev and "
-                "libxcb-composite0-dev (Fedora: libxcb-devel).")
         else()
-            message(STATUS "X11 window sharing: no (xcb-composite not found)")
+            message(STATUS "X11 window sharing: no (xcb/xcb.h not found)")
         endif()
     endif()
     if(GSTWEBRTC_FOUND)
@@ -1114,8 +1109,9 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/RtpVp8Payloader.cpp
         src/calls/RtpH264Payloader.h
         src/calls/RtpH264Payloader.cpp
-        # Windows window capture: the shipped GStreamer has no usable element
-        # that takes a window handle. Compiles to nothing off Windows.
+        # Single-window capture (Windows; X11 without a ScreenCast portal):
+        # no shipped GStreamer element captures one window without leaking
+        # what covers it. Stubs elsewhere.
         src/calls/WindowCaptureSrc.h
         src/calls/WindowCaptureSrc.cpp
         # Serves those captures as preview tiles to the picker.

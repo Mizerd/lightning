@@ -4927,6 +4927,39 @@ true,2147483,
 #endif
     }
 
+    void windowSharingIsNotOfferedWithoutTheXcbLibraries()
+    {
+#if !defined(LIGHTNING_HAVE_X11_WINDOW_CAPTURE)
+        QSKIP("built without X11 window capture");
+#else
+        using namespace lightning::wincap;
+        auto restore =
+            qScopeGuard([] { setX11SymbolResolverForTest(nullptr); });
+        static int symbol = 0;
+        setX11SymbolResolverForTest(
+            [](const char *, const char *) -> void * { return nullptr; });
+        QVERIFY2(!x11LibrariesLoaded(), "no libxcb, yet window sharing is on");
+        QVERIFY(!available());
+        QVERIFY(enumerateWindows().isEmpty());
+        QVERIFY(captureThumbnail(1, 64).isNull());
+
+        setX11SymbolResolverForTest(
+            [](const char *library, const char *name) -> void * {
+                return qstrcmp(library, "libxcb-composite.so.0") == 0
+                        && qstrcmp(name, "xcb_composite_redirect_window_checked")
+                            == 0
+                    ? nullptr
+                    : &symbol;
+            });
+        QVERIFY2(!x11LibrariesLoaded(),
+                 "without the redirect, a covered window would leak");
+
+        setX11SymbolResolverForTest(
+            [](const char *, const char *) -> void * { return &symbol; });
+        QVERIFY(x11LibrariesLoaded());
+#endif
+    }
+
     void theLinuxNoPortalFallbackCapturesAnX11RootRectangle()
     {
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)

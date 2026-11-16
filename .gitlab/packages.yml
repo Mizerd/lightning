@@ -87,7 +87,7 @@ variables:
     apt-get install -y --no-install-recommends
     build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
     fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
-    ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev libxcb1-dev libxcb-composite0-dev qt6-declarative-dev
+    ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
     qt6-multimedia-dev qt6-svg-dev qt6-tools-dev zstd
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
     libgstreamer-plugins-bad1.0-dev
@@ -98,7 +98,7 @@ variables:
     appstream ca-certificates ccache cmake curl desktop-file-utils
     gcc gcc-c++ git jq libsecret-devel
     ninja-build openssl-devel patchelf pkgconf-pkg-config
-    qt6-qtbase-devel qt6-qtbase-private-devel libxcb-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
+    qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
     qt6-qtsvg-devel qt6-qttools-devel rpm-build sqlite-devel zstd
     gstreamer1-devel gstreamer1-plugins-base-devel
     gstreamer1-plugins-bad-free-devel
@@ -109,7 +109,7 @@ variables:
     apt-get install -y --no-install-recommends
     build-essential ca-certificates ccache cmake curl file git jq
     libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
-    pkg-config qt6-base-dev qt6-base-private-dev libxcb1-dev libxcb-composite0-dev qt6-declarative-dev qt6-multimedia-dev qt6-svg-dev
+    pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev qt6-svg-dev
     qt6-svg-plugins qt6-tools-dev qt6-wayland qml6-module-qtmultimedia
     qml6-module-qtquick qml6-module-qtquick-controls
     qml6-module-qtquick-dialogs qml6-module-qtquick-effects

@@ -1041,22 +1041,101 @@ const char *windowCaptureSrcName() { return "lightningwindowcapturesrc"; }
 #include <QGuiApplication>
 #include <QPainter>
 #include <QSet>
+#include <QSysInfo>
 #include <QWindow>
 
 #include <gst/gst.h>
 #include <gst/base/gstpushsrc.h>
 #include <gst/video/video.h>
 
-#include <xcb/composite.h>
+#include <dlfcn.h>
 #include <xcb/xcb.h>
 
 namespace {
+
+// libxcb and libxcb-composite are opened at first use so the binary does not
+// need them to start (Wayland hosts, packages that lack them).
+struct CompositeCookie {
+    unsigned int sequence;
+};
+constexpr uint8_t kRedirectAutomatic = 0;
+
+struct XcbApi {
+#define LT_XCB(name) decltype(&::xcb_##name) name = nullptr;
+    LT_XCB(connect) LT_XCB(connection_has_error) LT_XCB(disconnect)
+    LT_XCB(free_pixmap) LT_XCB(generate_id) LT_XCB(get_geometry)
+    LT_XCB(get_geometry_reply) LT_XCB(get_image) LT_XCB(get_image_data)
+    LT_XCB(get_image_data_length) LT_XCB(get_image_reply)
+    LT_XCB(get_property) LT_XCB(get_property_reply)
+    LT_XCB(get_property_value) LT_XCB(get_property_value_length)
+    LT_XCB(get_setup) LT_XCB(get_window_attributes)
+    LT_XCB(get_window_attributes_reply) LT_XCB(intern_atom)
+    LT_XCB(intern_atom_reply) LT_XCB(poll_for_event) LT_XCB(request_check)
+    LT_XCB(screen_next) LT_XCB(setup_roots_iterator)
+#undef LT_XCB
+    CompositeCookie (*composite_query_version)(xcb_connection_t *, uint32_t,
+                                               uint32_t) = nullptr;
+    void *(*composite_query_version_reply)(xcb_connection_t *,
+                                           CompositeCookie,
+                                           xcb_generic_error_t **) = nullptr;
+    xcb_void_cookie_t (*composite_redirect_window_checked)(
+        xcb_connection_t *, xcb_window_t, uint8_t) = nullptr;
+    xcb_void_cookie_t (*composite_name_window_pixmap_checked)(
+        xcb_connection_t *, xcb_window_t, xcb_pixmap_t) = nullptr;
+    bool complete = false;
+};
+
+void *dlopenResolve(const char *library, const char *symbol)
+{
+    void *handle = dlopen(library, RTLD_NOW | RTLD_LOCAL);
+    return handle ? dlsym(handle, symbol) : nullptr;
+}
+
+std::mutex g_xcbMutex;
+lightning::wincap::X11SymbolResolver g_xcbResolver = dlopenResolve;
+std::unique_ptr<XcbApi> g_xcb;
+
+const XcbApi &xcb()
+{
+    const std::lock_guard<std::mutex> lock(g_xcbMutex);
+    if (g_xcb)
+        return *g_xcb;
+    auto api = std::make_unique<XcbApi>();
+    bool all = true;
+    const auto load = [&all](auto &slot, const char *library,
+                             const char *symbol) {
+        slot = reinterpret_cast<std::remove_reference_t<decltype(slot)>>(
+            g_xcbResolver(library, symbol));
+        all = all && slot != nullptr;
+    };
+#define LT_CORE(name) load(api->name, "libxcb.so.1", "xcb_" #name);
+#define LT_COMP(name) \
+    load(api->name, "libxcb-composite.so.0", "xcb_" #name);
+    LT_CORE(connect) LT_CORE(connection_has_error) LT_CORE(disconnect)
+    LT_CORE(free_pixmap) LT_CORE(generate_id) LT_CORE(get_geometry)
+    LT_CORE(get_geometry_reply) LT_CORE(get_image) LT_CORE(get_image_data)
+    LT_CORE(get_image_data_length) LT_CORE(get_image_reply)
+    LT_CORE(get_property) LT_CORE(get_property_reply)
+    LT_CORE(get_property_value) LT_CORE(get_property_value_length)
+    LT_CORE(get_setup) LT_CORE(get_window_attributes)
+    LT_CORE(get_window_attributes_reply) LT_CORE(intern_atom)
+    LT_CORE(intern_atom_reply) LT_CORE(poll_for_event) LT_CORE(request_check)
+    LT_CORE(screen_next) LT_CORE(setup_roots_iterator)
+    LT_COMP(composite_query_version) LT_COMP(composite_query_version_reply)
+    LT_COMP(composite_redirect_window_checked)
+    LT_COMP(composite_name_window_pixmap_checked)
+#undef LT_CORE
+#undef LT_COMP
+    api->complete = all;
+    g_xcb = std::move(api);
+    return *g_xcb;
+}
 
 constexpr int kFramerate = 30;
 constexpr GstClockTime kFrameDuration = GST_SECOND / kFramerate;
 
 struct XcbDeleter {
-    void operator()(xcb_connection_t *c) const { xcb_disconnect(c); }
+    void operator()(xcb_connection_t *c) const { xcb().disconnect(c); }
 };
 using Connection = std::unique_ptr<xcb_connection_t, XcbDeleter>;
 
@@ -1065,13 +1144,15 @@ template <typename T> Reply<T> reply(T *raw) { return Reply<T>(raw, &free); }
 
 Connection connectX(xcb_window_t *root)
 {
-    int screen = 0;
-    Connection c(xcb_connect(nullptr, &screen));
-    if (!c || xcb_connection_has_error(c.get()))
+    if (!xcb().complete)
         return {};
-    xcb_screen_iterator_t it = xcb_setup_roots_iterator(xcb_get_setup(c.get()));
+    int screen = 0;
+    Connection c(xcb().connect(nullptr, &screen));
+    if (!c || xcb().connection_has_error(c.get()))
+        return {};
+    xcb_screen_iterator_t it = xcb().setup_roots_iterator(xcb().get_setup(c.get()));
     for (int i = 0; i < screen && it.rem; ++i)
-        xcb_screen_next(&it);
+        xcb().screen_next(&it);
     if (!it.rem)
         return {};
     if (root)
@@ -1081,8 +1162,8 @@ Connection connectX(xcb_window_t *root)
 
 xcb_atom_t atom(xcb_connection_t *c, const char *name)
 {
-    auto r = reply(xcb_intern_atom_reply(
-        c, xcb_intern_atom(c, 0, static_cast<uint16_t>(std::strlen(name)), name),
+    auto r = reply(xcb().intern_atom_reply(
+        c, xcb().intern_atom(c, 0, static_cast<uint16_t>(std::strlen(name)), name),
         nullptr));
     return r ? r->atom : xcb_atom_t(XCB_ATOM_NONE);
 }
@@ -1090,12 +1171,12 @@ xcb_atom_t atom(xcb_connection_t *c, const char *name)
 QByteArray property(xcb_connection_t *c, xcb_window_t w, xcb_atom_t prop,
                     xcb_atom_t type, uint32_t maxWords = 4096)
 {
-    auto r = reply(xcb_get_property_reply(
-        c, xcb_get_property(c, 0, w, prop, type, 0, maxWords), nullptr));
+    auto r = reply(xcb().get_property_reply(
+        c, xcb().get_property(c, 0, w, prop, type, 0, maxWords), nullptr));
     if (!r || r->type == XCB_ATOM_NONE)
         return {};
-    return QByteArray(static_cast<const char *>(xcb_get_property_value(r.get())),
-                      xcb_get_property_value_length(r.get()));
+    return QByteArray(static_cast<const char *>(xcb().get_property_value(r.get())),
+                      xcb().get_property_value_length(r.get()));
 }
 
 QList<quint32> words(const QByteArray &bytes)
@@ -1109,17 +1190,17 @@ QList<quint32> words(const QByteArray &bytes)
     return out;
 }
 
-/// The window's own contents as RGB32. Free of what overlaps it only while
-/// the window or its frame is redirected (by a compositor or by us); without
-/// that, GetImage returns whatever covers it.
+/// The window's own contents as RGB32. `fromScreen` lets a window with no
+/// pixmap of its own be read with GetImage, which is free of what overlaps it
+/// only under a compositor: thumbnails only, never the share.
 QImage windowPixels(xcb_connection_t *c, xcb_window_t w, int *width,
-                    int *height)
+                    int *height, bool fromScreen)
 {
-    auto attrs = reply(xcb_get_window_attributes_reply(
-        c, xcb_get_window_attributes(c, w), nullptr));
+    auto attrs = reply(xcb().get_window_attributes_reply(
+        c, xcb().get_window_attributes(c, w), nullptr));
     if (!attrs || attrs->map_state != XCB_MAP_STATE_VIEWABLE)
         return {};
-    auto geo = reply(xcb_get_geometry_reply(c, xcb_get_geometry(c, w), nullptr));
+    auto geo = reply(xcb().get_geometry_reply(c, xcb().get_geometry(c, w), nullptr));
     if (!geo)
         return {};
     if (width)
@@ -1128,52 +1209,51 @@ QImage windowPixels(xcb_connection_t *c, xcb_window_t w, int *width,
         *height = geo->height;
     if (geo->depth != 24 && geo->depth != 32)
         return {};
-    // Only a redirected window has a pixmap of its own. A child of a
-    // compositor-redirected frame does not; GetImage on the window then reads
-    // the frame's pixmap, which is equally free of what overlaps it.
-    xcb_drawable_t drawable = xcb_generate_id(c);
+    xcb_drawable_t drawable = xcb().generate_id(c);
     int16_t origin = static_cast<int16_t>(geo->border_width);
-    if (xcb_generic_error_t *e = xcb_request_check(
-            c, xcb_composite_name_window_pixmap_checked(c, w, drawable))) {
+    if (xcb_generic_error_t *e = xcb().request_check(
+            c, xcb().composite_name_window_pixmap_checked(c, w, drawable))) {
         free(e);
+        if (!fromScreen)
+            return {};
         drawable = w;
         origin = 0;
     }
     // shortcut: plain GetImage, no MIT-SHM; add xcb-shm if a large window
     // cannot hold the frame rate.
-    auto image = reply(xcb_get_image_reply(
+    auto image = reply(xcb().get_image_reply(
         c,
-        xcb_get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, drawable, origin, origin,
+        xcb().get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, drawable, origin, origin,
                       geo->width, geo->height, ~0u),
         nullptr));
     if (drawable != w)
-        xcb_free_pixmap(c, drawable);
+        xcb().free_pixmap(c, drawable);
     if (!image)
         return {};
     const int stride = geo->width * 4;
-    if (xcb_get_image_data_length(image.get()) < stride * geo->height)
+    if (xcb().get_image_data_length(image.get()) < stride * geo->height)
         return {};
-    QImage out(xcb_get_image_data(image.get()), geo->width, geo->height, stride,
+    QImage out(xcb().get_image_data(image.get()), geo->width, geo->height, stride,
                QImage::Format_RGB32);
     return out.copy();
 }
 
 bool redirect(xcb_connection_t *c, xcb_window_t w)
 {
-    auto version = reply(xcb_composite_query_version_reply(
-        c, xcb_composite_query_version(c, 0, 4), nullptr));
+    auto version = reply(xcb().composite_query_version_reply(
+        c, xcb().composite_query_version(c, 0, 4), nullptr));
     if (!version)
         return false;
-    xcb_generic_error_t *e = xcb_request_check(
-        c, xcb_composite_redirect_window_checked(
-               c, w, XCB_COMPOSITE_REDIRECT_AUTOMATIC));
+    xcb_generic_error_t *e = xcb().request_check(
+        c, xcb().composite_redirect_window_checked(
+               c, w, kRedirectAutomatic));
     free(e);
     return e == nullptr;
 }
 
 bool littleEndianServer(xcb_connection_t *c)
 {
-    return xcb_get_setup(c)->image_byte_order == XCB_IMAGE_ORDER_LSB_FIRST;
+    return xcb().get_setup(c)->image_byte_order == XCB_IMAGE_ORDER_LSB_FIRST;
 }
 
 struct LightningWindowCaptureSrc {
@@ -1265,10 +1345,10 @@ bool paintWindow(LightningWindowCaptureSrc *self, uchar *dst)
     frame.fill(Qt::black);
 
     xcb_generic_error_t *error = nullptr;
-    auto attrs = reply(xcb_get_window_attributes_reply(
-        c, xcb_get_window_attributes(c, window), &error));
+    auto attrs = reply(xcb().get_window_attributes_reply(
+        c, xcb().get_window_attributes(c, window), &error));
     if (!attrs) {
-        const bool gone = xcb_connection_has_error(c)
+        const bool gone = xcb().connection_has_error(c)
             || (error && error->error_code == XCB_WINDOW);
         free(error);
         return !gone;
@@ -1281,7 +1361,7 @@ bool paintWindow(LightningWindowCaptureSrc *self, uchar *dst)
 
     int width = 0;
     int height = 0;
-    const QImage pixels = windowPixels(c, window, &width, &height);
+    const QImage pixels = windowPixels(c, window, &width, &height, false);
     if (pixels.isNull())
         return true;
     if (width != self->lastWidth || height != self->lastHeight) {
@@ -1365,7 +1445,7 @@ gboolean startSrc(GstBaseSrc *base)
     }
     int width = 0;
     int height = 0;
-    windowPixels(c.get(), window, &width, &height);
+    windowPixels(c.get(), window, &width, &height, false);
     if (width < 2 || height < 2) {
         GST_ELEMENT_ERROR(self, RESOURCE, NOT_FOUND,
                           ("The window to share has no visible area."),
@@ -1393,7 +1473,7 @@ gboolean stopSrc(GstBaseSrc *base)
     auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(base);
     // Disconnecting also drops our redirect.
     if (self->conn)
-        xcb_disconnect(self->conn);
+        xcb().disconnect(self->conn);
     self->conn = nullptr;
     self->outWidth = 0;
     self->outHeight = 0;
@@ -1482,7 +1562,7 @@ GstFlowReturn createFrame(GstPushSrc *push, GstBuffer **out)
     waitForFrameSlot(self);
     // Errors of unchecked requests (a window closing mid-frame) queue as
     // events; nobody else reads this connection.
-    while (xcb_generic_event_t *event = xcb_poll_for_event(self->conn))
+    while (xcb_generic_event_t *event = xcb().poll_for_event(self->conn))
         free(event);
 
     const gsize size =
@@ -1609,10 +1689,20 @@ QImage scaledThumbnail(const QImage &image, int maxEdge)
 
 namespace lightning::wincap {
 
+bool x11LibrariesLoaded() { return xcb().complete; }
+
+void setX11SymbolResolverForTest(X11SymbolResolver resolver)
+{
+    const std::lock_guard<std::mutex> lock(g_xcbMutex);
+    g_xcbResolver = resolver ? resolver : dlopenResolve;
+    g_xcb.reset();
+}
+
 bool available()
 {
     return QGuiApplication::platformName().startsWith(QLatin1String("xcb"))
-        && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY");
+        && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY")
+        && x11LibrariesLoaded();
 }
 
 ProcessInfo processInfo(quint64) { return {}; }
@@ -1648,10 +1738,10 @@ QList<WindowInfo> enumerateWindows()
     for (auto it = clients.crbegin(); it != clients.crend(); ++it) {
         const xcb_window_t w = *it;
         X11WindowFacts facts;
-        auto attrs = reply(xcb_get_window_attributes_reply(
-            c, xcb_get_window_attributes(c, w), nullptr));
+        auto attrs = reply(xcb().get_window_attributes_reply(
+            c, xcb().get_window_attributes(c, w), nullptr));
         auto geo =
-            reply(xcb_get_geometry_reply(c, xcb_get_geometry(c, w), nullptr));
+            reply(xcb().get_geometry_reply(c, xcb().get_geometry(c, w), nullptr));
         if (!attrs || !geo)
             continue;
         facts.viewable = attrs->map_state == XCB_MAP_STATE_VIEWABLE;
@@ -1682,7 +1772,13 @@ QList<WindowInfo> enumerateWindows()
             wmClass.size() > 1 ? wmClass.at(1) : wmClass.value(0));
         const QList<quint32> pid = words(property(c, w, netPid,
                                                   XCB_ATOM_CARDINAL, 1));
-        info.pid = pid.isEmpty() ? 0 : pid.first();
+        // A pid from another host (ssh -X) names nothing here.
+        const QByteArray machine = property(c, w, XCB_ATOM_WM_CLIENT_MACHINE,
+                                            XCB_ATOM_STRING);
+        const bool local = machine.isEmpty()
+            || QString::fromLocal8Bit(machine)
+                   == QSysInfo::machineHostName();
+        info.pid = (pid.isEmpty() || !local) ? 0 : pid.first();
         info.width = facts.width;
         info.height = facts.height;
         out.append(info);
@@ -1699,7 +1795,7 @@ QImage captureThumbnail(quint64 handle, int maxEdge)
     // dropping it per thumbnail would make an uncomposited desktop repaint.
     return scaledThumbnail(
         windowPixels(c.get(), static_cast<xcb_window_t>(handle), nullptr,
-                     nullptr),
+                     nullptr, true),
         maxEdge);
 }
 
@@ -1713,9 +1809,9 @@ QImage captureAreaThumbnail(const QRect &area, int maxEdge)
         || !littleEndianServer(conn.get()))
         return {};
     xcb_connection_t *c = conn.get();
-    auto image = reply(xcb_get_image_reply(
+    auto image = reply(xcb().get_image_reply(
         c,
-        xcb_get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, root,
+        xcb().get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, root,
                       static_cast<int16_t>(area.x()),
                       static_cast<int16_t>(area.y()),
                       static_cast<uint16_t>(area.width()),
@@ -1723,10 +1819,13 @@ QImage captureAreaThumbnail(const QRect &area, int maxEdge)
         nullptr));
     const int stride = area.width() * 4;
     if (!image || (image->depth != 24 && image->depth != 32)
-        || xcb_get_image_data_length(image.get()) < stride * area.height())
+        || xcb().get_image_data_length(image.get()) < stride * area.height())
         return {};
-    return scaledThumbnail(QImage(xcb_get_image_data(image.get()), area.width(),
-                                  area.height(), stride, QImage::Format_RGB32),
+    // copy(): scaled() to the same size shares the reply's freed buffer.
+    return scaledThumbnail(QImage(xcb().get_image_data(image.get()),
+                                  area.width(), area.height(), stride,
+                                  QImage::Format_RGB32)
+                               .copy(),
                            maxEdge);
 }
 

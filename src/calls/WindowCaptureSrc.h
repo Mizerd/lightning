@@ -78,6 +78,14 @@ QImage captureScreenThumbnail(int displayIndex, int maxEdge);
 /// X11: a root-window area in native pixels.
 QImage captureAreaThumbnail(const QRect &area, int maxEdge);
 
+/// X11: libxcb and libxcb-composite are dlopen'd; window sharing is offered
+/// only when every symbol resolves.
+using X11SymbolResolver = void *(*)(const char *library, const char *symbol);
+bool x11LibrariesLoaded();
+/// Test seam: replaces dlopen/dlsym (nullptr restores them) and forgets what
+/// was resolved.
+void setX11SymbolResolverForTest(X11SymbolResolver resolver);
+
 bool displayForDeviceName(const QString &deviceName, int *index, int *width,
                           int *height);
 

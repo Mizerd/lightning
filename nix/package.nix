@@ -13,6 +13,7 @@
   qt6,
   kdePackages,
   pipewire,
+  libxcb,
   libsecret,
   glib,
   xkeyboard_config,
@@ -88,8 +89,6 @@ stdenv.mkDerivation {
     qt6.qtmultimedia
     pipewire
     libsecret
-    # X11 single-window share (xcb-composite).
-    libxcb
     glib
     xkeyboard_config
     # image format support, test using `lightning-matrix --image-format-status`
@@ -130,6 +129,8 @@ stdenv.mkDerivation {
         # A host VA driver would otherwise map its own older
         # libgstcodecparsers and stop nvcodec loading (see devShells.nix).
         gst_all_1.gst-plugins-bad
+        # X11 window sharing dlopens libxcb-composite by soname.
+        libxcb
       ]
     }"
     "--prefix GST_PLUGIN_PATH : ${lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gst}"
