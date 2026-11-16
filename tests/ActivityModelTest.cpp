@@ -1024,6 +1024,39 @@ private Q_SLOTS:
         QCOMPARE(h.row(0).value(QStringLiteral("timestampMs")).toLongLong(), qint64(1700000000000));
     }
 
+    void aKnownSendTimeReplacesTheFirstSeenRecordAndSurvivesAReload()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!inv:mock.local");
+        r.name = QStringLiteral("Secret club");
+        r.membership = RoomInfo::Invited;
+        r.inviterUserId = QStringLiteral("@bob:mock.local");
+        QVERIFY(h.model.noteInvite(r));
+        QVERIFY(h.row(0).value(QStringLiteral("timestampMs")).toLongLong() > 1800000000000);
+        QVariantMap stored = h.stored;
+        FakeClient first;
+        ActivityModel again;
+        again.setStore({ [&] { return stored; }, [&](const QVariantMap &m) { stored = m; } });
+        again.setClient(&first);
+        Q_EMIT first.connectionStateChanged(MatrixClient::Syncing);
+
+        r.inviteSentMs = 1700000000000;
+        QVERIFY(again.noteInvite(r));
+        QCOMPARE(stored.value(QStringLiteral("invites")).toMap().value(r.id).toMap()
+                     .value(QStringLiteral("t")).toLongLong(), qint64(1700000000000));
+
+        r.inviteSentMs = 0;
+        FakeClient client;
+        ActivityModel next;
+        next.setStore({ [&] { return stored; }, [&](const QVariantMap &m) { stored = m; } });
+        next.setClient(&client);
+        Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
+        QVERIFY(next.noteInvite(r));
+        QCOMPARE(next.entryAt(0).value(QStringLiteral("timestampMs")).toLongLong(),
+                 qint64(1700000000000));
+    }
+
     void anInviteAnsweredHereLeavesTheBellAtOnceAndStaysGone()
     {
         Harness h;

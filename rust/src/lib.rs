@@ -14080,7 +14080,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "join_rule": rooms::join_rule_str(room.join_rule().as_ref()),
         "room_type": room.room_type().map(|kind| kind.to_string()).unwrap_or_default(),
         "prev_batch": room.last_prev_batch().unwrap_or_default(),
-        "invited_at_ms": if membership == "invited" { invites::sent_ms(room) } else { 0 },
+        "invited_at_ms": invites::sent_ms(room),
         "inviter_user_id": inviter_user_id,
         "inviter_display_name": inviter_display_name,
         "successor_room_id": room

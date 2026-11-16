@@ -246,9 +246,19 @@ pub(crate) fn install_sent_time_handler(client: &Client) {
 }
 
 /// When the invitation was sent, if the server told us; 0 when unknown.
+/// Forgets the entry once the room is no longer an invitation.
 pub(crate) fn sent_ms(room: &Room) -> u64 {
     let key = (room.own_user_id().to_owned(), room.room_id().to_owned());
-    sent_times().lock().unwrap().get(&key).copied().unwrap_or(0)
+    lookup_or_prune(&mut sent_times().lock().unwrap(), &key, room.state() == RoomState::Invited)
+}
+
+fn lookup_or_prune(map: &mut HashMap<SentKey, u64>, key: &SentKey, invited: bool) -> u64 {
+    if invited {
+        map.get(key).copied().unwrap_or(0)
+    } else {
+        map.remove(key);
+        0
+    }
 }
 
 #[cfg(test)]
@@ -309,6 +319,18 @@ mod tests {
         assert_eq!(invite_sent_ms(&ev(with, "@me:example.org", "join"), me, now), None);
         assert_eq!(invite_sent_ms(&ev(r#""origin_server_ts":0,"#, "@me:example.org", "invite"), me, now), None);
         assert_eq!(invite_sent_ms(&ev(with, "@me:example.org", "invite"), me, 1_000), None, "future stamp");
+    }
+
+    #[test]
+    fn a_send_time_is_forgotten_once_the_room_is_no_longer_invited() {
+        let key: SentKey = (
+            matrix_sdk::ruma::user_id!("@me:example.org").to_owned(),
+            room_id!("!r:example.org").to_owned(),
+        );
+        let mut map = HashMap::from([(key.clone(), 5)]);
+        assert_eq!(lookup_or_prune(&mut map, &key, true), 5);
+        assert_eq!(lookup_or_prune(&mut map, &key, false), 0);
+        assert!(map.is_empty());
     }
 
     #[test]

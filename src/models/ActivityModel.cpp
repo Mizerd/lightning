@@ -1423,10 +1423,12 @@ bool ActivityModel::noteInvite(const RoomInfo &room)
                                                      : room.inviterDisplayName;
     e.senderNamePending = e.senderId.isEmpty() || e.senderName == e.senderId;
     const QVariantMap rec = m_invites.value(room.id).toMap();
+    const qint64 stored = rec.value(QStringLiteral("t")).toLongLong();
     if (!rec.isEmpty()) {
-        e.timestampMs = room.inviteSentMs > 0
-            ? room.inviteSentMs : rec.value(QStringLiteral("t")).toLongLong();
+        e.timestampMs = room.inviteSentMs > 0 ? room.inviteSentMs : stored;
         e.seenMark = rec.value(QStringLiteral("seen")).toBool();
+        if (m_storeLoaded && room.inviteSentMs > 0 && room.inviteSentMs != stored)
+            rememberInvite(room.id, room.inviteSentMs, e.seenMark);
     } else {
         e.timestampMs = room.inviteSentMs > 0 ? room.inviteSentMs : now();
         if (m_storeLoaded)
