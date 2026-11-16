@@ -12,7 +12,7 @@ rooms and MatrixRTC group calls.
 [![Flathub](https://img.shields.io/flathub/v/org.lightning_matrix.Lightning?logo=flathub&label=flathub)](https://flathub.org/apps/org.lightning_matrix.Lightning)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/lightning-matrix/lightning?style=flat&logo=github)](https://github.com/lightning-matrix/lightning/stargazers)
-[![Matrix room](https://img.shields.io/badge/matrix-%23lightning%3Amatrix.smetonis.net-0dbd8b?logo=matrix)](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net)
+[![Matrix space](https://img.shields.io/badge/matrix-%23lightning--community%3Amatrix.smetonis.net-0dbd8b?logo=matrix)](https://matrix.to/#/%23lightning-community%3Amatrix.smetonis.net)
 
 **[Website](https://www.lightning-matrix.org)** ·
 **[Get it on Flathub](https://flathub.org/apps/org.lightning_matrix.Lightning)** ·
@@ -155,7 +155,7 @@ Bug reports, testing and focused patches are welcome. Read
   requests. Release packages are also mirrored to
   [gitlab.com/lightning-matrix/lightning](https://gitlab.com/lightning-matrix/lightning)
   as a last-resort download source. It is not a separate project.
-- Chat: [#lightning:matrix.smetonis.net](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net).
+- Chat: the [#lightning-community:matrix.smetonis.net](https://matrix.to/#/%23lightning-community%3Amatrix.smetonis.net) Space (announcements, general chat and support).
   Website: <https://www.lightning-matrix.org>.
 
 ## Security and privacy
