@@ -126,7 +126,9 @@ private Q_SLOTS:
         QVERIFY2(!lib.contains(QStringLiteral("\"type\": \"room_action_error\"")),
                  "a room_action_error is still built by hand in lib.rs, without "
                  "its reason");
-        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 7);
+        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event("))
+                     + lib.count(QStringLiteral("roomaction::room_failure_event(")),
+                 7);
     }
 
     void anOverflowResyncsRatherThanOnlyReporting()

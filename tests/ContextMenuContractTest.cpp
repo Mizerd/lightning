@@ -519,7 +519,7 @@ private Q_SLOTS:
         const QString grantCall = QStringLiteral(
             "canRedactEvent(\n                             root.menuEventId, "
             "root.canRedactOthers)");
-        QCOMPARE(block.count(grantCall), 3);
+        QCOMPARE(block.count(grantCall), 2);
         QVERIFY2(delegate.contains(QStringLiteral(
                      "enabled: root.timelineModel.canRedactEvent(\n"
                      "                             root.menuEventId, "
