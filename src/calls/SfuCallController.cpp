@@ -1115,8 +1115,10 @@ bool SfuCallController::populateLinuxDisplaySources()
     }
     if (m_screenShareSources.isEmpty())
         return false;
+#ifdef HAVE_LIGHTNING_WEBRTC
     m_screenShareSources.append(
         windowShareRows(lightning::wincap::enumerateWindows()));
+#endif
     return true;
 }
 

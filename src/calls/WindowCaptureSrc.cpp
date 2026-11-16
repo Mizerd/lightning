@@ -1109,10 +1109,9 @@ QList<quint32> words(const QByteArray &bytes)
     return out;
 }
 
-/// The window's own contents as RGB32, independent of what overlaps it on
-/// screen. Needs the window redirected (by a compositor or by us): GetImage
-/// on the window itself is refused off-screen and, without a compositor,
-/// returns whatever covers it.
+/// The window's own contents as RGB32. Free of what overlaps it only while
+/// the window or its frame is redirected (by a compositor or by us); without
+/// that, GetImage returns whatever covers it.
 QImage windowPixels(xcb_connection_t *c, xcb_window_t w, int *width,
                     int *height)
 {
@@ -1129,20 +1128,24 @@ QImage windowPixels(xcb_connection_t *c, xcb_window_t w, int *width,
         *height = geo->height;
     if (geo->depth != 24 && geo->depth != 32)
         return {};
-    const xcb_pixmap_t pixmap = xcb_generate_id(c);
+    // Only a redirected window has a pixmap of its own. A child of a
+    // compositor-redirected frame does not; GetImage on the window then reads
+    // the frame's pixmap, which is equally free of what overlaps it.
+    xcb_drawable_t drawable = xcb_generate_id(c);
+    int16_t origin = static_cast<int16_t>(geo->border_width);
     if (xcb_generic_error_t *e = xcb_request_check(
-            c, xcb_composite_name_window_pixmap_checked(c, w, pixmap))) {
+            c, xcb_composite_name_window_pixmap_checked(c, w, drawable))) {
         free(e);
-        return {};
+        drawable = w;
+        origin = 0;
     }
     auto image = reply(xcb_get_image_reply(
         c,
-        xcb_get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, pixmap,
-                      static_cast<int16_t>(geo->border_width),
-                      static_cast<int16_t>(geo->border_width), geo->width,
-                      geo->height, ~0u),
+        xcb_get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, drawable, origin, origin,
+                      geo->width, geo->height, ~0u),
         nullptr));
-    xcb_free_pixmap(c, pixmap);
+    if (drawable != w)
+        xcb_free_pixmap(c, drawable);
     if (!image)
         return {};
     const int stride = geo->width * 4;
@@ -1175,6 +1178,8 @@ struct LightningWindowCaptureSrc {
     GstPushSrc parent;
     guint64 xid;
     xcb_connection_t *conn;
+    xcb_atom_t netState;
+    xcb_atom_t stateHidden;
     gint outWidth;
     gint outHeight;
     gint startWidth;
@@ -1266,7 +1271,10 @@ bool paintWindow(LightningWindowCaptureSrc *self, uchar *dst)
         free(error);
         return !gone;
     }
-    if (attrs->map_state != XCB_MAP_STATE_VIEWABLE)
+    // Mutter-based window managers keep a minimised window mapped.
+    if (attrs->map_state != XCB_MAP_STATE_VIEWABLE
+        || words(property(c, window, self->netState, XCB_ATOM_ATOM))
+               .contains(self->stateHidden))
         return true;
 
     int width = 0;
@@ -1362,6 +1370,8 @@ gboolean startSrc(GstBaseSrc *base)
                           ("window is unmapped or empty"));
         return FALSE;
     }
+    self->netState = atom(c.get(), "_NET_WM_STATE");
+    self->stateHidden = atom(c.get(), "_NET_WM_STATE_HIDDEN");
     self->conn = c.release();
     self->startWidth = width & ~1;
     self->startHeight = height & ~1;
@@ -1553,6 +1563,8 @@ void lightning_window_capture_src_init(LightningWindowCaptureSrc *self)
 {
     self->xid = 0;
     self->conn = nullptr;
+    self->netState = XCB_ATOM_NONE;
+    self->stateHidden = XCB_ATOM_NONE;
     self->outWidth = 0;
     self->outHeight = 0;
     self->startWidth = 0;

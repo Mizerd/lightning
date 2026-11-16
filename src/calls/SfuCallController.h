@@ -22,9 +22,7 @@
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
-#ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/WindowCaptureSrc.h"
-#endif
 
 class MatrixClient;
 class QScreen;
