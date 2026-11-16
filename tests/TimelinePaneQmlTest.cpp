@@ -7118,6 +7118,10 @@ false);
         QVERIFY2(waitForRowsToStopArriving(controller),
                  "the proxy never finished revealing, so the probes below "
                  "would be measured against a timeline still growing");
+        // The Column places the last revealed row only on its next polish, and
+        // the anchor pass that height change queues moves contentY: settle both.
+        window.grabWindow();
+        QCoreApplication::processEvents();
 
         const double contentY = timeline->property("contentY").toDouble();
         const double fromTop = topmostY() - contentY;
