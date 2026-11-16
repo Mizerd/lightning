@@ -46,6 +46,8 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <memory>
+#include <thread>
+#include <vector>
 #include <unistd.h>
 #ifdef Q_OS_LINUX
 #include <linux/videodev2.h>
@@ -2044,6 +2046,41 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(idleThreads(), 0, 10000);
     }
 #endif
+
+    void endingACallUnderFullLoadDoesNotWaitForLoweredThreads()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        engine.publishVideo(QStringLiteral("cid-video"), false, -1);
+        QTRY_VERIFY(!engine.streamInfoStats().isEmpty()
+                    && engine.streamInfoStats().first().toMap()
+                               .value("width").toInt() > 0);
+
+        std::atomic<bool> spin{true};
+        std::vector<std::thread> load;
+        for (int i = 0; i < 2 * QThread::idealThreadCount(); ++i) {
+            load.emplace_back([&spin] {
+                volatile quint64 x = 1;
+                while (spin.load(std::memory_order_relaxed))
+                    x = x * 6364136223846793005ULL + 1;
+            });
+        }
+        QThread::msleep(300);
+        QElapsedTimer timer;
+        timer.start();
+        engine.stop();
+        const qint64 stopMs = timer.elapsed();
+        spin = false;
+        for (std::thread &t : load)
+            t.join();
+        qInfo() << "stop() under full CPU load took" << stopMs << "ms";
+        QVERIFY2(stopMs < 500,
+                 qPrintable(QStringLiteral("ending a call waited %1 ms on "
+                                           "the GUI thread for lowered video "
+                                           "threads").arg(stopMs)));
+    }
 
     void anOfferIsOnlyMadeOnceThereIsMediaAndThenCarriesIt()
     {
@@ -6039,7 +6076,7 @@ true,2147483,
         for (int h : { 720, 1080, 1440, 2160 }) {
             const QString cpu = SfuMediaEngine::shareScaleStage(h, false);
             QCOMPARE(cpu, QStringLiteral("videoconvertscale n-threads=%1")
-                              .arg(SfuMediaEngine::videoThreads()));
+                              .arg(std::max(2, SfuMediaEngine::videoThreads())));
 
             const QString gpu = SfuMediaEngine::shareScaleStage(h, true);
             QVERIFY2(gpu.startsWith(QStringLiteral("glupload")),
@@ -6125,11 +6162,14 @@ true,2147483,
                      qPrintable(QStringLiteral(
                          "the CPU fallback went back to two passes: %1")
                              .arg(cpu)));
-            QVERIFY2(cpu.contains(QStringLiteral("n-threads=%1")
-                                      .arg(SfuMediaEngine::videoThreads())),
+            static const QRegularExpression threads(
+                QStringLiteral("n-threads=(\\d+)"));
+            const QRegularExpressionMatch m = threads.match(cpu);
+            QVERIFY2(m.hasMatch() && m.captured(1).toInt() >= 2,
                      qPrintable(QStringLiteral(
-                         "the CPU fallback does not size its threads to the "
-                         "machine: %1").arg(cpu)));
+                         "the CPU fallback converts on one thread, which "
+                         "cannot keep up with a 4K capture on an older "
+                         "laptop: %1").arg(cpu)));
         }
 #if defined(Q_OS_LINUX)
         QVERIFY2(SfuMediaEngine::shareScaleStage(1080, true)
