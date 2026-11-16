@@ -1033,7 +1033,7 @@ private Q_SLOTS:
         r.membership = RoomInfo::Invited;
         r.inviterUserId = QStringLiteral("@bob:mock.local");
         QVERIFY(h.model.noteInvite(r));
-        QVERIFY(h.row(0).value(QStringLiteral("timestampMs")).toLongLong() > 1800000000000);
+        QVERIFY(h.row(0).value(QStringLiteral("timestampMs")).toLongLong() >= h.clockMs() - 60000);
         QVariantMap stored = h.stored;
         FakeClient first;
         ActivityModel again;
