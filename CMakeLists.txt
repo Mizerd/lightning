@@ -4085,6 +4085,8 @@ if(BUILD_TESTING)
         tests/ForwardMessageTest.cpp
         src/app/ForwardController.h
         src/app/ForwardController.cpp
+        src/matrix/EventPreview.h
+        src/matrix/EventPreview.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
         src/app/SaveNaming.h
