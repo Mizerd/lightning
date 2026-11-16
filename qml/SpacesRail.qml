@@ -772,7 +772,7 @@ Rectangle {
                 Rectangle {
                     objectName: "railSpaceActivePill"
                     visible: spaceItem.isActive
-                    width: AppTheme.scaled(8)
+                    width: AppTheme.scaled(6)
                     height: Math.round(spaceTile.height * 0.6)
                     radius: width / 2
                     x: -width / 2
