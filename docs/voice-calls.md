@@ -1169,6 +1169,43 @@ currently blocked here by the mingw-w64 UCRT/msvcrt break recorded above).
 That is a hypothesis, NOT a measurement — the numbers in this block are Linux
 `videotestsrc` and say nothing about either capture element.
 
+## A game must win the CPU over a video publish (2026-11-16)
+
+Reported on a 4-core/8-thread Ivy Bridge: sharing the screen made Minecraft and
+a Proton game stutter. Measured here with the real CPU share stages (1680x1050
+BGRx at 30 fps, moving content, into fakesink) beside a fake game that needs a
+fixed CPU slice per 60 Hz frame, everything `nice 19` and pinned with `taskset`;
+the lowered share ran `SCHED_IDLE` against that nice-19 game, a smaller gap than
+the shipped one against a game at nice 0.
+
+* **`vp8enc threads=4` was the cost, not the encode.** libvpx spin-waits between
+  its threads, so on a 2-core/4-thread budget beside a two-thread game the
+  share burned **2.5 cores and fell to ~19 fps**; `threads=2` did the same work
+  in **1.0 core at 30 fps**, and the game went from ~420/600 frames over budget
+  to ~5. `videoconvertscale n-threads` mattered far less. Both now take
+  `videoThreads()` = a quarter of the logical CPUs, 1..4 (4 on a 16+ CPU box,
+  unchanged there).
+* **Video publish threads run `SCHED_IDLE`** (nice 19 if refused; `LOWEST` on
+  Windows, UTILITY QoS on macOS), on a pool that gives every task its own
+  thread: a lowered thread cannot raise itself again and must never come back
+  to run audio. On 4c/8t with an 8-thread game the shipped shape took
+  over-budget frames from 46-53 to 18-33. The game's p50 does not move
+  (15.7 ms against 10.2 alone): a share thread on a game thread's SMT sibling
+  slows it whatever its priority. `videoconvertscale`'s own helper threads are
+  GLib pool threads and keep normal priority.
+* **`sendq`, after the encoder, keeps normal priority on purpose.** The encrypt
+  probe sits on its src pad, and `m_sendCryptor`, rtpbin and the transport are
+  shared with audio: a lowered thread preempted while holding one of those
+  locks would stall the microphone. It is NOT leaky (a dropped encoded frame
+  breaks every frame up to the next keyframe); two frames, and when it fills
+  the encoder blocks and the leaky queue before it drops raw frames.
+* Refuted, do not re-propose without new numbers: `cpu-used` 4..16 under
+  `deadline=1` (0.72-0.84 cores, inside run-to-run noise) and the self-view
+  conversion (~0.05 core).
+
+NOT TESTED: a real Ivy Bridge, a real game, the GL share path (it competes for
+the GPU, which this harness cannot show), Windows, macOS.
+
 ## Hardware share encoding (2026-10-31)
 
 **Opt-in: `LIGHTNING_SHARE_ENCODER=hardware`. Software VP8 stays the default**,
