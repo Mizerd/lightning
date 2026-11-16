@@ -58,6 +58,19 @@ bool ForwardController::snapshotIsMedia(const QVariantMap &snapshot)
         || snapshot.value(QStringLiteral("isFile")).toBool();
 }
 
+// The body is a caption only when it differs from the file name, as the
+// timeline row decides.
+QString ForwardController::mediaCaption(const QVariantMap &snapshot)
+{
+    const QString body = snapshot.value(QStringLiteral("body")).toString().trimmed();
+    const QString name =
+        snapshot.value(QStringLiteral("mediaFilename")).toString().trimmed();
+    if (body.isEmpty() || name.isEmpty()
+        || body.compare(name, Qt::CaseInsensitive) == 0)
+        return {};
+    return body;
+}
+
 QString ForwardController::buildPreview(const QVariantMap &snapshot)
 {
     const QString sender =
@@ -438,6 +451,7 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         return;
     }
 
+    const QString caption = mediaCaption(m_snapshot);
     const bool spoiler = m_snapshot.value(QStringLiteral("mediaSpoiler")).toBool();
     if (spoiler && !m_client->supportsSpoilerMedia()) {
         m_busy = false;
@@ -448,13 +462,13 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         ? m_client->sendSpoilerMedia(
               targetRoomId, QString(), QString(), bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,
-              mime, QString(), width, height, 0,
+              mime, caption, width, height, 0,
               mime == QLatin1String("image/gif"), QByteArray(), 0, 0, QString())
         : m_client->supportsRoomScopedAttachmentSend()
         ? m_client->sendAttachmentBytesToRoom(
               targetRoomId, bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,
-              mime, width, height)
+              mime, caption, width, height)
         : m_client->sendAttachmentBytes(
               targetRoomId, bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,

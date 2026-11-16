@@ -767,6 +767,20 @@ Rectangle {
                     visible: spaceItem.isActive
                 }
 
+                // Shape, not colour, marks the selection: the ring alone was
+                // missed in themes where the accent sits close to the tile.
+                Rectangle {
+                    objectName: "railSpaceActivePill"
+                    visible: spaceItem.isActive
+                    width: AppTheme.scaled(8)
+                    height: Math.round(spaceTile.height * 0.6)
+                    radius: width / 2
+                    x: -width / 2
+                    y: spaceTile.y + (spaceTile.height - height) / 2
+                    z: 2
+                    color: AppTheme.text
+                }
+
                 Rectangle {
                     visible: spaceItem.carriesDivider
                     width: root.railDividerWidth

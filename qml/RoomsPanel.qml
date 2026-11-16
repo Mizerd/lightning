@@ -613,8 +613,6 @@ Rectangle {
                 readonly property bool homeView:
                     app.spaceChannels
                     && app.spaceChannels.viewKind === "home"
-                readonly property string allTip: roomListSortMenu.groupingText
-                                                 + " " + roomListSortMenu.sortText
                 readonly property int archivedCount: channelsLayout
                     ? app.spaceChannels.archivedCount
                     : app.roomList.archivedCount
@@ -641,16 +639,16 @@ Rectangle {
                 }
                 model: channelsLayout
                        ? ((spaceView || homeView)
-                          ? [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
+                          ? [ { label: qsTr("All"), value: 0 },
                               { label: qsTr("People"), value: 1 },
                               { label: qsTr("Favourites"), value: 4 },
                               { label: qsTr("Unreads"), value: 3 } ].concat(
                               filterChips.archivedShown ? [ filterChips.archivedChip ] : [])
-                          : [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
+                          : [ { label: qsTr("All"), value: 0 },
                               { label: qsTr("Favourites"), value: 4 },
                               { label: qsTr("Unreads"), value: 3 } ].concat(
                               filterChips.archivedShown ? [ filterChips.archivedChip ] : []))
-                       : [ { label: qsTr("All"), value: 0, tip: filterChips.allTip },
+                       : [ { label: qsTr("All"), value: 0 },
                            { label: qsTr("People"), value: 1 },
                            { label: qsTr("Rooms"), value: 2 },
                            { label: qsTr("Favourites"), value: 4 },

@@ -232,6 +232,7 @@ char *mx_rust_set_room_archived(void *client, const char *room_id, int archived)
 char *mx_rust_room_send_attachment_bytes(void *client, const char *room_id,
                                          const unsigned char *data, size_t len,
                                          const char *filename, const char *mime,
+                                         const char *caption,
                                          uint64_t width, uint64_t height,
                                          uint64_t op_id);
 /* Server-synchronized per-room notification mode (SDK push rules).

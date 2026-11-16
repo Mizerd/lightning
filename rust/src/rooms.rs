@@ -5171,6 +5171,7 @@ pub(crate) fn send_attachment_bytes_to_room(
     bytes: Vec<u8>,
     filename: String,
     mime: String,
+    caption: String,
     width: u64,
     height: u64,
     op_id: u64,
@@ -5192,7 +5193,9 @@ pub(crate) fn send_attachment_bytes_to_room(
     )?;
     let events = Arc::clone(&bridge.events);
     bridge.spawn_room_action(async move {
-        let mut config = attachment::AttachmentConfig::new();
+        let mut config = attachment::AttachmentConfig::new()
+            .caption(caption_content(caption))
+            .mentions(Some(matrix_sdk::ruma::events::Mentions::new()));
         if let Some(info) = info {
             config = config.info(info);
         }
@@ -5211,6 +5214,14 @@ pub(crate) fn send_attachment_bytes_to_room(
         );
     });
     Ok(())
+}
+
+fn caption_content(
+    caption: String,
+) -> Option<matrix_sdk::ruma::events::room::message::TextMessageEventContent> {
+    let caption = caption.trim();
+    (!caption.is_empty())
+        .then(|| matrix_sdk::ruma::events::room::message::TextMessageEventContent::plain(caption))
 }
 
 #[allow(clippy::too_many_arguments)]

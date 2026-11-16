@@ -49,7 +49,7 @@ public:
     struct TextSend { QString roomId; QString body; };
     struct AttachmentSend {
         QString roomId; QByteArray bytes; QString filename; QString mime;
-        int width; int height;
+        int width; int height; QString caption;
     };
     QList<TextSend> textSends;
     QList<AttachmentSend> attachmentSends;
@@ -103,9 +103,10 @@ public:
                                       const QByteArray &bytes,
                                       const QString &filename,
                                       const QString &mime,
+                                      const QString &caption,
                                       int width, int height) override
     {
-        attachmentSends.append({ roomId, bytes, filename, mime, width, height });
+        attachmentSends.append({ roomId, bytes, filename, mime, width, height, caption });
         if (rejectNextAttachment) {
             rejectNextAttachment = false;
             return 0;
@@ -479,6 +480,33 @@ private Q_SLOTS:
         QCOMPARE(forwarded.count(), 1);
         QCOMPARE(forwarded.first().at(0).toString(), kRoomB);
         QVERIFY(!fwd.active());
+    }
+
+    void aCaptionTravelsWithTheMediaAndAFileNameBodyDoesNot()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        ForwardController fwd;
+        fwd.setClient(&client);
+        fwd.setMediaBridge(&bridge);
+
+        QVariantMap captioned = mediaSnapshot(QStringLiteral("$mediaX"));
+        captioned.insert(QStringLiteral("body"), QStringLiteral("look at this"));
+        fwd.begin(kRoomA, kEventA, captioned);
+        fwd.forwardTo(kRoomB);
+        client.succeed(client.fetches.first().opId, realGifBytes());
+        QCOMPARE(client.attachmentSends.size(), 1);
+        QCOMPARE(client.attachmentSends.first().caption, QStringLiteral("look at this"));
+        QCOMPARE(client.textSends.size(), 0);
+
+        QVariantMap bare = mediaSnapshot(QStringLiteral("$mediaY"));
+        bare.insert(QStringLiteral("body"), QStringLiteral("CAT.png"));
+        fwd.begin(kRoomA, kEventA, bare);
+        fwd.forwardTo(kRoomB);
+        client.succeed(client.fetches.last().opId, realGifBytes());
+        QCOMPARE(client.attachmentSends.size(), 2);
+        QVERIFY(client.attachmentSends.last().caption.isEmpty());
     }
 
     void aSpoilerIsForwardedWithItsMarkerOrNotAtAll()

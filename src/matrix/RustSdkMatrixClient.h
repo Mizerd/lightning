@@ -753,6 +753,7 @@ public:
                                       const QByteArray &bytes,
                                       const QString &filename,
                                       const QString &mime,
+                                      const QString &caption,
                                       int width, int height) override;
     quint64 sendThreadAttachment(const QString &roomId,
                                  const QString &rootEventId,
