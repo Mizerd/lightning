@@ -241,8 +241,8 @@ fn sent_times() -> &'static Mutex<HashMap<SentKey, u64>> {
 }
 
 /// matrix-sdk drops `origin_server_ts` when it types a stripped event, so the
-/// time only survives in the raw JSON; Synapse and Continuwuity include it,
-/// the spec does not require it.
+/// time only survives in the raw JSON when the server sends it; Synapse omits
+/// it from sliding-sync invite_state, so first-seen is the usual fallback.
 fn invite_sent_ms(raw: &str, own: &UserId, now_ms: u64) -> Option<u64> {
     let v: serde_json::Value = serde_json::from_str(raw).ok()?;
     if v.get("state_key")?.as_str()? != own.as_str()
