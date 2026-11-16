@@ -1303,6 +1303,15 @@ OpenID token's expiry.
   choose is not a feature. The honest cost is that a window drawing through
   its own swapchain prints blank, which is reported as a black frame and NOT
   worked around.
+  An X11 session WITHOUT a ScreenCast portal (Cinnamon, MATE, Xfce, LXQt, i3)
+  gets the same picker, displays plus single windows from the EWMH client
+  list, through the same element: it redirects the window with Composite and
+  reads the window's own pixmap, so nothing stacked on top leaks with or
+  without a compositor (measured on Cinnamon and on Xfce with compositing off).
+  `ximagesrc xid=` was measured and refused: a window closing mid-share is a
+  fatal Xlib `BadWindow` that ends the process. A resize is fitted into the
+  negotiated caps, a minimised window sends black, a closed one ends the share
+  with "The window you were sharing was closed." Wayland is never offered it.
 - **Publish ceilings match livekit-client's presets** — 1920x1080/30 for a
   screen share, 1280x720/30 for a camera — with `pixel-aspect-ratio` pinned to
   1/1 at BOTH the ceiling and the source, so a non-16:9 source arrives the

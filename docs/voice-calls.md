@@ -1048,8 +1048,20 @@ so. Only among CHOSEN processes is a child inside another chosen tree left to
 the parent. Sharing a window preselects its application (by executable) only
 when that application has an audio session and is not one Lightning runs
 inside; the choice is undone by Cancel, by going back to a screen, or when
-the share it was made for ends. **Linux has no such mapping**: the portal
-names no process for a window, and the X11 fallback shares displays only.
+the share it was made for ends. **On Linux only the no-portal X11 fallback
+has such a mapping**: its window rows carry `_NET_WM_PID`, matched to the one
+playing application whose streams report that pid; a pid two applications
+share (every Flatpak app's main process is pid 2) preselects nothing. The
+portal names no process for a window.
+
+**A Flatpak Lightning captured no other Flatpak app (fixed 2026-11-16).**
+Sandboxed clients report their namespaced pid as `application.process.id`, so
+a Flatpak Lightning (pid 2) read every other Flatpak app's main-process
+stream as its own playback. A pid now matches only inside our own sandbox,
+compared through the daemon-set `pipewire.access.portal.app_id`; a stream
+without that key keeps the old pid rule. Measured on PipeWire 1.4.2: a
+sandboxed player's stream reported pid 2 and its app id, and Flatpak
+Lightning's own pid is 2.
 
 **LIVE (2026-10-07, two instances, private PipeWire 1.6.9 graph, receiver's
 own PulseAudio, Goertzel at the receiver):** only the chosen app (690 Hz at
