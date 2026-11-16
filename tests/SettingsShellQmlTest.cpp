@@ -2139,8 +2139,17 @@ private slots:
         openSection(QStringLiteral("layout"));
         auto *preview = item("layoutPresetPreview");
         QVERIFY(preview);
+        auto *timeline = item("layoutPreviewTimeline");
+        QVERIFY(timeline);
         auto *settings = m_controller->settings();
         const int previousPreset = settings->layoutPreset();
+        const auto restore = qScopeGuard([&] {
+            settings->setLayoutPreset(previousPreset);
+            settings->resetLayoutPresetOverrides();
+            settings->setMessageLayout(0);
+            settings->setMessageSpacing(1);
+            openSection(QStringLiteral("appearance"));
+        });
         qreal first = -1;
         int states = 0;
         for (int layout : {0, 1, 2, 3}) {
@@ -2148,19 +2157,20 @@ private slots:
                                 SettingsManager::kSpacingRoomy}) {
                 settings->setMessageLayout(layout);
                 settings->setMessageSpacing(spacing);
-                QCoreApplication::processEvents();
+                // A rendered frame runs the polish that settles the layouts.
+                m_window->grabWindow();
                 if (first < 0)
                     first = preview->height();
                 QCOMPARE(preview->height(), first);
+                QVERIFY2(timeline->implicitHeight() <= timeline->height(),
+                         qPrintable(QStringLiteral("layout %1 spacing %2 needs %3 of %4")
+                                        .arg(layout).arg(spacing)
+                                        .arg(timeline->implicitHeight())
+                                        .arg(timeline->height())));
                 ++states;
             }
         }
         QCOMPARE(states, 8);
-        settings->setLayoutPreset(previousPreset);
-        settings->resetLayoutPresetOverrides();
-        settings->setMessageLayout(0);
-        settings->setMessageSpacing(1);
-        openSection(QStringLiteral("appearance"));
     }
 
     void subSectionLabelsUseTheirOwnLargerToken()

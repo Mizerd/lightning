@@ -15,12 +15,13 @@ Rectangle {
     readonly property int rowGap: messageSpacing === 0 ? 3
                                   : messageSpacing === 2 ? 10 : 6
     readonly property int composerHeight: compact ? 22 : 30
-    // The height is that of the TALLEST state (widest gaps, tall composer, the
-    // avatar row), so choosing a spacing or layout never moves the controls
-    // under the preview. Seven layout gaps plus the "You" label's top margin.
-    readonly property int worstCaseExtra: (10 - rowGap) * 8 + (30 - composerHeight)
-    implicitHeight: Math.max(168, timelineContent.implicitHeight + worstCaseExtra
-                                   + AppTheme.spacing8 * 2)
+    // Tallest state at the widest gap, from font metrics rather than the live
+    // layout, so changing spacing or layout never moves the controls below.
+    readonly property real metaLine: Math.ceil(metaMetrics.height)
+    readonly property real bodyLine: Math.ceil(bodyMetrics.height)
+    readonly property real tallestContent: Math.max(20, metaLine) + metaLine + 3 * bodyLine + 30
+                                           + Math.max(metaLine + 8 * 10, 3 * 6 + 7 * 10)
+    implicitHeight: Math.max(168, tallestContent + AppTheme.spacing8 * 2)
     radius: AppTheme.radiusMd
     color: AppTheme.timelineBackground
     border.color: AppTheme.stormBorder
@@ -28,6 +29,17 @@ Rectangle {
     clip: true
     Accessible.role: Accessible.Graphic
     Accessible.name: qsTr("Layout preview: room rail, message grouping and composer")
+
+    FontMetrics {
+        id: metaMetrics
+        font.family: AppTheme.uiFont
+        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+    }
+    FontMetrics {
+        id: bodyMetrics
+        font.family: AppTheme.uiFont
+        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -90,6 +102,7 @@ Rectangle {
             color: AppTheme.timelineBackground
             ColumnLayout {
                 id: timelineContent
+                objectName: "layoutPreviewTimeline"
                 anchors.fill: parent
                 spacing: root.rowGap
                 RowLayout {
