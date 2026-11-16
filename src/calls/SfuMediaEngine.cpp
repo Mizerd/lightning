@@ -87,6 +87,7 @@ std::atomic<bool> g_shareDmaBufCaptureFailed{false};
 std::atomic<bool> g_shareSystemMemoryCaptureFailed{false};
 QString g_pipewirePluginVersionForTest;
 constexpr const char kCaptureRetryKey[] = "lightning-capture-retry";
+constexpr const char kLowPriorityKey[] = "lightning-low-priority";
 
 int captureRetryStamp(GObject *bin)
 {
@@ -730,6 +731,10 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
         return GST_FLOW_OK;
     }
 
+    // The copy runs unlocked: a lowered self-view thread must not hold the
+    // gate the encrypt probe and the GUI also take.
+    if (gateLock.owns_lock())
+        gateLock.unlock();
     GstMapInfo map;
     if (!gst_buffer_map(buffer, &map, GST_MAP_READ)) {
         gst_sample_unref(sample);
@@ -756,6 +761,11 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     gst_buffer_unmap(buffer, &map);
     gst_sample_unref(sample);
 
+    if (gateLock.mutex()) {
+        gateLock.lock();
+        if (!ctx->gate->open)
+            return GST_FLOW_OK;
+    }
     SfuMediaEngine *engine = ctx->engine;
     const QString streamId = routeKey;
     SfuVideoRouter *router = engine->videoRouter();
@@ -1308,6 +1318,33 @@ void SfuMediaEngine::teardown(bool endOfCall)
         detachPendingStart(cid, m_publishedBins.value(cid, nullptr),
 true);
     m_asyncStarts.clear();
+    // A lowered bin finishes its frame at the lowest priority, so the
+    // pipeline's NULL would join it on this thread for as long as a game
+    // keeps the CPU. It stops off this thread; awaitPublishTeardowns() bounds
+    // what is still running at the next teardown.
+    for (GstElement *bin : std::as_const(m_publishedBins)) {
+        if (!m_publisher.pipeline
+            || GST_OBJECT_PARENT(bin) != GST_OBJECT(m_publisher.pipeline)
+            || !g_object_get_data(G_OBJECT(bin), kLowPriorityKey))
+            continue;
+        gst_object_ref(bin);
+        gst_element_set_locked_state(bin, TRUE);
+        gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+        m_pendingTeardowns->fetch_add(1);
+        auto *pending = new std::shared_ptr<std::atomic<int>>(m_pendingTeardowns);
+        gst_element_call_async(
+            bin,
+            [](GstElement *element, gpointer data) {
+                gst_element_set_state(element, GST_STATE_NULL);
+                (*static_cast<std::shared_ptr<std::atomic<int>> *>(data))
+                    ->fetch_sub(1);
+            },
+            pending,
+            [](gpointer data) {
+                delete static_cast<std::shared_ptr<std::atomic<int>> *>(data);
+            });
+        gst_object_unref(bin);
+    }
     m_publishedBins.clear();
     m_shareBackups.clear();
     m_shareKeepAliveTimer.stop();
@@ -1385,8 +1422,6 @@ true);
 }
 
 namespace {
-constexpr const char kLowPriorityKey[] = "lightning-low-priority";
-
 void lowerCurrentThreadPriority()
 {
 #if defined(Q_OS_LINUX)
@@ -4769,8 +4804,9 @@ int SfuMediaEngine::videoThreads()
 QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu, bool keepOnGpu)
 {
     if (!gpu) {
+        // One thread converts a 4K capture at ~33 fps on a 2012 laptop core.
         return QStringLiteral("videoconvertscale n-threads=%1")
-            .arg(videoThreads());
+            .arg(std::max(2, videoThreads()));
     }
 
     const int h = maxHeight;
