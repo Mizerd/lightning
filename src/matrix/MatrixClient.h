@@ -1259,11 +1259,10 @@ public:
                                               const QString &filename,
                                               const QString &mime,
                                               const QString &caption,
-                                              const QString &formattedCaption,
                                               int width, int height)
     {
         Q_UNUSED(roomId); Q_UNUSED(bytes); Q_UNUSED(filename);
-        Q_UNUSED(mime); Q_UNUSED(caption); Q_UNUSED(formattedCaption); Q_UNUSED(width); Q_UNUSED(height);
+        Q_UNUSED(mime); Q_UNUSED(caption); Q_UNUSED(width); Q_UNUSED(height);
         return 0;
     }
     virtual quint64 sendVoiceMessage(const QString &roomId,

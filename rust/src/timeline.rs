@@ -218,19 +218,9 @@ pub(crate) fn thread_receipt_type(privacy: i32) -> ReceiptType {
     }
 }
 
-/// `html` is the wire `formatted_body`, passed through unchanged.
-pub(crate) fn caption_content(
-    caption: &str,
-    html: Option<&str>,
-) -> Option<TextMessageEventContent> {
+pub(crate) fn caption_content(caption: &str) -> Option<TextMessageEventContent> {
     let caption = caption.trim();
-    if caption.is_empty() {
-        return None;
-    }
-    Some(match html.filter(|h| !h.trim().is_empty()) {
-        Some(html) => TextMessageEventContent::html(caption, html),
-        None => TextMessageEventContent::plain(caption),
-    })
+    (!caption.is_empty()).then(|| TextMessageEventContent::plain(caption))
 }
 
 pub(crate) fn attachment_config(
@@ -243,7 +233,7 @@ pub(crate) fn attachment_config(
         txn_id: None,
         info,
         thumbnail,
-        caption: caption_content(caption.as_deref().unwrap_or(""), None),
+        caption: caption_content(caption.as_deref().unwrap_or("")),
         mentions: Some(Mentions::new()),
         in_reply_to,
     }
@@ -6671,12 +6661,10 @@ mod tests {
     }
 
     #[test]
-    fn a_caption_carries_its_html_only_when_there_is_some() {
-        let rich = super::caption_content(" hi ", Some("<b>hi</b>")).unwrap();
-        assert_eq!(rich.body, "hi");
-        assert_eq!(rich.formatted.unwrap().body, "<b>hi</b>");
-        assert!(super::caption_content("hi", Some("  ")).unwrap().formatted.is_none());
-        assert!(super::caption_content("  ", Some("<b>x</b>")).is_none());
+    fn a_caption_is_trimmed_plain_text_or_nothing() {
+        let c = super::caption_content(" hi ").unwrap();
+        assert_eq!((c.body.as_str(), c.formatted.is_none()), ("hi", true));
+        assert!(super::caption_content("  ").is_none());
     }
 
     #[test]

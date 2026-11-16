@@ -5172,7 +5172,6 @@ pub(crate) fn send_attachment_bytes_to_room(
     filename: String,
     mime: String,
     caption: String,
-    formatted_caption: String,
     width: u64,
     height: u64,
     op_id: u64,
@@ -5195,10 +5194,7 @@ pub(crate) fn send_attachment_bytes_to_room(
     let events = Arc::clone(&bridge.events);
     bridge.spawn_room_action(async move {
         let mut config = attachment::AttachmentConfig::new()
-            .caption(crate::timeline::caption_content(
-                &caption,
-                Some(formatted_caption.as_str()),
-            ))
+            .caption(crate::timeline::caption_content(&caption))
             .mentions(Some(matrix_sdk::ruma::events::Mentions::new()));
         if let Some(info) = info {
             config = config.info(info);

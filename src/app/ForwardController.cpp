@@ -73,14 +73,6 @@ QString ForwardController::mediaCaption(const QVariantMap &snapshot)
     return body;
 }
 
-QString ForwardController::mediaFormattedCaption(const QVariantMap &snapshot)
-{
-    if (mediaCaption(snapshot).isEmpty())
-        return {};
-    return matrix::preview::stripReplyFallback(
-        snapshot.value(QStringLiteral("formattedBody")).toString()).trimmed();
-}
-
 QString ForwardController::buildPreview(const QVariantMap &snapshot)
 {
     const QString sender =
@@ -462,7 +454,6 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
     }
 
     const QString caption = mediaCaption(m_snapshot);
-    const QString formattedCaption = mediaFormattedCaption(m_snapshot);
     const bool spoiler = m_snapshot.value(QStringLiteral("mediaSpoiler")).toBool();
     if (spoiler && !m_client->supportsSpoilerMedia()) {
         m_busy = false;
@@ -479,7 +470,7 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         ? m_client->sendAttachmentBytesToRoom(
               targetRoomId, bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,
-              mime, caption, formattedCaption, width, height)
+              mime, caption, width, height)
         // Fallback for backends without a room-scoped send (mock): no caption
         // parameter exists on this path.
         : m_client->sendAttachmentBytes(

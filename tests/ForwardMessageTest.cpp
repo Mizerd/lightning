@@ -49,7 +49,7 @@ public:
     struct TextSend { QString roomId; QString body; };
     struct AttachmentSend {
         QString roomId; QByteArray bytes; QString filename; QString mime;
-        int width; int height; QString caption; QString formatted;
+        int width; int height; QString caption;
     };
     QList<TextSend> textSends;
     QList<AttachmentSend> attachmentSends;
@@ -104,11 +104,9 @@ public:
                                       const QString &filename,
                                       const QString &mime,
                                       const QString &caption,
-                                      const QString &formattedCaption,
                                       int width, int height) override
     {
-        attachmentSends.append({ roomId, bytes, filename, mime, width, height, caption,
-                                 formattedCaption });
+        attachmentSends.append({ roomId, bytes, filename, mime, width, height, caption });
         if (rejectNextAttachment) {
             rejectNextAttachment = false;
             return 0;
@@ -511,7 +509,7 @@ private Q_SLOTS:
         QVERIFY(client.attachmentSends.last().caption.isEmpty());
     }
 
-    void aFormattedCaptionAndNoReplyFallbackTravelWithTheMedia()
+    void aReplyFallbackIsNotForwardedAsTheCaption()
     {
         FakeClient client;
         MediaBridge bridge;
@@ -520,28 +518,13 @@ private Q_SLOTS:
         fwd.setClient(&client);
         fwd.setMediaBridge(&bridge);
 
-        QVariantMap snap = mediaSnapshot(QStringLiteral("$mediaF"));
-        snap.insert(QStringLiteral("body"), QStringLiteral("look at <this>"));
-        snap.insert(QStringLiteral("formattedBody"),
-                    QStringLiteral("look at <b>this</b>"));
-        fwd.begin(kRoomA, kEventA, snap);
-        fwd.forwardTo(kRoomB);
-        client.succeed(client.fetches.first().opId, realGifBytes());
-        QCOMPARE(client.attachmentSends.first().formatted,
-                 QStringLiteral("look at <b>this</b>"));
-
         QVariantMap reply = mediaSnapshot(QStringLiteral("$mediaR"));
         reply.insert(QStringLiteral("body"),
                      QStringLiteral("> <@a:x> hi\n\nthe caption"));
-        reply.insert(QStringLiteral("formattedBody"),
-                     QStringLiteral("<mx-reply><blockquote>hi</blockquote></mx-reply>"
-                                    "<i>the caption</i>"));
         fwd.begin(kRoomA, kEventA, reply);
         fwd.forwardTo(kRoomB);
         client.succeed(client.fetches.last().opId, realGifBytes());
         QCOMPARE(client.attachmentSends.last().caption, QStringLiteral("the caption"));
-        QCOMPARE(client.attachmentSends.last().formatted,
-                 QStringLiteral("<i>the caption</i>"));
     }
 
     void aSpoilerIsForwardedWithItsMarkerOrNotAtAll()

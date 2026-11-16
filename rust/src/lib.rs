@@ -2669,7 +2669,6 @@ pub unsafe extern "C" fn mx_rust_room_send_attachment_bytes(
     filename: *const c_char,
     mime: *const c_char,
     caption: *const c_char,
-    formatted_caption: *const c_char,
     width: u64,
     height: u64,
     op_id: u64,
@@ -2680,14 +2679,12 @@ pub unsafe extern "C" fn mx_rust_room_send_attachment_bytes(
         let filename = unsafe { cstr_arg(filename) }?;
         let mime = unsafe { cstr_arg(mime) }?;
         let caption = unsafe { cstr_arg(caption) }?;
-        let formatted_caption = unsafe { cstr_arg(formatted_caption) }?;
         if data.is_null() || len == 0 {
             return Err("attachment data is empty".to_owned());
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
         rooms::send_attachment_bytes_to_room(
-            bridge, room_id, bytes, filename, mime, caption, formatted_caption, width, height,
-            op_id,
+            bridge, room_id, bytes, filename, mime, caption, width, height, op_id,
         )
         .map(|_| String::new())
     })
