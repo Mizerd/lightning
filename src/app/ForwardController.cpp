@@ -9,6 +9,7 @@
 #include <QImageReader>
 #include <QSize>
 
+#include "matrix/EventPreview.h"
 #include "matrix/MatrixClient.h"
 #include "media/ImageFormatSupport.h"
 #include "media/MediaBridge.h"
@@ -59,16 +60,25 @@ bool ForwardController::snapshotIsMedia(const QVariantMap &snapshot)
 }
 
 // The body is a caption only when it differs from the file name, as the
-// timeline row decides.
+// timeline row decides. A legacy reply fallback is not part of the caption.
 QString ForwardController::mediaCaption(const QVariantMap &snapshot)
 {
-    const QString body = snapshot.value(QStringLiteral("body")).toString().trimmed();
+    const QString body = matrix::preview::stripReplyFallback(
+        snapshot.value(QStringLiteral("body")).toString()).trimmed();
     const QString name =
         snapshot.value(QStringLiteral("mediaFilename")).toString().trimmed();
     if (body.isEmpty() || name.isEmpty()
         || body.compare(name, Qt::CaseInsensitive) == 0)
         return {};
     return body;
+}
+
+QString ForwardController::mediaFormattedCaption(const QVariantMap &snapshot)
+{
+    if (mediaCaption(snapshot).isEmpty())
+        return {};
+    return matrix::preview::stripReplyFallback(
+        snapshot.value(QStringLiteral("formattedBody")).toString()).trimmed();
 }
 
 QString ForwardController::buildPreview(const QVariantMap &snapshot)
@@ -452,6 +462,7 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
     }
 
     const QString caption = mediaCaption(m_snapshot);
+    const QString formattedCaption = mediaFormattedCaption(m_snapshot);
     const bool spoiler = m_snapshot.value(QStringLiteral("mediaSpoiler")).toBool();
     if (spoiler && !m_client->supportsSpoilerMedia()) {
         m_busy = false;
@@ -468,7 +479,9 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         ? m_client->sendAttachmentBytesToRoom(
               targetRoomId, bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,
-              mime, caption, width, height)
+              mime, caption, formattedCaption, width, height)
+        // Fallback for backends without a room-scoped send (mock): no caption
+        // parameter exists on this path.
         : m_client->sendAttachmentBytes(
               targetRoomId, bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,

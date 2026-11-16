@@ -233,6 +233,7 @@ char *mx_rust_room_send_attachment_bytes(void *client, const char *room_id,
                                          const unsigned char *data, size_t len,
                                          const char *filename, const char *mime,
                                          const char *caption,
+                                         const char *formatted_caption,
                                          uint64_t width, uint64_t height,
                                          uint64_t op_id);
 /* Server-synchronized per-room notification mode (SDK push rules).

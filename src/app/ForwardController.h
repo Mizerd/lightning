@@ -107,6 +107,7 @@ private:
     static bool snapshotIsMedia(const QVariantMap &snapshot);
     static QString buildPreview(const QVariantMap &snapshot);
     static QString mediaCaption(const QVariantMap &snapshot);
+    static QString mediaFormattedCaption(const QVariantMap &snapshot);
 
     MatrixClient *m_client = nullptr;
     MediaBridge *m_mediaBridge = nullptr;

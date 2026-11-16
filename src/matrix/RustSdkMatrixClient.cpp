@@ -10688,6 +10688,7 @@ quint64 RustSdkMatrixClient::sendAttachmentBytesToRoom(const QString &roomId,
                                                       const QString &filename,
                                                       const QString &mime,
                                                       const QString &caption,
+                                                      const QString &formattedCaption,
                                                       int width, int height)
 {
     if (!m_rustHandle || roomId.isEmpty() || bytes.isEmpty() || mime.isEmpty())
@@ -10697,11 +10698,13 @@ quint64 RustSdkMatrixClient::sendAttachmentBytesToRoom(const QString &roomId,
     const QByteArray name = filename.toUtf8();
     const QByteArray mimeBytes = mime.toUtf8();
     const QByteArray captionBytes = caption.toUtf8();
+    const QByteArray formattedBytes = formattedCaption.toUtf8();
     const QString result = takeRustString(mx_rust_room_send_attachment_bytes(
         m_rustHandle, room.constData(),
         reinterpret_cast<const quint8 *>(bytes.constData()),
         static_cast<size_t>(bytes.size()),
         name.constData(), mimeBytes.constData(), captionBytes.constData(),
+        formattedBytes.constData(),
         width > 0 ? static_cast<quint64>(width) : 0,
         height > 0 ? static_cast<quint64>(height) : 0,
         opId));
