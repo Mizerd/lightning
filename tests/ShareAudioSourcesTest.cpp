@@ -377,6 +377,22 @@ private slots:
         QVERIFY(apps.at(1).pids.isEmpty());
     }
 
+    // Every Flatpak window reports _NET_WM_PID 2 too, so one sandboxed app
+    // playing must not be matched to an unrelated Flatpak window.
+    void aSandboxedStreamOffersNoPidToMatchAWindowBy()
+    {
+        QVariantMap props = streamProps(2, QStringLiteral("Spotify"));
+        props.insert(QStringLiteral("pipewire.access.portal.app_id"),
+                     QStringLiteral("com.spotify.Client"));
+        const Stream s = streamFromProperties(props);
+        QVERIFY(s.sandboxed);
+        const QList<Application> apps = groupByApplication({ s });
+        QCOMPARE(apps.size(), 1);
+        QVERIFY2(apps.at(0).pids.isEmpty(),
+                 "a namespaced pid 2 would preselect this app for any "
+                 "Flatpak window");
+    }
+
     // Before PipeWire 1.6 pipewiresrc has no `on-disconnect`, and naming a
     // missing property fails the whole parse. Requiring it switched
     // per-application capture off in every package (the AppImage bundles

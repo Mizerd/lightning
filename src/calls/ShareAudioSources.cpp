@@ -177,7 +177,7 @@ QList<Application> groupByApplication(const QList<Stream> &streams)
             app.streams = 1;
             app.active = s.active;
             app.containsUs = s.containsUs;
-            if (s.pid > 0)
+            if (s.pid > 0 && !s.sandboxed)
                 app.pids.append(s.pid);
             at.insert(s.appKey, out.size());
             out.append(app);
@@ -187,7 +187,7 @@ QList<Application> groupByApplication(const QList<Stream> &streams)
         ++app.streams;
         app.active = app.active || s.active;
         app.containsUs = app.containsUs || s.containsUs;
-        if (s.pid > 0 && !app.pids.contains(s.pid))
+        if (s.pid > 0 && !s.sandboxed && !app.pids.contains(s.pid))
             app.pids.append(s.pid);
         if (app.iconName.isEmpty())
             app.iconName = s.iconName;
@@ -323,6 +323,8 @@ Stream streamFromProperties(const QVariantMap &props)
     bool ok = false;
     const qint64 pid = propString(props, "application.process.id").toLongLong(&ok);
     s.pid = ok ? pid : -1;
+    s.sandboxed =
+        !propString(props, "pipewire.access.portal.app_id").isEmpty();
     return s;
 }
 

@@ -1049,10 +1049,13 @@ the parent. Sharing a window preselects its application (by executable) only
 when that application has an audio session and is not one Lightning runs
 inside; the choice is undone by Cancel, by going back to a screen, or when
 the share it was made for ends. **On Linux only the no-portal X11 fallback
-has such a mapping**: its window rows carry `_NET_WM_PID`, matched to the one
-playing application whose streams report that pid; a pid two applications
-share (every Flatpak app's main process is pid 2) preselects nothing. The
-portal names no process for a window.
+has such a mapping**: its window rows carry `_NET_WM_PID` (dropped when
+`WM_CLIENT_MACHINE` is another host), matched to the one playing application
+whose streams report that pid; a pid two applications share preselects
+nothing. A Flatpak app's stream offers no pid at all: its namespaced pid is 2,
+the same as every Flatpak window's `_NET_WM_PID`, so it would match any of
+them. A Flatpak window therefore never preselects its audio. The portal names
+no process for a window.
 
 **A Flatpak Lightning captured no other Flatpak app (fixed 2026-11-16).**
 Sandboxed clients report their namespaced pid as `application.process.id`, so

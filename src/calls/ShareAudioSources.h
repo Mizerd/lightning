@@ -39,6 +39,9 @@ struct Stream {
     QString iconName;
     QString appKey;
     qint64 pid = -1;
+    /// Flatpak client: `pid` is namespaced (main process 2) and names
+    /// nothing outside the sandbox.
+    bool sandboxed = false;
     qint64 startTime = 0;
     bool active = true;
     /// Windows: the process is an ANCESTOR of Lightning (explorer.exe, a
