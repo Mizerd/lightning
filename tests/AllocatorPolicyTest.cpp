@@ -151,10 +151,15 @@ private slots:
         } trim;
         QObject target;
         QTest::qSleep(60);
-        QVERIFY(trim.msSinceInput() >= 50);
+        QVERIFY(trim.msSinceInput() >= 60);
+        QElapsedTimer sincePress;
+        sincePress.start();
         QEvent key(QEvent::KeyPress);
         trim.eventFilter(&target, &key);
-        QVERIFY2(trim.msSinceInput() < 50, "a key press did not count as input");
+        // Idle clock first: a restarted one can never be ahead of a clock
+        // started before the press, however long the runner stalls.
+        const qint64 idle = trim.msSinceInput();
+        QVERIFY2(idle <= sincePress.elapsed(), "a key press did not count as input");
     }
 };
 
