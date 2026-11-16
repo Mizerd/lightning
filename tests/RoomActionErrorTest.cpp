@@ -62,6 +62,16 @@ private Q_SLOTS:
                  "nothing reaches the status strip");
     }
 
+    void aGoneRoomIsNamedAsSuchForEveryUserAction()
+    {
+        using matrix::room_action::userFacingError;
+        const QString gone = QStringLiteral("room_gone");
+        const QString text = userFacingError(QStringLiteral("archive"), gone);
+        QVERIFY(text.contains(QStringLiteral("no longer in this room")));
+        QCOMPARE(userFacingError(QStringLiteral("favourite"), gone), text);
+        QVERIFY(userFacingError(QStringLiteral("read_receipt"), gone).isEmpty());
+    }
+
     void theReasonSaysWhatTheReaderCanDo()
     {
         using matrix::room_action::failureHint;

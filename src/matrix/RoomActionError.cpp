@@ -61,6 +61,12 @@ QString userFacingError(const QString &action, const QString &reason)
     const QString sentence = userFacingError(action);
     if (sentence.isEmpty())
         return {};
+    if (reason == QLatin1String("room_gone")) {
+        return QCoreApplication::translate(
+            "matrix::room_action",
+            "You're no longer in this room. It may have been deleted on the "
+            "server. Use Leave room to remove it from your list.");
+    }
     const QString hint = failureHint(reason);
     return hint.isEmpty() ? sentence : sentence + QLatin1Char(' ') + hint;
 }

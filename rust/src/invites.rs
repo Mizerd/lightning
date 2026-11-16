@@ -87,6 +87,35 @@ pub(crate) async fn fetch_server_invites(client: &Client) -> Option<ServerInvite
     Some(ServerInvites { invited, joined })
 }
 
+async fn fetch_joined(client: &Client) -> Option<HashSet<OwnedRoomId>> {
+    let config = RequestConfig::new().disable_retry().timeout(REQUEST_TIMEOUT);
+    let answer = client.send(joined_rooms::v3::Request::new()).with_request_config(config).await.ok()?;
+    Some(answer.joined_rooms.into_iter().collect())
+}
+
+/// True only on a complete answer: a failed probe is never "gone".
+pub(crate) async fn server_dropped_room(room: &Room) -> bool {
+    room.state() == RoomState::Joined
+        && fetch_joined(&room.client()).await.is_some_and(|joined| !joined.contains(room.room_id()))
+}
+
+/// Marks a joined room left once the server no longer lists it; a sync that moved the room meanwhile wins.
+async fn retire_joined_locally(room: &Room) -> bool {
+    let mut retired = false;
+    let saved = room
+        .update_and_save_room_info(|mut info| {
+            if info.state() == RoomState::Joined {
+                info.mark_as_left();
+                retired = true;
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            } else {
+                (info, RoomInfoNotableUpdateReasons::NONE)
+            }
+        })
+        .await;
+    saved.is_ok() && retired
+}
+
 /// Marks a still-pending room left in the local store. Returns whether it
 /// changed anything: a sync that moved the room meanwhile wins.
 pub(crate) async fn retire_locally(room: &Room) -> bool {
@@ -126,6 +155,9 @@ where
                         return Ok(());
                     }
                 }
+            }
+            else if server_dropped_room(room).await && retire_joined_locally(room).await {
+                return Ok(());
             }
             Err(message)
         }

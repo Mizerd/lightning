@@ -2549,7 +2549,7 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
             match result {
                 Ok(()) => enqueue_rooms(&events, &client).await,
                 Err(error) => {
-                    let mut event = roomaction::failure_event("marked_unread", &error, attempts);
+                    let mut event = roomaction::room_failure_event(&room, "marked_unread", &error, attempts).await;
                     event["room_id"] = json!(room_id);
                     enqueue(&events, event);
                 }
@@ -2579,7 +2579,7 @@ pub unsafe extern "C" fn mx_rust_set_room_favourite(
             match result {
                 Ok(()) => enqueue_rooms(&events, &client).await,
                 Err(error) => {
-                    let mut event = roomaction::failure_event("favourite", &error, attempts);
+                    let mut event = roomaction::room_failure_event(&room, "favourite", &error, attempts).await;
                     event["room_id"] = json!(room_id);
                     enqueue(&events, event);
                 }
@@ -2613,7 +2613,7 @@ pub unsafe extern "C" fn mx_rust_set_room_low_priority(
                     "low_priority": low_priority != 0,
                 })),
                 Err(error) => {
-                    let mut event = roomaction::failure_event("low_priority", &error, attempts);
+                    let mut event = roomaction::room_failure_event(&room, "low_priority", &error, attempts).await;
                     event["room_id"] = json!(room_id);
                     enqueue(&events, event);
                 }
@@ -2650,7 +2650,7 @@ pub unsafe extern "C" fn mx_rust_set_room_archived(
                     }));
                 }
                 Err(error) => {
-                    let mut event = roomaction::failure_event("archive", &error, attempts);
+                    let mut event = roomaction::room_failure_event(&room, "archive", &error, attempts).await;
                     event["room_id"] = json!(room_id);
                     enqueue(&events, event);
                 }
@@ -2854,7 +2854,7 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
                     }));
                 }
                 Some((error, attempts)) => {
-                    let mut event = roomaction::failure_event("mark_read", &error, attempts);
+                    let mut event = roomaction::room_failure_event(&room, "mark_read", &error, attempts).await;
                     event["room_id"] = json!(room_id);
                     enqueue(&events, event);
                 }

@@ -40,6 +40,22 @@ pub(crate) fn failure_event(action: &str, err: &matrix_sdk::Error, attempts: u32
     })
 }
 
+/// A 403 on a room we hold as joined is "room_gone" when the server's own joined list no longer has it.
+pub(crate) async fn room_failure_event(
+    room: &matrix_sdk::Room,
+    action: &str,
+    err: &matrix_sdk::Error,
+    attempts: u32,
+) -> Value {
+    let mut event = failure_event(action, err, attempts);
+    if event["reason"].as_str().is_some_and(|r| r.starts_with("http_403_"))
+        && crate::invites::server_dropped_room(room).await
+    {
+        event["reason"] = json!("room_gone");
+    }
+    event
+}
+
 pub(crate) async fn with_transport_retry<T, F, Fut>(
     delays: &[Duration],
     mut op: F,
@@ -274,6 +290,7 @@ mod tests {
         DropFirst,
         DropAlways,
         Forbidden,
+        ForbiddenStillListed,
     }
 
     fn read_request_line(stream: &mut TcpStream) -> String {
@@ -335,12 +352,18 @@ mod tests {
                     let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
                     if path.starts_with("/_matrix/client/versions") {
                         respond(&mut stream, "200 OK", r#"{"versions":["v1.1","v1.11"]}"#);
+                    } else if path.ends_with("/joined_rooms") {
+                        let body = match script {
+                            TagScript::ForbiddenStillListed => r#"{"joined_rooms":["!fav:example.org"]}"#,
+                            _ => r#"{"joined_rooms":[]}"#,
+                        };
+                        respond(&mut stream, "200 OK", body);
                     } else if path.contains("/tags/") {
                         let n = seen.fetch_add(1, Ordering::SeqCst) + 1;
                         match script {
                             TagScript::DropFirst if n == 1 => drop(stream),
                             TagScript::DropAlways => drop(stream),
-                            TagScript::Forbidden => respond(
+                            TagScript::Forbidden | TagScript::ForbiddenStillListed => respond(
                                 &mut stream,
                                 "403 Forbidden",
                                 r#"{"errcode":"M_FORBIDDEN","error":"secret detail !room:example.org"}"#,
@@ -631,6 +654,21 @@ mod tests {
         assert_eq!(event["reason"], "http_403_M_FORBIDDEN");
         let text = event.to_string();
         assert!(!text.contains("secret") && !text.contains("!room"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_refusal_in_a_room_the_server_dropped_says_the_room_is_gone() {
+        let (homeserver, _) = serve(TagScript::Forbidden);
+        let (_client, room) = client_with_room(&homeserver).await;
+        let (result, attempts) = set_archived(&room, true, &FAST).await;
+        let event = room_failure_event(&room, "archive", &result.expect_err("refused"), attempts).await;
+        assert_eq!(event["reason"], "room_gone");
+
+        let (homeserver, _) = serve(TagScript::ForbiddenStillListed);
+        let (_client, room) = client_with_room(&homeserver).await;
+        let (result, attempts) = set_archived(&room, true, &FAST).await;
+        let event = room_failure_event(&room, "archive", &result.expect_err("refused"), attempts).await;
+        assert_eq!(event["reason"], "http_403_M_FORBIDDEN", "still listed: the refusal stands");
     }
 
     #[tokio::test]
