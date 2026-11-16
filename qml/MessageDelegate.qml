@@ -2296,12 +2296,22 @@ Item {
                         Layout.fillWidth: true
                         Layout.topMargin: 2
                         sourceComponent: ColumnLayout {
+                            id: decryptingSkeleton
                             objectName: "decryptingSkeleton"
                             spacing: 5
+                            // A key that never comes must not keep the window repainting.
+                            property int shimmerMs: 15000
+                            property bool shimmering: true
+                            Timer {
+                                interval: decryptingSkeleton.shimmerMs
+                                running: decryptingSkeleton.shimmering
+                                onTriggered: decryptingSkeleton.shimmering = false
+                            }
                             Skeleton {
                                 active: root.rowOnScreen
                                         && root.showsDecryptingSkeleton
                                         && !root.decryptStalled
+                                        && decryptingSkeleton.shimmering
                                 Layout.preferredWidth: Math.min(
                                     420, Math.max(
                                         120, root.contentInnerCap * 0.55))
@@ -2311,6 +2321,7 @@ Item {
                                 active: root.rowOnScreen
                                         && root.showsDecryptingSkeleton
                                         && !root.decryptStalled
+                                        && decryptingSkeleton.shimmering
                                 Layout.preferredWidth: Math.min(
                                     300, Math.max(
                                         80, root.contentInnerCap * 0.35))

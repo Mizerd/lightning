@@ -1485,6 +1485,39 @@ QtObject {
         QCOMPARE(w.warnings, QStringList{});
     }
 
+    void decryptingSkeletonStopsShimmeringWhenKeysNeverCome()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isEncrypted"), true);
+        fixture.insert(QStringLiteral("undecryptable"), true);
+        fixture.insert(QStringLiteral("errorKind"), QString{});
+        fixture.insert(QStringLiteral("body"),
+                       QStringLiteral("[unable to decrypt yet]"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        QVERIFY(QQmlProperty::write(d.root, QStringLiteral("rowOnScreen"), true));
+        auto *column = d.root->findChild<QQuickItem *>(
+            QStringLiteral("decryptingSkeleton"));
+        QVERIFY(column != nullptr);
+        QList<QQuickItem *> bars;
+        for (QQuickItem *child : column->childItems()) {
+            if (child->property("animating").isValid())
+                bars << child;
+        }
+        QCOMPARE(bars.size(), 2);
+        for (QQuickItem *bar : bars)
+            QVERIFY(bar->property("animating").toBool());
+
+        QVERIFY(QQmlProperty::write(column, QStringLiteral("shimmerMs"), 50));
+        for (QQuickItem *bar : bars)
+            QTRY_VERIFY_WITH_TIMEOUT(!bar->property("animating").toBool(), 2000);
+        for (QQuickItem *bar : bars)
+            QVERIFY(bar->isVisible());
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
     void skeletonPrimitiveAnimatesOnlyWhenEligible()
     {
         QQmlApplicationEngine engine;
