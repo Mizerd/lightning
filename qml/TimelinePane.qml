@@ -5649,6 +5649,16 @@ Rectangle {
             timelineModel: app.timeline
         }
 
+        Connections {
+            target: app.forward
+            function onChanged() {
+                if (!app.forward.selecting && !app.bulkRedaction.selecting
+                        && !app.bulkRedaction.running && app.bulkRedaction.total === 0
+                        && app.bulkRedaction.error.length > 0)
+                    app.bulkRedaction.cancel()
+            }
+        }
+
         Rectangle {
             objectName: "messageSelectionBar"
             visible: app.forward.selecting === true

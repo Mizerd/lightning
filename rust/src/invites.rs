@@ -129,6 +129,12 @@ pub(crate) async fn server_dropped_room(room: &Room) -> bool {
         && joined_cached(&room.client()).await.is_some_and(|joined| !joined.contains(room.room_id()))
 }
 
+/// Never cached: this answer retires a room locally, so it must be current.
+async fn server_dropped_room_fresh(room: &Room) -> bool {
+    room.state() == RoomState::Joined
+        && fetch_joined(&room.client()).await.is_some_and(|joined| !joined.contains(room.room_id()))
+}
+
 /// Marks a joined room left once the server no longer lists it; a sync that moved the room meanwhile wins.
 async fn retire_joined_locally(room: &Room) -> bool {
     let mut retired = false;
@@ -186,7 +192,7 @@ where
                     }
                 }
             }
-            else if server_dropped_room(room).await && retire_joined_locally(room).await {
+            else if server_dropped_room_fresh(room).await && retire_joined_locally(room).await {
                 return Ok(());
             }
             Err(message)
@@ -452,5 +458,23 @@ mod tests {
             .filter(|r| r.url.path().ends_with("/joined_rooms"))
             .count();
         assert_eq!(probes, 1);
+    }
+
+    #[tokio::test]
+    async fn leave_never_retires_on_a_cached_joined_list() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let a = server.sync_joined_room(&client, room_id!("!a:example.org")).await;
+        let b = server.sync_joined_room(&client, room_id!("!b:example.org")).await;
+        let count = || async {
+            server.server().received_requests().await.unwrap_or_default().iter()
+                .filter(|r| r.url.path().ends_with("/joined_rooms")).count()
+        };
+        assert!(!server_dropped_room(&a).await);
+        assert_eq!(count().await, 1);
+        // /leave and /joined_rooms both answer 404: the refusal stands.
+        assert!(leave_or_retire(&b, || async { None }).await.is_err());
+        assert_eq!(count().await, 2, "leave asked the server instead of reusing the cache");
+        assert_eq!(b.state(), RoomState::Joined);
     }
 }

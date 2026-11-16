@@ -412,6 +412,7 @@ ApplicationWindow {
         QVERIFY(pane.contains(QStringLiteral("forwardSelectedButton")));
         QVERIFY(pane.contains(QStringLiteral("app.bulkRedaction.adopt(")));
         QVERIFY(pane.contains(QStringLiteral("if (app.bulkRedaction.selecting)")));
+        QVERIFY(pane.contains(QStringLiteral("function onChanged() {\n                if (!app.forward.selecting && !app.bulkRedaction.selecting")));
     }
 
     void adoptingASelectionRefusesWhatCannotBeDeleted()
