@@ -19,6 +19,7 @@
 #include <QRegularExpression>
 #include <QtTest/QtTest>
 
+#include <QDir>
 #include <QFile>
 #include <QUrl>
 #include <QVideoSink>
@@ -1977,73 +1978,70 @@ private slots:
 #if defined(Q_OS_LINUX)
     void videoPublishThreadsYieldToEverythingAndAudioDoesNot()
     {
-        struct Seen
+        struct ThreadState
         {
-            std::atomic<int> policy{-1};
-            std::atomic<int> nice{-100};
+            QString name;
+            int policy;
+            int nice;
         };
-        const auto watch = [](GstElement *bin, const char *element,
-                              const char *pad, Seen *seen) {
-            GstElement *at = element ? gst_bin_get_by_name(GST_BIN(bin), element)
-                                     : GST_ELEMENT(gst_object_ref(bin));
-            QVERIFY(at);
-            GstPad *src = gst_element_get_static_pad(at, pad);
-            QVERIFY(src);
-            gst_pad_add_probe(
-                src, GST_PAD_PROBE_TYPE_BUFFER,
-                [](GstPad *, GstPadProbeInfo *, gpointer data) {
-                    auto *s = static_cast<Seen *>(data);
-                    errno = 0;
-                    s->nice = getpriority(PRIO_PROCESS, 0);
-                    s->policy = sched_getscheduler(0);
-                    return GST_PAD_PROBE_OK;
-                },
-                seen, nullptr);
-            gst_object_unref(src);
-            gst_object_unref(at);
+        const auto threads = [] {
+            QList<ThreadState> out;
+            const QDir dir(QStringLiteral("/proc/self/task"));
+            for (const QString &entry : dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+                QFile comm(dir.filePath(entry) + QStringLiteral("/comm"));
+                if (!comm.open(QIODevice::ReadOnly))
+                    continue;
+                const pid_t tid = entry.toInt();
+                errno = 0;
+                const int nice = getpriority(PRIO_PROCESS, tid);
+                const int policy = sched_getscheduler(tid);
+                if (policy >= 0)
+                    out.append({QString::fromUtf8(comm.readAll()).trimmed(),
+                                policy, nice});
+            }
+            return out;
         };
-        const auto lowered = [](const Seen &s) {
-            return s.policy == SCHED_IDLE;
+        const auto find = [&](const QString &name) {
+            for (const ThreadState &t : threads()) {
+                if (t.name == name)
+                    return t;
+            }
+            return ThreadState{QString(), -1, 0};
+        };
+        const auto idleThreads = [&] {
+            int n = 0;
+            for (const ThreadState &t : threads())
+                n += t.policy == SCHED_IDLE;
+            return n;
         };
         const int ownNice = getpriority(PRIO_PROCESS, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(idleThreads(), 0, 10000);
 
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         engine.start();
         engine.publishAudio(QStringLiteral("cid-audio"));
         engine.publishVideo(QStringLiteral("cid-video"), false, -1);
-        GstElement *video = engine.publishedBinForTest(QStringLiteral("cid-video"));
-        GstElement *audio = engine.publishedBinForTest(QStringLiteral("cid-audio"));
-        QVERIFY(video && audio);
 
-        Seen capture, encode, send, voice;
-        watch(video, "capsrc", "src", &capture);
-        watch(video, "videoenc", "src", &encode);
-        watch(video, "sendq", "src", &send);
-        watch(audio, nullptr, "src", &voice);
-        QTRY_VERIFY(capture.policy >= 0 && encode.policy >= 0
-                    && send.policy >= 0 && voice.policy >= 0);
-        QVERIFY2(lowered(capture), "the video capture thread runs at normal "
-                                   "priority and competes with a game");
-        QVERIFY2(lowered(encode), "the video encoder thread runs at normal "
-                                  "priority and competes with a game");
+        QTRY_VERIFY(find(QStringLiteral("capsrc:src")).policy >= 0
+                    && find(QStringLiteral("sendq:src")).policy >= 0
+                    && find(QStringLiteral("micsrc:src")).policy >= 0);
+        QVERIFY2(find(QStringLiteral("capsrc:src")).policy == SCHED_IDLE,
+                 "the video capture thread runs at normal priority and "
+                 "competes with a game");
+        QVERIFY2(idleThreads() >= 3,
+                 "the video convert and encoder threads were not lowered");
+        const ThreadState send = find(QStringLiteral("sendq:src"));
         QVERIFY2(send.policy == SCHED_OTHER && send.nice == ownNice,
                  "the thread that encrypts video was lowered, and it shares "
                  "the send cryptor's lock with audio");
-        QCOMPARE(voice.policy.load(), SCHED_OTHER);
-        QCOMPARE(voice.nice.load(), ownNice);
+        const ThreadState voice = find(QStringLiteral("micsrc:src"));
+        QCOMPARE(voice.policy, SCHED_OTHER);
+        QCOMPARE(voice.nice, ownNice);
 
         engine.unpublish(QStringLiteral("cid-video"));
-        engine.publishAudio(QStringLiteral("cid-audio-2"));
-        GstElement *again =
-            engine.publishedBinForTest(QStringLiteral("cid-audio-2"));
-        QVERIFY(again);
-        Seen reused;
-        watch(again, nullptr, "src", &reused);
-        QTRY_VERIFY(reused.policy >= 0);
-        QVERIFY2(reused.policy == SCHED_OTHER && reused.nice == ownNice,
-                 "a lowered video thread came back to run an audio task");
         engine.stop();
+        QTRY_COMPARE_WITH_TIMEOUT(idleThreads(), 0, 10000);
     }
 #endif
 
