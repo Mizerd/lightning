@@ -135,7 +135,7 @@ add_variable() {
 # Runs the collector in a fresh project dir; extra NAME=VALUE arguments go to env.
 lane() {
     rm -rf "$FAKE_DIR/project"; mkdir -p "$FAKE_DIR/project"
-    env -u GITLAB_COM_PIPELINE_ID -u GITLAB_COM_COLLECT -u GITLAB_COM_REF \
+    env -u GITLAB_COM_PIPELINE_ID -u GITLAB_COM_COLLECT -u GITLAB_COM_REF -u BUILD_MACOS_PACKAGES \
         PATH="$WORK/bin:$PATH" CI_PROJECT_DIR="$FAKE_DIR/project" \
         GITLAB_COM_API=https://gitlab.example/api/v4 GITLAB_COM_PROJECT_ID=88402223 \
         GITLAB_COM_FAKE_API_FOR_TESTS=1 \
