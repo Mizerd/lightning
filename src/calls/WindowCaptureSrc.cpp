@@ -1139,6 +1139,8 @@ QImage windowPixels(xcb_connection_t *c, xcb_window_t w, int *width,
         drawable = w;
         origin = 0;
     }
+    // shortcut: plain GetImage, no MIT-SHM; add xcb-shm if a large window
+    // cannot hold the frame rate.
     auto image = reply(xcb_get_image_reply(
         c,
         xcb_get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, drawable, origin, origin,
@@ -1478,6 +1480,10 @@ GstFlowReturn createFrame(GstPushSrc *push, GstBuffer **out)
         return GST_FLOW_NOT_NEGOTIATED;
 
     waitForFrameSlot(self);
+    // Errors of unchecked requests (a window closing mid-frame) queue as
+    // events; nobody else reads this connection.
+    while (xcb_generic_event_t *event = xcb_poll_for_event(self->conn))
+        free(event);
 
     const gsize size =
         static_cast<gsize>(self->outWidth) * self->outHeight * 4;
