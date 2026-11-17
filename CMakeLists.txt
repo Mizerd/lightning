@@ -7263,6 +7263,8 @@ if(BUILD_TESTING)
         tests/QuoteRenderTest.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
+        src/models/QuoteBars.h
+        src/models/QuoteBars.cpp
     )
     target_include_directories(quote-render-test PRIVATE src)
     target_link_libraries(quote-render-test PRIVATE
