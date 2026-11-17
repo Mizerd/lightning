@@ -675,6 +675,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("rtc_session_changed", UiOnly),
         ("rtc_transports", UiOnly),
         ("scheduled_send_result", UiOnly),
+        ("scheduled_media_prepared", UiOnly),
         ("scheduled_update_result", UiOnly),
         ("search_index_all", UiOnly),
         ("search_index_deepened", UiOnly),

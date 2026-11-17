@@ -271,10 +271,10 @@ QVariantMap withMedia(QVariantMap m, const QList<quint64> &ops,
     return m;
 }
 
-const QString kPlainContent =
-    QStringLiteral(R"({"msgtype":"m.image","body":"a.png","url":"mxc://hs/a"})");
-const QString kSecretContent =
-    QStringLiteral(R"({"msgtype":"m.image","body":"a.png","file":{"key":"SECRET"}})");
+const QString kPlainContent = QStringLiteral(
+    "{\"msgtype\":\"m.image\",\"body\":\"a.png\",\"url\":\"mxc://hs/a\"}");
+const QString kSecretContent = QStringLiteral(
+    "{\"msgtype\":\"m.image\",\"body\":\"a.png\",\"file\":{\"key\":\"SECRET\"}}");
 
 struct Harness {
     FakeSecretStore secrets;
