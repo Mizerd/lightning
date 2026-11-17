@@ -855,9 +855,15 @@ Rectangle {
                     boundsBehavior: Flickable.StopAtBounds
                     clip: true
                     WheelHandler {
-                        target: rootBodyFlick
-                        orientation: Qt.Vertical
+                        target: null
                         enabled: rootBodyFlick.contentHeight > rootBodyFlick.height
+                        onWheel: (event) => {
+                            var dy = event.pixelDelta.y !== 0
+                                     ? event.pixelDelta.y : event.angleDelta.y / 2
+                            var maxY = rootBodyFlick.contentHeight - rootBodyFlick.height
+                            rootBodyFlick.contentY = Math.max(
+                                0, Math.min(maxY, rootBodyFlick.contentY - dy))
+                        }
                     }
                     readonly property string shownRootId: panel.rootData.eventId || ""
                     onShownRootIdChanged: contentY = 0
