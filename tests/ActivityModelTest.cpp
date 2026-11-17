@@ -1024,6 +1024,21 @@ private Q_SLOTS:
         QCOMPARE(h.row(0).value(QStringLiteral("timestampMs")).toLongLong(), qint64(1700000000000));
     }
 
+    void aSendTimeArrivingLaterRetimesTheLiveEntry()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!inv:mock.local");
+        r.name = QStringLiteral("Secret club");
+        r.membership = RoomInfo::Invited;
+        r.inviterUserId = QStringLiteral("@bob:mock.local");
+        QVERIFY(h.model.noteInvite(r));
+        r.inviteSentMs = 1700000000000;
+        h.model.noteInvite(r);
+        QCOMPARE(h.model.rowCount(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("timestampMs")).toLongLong(), qint64(1700000000000));
+    }
+
     void aKnownSendTimeReplacesTheFirstSeenRecordAndSurvivesAReload()
     {
         Harness h;

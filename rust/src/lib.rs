@@ -14148,6 +14148,9 @@ async fn room_payload(room: &Room) -> serde_json::Value {
                 if previewbackfill::is_own_join(event.raw(), room.own_user_id()));
     let is_direct = rooms::payload_is_direct(room, !direct_targets.is_empty()).await;
     let (preview_text, preview_kind, preview_arg) = preview_wire(&own_preview);
+    let invited_at_ms = invites::sent_ms(room).await;
+    // matrix-sdk stamps an invite's latest event with first-seen time.
+    let own_activity = if invited_at_ms > 0 { invited_at_ms } else { own_activity };
 
     json!({
         "id": room.room_id().to_string(),
@@ -14182,7 +14185,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "join_rule": rooms::join_rule_str(room.join_rule().as_ref()),
         "room_type": room.room_type().map(|kind| kind.to_string()).unwrap_or_default(),
         "prev_batch": room.last_prev_batch().unwrap_or_default(),
-        "invited_at_ms": invites::sent_ms(room).await,
+        "invited_at_ms": invited_at_ms,
         "inviter_user_id": inviter_user_id,
         "inviter_display_name": inviter_display_name,
         "successor_room_id": room

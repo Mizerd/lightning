@@ -1405,6 +1405,18 @@ bool ActivityModel::noteInvite(const RoomInfo &room)
                     changed = true;
                 }
             }
+            // The send time can arrive after the first-seen entry was made.
+            if (room.inviteSentMs > 0 && old.timestampMs != room.inviteSentMs) {
+                Entry moved = old;
+                moved.timestampMs = room.inviteSentMs;
+                if (m_storeLoaded)
+                    rememberInvite(room.id, room.inviteSentMs, moved.seenMark);
+                m_ids.remove(moved.id);
+                m_entries.removeAt(i);
+                rebuildVisible();
+                addEntry(std::move(moved));
+                return false;
+            }
             const int visibleRow = m_visible.indexOf(i);
             if (changed && visibleRow >= 0) {
                 const QModelIndex idx = index(visibleRow, 0);
