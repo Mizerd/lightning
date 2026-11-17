@@ -1101,6 +1101,19 @@ struct XcbApi {
 void *dlopenResolve(const char *library, const char *symbol)
 {
     void *handle = dlopen(library, RTLD_NOW | RTLD_LOCAL);
+    // NixOS: no search path names libxcb-composite, but it ships beside libxcb.
+    if (!handle && std::strcmp(library, "libxcb.so.1") != 0) {
+        void *core = dlopen("libxcb.so.1", RTLD_NOW | RTLD_LOCAL);
+        void *anchor = core ? dlsym(core, "xcb_connect") : nullptr;
+        Dl_info info{};
+        if (anchor && dladdr(anchor, &info) && info.dli_fname) {
+            QByteArray path(info.dli_fname);
+            path.truncate(path.lastIndexOf('/') + 1);
+            if (!path.isEmpty())
+                handle = dlopen(path.append(library).constData(),
+                                RTLD_NOW | RTLD_LOCAL);
+        }
+    }
     return handle ? dlsym(handle, symbol) : nullptr;
 }
 
