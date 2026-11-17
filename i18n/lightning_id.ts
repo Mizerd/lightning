@@ -26744,7 +26744,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+45"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>Layanan panggilan ini tidak menjawab tepat waktu di alamat mana pun.</translation>
     </message>
     <message>
         <location line="+42"/>

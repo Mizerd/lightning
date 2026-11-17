@@ -26837,7 +26837,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+45"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço desta chamada não respondeu a tempo em nenhum dos seus endereços.</translation>
     </message>
     <message>
         <location line="+42"/>

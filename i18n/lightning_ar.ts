@@ -27200,7 +27200,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+45"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>لم تستجب خدمة هذه المكالمة على أيٍّ من عناوينها في الوقت المحدد.</translation>
     </message>
     <message>
         <location line="+42"/>

@@ -26937,7 +26937,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+3"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>Der Dienst dieses Anrufs hat unter keiner seiner Adressen rechtzeitig geantwortet.</translation>
     </message>
     <message>
         <location line="+3"/>

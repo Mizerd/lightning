@@ -26744,7 +26744,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+45"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>此通话的服务在其任何地址上都没有及时响应。</translation>
     </message>
     <message>
         <location line="+42"/>

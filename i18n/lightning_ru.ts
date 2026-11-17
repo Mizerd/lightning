@@ -26930,7 +26930,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+45"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>Служба этого звонка не ответила вовремя ни по одному из своих адресов.</translation>
     </message>
     <message>
         <location line="+42"/>

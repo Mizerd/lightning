@@ -26837,7 +26837,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+45"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस कॉल की सेवा ने अपने किसी भी पते पर समय पर उत्तर नहीं दिया।</translation>
     </message>
     <message>
         <location line="+42"/>

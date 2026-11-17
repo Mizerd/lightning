@@ -26930,7 +26930,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+45"/>
         <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>Šio skambučio tarnyba laiku neatsakė nė vienu savo adresu.</translation>
     </message>
     <message>
         <location line="+42"/>
