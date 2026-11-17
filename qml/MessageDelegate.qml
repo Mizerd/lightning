@@ -2156,18 +2156,24 @@ Item {
                                 document: bodyLabel.textDocument
                             }
 
-                            QuoteBars {
-                                id: bodyQuotes
-                                document: bodyLabel.textDocument
-                            }
-                            Repeater {
-                                model: bodyQuotes.bars
-                                Rectangle {
-                                    x: modelData.x
-                                    y: modelData.y
-                                    width: 3
-                                    height: modelData.height
-                                    color: modelData.color
+                            Loader {
+                                active: (bodyLoader.bodyText || "").indexOf(
+                                            "<td width=\"3\" bgcolor") >= 0
+                                sourceComponent: Item {
+                                    QuoteBars {
+                                        id: bodyQuotes
+                                        document: bodyLabel.textDocument
+                                    }
+                                    Repeater {
+                                        model: bodyQuotes.bars
+                                        Rectangle {
+                                            x: modelData.x
+                                            y: modelData.y
+                                            width: 3
+                                            height: modelData.height
+                                            color: modelData.color
+                                        }
+                                    }
                                 }
                             }
 
@@ -2288,18 +2294,25 @@ Item {
                                             ParagraphDirection {
                                                 document: segmentText.textDocument
                                             }
-                                            QuoteBars {
-                                                id: segmentQuotes
-                                                document: segmentText.textDocument
-                                            }
-                                            Repeater {
-                                                model: segmentQuotes.bars
-                                                Rectangle {
-                                                    x: modelData.x
-                                                    y: modelData.y
-                                                    width: 3
-                                                    height: modelData.height
-                                                    color: modelData.color
+                                            Loader {
+                                                active: (segmentRow.modelData.text
+                                                         || "").indexOf(
+                                                    "<td width=\"3\" bgcolor") >= 0
+                                                sourceComponent: Item {
+                                                    QuoteBars {
+                                                        id: segmentQuotes
+                                                        document: segmentText.textDocument
+                                                    }
+                                                    Repeater {
+                                                        model: segmentQuotes.bars
+                                                        Rectangle {
+                                                            x: modelData.x
+                                                            y: modelData.y
+                                                            width: 3
+                                                            height: modelData.height
+                                                            color: modelData.color
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
