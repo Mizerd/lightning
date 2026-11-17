@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use matrix_sdk::{
     config::RequestConfig,
+    deserialized_responses::RawSyncOrStrippedState,
     ruma::{
         api::client::{membership::joined_rooms, sync::sync_events::v5},
-        events::room::member::StrippedRoomMemberEvent,
-        serde::Raw,
-        OwnedRoomId, OwnedUserId, RoomId, UInt, UserId,
+        events::room::member::RoomMemberEventContent,
+        OwnedRoomId, RoomId, UInt, UserId,
     },
     Client, Room, RoomState,
 };
@@ -239,13 +239,6 @@ pub(crate) async fn run_stale_invite_reconciler(client: Client, events: EventQue
     }
 }
 
-type SentKey = (OwnedUserId, OwnedRoomId);
-
-fn sent_times() -> &'static Mutex<HashMap<SentKey, u64>> {
-    static TIMES: OnceLock<Mutex<HashMap<SentKey, u64>>> = OnceLock::new();
-    TIMES.get_or_init(Default::default)
-}
-
 /// matrix-sdk drops `origin_server_ts` when it types a stripped event, so the
 /// time only survives in the raw JSON when the server sends it; Synapse omits
 /// it from sliding-sync invite_state, so first-seen is the usual fallback.
@@ -261,37 +254,23 @@ fn invite_sent_ms(raw: &str, own: &UserId, now_ms: u64) -> Option<u64> {
     (ts > 0 && ts <= now_ms + 60_000).then_some(ts)
 }
 
-pub(crate) fn install_sent_time_handler(client: &Client) {
-    client.add_event_handler(|raw: Raw<StrippedRoomMemberEvent>, room: Room| async move {
-        if room.state() != RoomState::Invited {
-            return;
-        }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
-        if let Some(ts) = invite_sent_ms(raw.json().get(), room.own_user_id(), now) {
-            sent_times()
-                .lock()
-                .unwrap()
-                .insert((room.own_user_id().to_owned(), room.room_id().to_owned()), ts);
-        }
-    });
-}
-
 /// When the invitation was sent, if the server told us; 0 when unknown.
-/// Forgets the entry once the room is no longer an invitation.
-pub(crate) fn sent_ms(room: &Room) -> u64 {
-    let key = (room.own_user_id().to_owned(), room.room_id().to_owned());
-    lookup_or_prune(&mut sent_times().lock().unwrap(), &key, room.state() == RoomState::Invited)
-}
-
-fn lookup_or_prune(map: &mut HashMap<SentKey, u64>, key: &SentKey, invited: bool) -> u64 {
-    if invited {
-        map.get(key).copied().unwrap_or(0)
-    } else {
-        map.remove(key);
-        0
+/// Read from the stored raw invite_state, because sync event handlers run only
+/// after the room update that builds the payload, and never again after a restart.
+pub(crate) async fn sent_ms(room: &Room) -> u64 {
+    if room.state() != RoomState::Invited {
+        return 0;
     }
+    let Ok(Some(RawSyncOrStrippedState::Stripped(raw))) = room
+        .get_state_event_static_for_key::<RoomMemberEventContent, _>(room.own_user_id())
+        .await
+    else {
+        return 0;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    invite_sent_ms(raw.json().get(), room.own_user_id(), now).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -312,6 +291,7 @@ mod tests {
                     json!({
                         "type": "m.room.member", "state_key": me,
                         "sender": "@inviter:example.org",
+                        "origin_server_ts": INVITE_TS,
                         "content": { "membership": "invite" }
                     })
                     .to_string(),
@@ -327,6 +307,19 @@ mod tests {
         for room in rooms {
             assert_eq!(client.get_room(room).unwrap().state(), RoomState::Invited);
         }
+    }
+
+    const INVITE_TS: u64 = 1_700_000_000_000;
+
+    // No event handler is installed: a restarted app never sees the invite_state again.
+    #[tokio::test]
+    async fn the_send_time_comes_from_the_stored_invite_state() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = room_id!("!invited:example.org");
+        invited(&client, &[room]).await;
+
+        assert_eq!(sent_ms(&client.get_room(room).unwrap()).await, INVITE_TS);
     }
 
     fn answer(invited: &[&RoomId], joined: &[&RoomId]) -> ServerInvites {
@@ -352,18 +345,6 @@ mod tests {
         assert_eq!(invite_sent_ms(&ev(with, "@me:example.org", "join"), me, now), None);
         assert_eq!(invite_sent_ms(&ev(r#""origin_server_ts":0,"#, "@me:example.org", "invite"), me, now), None);
         assert_eq!(invite_sent_ms(&ev(with, "@me:example.org", "invite"), me, 1_000), None, "future stamp");
-    }
-
-    #[test]
-    fn a_send_time_is_forgotten_once_the_room_is_no_longer_invited() {
-        let key: SentKey = (
-            matrix_sdk::ruma::user_id!("@me:example.org").to_owned(),
-            room_id!("!r:example.org").to_owned(),
-        );
-        let mut map = HashMap::from([(key.clone(), 5)]);
-        assert_eq!(lookup_or_prune(&mut map, &key, true), 5);
-        assert_eq!(lookup_or_prune(&mut map, &key, false), 0);
-        assert!(map.is_empty());
     }
 
     #[test]

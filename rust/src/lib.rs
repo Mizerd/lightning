@@ -11570,7 +11570,6 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
     });
 
     backdrop::install_change_handler(client, Arc::clone(&events));
-    invites::install_sent_time_handler(client);
 
     bgsync::install_change_handlers(client, Arc::clone(&events));
     settingsync::install_change_handlers(client, Arc::clone(&events));
@@ -14183,7 +14182,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "join_rule": rooms::join_rule_str(room.join_rule().as_ref()),
         "room_type": room.room_type().map(|kind| kind.to_string()).unwrap_or_default(),
         "prev_batch": room.last_prev_batch().unwrap_or_default(),
-        "invited_at_ms": invites::sent_ms(room),
+        "invited_at_ms": invites::sent_ms(room).await,
         "inviter_user_id": inviter_user_id,
         "inviter_display_name": inviter_display_name,
         "successor_room_id": room
