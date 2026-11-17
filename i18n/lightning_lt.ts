@@ -1023,7 +1023,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7269"/>
+        <location filename="../src/app/AppController.cpp" line="+7291"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1145,7 +1145,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Įeinantis skambutis</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5631"/>
+        <location filename="../src/app/AppController.cpp" line="-5653"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Atsijungimas atšauktas, nes paskyra pasikeitė. Nieko iš naujo nenustatyta.</translation>
     </message>
@@ -1197,13 +1197,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4221"/>
-        <location line="+807"/>
+        <location line="+4233"/>
+        <location line="+817"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-5069"/>
+        <location line="-5091"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -1276,12 +1276,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4002"/>
+        <location line="+4024"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-4000"/>
+        <location line="-4022"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
@@ -1405,12 +1405,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <location line="+8"/>
         <location line="+1810"/>
         <location line="+41"/>
-        <location line="+189"/>
+        <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Šioje versijoje nėra Rust SDK posistemės.</translation>
     </message>
     <message>
-        <location line="-1751"/>
+        <location line="-1763"/>
         <source>Choose a local image file.</source>
         <translation>Pasirinkite vietinį vaizdo failą.</translation>
     </message>
@@ -1538,25 +1538,20 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Raktų saugykla vis dar negrąžina šios paskyros įrašyto prisijungimo.</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+28"/>
         <source>Clearing this device&apos;s local data would not fix this, and it would destroy encryption keys you still need.</source>
         <translation>Išvalius šio įrenginio vietinius duomenis problema neišspręstų ir būtų sunaikinti šifravimo raktai, kurių vis dar reikia.</translation>
     </message>
     <message>
         <location line="+531"/>
-        <location line="+798"/>
+        <location line="+808"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Šalinimas nebaigtas: paskyros duomenys vis dar naudojami. Nieko neištrinta.</translation>
     </message>
     <message>
-        <location line="-1511"/>
-        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
-        <translation>„Lightning“ šiuo metu negali nuskaityti šio įrenginio įrašytų prisijungimų – sistemos raktų saugykla užrakinta arba nepasiekiama. Kitos jūsų paskyros vis dar yra šiame įrenginyje; atrakinkite raktų saugyklą ir iš naujo paleiskite „Lightning“, kad galėtumėte jomis naudotis.</translation>
-    </message>
-    <message>
-        <location line="+161"/>
+        <location line="-1350"/>
         <source>This backend cannot change your display name.</source>
         <translation>Ši posistemė negali pakeisti rodomo vardo.</translation>
     </message>
@@ -1641,8 +1636,10 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2134"/>
-        <location line="+1018"/>
+        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location line="+25"/>
+        <location line="+562"/>
+        <location line="+453"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>„Lightning“ šiuo metu negali nuskaityti šio įrenginio įrašytų prisijungimų – sistemos raktų saugykla užrakinta arba nepasiekiama. Atrakinkite ją ir bandykite dar kartą.</translation>
     </message>
@@ -12505,12 +12502,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+173"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Nuotraukos informacijos iš šio paveikslėlio pašalinti nepavyko, todėl jis neišsiųstas. Tai galite pakeisti nustatymuose, skiltyje Privatumas.</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+69"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
@@ -20305,8 +20302,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Šifruotas siuntimo tyrimas nepavyko: %1</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Send failed: %1</source>
         <translation>Nepavyko išsiųsti: %1</translation>
     </message>

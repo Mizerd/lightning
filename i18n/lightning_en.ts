@@ -1011,12 +1011,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7269"/>
+        <location filename="../src/app/AppController.cpp" line="+7291"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4837"/>
+        <location line="-4859"/>
         <source>Joined %1</source>
         <translation>Joined %1</translation>
     </message>
@@ -1194,13 +1194,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4221"/>
-        <location line="+807"/>
+        <location line="+4233"/>
+        <location line="+817"/>
         <source>Not connected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5069"/>
+        <location line="-5091"/>
         <source>Connecting…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1273,12 +1273,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4002"/>
+        <location line="+4024"/>
         <source>Not signed in.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4000"/>
+        <location line="-4022"/>
         <source>Room-key import failed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1392,12 +1392,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+8"/>
         <location line="+1810"/>
         <location line="+41"/>
-        <location line="+189"/>
+        <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1751"/>
+        <location line="-1763"/>
         <source>Choose a local image file.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1525,25 +1525,20 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+28"/>
         <source>Clearing this device&apos;s local data would not fix this, and it would destroy encryption keys you still need.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+531"/>
-        <location line="+798"/>
+        <location line="+808"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1511"/>
-        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+161"/>
+        <location line="-1350"/>
         <source>This backend cannot change your display name.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1628,8 +1623,10 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2134"/>
-        <location line="+1018"/>
+        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location line="+25"/>
+        <location line="+562"/>
+        <location line="+453"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12447,12 +12444,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+173"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+69"/>
         <source>The attachment could not be queued.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20217,8 +20214,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Send failed: %1</source>
         <translation type="unfinished"></translation>
     </message>

@@ -1011,7 +1011,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7269"/>
+        <location filename="../src/app/AppController.cpp" line="+7291"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -1132,7 +1132,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আগত কল</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5631"/>
+        <location filename="../src/app/AppController.cpp" line="-5653"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>অ্যাকাউন্ট বদলে যাওয়ায় সাইন আউট বাতিল হয়েছে। কিছুই রিসেট হয়নি।</translation>
     </message>
@@ -1184,13 +1184,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4221"/>
-        <location line="+807"/>
+        <location line="+4233"/>
+        <location line="+817"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-5069"/>
+        <location line="-5091"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -1263,12 +1263,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4002"/>
+        <location line="+4024"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4000"/>
+        <location line="-4022"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
@@ -1392,12 +1392,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+8"/>
         <location line="+1810"/>
         <location line="+41"/>
-        <location line="+189"/>
+        <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>এই বিল্ডে কোনো Rust SDK ব্যাকএন্ড নেই।</translation>
     </message>
     <message>
-        <location line="-1751"/>
+        <location line="-1763"/>
         <source>Choose a local image file.</source>
         <translation>একটি স্থানীয় ছবির ফাইল বেছে নিন।</translation>
     </message>
@@ -1525,25 +1525,20 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>কীরিং এখনও এই অ্যাকাউন্টের সংরক্ষিত সাইন-ইন ফেরত দিচ্ছে না।</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+28"/>
         <source>Clearing this device&apos;s local data would not fix this, and it would destroy encryption keys you still need.</source>
         <translation>এই ডিভাইসের স্থানীয় ডেটা মুছলে এটি ঠিক হবে না, বরং আপনার এখনও প্রয়োজনীয় এনক্রিপশন কী নষ্ট হবে।</translation>
     </message>
     <message>
         <location line="+531"/>
-        <location line="+798"/>
+        <location line="+808"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>অপসারণ সম্পন্ন হয়নি: অ্যাকাউন্টের ডেটা এখনও ব্যবহৃত হচ্ছে। কিছুই মোছা হয়নি।</translation>
     </message>
     <message>
-        <location line="-1511"/>
-        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
-        <translation>Lightning এখন এই ডিভাইসের সংরক্ষিত সাইন-ইন পড়তে পারছে না — সিস্টেম কীরিং লক করা বা অনুপলব্ধ। আপনার অন্য অ্যাকাউন্টগুলো এখনও এই ডিভাইসে আছে; সেগুলো নিয়ে চালিয়ে যেতে কীরিং আনলক করে Lightning পুনরায় চালু করুন।</translation>
-    </message>
-    <message>
-        <location line="+161"/>
+        <location line="-1350"/>
         <source>This backend cannot change your display name.</source>
         <translation>এই ব্যাকএন্ড আপনার প্রদর্শিত নাম বদলাতে পারে না।</translation>
     </message>
@@ -1628,8 +1623,10 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2134"/>
-        <location line="+1018"/>
+        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location line="+25"/>
+        <location line="+562"/>
+        <location line="+453"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning এখন এই ডিভাইসের সংরক্ষিত সাইন-ইন পড়তে পারছে না — সিস্টেম কীরিং লক করা বা অনুপলব্ধ। এটি আনলক করে আবার চেষ্টা করুন।</translation>
     </message>
@@ -12449,12 +12446,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>ক্লিপবোর্ডের ছবি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+173"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>এই ছবি থেকে ছবির বিবরণ সরানো যায়নি, তাই এটি পাঠানো হয়নি। সেটিংস, গোপনীয়তায় এটি বদলাতে পারেন।</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+69"/>
         <source>The attachment could not be queued.</source>
         <translation>সংযুক্তিটি সারিতে দেওয়া যায়নি।</translation>
     </message>
@@ -20219,8 +20216,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এনক্রিপ্টেড পাঠানোর প্রোব ব্যর্থ: %1</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Send failed: %1</source>
         <translation>পাঠানো ব্যর্থ: %1</translation>
     </message>

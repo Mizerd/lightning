@@ -1013,7 +1013,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7269"/>
+        <location filename="../src/app/AppController.cpp" line="+7291"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1134,7 +1134,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Llamada entrante</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5631"/>
+        <location filename="../src/app/AppController.cpp" line="-5653"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>El cierre de sesión se canceló porque la cuenta cambió. No se restableció nada.</translation>
     </message>
@@ -1186,13 +1186,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4221"/>
-        <location line="+807"/>
+        <location line="+4233"/>
+        <location line="+817"/>
         <source>Not connected</source>
         <translation>Sin conexión</translation>
     </message>
     <message>
-        <location line="-5069"/>
+        <location line="-5091"/>
         <source>Connecting…</source>
         <translation>Conectando…</translation>
     </message>
@@ -1265,12 +1265,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4002"/>
+        <location line="+4024"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-4000"/>
+        <location line="-4022"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
@@ -1394,12 +1394,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <location line="+8"/>
         <location line="+1810"/>
         <location line="+41"/>
-        <location line="+189"/>
+        <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Esta compilación no incluye el backend del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="-1751"/>
+        <location line="-1763"/>
         <source>Choose a local image file.</source>
         <translation>Elige un archivo de imagen local.</translation>
     </message>
@@ -1527,25 +1527,20 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>El llavero del sistema sigue sin devolver el inicio de sesión guardado de esta cuenta.</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+28"/>
         <source>Clearing this device&apos;s local data would not fix this, and it would destroy encryption keys you still need.</source>
         <translation>Borrar los datos locales de este dispositivo no lo solucionaría y destruiría claves de cifrado que todavía necesitas.</translation>
     </message>
     <message>
         <location line="+531"/>
-        <location line="+798"/>
+        <location line="+808"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>La eliminación no terminó: los datos de la cuenta siguen en uso. No se borró nada.</translation>
     </message>
     <message>
-        <location line="-1511"/>
-        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
-        <translation>Lightning no puede leer ahora los inicios de sesión guardados de este dispositivo: el llavero del sistema está bloqueado o no disponible. Tus otras cuentas siguen en este dispositivo; desbloquea el llavero y reinicia Lightning para seguir con ellas.</translation>
-    </message>
-    <message>
-        <location line="+161"/>
+        <location line="-1350"/>
         <source>This backend cannot change your display name.</source>
         <translation>Este backend no puede cambiar tu nombre visible.</translation>
     </message>
@@ -1630,8 +1625,10 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2134"/>
-        <location line="+1018"/>
+        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location line="+25"/>
+        <location line="+562"/>
+        <location line="+453"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning no puede leer ahora los inicios de sesión guardados de este dispositivo: el llavero del sistema está bloqueado o no disponible. Desbloquéalo e inténtalo de nuevo.</translation>
     </message>
@@ -12458,12 +12455,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se ha podido leer la imagen del portapapeles.</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+173"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>No se pudieron quitar los datos de foto de esta imagen, así que no se envió. Puedes cambiarlo en Ajustes, Privacidad.</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+69"/>
         <source>The attachment could not be queued.</source>
         <translation>No se ha podido poner el adjunto en cola.</translation>
     </message>
@@ -20228,8 +20225,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Falló la prueba de envío cifrado: %1</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Send failed: %1</source>
         <translation>Falló el envío: %1</translation>
     </message>

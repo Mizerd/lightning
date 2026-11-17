@@ -1015,12 +1015,14 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
         <location filename="../src/app/AppController.cpp" line="+6329"/>
-        <location line="+1018"/>
+        <location line="+25"/>
+        <location line="+562"/>
+        <location line="+453"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6755"/>
+        <location filename="../src/app/AppController.cpp" line="-6777"/>
         <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1093,13 +1095,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4221"/>
-        <location line="+807"/>
+        <location line="+4233"/>
+        <location line="+817"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5069"/>
+        <location line="-5091"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1167,12 +1169,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4002"/>
+        <location line="+4024"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4000"/>
+        <location line="-4022"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1250,12 +1252,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <location line="+8"/>
         <location line="+1810"/>
         <location line="+41"/>
-        <location line="+189"/>
+        <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Diese Version enthält kein Rust-SDK-Backend.</translation>
     </message>
     <message>
-        <location line="-1751"/>
+        <location line="-1763"/>
         <source>Choose a local image file.</source>
         <translation>Wähle eine lokale Bilddatei aus.</translation>
     </message>
@@ -1398,25 +1400,20 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Der Schlüsselbund liefert die gespeicherte Anmeldung dieses Kontos weiterhin nicht.</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+28"/>
         <source>Clearing this device&apos;s local data would not fix this, and it would destroy encryption keys you still need.</source>
         <translation>Das Löschen der lokalen Daten dieses Geräts würde das nicht beheben und Verschlüsselungsschlüssel zerstören, die du noch brauchst.</translation>
     </message>
     <message>
         <location line="+531"/>
-        <location line="+798"/>
+        <location line="+808"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Entfernen nicht abgeschlossen: Die Daten des Kontos sind noch in Gebrauch. Es wurde nichts gelöscht.</translation>
     </message>
     <message>
-        <location line="-1511"/>
-        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
-        <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Deine anderen Konten sind weiterhin auf diesem Gerät; entsperre den Schlüsselbund und starte Lightning neu, um mit ihnen fortzufahren.</translation>
-    </message>
-    <message>
-        <location line="+161"/>
+        <location line="-1350"/>
         <source>This backend cannot change your display name.</source>
         <translation>Dieses Backend kann deinen Anzeigenamen nicht ändern.</translation>
     </message>
@@ -12458,12 +12455,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Das Bild aus der Zwischenablage konnte nicht gelesen werden.</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+173"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Die Fotodetails konnten nicht aus diesem Bild entfernt werden, daher wurde es nicht gesendet. Du kannst das unter Einstellungen, Datenschutz ändern.</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+69"/>
         <source>The attachment could not be queued.</source>
         <translation>Der Anhang konnte nicht in die Warteschlange gestellt werden.</translation>
     </message>
@@ -20228,8 +20225,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Probe des verschlüsselten Sendens fehlgeschlagen: %1</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Send failed: %1</source>
         <translation>Senden fehlgeschlagen: %1</translation>
     </message>
