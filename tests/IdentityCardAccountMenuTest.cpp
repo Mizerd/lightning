@@ -293,23 +293,6 @@ private slots:
         QCOMPARE(bobCard->property("unreadCount").toInt(), 0);
     }
 
-    void anInactiveCardNeverAsksTheActiveSessionForItsAvatar()
-    {
-        m_controller->accounts()->updateProfile(
-            kAlice, QStringLiteral("Alice"), QStringLiteral("mxc://one.example/a"));
-        m_controller->accounts()->updateProfile(
-            kBob, QStringLiteral("Bob"), QStringLiteral("mxc://two.example/b"));
-        openMenu();
-        auto *aliceCard = findCard(kAlice);
-        auto *bobCard = findCard(kBob);
-        QVERIFY(aliceCard && bobCard);
-        QTRY_COMPARE(aliceCard->property("avatarMxc").toString(),
-                     QStringLiteral("mxc://one.example/a"));
-        QCOMPARE(bobCard->property("avatarMxc").toString(), QString());
-        m_controller->accounts()->updateProfile(kAlice, QString(), QString());
-        m_controller->accounts()->updateProfile(kBob, QString(), QString());
-    }
-
     void statusStripSpeaksOnlyWhenSomethingIsWrong()
     {
         openMenu();
@@ -1589,6 +1572,26 @@ Item {
                      "the Sign out button ends at y %1 in a 420 px window - "
                      "the popover's content is taller than the window")
                                 .arg(bottom)));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    void anInactiveCardNeverAsksTheActiveSessionForItsAvatar()
+    {
+        m_controller->accounts()->updateProfile(
+            kAlice, QStringLiteral("Alice"), QStringLiteral("mxc://one.example/a"));
+        m_controller->accounts()->updateProfile(
+            kBob, QStringLiteral("Bob"), QStringLiteral("mxc://two.example/b"));
+        openMenu();
+        auto *aliceCard = findCard(kAlice);
+        auto *bobCard = findCard(kBob);
+        QVERIFY(aliceCard && bobCard);
+        QTRY_COMPARE(aliceCard->property("avatarMxc").toString(),
+                     QStringLiteral("mxc://one.example/a"));
+        QCOMPARE(bobCard->property("avatarMxc").toString(), QString());
+        m_controller->accounts()->updateProfile(kAlice, QString(), QString());
+        m_controller->accounts()->updateProfile(kBob, QString(), QString());
+        auto *menu = find(QStringLiteral("menu"));
         QMetaObject::invokeMethod(menu, "close");
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
