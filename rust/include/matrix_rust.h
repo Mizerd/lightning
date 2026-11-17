@@ -336,20 +336,6 @@ char *mx_rust_recover_from_backup(void *client,
 void mx_rust_acknowledge_interrupted_setup(void *client);
 
 /*
- * Reload a room's recent timeline via matrix-sdk's Room::messages
- * (v0.5.0-prep+11). Emits the same `timeline_event` shape live sync
- * uses, so the C++ side dedupes by event_id automatically.
- * `limit` is clamped to [1, 200]; 0 uses the default of 30.
- * Result events on the poll queue:
- *   {"type":"reload_timeline_done", "room_id":"...", "events":N,
- *    "decrypted":N, "undecryptable":N}
- *   {"type":"reload_timeline_failed", "room_id":"...", "message":"..."}
- */
-char *mx_rust_reload_room_timeline(void *client,
-                                   const char *room_id,
-                                   unsigned int limit);
-
-/*
  * Interactive device verification (v0.5.0; QR added post-0.6.5).
  * Receive-first flow: the Rust bridge installs a to-device
  * verification-request handler at install_event_handlers time and emits
