@@ -893,8 +893,6 @@ Everything below was found or left open by that round's live testing and its
   `std::terminate`, a GLib abort) loses whatever is still queued: normally
   microseconds of lines, with a stalled disk up to the whole bound. stderr
   still receives every line synchronously.
-- The incoming-call card names a DM caller by localpart while the DM's
-  members are not loaded, though the room list already knows the name.
 
 ### Notifications (#15)
 
