@@ -14321,12 +14321,24 @@ pub(crate) fn raw_event_preview_line(
                 MessageType::Emote(content) => {
                     one_line(crate::timeline::strip_reply_fallback(&content.body))
                 }
-                MessageType::Image(content) => body_or(one_line(&content.body), "image"),
-                MessageType::File(content) => body_or(one_line(&content.body), "file"),
-                MessageType::Video(content) => body_or(one_line(&content.body), "video"),
+                MessageType::Image(content) => body_or(
+                    one_line(crate::timeline::strip_reply_fallback(&content.body)),
+                    "image",
+                ),
+                MessageType::File(content) => body_or(
+                    one_line(crate::timeline::strip_reply_fallback(&content.body)),
+                    "file",
+                ),
+                MessageType::Video(content) => body_or(
+                    one_line(crate::timeline::strip_reply_fallback(&content.body)),
+                    "video",
+                ),
                 MessageType::Audio(content) => match crate::timeline::voice_message_label(&content) {
                     Some(_) => kind_preview("voice", ""),
-                    None => body_or(one_line(&content.body), "audio"),
+                    None => body_or(
+                        one_line(crate::timeline::strip_reply_fallback(&content.body)),
+                        "audio",
+                    ),
                 },
                 other => match crate::timeline::parse_gallery(&other)
                     .filter(|g| !g.items.is_empty())
@@ -16666,6 +16678,21 @@ mod latest_event_preview_tests {
             latest_event_preview_text(&quote_only),
             "> <@a:b.c> quoted no separator"
         );
+    }
+
+    #[test]
+    fn a_captioned_reply_image_does_not_preview_the_reply_fallback() {
+        for (msgtype, kind) in [("m.image", "image"), ("m.video", "video"), ("m.file", "file")] {
+            let value = remote(
+                json!({
+                    "msgtype": msgtype,
+                    "body": "> <@a:b.c> parent message\n\na caption",
+                    "url": "mxc://example.org/i",
+                }),
+                "m.room.message",
+            );
+            assert_eq!(latest_event_preview_text(&value), "a caption", "{kind}");
+        }
     }
 
     #[test]

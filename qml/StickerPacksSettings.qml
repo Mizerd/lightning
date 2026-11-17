@@ -180,6 +180,7 @@ ColumnLayout {
                          && !section.stickers.editing
                          && !section.stickers.transferring
                 onClicked: {
+                    section.notice = ""
                     section.stickers.selectedPackId = packRow.packId
                     editor.stickers = section.stickers
                     editor.restoreTo = manageButton
@@ -323,8 +324,10 @@ ColumnLayout {
                 section.notice = ""
         }
         function onEditFinished(ok, category, shortcode) {
-            if (!section.creating)
+            if (!section.creating) {
+                section.notice = ""
                 return
+            }
             section.creating = false
             section.noticeIsError = !ok
             if (ok) {

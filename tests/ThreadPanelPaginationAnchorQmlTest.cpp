@@ -9,6 +9,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QPointingDevice>
 #include <QScopeGuard>
 #include <QSignalSpy>
 
@@ -667,6 +668,20 @@ private Q_SLOTS:
         QCoreApplication::sendEvent(&window, &wheel);
         QTRY_VERIFY2(scroll->property("contentY").toReal() > 0,
                      "the wheel no longer scrolls a long root");
+
+        // WheelHandler ignores a touchpad unless acceptedDevices says otherwise.
+        scroll->setProperty("contentY", 0.0);
+        const QPointingDevice touchpad(
+            QStringLiteral("touchpad"), 11, QInputDevice::DeviceType::TouchPad,
+            QPointingDevice::PointerType::Generic,
+            QInputDevice::Capability::Scroll, 1, 3);
+        QWheelEvent padWheel(QPointF(from), QPointF(window.mapToGlobal(from)),
+                             QPoint(0, -40), QPoint(0, -120), Qt::NoButton, {},
+                             Qt::NoScrollPhase, false,
+                             Qt::MouseEventNotSynthesized, &touchpad);
+        QCoreApplication::sendEvent(&window, &padWheel);
+        QTRY_VERIFY2(scroll->property("contentY").toReal() > 0,
+                     "a touchpad scroll does not move a long root");
     }
 
     void draggingTheReplyScrollBarUpStopsFollowingTheNewestReply()

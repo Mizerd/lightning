@@ -392,6 +392,39 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 1);
     }
 
+    void theRoomSummaryAnnouncesItselfWhenTheRootRowIsNotLoaded()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+
+        const QString composite =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        QList<TimelineEvent> repliesOnly = client.timeline(composite);
+        repliesOnly.removeIf(
+            [&](const TimelineEvent &e) { return e.eventId == rootId; });
+        client.resetTimelineForTest(composite, repliesOnly, 0);
+        const int loaded = controller.replyCount();
+
+        const auto room = client.timeline(kGeneral);
+        const int rootIndex = static_cast<int>(std::distance(
+            room.cbegin(),
+            std::find_if(room.cbegin(), room.cend(), [&](const TimelineEvent &e) {
+                return e.eventId == rootId;
+            })));
+        QVERIFY(rootIndex < room.size());
+        QSignalSpy spy(&controller, &ThreadController::replyCountChanged);
+        TimelineEvent updated = room.at(rootIndex);
+        updated.threadReplyCount = loaded + 40;
+        client.changeEventAtForTest(kGeneral, rootIndex, updated);
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(controller.replyCount(), loaded + 40);
+    }
+
     void aStaleSummaryNeverUndercutsTheRepliesOnScreen()
     {
         MockMatrixClient client;

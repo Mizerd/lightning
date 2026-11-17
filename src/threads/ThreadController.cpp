@@ -195,6 +195,13 @@ void ThreadController::setClient(MatrixClient *client)
                 });
         connect(m_client, &MatrixClient::attachmentQueueFinished, this,
                 &ThreadController::onAttachmentQueueFinished);
+        // The room timeline's root summary is the count when the thread
+        // model has not loaded the root row.
+        connect(m_client, &MatrixClient::eventChangedAt, this,
+                [this](const QString &roomId, int, const TimelineEvent &event) {
+                    if (roomId == m_roomId && event.eventId == m_rootEventId)
+                        notifyReplyCountIfChanged();
+                });
         connect(m_client, &MatrixClient::roomsChanged, this,
                 &ThreadController::refreshRoomThreadUnread);
         connect(m_client, &MatrixClient::roomUpdated, this,

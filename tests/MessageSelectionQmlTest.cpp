@@ -397,6 +397,16 @@ ApplicationWindow {
         QVERIFY(bar.contains(QStringLiteral("app.bulkRedaction.cancel()")));
     }
 
+    void theBulkDeleteSummaryIsPluralAwareAndOmitsAZeroFailureCount()
+    {
+        QFile file(QStringLiteral(QML_DIR "/BulkRedactionBar.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString bar = QString::fromUtf8(file.readAll());
+        QVERIFY(bar.contains(QStringLiteral("qsTr(\"Deleted %n message(s).\"")));
+        QVERIFY(bar.contains(QStringLiteral("qsTr(\"Deleted %n message(s); %1 failed.\"")));
+        QVERIFY(!bar.contains(QStringLiteral("messages; %3 failed")));
+    }
+
     void oneSelectionModeOffersForwardAndDelete()
     {
         auto source = [](const QString &name) {

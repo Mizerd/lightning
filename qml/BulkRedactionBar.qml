@@ -29,22 +29,27 @@ Rectangle {
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
             text: app.bulkRedaction.running
-                  ? qsTr("Deleting %1 of %2 messages…")
+                  ? qsTr("Deleting %1 of %n message(s)…", "", app.bulkRedaction.total)
                         .arg(app.bulkRedaction.completed)
-                        .arg(app.bulkRedaction.total)
                   : app.bulkRedaction.selecting
                     ? qsTr("%n message(s) selected", "",
                            app.bulkRedaction.selectedCount)
                     : app.bulkRedaction.cancelled
-                      ? qsTr("Stopped after %1 of %2 messages; %3 failed.")
-                            .arg(app.bulkRedaction.completed)
-                            .arg(app.bulkRedaction.total)
-                            .arg(app.bulkRedaction.failed)
-                      : qsTr("Deleted %1 of %2 messages; %3 failed.")
-                            .arg(app.bulkRedaction.completed
-                                 - app.bulkRedaction.failed)
-                            .arg(app.bulkRedaction.total)
-                            .arg(app.bulkRedaction.failed)
+                      ? (app.bulkRedaction.failed > 0
+                         ? qsTr("Stopped after %1 of %n message(s); %2 failed.", "",
+                                app.bulkRedaction.total)
+                               .arg(app.bulkRedaction.completed)
+                               .arg(app.bulkRedaction.failed)
+                         : qsTr("Stopped after %1 of %n message(s).", "",
+                                app.bulkRedaction.total)
+                               .arg(app.bulkRedaction.completed))
+                      : app.bulkRedaction.failed > 0
+                        ? qsTr("Deleted %n message(s); %1 failed.", "",
+                               app.bulkRedaction.completed
+                               - app.bulkRedaction.failed)
+                              .arg(app.bulkRedaction.failed)
+                        : qsTr("Deleted %n message(s).", "",
+                               app.bulkRedaction.completed)
             color: AppTheme.textPrimary
         }
         AppButton {

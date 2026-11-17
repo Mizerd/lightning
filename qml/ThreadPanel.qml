@@ -856,6 +856,7 @@ Rectangle {
                     clip: true
                     WheelHandler {
                         target: null
+                        acceptedDevices: PointerDevice.AllDevices
                         enabled: rootBodyFlick.contentHeight > rootBodyFlick.height
                         onWheel: (event) => {
                             var dy = event.pixelDelta.y !== 0

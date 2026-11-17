@@ -157,6 +157,21 @@ private slots:
                  "Settings passes the ROOM permission role to the editor again");
     }
 
+    void aStalePackNoticeIsClearedWhenAnotherEditHappens()
+    {
+        const QString settings = settingsQml();
+        QVERIFY(!settings.isEmpty());
+        const int fn = settings.indexOf(QStringLiteral("function onEditFinished"));
+        QVERIFY(fn >= 0);
+        const int guard = settings.indexOf(QStringLiteral("if (!section.creating)"), fn);
+        QVERIFY(guard >= 0);
+        const int creating = settings.indexOf(QStringLiteral("section.creating = false"), guard);
+        QVERIFY(creating > guard);
+        QVERIFY2(settings.mid(guard, creating - guard)
+                     .contains(QStringLiteral("section.notice = \"\"")),
+                 "an edit that is not a pack creation leaves the old notice up");
+    }
+
     void theKeyboardPathsAreWired()
     {
         const QString editor = editorQml();
