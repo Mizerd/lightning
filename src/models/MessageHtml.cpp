@@ -1180,15 +1180,16 @@ QString MessageHtml::sanitize(
                     + mentionStyle.codeBackground.toHtmlEscaped()
                     + QStringLiteral("\">");
             } else if (name == QLatin1String("blockquote")) {
-                // Qt ignores border-left on a blockquote; a one-cell table's
-                // cell border is the only bar it paints.
+                // Neither a blockquote's nor a table cell's border-left is
+                // painted by Quick's text (only cell backgrounds are), so the
+                // bar is an empty first cell with a bgcolor.
                 ++quoteDepth;
                 out += QStringLiteral("<table cellspacing=\"0\" cellpadding=\"0\">"
-                                      "<tr><td style=\"border-left:3px solid ")
+                                      "<tr><td width=\"3\" bgcolor=\"")
                     + (mentionStyle.quoteBar.isEmpty()
                            ? QStringLiteral("#808080")
                            : mentionStyle.quoteBar.toHtmlEscaped())
-                    + QStringLiteral("; padding-left:8px;")
+                    + QStringLiteral("\"></td><td style=\"padding-left:8px;")
                     + (mentionStyle.quoteInk.isEmpty()
                            ? QString()
                            : QStringLiteral(" color:")

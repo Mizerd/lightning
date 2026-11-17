@@ -2156,6 +2156,21 @@ Item {
                                 document: bodyLabel.textDocument
                             }
 
+                            QuoteBars {
+                                id: bodyQuotes
+                                document: bodyLabel.textDocument
+                            }
+                            Repeater {
+                                model: bodyQuotes.bars
+                                Rectangle {
+                                    x: modelData.x
+                                    y: modelData.y
+                                    width: 3
+                                    height: modelData.height
+                                    color: modelData.color
+                                }
+                            }
+
                             // Qt tracks link hover, and so shows the pointing hand,
                             // only while linkHovered is connected.
                             onLinkHovered: function(link) {}
@@ -2272,6 +2287,20 @@ Item {
                                             }
                                             ParagraphDirection {
                                                 document: segmentText.textDocument
+                                            }
+                                            QuoteBars {
+                                                id: segmentQuotes
+                                                document: segmentText.textDocument
+                                            }
+                                            Repeater {
+                                                model: segmentQuotes.bars
+                                                Rectangle {
+                                                    x: modelData.x
+                                                    y: modelData.y
+                                                    width: 3
+                                                    height: modelData.height
+                                                    color: modelData.color
+                                                }
                                             }
                                         }
                                     }

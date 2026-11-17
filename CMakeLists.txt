@@ -785,6 +785,8 @@ set(APP_SOURCES
     src/models/MentionHighlighter.cpp
     src/models/ParagraphDirection.h
     src/models/ParagraphDirection.cpp
+    src/models/QuoteBars.h
+    src/models/QuoteBars.cpp
     src/models/MarkdownFormat.h
     src/models/MarkdownFormat.cpp
     src/models/SlashCommands.h
@@ -7256,6 +7258,18 @@ if(BUILD_TESTING)
     target_include_directories(message-html-test PRIVATE src)
     target_link_libraries(message-html-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME message-html COMMAND message-html-test)
+
+    qt_add_executable(quote-render-test
+        tests/QuoteRenderTest.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+    )
+    target_include_directories(quote-render-test PRIVATE src)
+    target_link_libraries(quote-render-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+    add_test(NAME quote-render COMMAND quote-render-test)
+    set_tests_properties(quote-render PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Inline emoji sizing (MessageHtml::markEmoji): big-emoji suppression and
     # code-span exclusion. Behavioural.
