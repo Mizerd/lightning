@@ -4802,6 +4802,7 @@ fn event_item_to_json(
                         out["media_thumb_available"] =
                             primary.thumbnail.is_some().into();
                     }
+                    let primary_source = sources.first().map(|(_, m)| m.source.clone());
                     for (media_key, media) in sources {
                         registry.remember_media(media_key, media);
                     }
@@ -4810,7 +4811,7 @@ fn event_item_to_json(
                         message.msgtype(),
                         MessageType::Image(_) | MessageType::Video(_) | MessageType::Audio(_)
                     ) {
-                        fill_spoiler(&mut out, event);
+                        fill_spoiler(&mut out, event, primary_source.as_ref());
                     }
                     if message.is_edited()
                         && std::env::var_os("LIGHTNING_EDIT_TRACE").is_some()
@@ -5076,7 +5077,19 @@ fn restore_raw_formatted_body(
     }
 }
 
-fn fill_spoiler(out: &mut serde_json::Value, event: &EventTimelineItem) {
+fn fill_spoiler(
+    out: &mut serde_json::Value,
+    event: &EventTimelineItem,
+    source: Option<&MediaSource>,
+) {
+    let local_uri = source.map(|s| match s {
+        MediaSource::Plain(uri) => uri.to_string(),
+        MediaSource::Encrypted(file) => file.url.to_string(),
+    });
+    if event.is_local_echo() && local_uri.is_some_and(|u| crate::spoiler::is_local_spoiler(&u)) {
+        out["media_spoiler"] = true.into();
+        return;
+    }
     let parse = |raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>| {
         raw.deserialize_as::<serde_json::Value>().ok()
     };

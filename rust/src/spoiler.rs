@@ -19,6 +19,37 @@ use matrix_sdk::{
     Client, Room,
 };
 use serde_json::{json, Map, Value};
+use std::{collections::VecDeque, sync::Mutex};
+
+const LOCAL_SPOILERS_KEPT: usize = 256;
+static LOCAL_SPOILERS: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
+
+fn content_source_uri(content: &Value) -> Option<&str> {
+    content
+        .get("file")
+        .and_then(|f| f.get("url"))
+        .or_else(|| content.get("url"))
+        .and_then(Value::as_str)
+}
+
+/// The SDK rebuilds a local echo from typed content, which drops the marker,
+/// so the uploaded source is remembered to mark the echo until the remote
+/// event arrives.
+pub(crate) fn remember_local_spoiler(content: &Value) {
+    if spoiler_of(content).is_none() {
+        return;
+    }
+    if let (Some(uri), Ok(mut kept)) = (content_source_uri(content), LOCAL_SPOILERS.lock()) {
+        if kept.len() >= LOCAL_SPOILERS_KEPT {
+            kept.pop_front();
+        }
+        kept.push_back(uri.to_owned());
+    }
+}
+
+pub(crate) fn is_local_spoiler(uri: &str) -> bool {
+    LOCAL_SPOILERS.lock().is_ok_and(|kept| kept.iter().any(|k| k == uri))
+}
 
 pub(crate) const UNSTABLE_SPOILER: &str = "page.codeberg.everypizza.msc4193.spoiler";
 pub(crate) const UNSTABLE_SPOILER_REASON: &str =
@@ -319,6 +350,7 @@ pub(crate) async fn prepare_spoiler(
 }
 
 pub(crate) async fn queue_spoiler(room: &Room, content: Value) -> Result<(), String> {
+    remember_local_spoiler(&content);
     let raw = serde_json::value::to_raw_value(&content)
         .map_err(|_| "The spoiler event could not be built.".to_owned())?;
     let queue = room.send_queue();
@@ -368,6 +400,18 @@ mod tests {
         );
         assert_eq!(spoiler_of(&json!({ STABLE_SPOILER: {} })), Some(String::new()));
         assert_eq!(spoiler_of(&json!({ STABLE_SPOILER: "x" })), None);
+    }
+
+    #[test]
+    fn a_queued_spoilers_source_is_remembered_for_its_local_echo() {
+        let uri = "mxc://example.org/local-echo-spoiler";
+        remember_local_spoiler(&json!({ "url": uri }));
+        assert!(!is_local_spoiler(uri));
+        remember_local_spoiler(&json!({ "url": uri, UNSTABLE_SPOILER: true }));
+        assert!(is_local_spoiler(uri));
+        let enc = "mxc://example.org/local-echo-encrypted";
+        remember_local_spoiler(&json!({ "file": { "url": enc }, STABLE_SPOILER: {} }));
+        assert!(is_local_spoiler(enc));
     }
 
     #[test]

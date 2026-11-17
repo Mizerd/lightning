@@ -48,9 +48,6 @@ own engine. NOT TESTED: no second SFU was available.
 
 ## 2026-11-07 — ACCEPTED FOLLOW-UPS from the spoiler-media review (GitHub #69)
 
-- The sender's own LOCAL ECHO of a spoiler is not covered: the send queue
-  deserializes the raw event into typed content, which drops the marker, so
-  the row is covered only once the remote echo arrives.
 - A reply quote hides the spoiler's thumbnail only when the replied-to event
   is LOADED; a quote of an unloaded spoiler still shows its thumbnail
   (`EmbeddedEvent` carries no raw JSON to read the marker from).
