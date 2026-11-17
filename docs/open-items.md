@@ -37,15 +37,6 @@ leaving should also drop the room's searchable history is a product decision
 (a user may leave a room and still want to find what was said there). The
 live handler, gap fill and index-all already ignore rooms that are not joined.
 
-## 2026-11-08 — ACCEPTED FOLLOW-UP: external user links open the join flow, not the profile card
-
-A `matrix:u/…` or `https://matrix.to/#/@user…` link handed to Lightning from
-outside (argv or a second launch) goes to the room join flow, which reports
-it as not a room (a matrix.to user link is handed back to the web browser).
-In a message the same link opens the profile card
-(`MessageDelegate.openMessageLink`). Route external user links to the profile
-card as well.
-
 ## 2026-11-07 — ACCEPTED FOLLOW-UP: secondary multi-SFU connections do not act on a resume
 
 A signalling resume (GitHub #70) is handled for every connection in Rust, but
@@ -182,9 +173,10 @@ implement the filter would answer with an empty set.
   QML run). On the real card the property reads the new value straight after
   the write and the menu then shows the old track with NO player source
   change in that case (a source change only appears when the 6 s clip ends:
-  `handleEndOfMedia` then `resetPlayback`, which is intended). The
-  `activeTracksChanged` signal was not logged, so what restores the default is
-  undetermined. Not found, not fixed.
+  `handleEndOfMedia` then `resetPlayback`, which is intended). What restores
+  the default is undetermined. MITIGATED in `06ac6bf1`, which re-applies the
+  pick when the player reverts it; root cause not found, mitigation not
+  live-verified.
 
 ## 2026-11-01 — KNOWN LIMIT: DMs created before 0.10.3 keep stock call power levels
 
@@ -262,11 +254,9 @@ that predates the fix was NOT retested and is expected to stay refused.
   Call. A real NVENC failure has not been repeated since.
 - On NixOS `nvcodec` still registers encoders only with `/run/opengl-driver/lib`
   on the library path. The stale-parser half is fixed; this half is not.
-- Stream Info covers MatrixRTC only and draws over the stage's header row.
+- Stream Info covers MatrixRTC only (it no longer draws over the header, `6a1f6659`).
 - A narrow collapsed call strip (stage under 640 px) has room for the controls
   alone: no faces and no format label until it is expanded.
-- `UserClientsInfo` asks once per user: a device that joined after the first ask
-  reads "no record" until Developer tools is toggled or the account changes.
 - Accepted from review: a Room Information panel already open when a live
   resize drops the pane under 700 px takes the pane rather than vanishing, and
   closing it clears the remembered preference; a session past the 64-session cap
@@ -595,17 +585,6 @@ and no request made); `open-room-permissions` (new C++ suite);
 `MessageRailCollisionTest::moderatorDeleteIsOfferedWithNoRoomPanelOpen`;
 `RtcBridgePayloadTest::theOpenRoomFactsSurviveTheBridge`. **Live: NOT TESTED.**
 
-**Accepted follow-ups (review, not fixed):**
-
-- The open-room facts are not re-read when the room turns encryption on. In
-  an encrypted room posting needs `m.room.encrypted` as well as
-  `m.room.message`, and `m.room.encryption` is neither a member nor a
-  power-level poke, so the answer stays the pre-encryption one until the next
-  open or poke. The server still enforces the send.
-- The composer's `commandPermissions` Binding (kick, ban, unban, invite,
-  topic and room-name hints in the completion rows) still reads `app.roomInfo`
-  only, so those hints appear only while the info panel is on the open room.
-
 ## 2026-10-16 — FIXED 2026-10-20, pre-existing: a live append while parked at the oldest loaded row shifts the view by the appended height
 
 **Measured** (offscreen, mock, `LIGHTNING_SCROLL_TRACE=1`): `TimelinePaneQmlTest`'s
@@ -855,9 +834,9 @@ before the next release; the full checklist is kept in the maintainer's notes.
   row, Arabic alignment, the edit preview, the "Empty Room" invite, the banned
   member, the tray search entries and the teardown warning, are FIXED; see
   "Closed (kept for the record)" at the end of this file.)
-- The DM row avatar stays stale for the whole session after the peer changes
-  it (`DirectAvatarResolver` fetches once per session).
-- A Mentions-only encrypted room shows a numbered badge.
+- The DM row avatar staleness and the Mentions-only numbered badge are fixed
+  in `e8b2cdd2` (re-ask every 15-25 min; one unread rule); the badge fix is
+  not live-verified.
 - `ScreenSharePicker.qml:462` fails to load its thumbnail (cosmetic); the Qt
   Quick file dialog sometimes opens at `/` on a fresh profile.
 - Once each, not reproduced: a 14 s quit after using the tray, and a 6.7 s GUI
@@ -907,18 +886,10 @@ Everything below was found or left open by that round's live testing and its
 - **To-device receive latency over sliding sync is 0.1 to 4.7 s** (measured
   live). It is what the 5 s use-key delay has to cover; a federated peer can
   exceed it.
-- **The key lane's F6**: a PARTIAL to-device delivery is reported `ok=true`, so
-  every device in that send counts as a holder; devices whose delivery failed
-  are cut off at the next switch and re-sent only at the next rotation. The
-  bridge does not say which devices failed.
 - **Holder-by-device, not by session**: a holder that rejoined with a new SFU
   session gets its own quick send, which can start the use-key delay while the
   rotation's send to a slower holder is still in flight. Narrow, bounded, no
   worse than before.
-- `m_cameraNotice` / `m_cameraNoticeCid` are not reset on join or teardown
-  (harmless: the withdrawal matches the camera-only text), and owning a notice
-  by its TEXT is fragile if a future camera category falls through to the
-  generic "The call ended unexpectedly.".
 - **DEFECT 10 is fixed and NOT TESTED live**: a YUYV-only camera on the
   direct v4l2 route is now probed at READY and rebuilt on the raw entry. The
   call tester's YUY2 loopback camera is the live check still owed. The probe
@@ -943,8 +914,6 @@ Everything below was found or left open by that round's live testing and its
   `std::terminate`, a GLib abort) loses whatever is still queued: normally
   microseconds of lines, with a stalled disk up to the whole bound. stderr
   still receives every line synchronously.
-- While the sound server does not answer, the GUI thread waits (~8.7 s
-  measured) because the capture state change runs on it (issue #12 family).
 - The incoming-call card names a DM caller by localpart while the DM's
   members are not loaded, though the room list already knows the name.
 
@@ -962,15 +931,8 @@ Everything below was found or left open by that round's live testing and its
 
 ### Browser sign-in
 
-- An abandoned add-account browser sign-in stays live for up to 15 minutes
-  after the user leaves the login screen; cancelling it needs care against the
-  add-account restore that `showMain()` also starts.
-- `drainAuthEvents` releases the auth handle AFTER emitting; correct today
-  only by convention (release before emitting, break on null).
 - Named SSO providers are lost if a browser sign-in starts within the
   providers round trip (cosmetic; the generic button still works).
-- The per-connection deadline timer is not stopped on the oversized and
-  `stop()` paths (a counter can be off by one).
 - ~~`adoptBrowserSession` saves the account record before the restore; a failed
   restore then blocks the next browser sign-in as ExistingStoreNeedsRestore
   (D6).~~ FIXED 2026-09-29 after a live report (darkcoffee, .deb: "logged in, so
@@ -1338,7 +1300,7 @@ means Lightning no longer forwards the duplication verbatim. NOT LIVE-TESTED:
 reproducing it needs the wedged-send-queue state, and the regression case is
 a synthetic snapshot carrying the pair.
 
-### Follow-up: a LOOP BREAKER on recovery reopens, never an identity guard
+### Follow-up: a LOOP BREAKER on recovery reopens, never an identity guard (DONE, `536a4429`)
 
 An `alreadyOpen`-style guard on `openRoomTimeline()` was proposed in review and
 then withdrawn by the reviewer, correctly. Both remaining automatic callers
@@ -1347,10 +1309,8 @@ reopen the SAME room deliberately: for `DiffOutcome::Invalid` the C++ mirror is
 and leave the mirror permanently desynchronised — strictly worse than the
 reopen it prevents.
 
-What is wanted instead is a **bound**: cap recovery reopens per room per
-interval and log an escalation when the cap trips. A pathological repeat then
-becomes bounded and *visible* rather than silent and unbounded, and the next
-capture gets a named signal to grep for. Not done.
+The bound landed in `536a4429` (`RecoveryReopenBudget`: at most 3 automatic
+reopens per 60 s per timeline, then one deferred reopen).
 
 Related thing to grep for in the next capture, now that rooms are
 distinguishable: `timeline invalid diff rejected` immediately following
@@ -1405,19 +1365,15 @@ deliberately not `is_verified()` (`encryption/mod.rs:2063`), and
 `VerificationState::Verified` is documented as "it has been signed by its user
 identity". The correction is byte-for-byte what upstream does.
 
-**Still open, deliberately deferred.** For rows that are NOT the current
-session, `is_verified()` IS the better flag — it also catches a device
-verified by SAS without cross-signing — which needs
-`isCurrent ? crossSigned : verified`. Upstream gives no precedent for the
-non-current case, so it needs its own matrix (current/other x cross-signed /
-locally-trusted / neither x own-identity verified or not) rather than
-first-principles reasoning, which is what went wrong twice here.
+**Non-current rows: FIXED in `536a4429`.** The Sessions chip, filters and
+rollup read one `trusted` flag computed in Rust: `crossSigned` for this
+session, the SDK's `is_verified()` for every other device.
 
-**Also open:** Lightning recomputes the current session's verification state
-instead of consuming `client.encryption().verification_state()`, which is a
-`Subscriber` that pushes on every relevant `/keys/query` rather than needing
-`refreshOwnDeviceStatus()` poked, and which has a real `Unknown` arm that
-Lightning approximates with `own_identity_available`.
+**Still open:** the session's own verification state is still recomputed by
+`refreshOwnDeviceStatus()`. `verification_state()` is subscribed
+(`rust/src/lib.rs`, `964a2734`) but only feeds the crypto bootstrap model, not
+that state, and its `Unknown` arm is still approximated with
+`own_identity_available`.
 
 ## 2026-09-20 — OPEN DECISION: what an unrecognised notification-preview mode should resolve to
 
@@ -2398,18 +2354,6 @@ machine: send a picture from Element to a Lightning account with the room
 closed, and confirm the toast says "Sent an image" and the Activity row carries
 the camera icon.
 
-**A voice message notifies as "Sent an audio file" on the sync path.** The
-payload carries no is-voice flag, so `mediaIsVoice` is false and
-`NotificationManager` cannot pick the voice wording. Cosmetic, known, not
-fixed.
-
-**The room-list stale-ordering symptom is STILL OPEN and needs a product
-decision from Rokas.** `c01bfa8` landed a backstop for a different, real
-mechanism, and deliberately does NOT stamp a room from MatrixRTC membership
-churn. A room whose newest event is churn therefore still has no ordering
-producer. Stamping from churn would make an idle call outrank a live
-conversation; that trade is his to make, not one to take at 02:00.
-
 **The reload path's media rows are kind-only.** `reloadRoomTimeline` emits no
 `media_mxc`, mimetype, size or dimensions and never did, so a media row built
 there names a file it cannot fetch. Harmless only while that function has no
@@ -2710,7 +2654,10 @@ Cancel" and no to-device request was created at all. Worth knowing before that
 setting is ever promoted.
 
 **THE STALE ROOM-LIST REPORT IS A CALL-CHURN DEFECT, AND THE 2026-09-16
-RECENCY BACKSTOP DOES NOT FIX IT. NOT FIXED.** A user reported that the room
+RECENCY BACKSTOP DOES NOT FIX IT. FIXED LATER IN `e8b2cdd2`:
+a call row raises a room's activity but never replaces its preview, and a
+bounded filtered `/messages` look fills the blank preview (not live-verified).
+The text below is the original diagnosis.** A user reported that the room
 list shows a stale last-message time and position, and that OPENING the room
 corrects both. A round traced it to Lightning's live event handler matching
 `Text | Notice | Emote` with `_ => return`, built a sliding-lane recency
@@ -3074,8 +3021,6 @@ each. Full account in `docs/round-history.md`, 2026-09-15.
   while hovered. Element Web behaves the same way, and moving the bar to the
   left of an own bubble is a design decision rather than a defect fix. Worth
   a maintainer's opinion before anybody "fixes" it.
-- **`sharevalve` is still a seam** (below), so muting the share's audio
-  independently of the microphone remains unimplemented.
 
 **THE 2026-09-14 USER-REPORT ROUND IS FIXED IN SOURCE AND NOT LIVE-VALIDATED
 ANYWHERE.** Three reports against 0.9.5, all three root-caused and fixed, none
@@ -3113,12 +3058,6 @@ of them driven against the thing that reported them. Full account in
   per-application track.
 - **Share options in a cramped call bar: FIXED**, see "Closed (kept for the
   record)" at the end of this file.
-- **Share-audio MUTE is a seam, not a feature.** The share's Opus chain
-  carries `valve name=sharevalve drop=false` and its comment used to read as
-  though muting the share independently of the microphone were implemented.
-  Nothing in the tree looks that valve up (the microphone's `micvalve` IS
-  driven), so there is no such control. Found in review 2026-09-14,
-  pre-existing, comment corrected; the feature is not written.
 - **The call-join freeze (GitHub issue #12).** NOT REPRODUCED. The fix is a
   narrowing (no enumeration when there is no device preference) plus a 2.5 s
   bound with a per-klass latch. Whether it closes that reporter's freeze is
@@ -3143,26 +3082,14 @@ Worth an answer because the Channels layout is a shipped navigation mode and
 `channels-home` is how anyone would photograph it.
 
 
-**RECOVERY AND KEY BACKUP: FOUR KNOWN DEFECTS, NOT FIXED, AND THE WHOLE
-FEATURE IS STILL NOT TESTED BY USE (2026-09-13, shipped that way in 0.9.5).**
-The audit that found and fixed six of them (`2eb38b1`, round-history
+**RECOVERY AND KEY BACKUP: THE WHOLE FEATURE IS STILL NOT TESTED BY USE
+(2026-09-13, shipped that way in 0.9.5).**
+The audit that found and fixed six defects (`2eb38b1`, round-history
 2026-09-13 night) read the code rather than driving it, because §6 forbids
-capturing a recovery key and the setup flow displays one. These four survived
-it. **None can destroy a key** — that is why they are follow-ups — but every
-one of them is a user being told something untrue:
-
-- **A setup interrupted by quitting says nothing about it.** An `enable`
-  aborted by teardown after secret storage exists but before the key is
-  delivered leaves the account changed and the user uninformed. The 1500 ms
-  action-pool join is the mechanism and the FFI's own comment already concedes
-  it and describes the real fix.
-- **`recover()` reports "Recovery complete" when nothing was restored** —
-  specifically when 4S held no backup key. Same class as §6's "never report a
-  cleanup as successful when it removed nothing".
-- **A mistyped recovery key shows an untranslated SDK error** rather than
-  "that key is wrong", which is the one moment the message has to be plain.
-- **The restore panel can wedge at "Restoring…"** if the session ends
-  mid-restore.
+capturing a recovery key and the setup flow displays one. The four it left
+(interrupted setup silent, "complete" with nothing restored, untranslated SDK
+error on a mistyped key, restore panel wedged at "Restoring...") are fixed in
+`536a4429`, also not tested by use.
 
 **NOT TESTED, and it cannot be tested the usual way.** No release has ever
 live-validated this feature. Both fixture accounts report cross-signing and
@@ -4178,9 +4105,7 @@ sanity ceiling should apply when the server advertises no upload limit
 better taking a `unique_ptr`; `voice_info` computes `info.size` from the
 stat size rather than the uploaded bytes; `FakeRecorder` is a PARTIAL
 double (`stop()`/`durationMs()` are not virtual, so anyone needing
-`stop() → ready()` must extend the seam consciously); the pre-existing
-invite/verification notification bodies carry unescaped member-chosen
-text.
+`stop() → ready()` must extend the seam consciously).
 
 "Recovering never-backed-up Megolm keys" is **refused, not deferred**: a
 key that was never backed up and never shared exists nowhere, every
@@ -4258,35 +4183,6 @@ acceleration, audio, and any call.
 
 
 ---
-
-**ACCEPTED FOLLOW-UP, not done: the camera-portal state machine has no
-coverage, and the one suite that could reach it is built without the media
-engine.** Raised in review 2026-09-12 and recorded rather than fixed, because
-restructuring call code deserves a round where it can be iterated on.
-
-`SfuCallController::startCameraCapture()` and `publishCameraTrack()` have their
-entire bodies inside `#ifdef HAVE_LIGHTNING_WEBRTC`. `call-controller-test` is
-the only target that constructs a `SfuCallController`, and it links
-`Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test` only — so it never receives that macro
-and `startCameraCapture()` is an empty function there. `m_cameraAwaitingPortal`
-can therefore never become true in a test, and the four camera cases added with
-`21f4a1a` can only call the pure `linuxCameraRoute` predicate, which is exactly
-what they do.
-
-Untested as a result, and these are the paths that leak a file descriptor or
-wedge the camera: the three fd-ownership exits in the `ready` lambda, the
-leave-during-dialog unwind, the second-press unwind, and the call-end cancel.
-The lambdas themselves are already OUTSIDE the guard, along with
-`setCameraPortal()` and `abandonPendingCamera()`, so a test could wire a real
-`CameraPortal` and emit `ready`/`cancelled`/`failed` today — only those two
-guarded bodies stand in the way.
-
-THE SHAPE IS ALREADY IN THIS FILE'S NEIGHBOUR: `SfuCallController.h` keeps
-`m_engineParticipantVolume`/`m_engineShareVolume` shadow records outside the
-media guard, with a comment saying why, and that is what makes
-`aStoredVolumeReachesTheEngineWhenTheStreamIdArrivesLate` a real test. Mirror
-it — a `cameraAwaitingPortalForTest()` and a publish counter kept outside the
-guard — and the state machine becomes drivable without a media engine.
 
 ---
 
@@ -4475,14 +4371,6 @@ correctly on the real image against the real payload; a pipeline is still what
 proves the job goes green.
 
 ---
-
-**THE SOFTWARE-RENDERER NOTICE COVERS THE CALL UI ONLY.** `qml/CallStage.qml`
-explains why no video appears during a call; `VideoPlayerCard.qml`,
-`VideoViewerOverlay.qml` and `MessageComposerBar.qml`'s preview will still show
-an unexplained empty rectangle on the same machine, because they draw video the
-same way and nothing tells them either. Pre-existing and deliberately out of
-scope for the round that added the notice — recorded so it is not later read as
-closed. `app.softwareRenderer` is already available to all three.
 
 ### Share audio after a PipeWire restart mid-share (2026-10-07, open)
 
