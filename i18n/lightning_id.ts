@@ -26676,12 +26676,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="-548"/>
-        <location line="+917"/>
+        <location line="+918"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Berbagi layar tidak dapat dimulai.</translation>
     </message>
     <message>
-        <location line="-560"/>
+        <location line="-561"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Berbagi layar di Wayland memerlukan xdg-desktop-portal, dan tidak merespons. Instal atau mulai portal untuk desktop Anda — misalnya xdg-desktop-portal-kde atau xdg-desktop-portal-gnome — lalu coba lagi.</translation>
     </message>
@@ -26722,7 +26722,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Layanan panggilan menolak menghubungkan Anda ke panggilan ini.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+45"/>
+        <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
         <translation>Lightning tidak dapat membuka kamera. Kamera mungkin sedang dipakai aplikasi lain, atau tidak terpasang.</translation>
     </message>
@@ -26732,7 +26737,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Panggilan tidak tersedia di server rumah ini.</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-491"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Terlalu banyak upaya. Coba lagi sebentar lagi.</translation>
     </message>
@@ -26832,12 +26837,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Sesuatu di komputer ini memblokir sambungan ke layanan panggilan — firewall atau kebijakan keamanan.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation>Layanan panggilan tidak menjawab tepat waktu.</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+6"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation>Lightning tidak dapat membuka sambungan aman ke layanan panggilan. Sertifikat atau pengaturan TLS-nya ditolak.</translation>
     </message>

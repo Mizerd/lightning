@@ -26862,12 +26862,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="-548"/>
-        <location line="+917"/>
+        <location line="+918"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Nepavyko pradėti bendrinti ekrano.</translation>
     </message>
     <message>
-        <location line="-560"/>
+        <location line="-561"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Ekrano bendrinimui „Wayland“ reikia xdg-desktop-portal, ir jis nereaguoja. Įdiekite arba paleiskite darbalaukio portalą, pvz., xdg-desktop-portal-kde arba xdg-desktop-portal-gnome, tada bandykite dar kartą.</translation>
     </message>
@@ -26908,7 +26908,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Skambučių tarnyba atsisakė jus prijungti prie šio skambučio.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+45"/>
+        <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
         <translation>Lightning nepavyko atidaryti kameros. Ją gali naudoti kita programa arba ji atjungta.</translation>
     </message>
@@ -26918,7 +26923,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Šiame namų serveryje skambinti negalima.</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-491"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Per daug bandymų. Po akimirkos bandykite dar kartą.</translation>
     </message>
@@ -27018,12 +27023,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kažkas šiame kompiuteryje užblokavo ryšį su skambučių tarnyba – užkarda arba saugumo politika.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation>Skambučių tarnyba neatsakė laiku.</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+6"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation>„Lightning“ nepavyko atidaryti saugaus ryšio su skambučių tarnyba. Jos sertifikatas arba TLS sąranka buvo atmesti.</translation>
     </message>

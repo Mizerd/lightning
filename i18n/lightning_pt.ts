@@ -26769,12 +26769,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="-548"/>
-        <location line="+917"/>
+        <location line="+918"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Não foi possível iniciar o compartilhamento de tela.</translation>
     </message>
     <message>
-        <location line="-560"/>
+        <location line="-561"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>O compartilhamento de tela no Wayland precisa do xdg-desktop-portal e não está respondendo. Instale ou inicie o portal para sua área de trabalho — por exemplo xdg-desktop-portal-kde ou xdg-desktop-portal-gnome — e tente novamente.</translation>
     </message>
@@ -26815,7 +26815,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>O serviço de chamadas recusou ligá-lo a esta chamada.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+45"/>
+        <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
         <translation>O Lightning não conseguiu abrir a câmara. Pode estar a ser usada por outra aplicação ou estar desligada.</translation>
     </message>
@@ -26825,7 +26830,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>A chamada não está disponível neste servidor doméstico.</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-491"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Muitas tentativas. Tente novamente em alguns instantes.</translation>
     </message>
@@ -26925,12 +26930,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Algo neste computador bloqueou a ligação ao serviço da chamada — uma firewall ou uma política de segurança.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation>O serviço da chamada não respondeu a tempo.</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+6"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation>O Lightning não conseguiu abrir uma ligação segura ao serviço da chamada. O certificado ou a configuração TLS foram recusados.</translation>
     </message>

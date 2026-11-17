@@ -27132,12 +27132,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="-548"/>
-        <location line="+917"/>
+        <location line="+918"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>تعذر بدء مشاركة الشاشة.</translation>
     </message>
     <message>
-        <location line="-560"/>
+        <location line="-561"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>تحتاج مشاركة الشاشة على Wayland إلى xdg-desktop-portal، وهي لا تستجيب. قم بتثبيت أو تشغيل البوابة الإلكترونية لسطح المكتب لديك — على سبيل المثال xdg-desktop-portal-kde أو xdg-desktop-portal-gnome — ثم حاول مرة أخرى.</translation>
     </message>
@@ -27178,7 +27178,12 @@ Note: importing keys does not verify this session.</source>
         <translation>رفضت خدمة الاتصال توصيلك بهذه المكالمة.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+45"/>
+        <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
         <translation>تعذّر على Lightning فتح الكاميرا. قد تكون قيد الاستخدام من تطبيق آخر، أو غير موصولة.</translation>
     </message>
@@ -27188,7 +27193,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الاتصال غير متاح على هذا الخادم المنزلي.</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-491"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>محاولات كثيرة جدًا. حاول مرة أخرى بعد قليل.</translation>
     </message>
@@ -27288,12 +27293,7 @@ Note: importing keys does not verify this session.</source>
         <translation>حجب شيء على هذا الحاسوب الاتصال بخدمة المكالمة — جدار ناري أو سياسة أمنية.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation>لم تستجب خدمة المكالمة في الوقت المناسب.</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+6"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation>تعذّر على Lightning فتح اتصال آمن بخدمة المكالمة. رُفضت شهادتها أو إعداد TLS لديها.</translation>
     </message>

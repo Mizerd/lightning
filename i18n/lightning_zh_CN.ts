@@ -26676,12 +26676,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="-548"/>
-        <location line="+917"/>
+        <location line="+918"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>屏幕共享无法启动。</translation>
     </message>
     <message>
-        <location line="-560"/>
+        <location line="-561"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Wayland 上的屏幕共享需要 xdg-desktop-portal，但它没有响应。安装或启动桌面门户（例如 xdg-desktop-portal-kde 或 xdg-desktop-portal-gnome），然后重试。</translation>
     </message>
@@ -26722,7 +26722,12 @@ Note: importing keys does not verify this session.</source>
         <translation>通话服务拒绝将你连接到此通话。</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+45"/>
+        <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
         <translation>Lightning 无法打开摄像头。它可能正被其他应用使用，或已被拔出。</translation>
     </message>
@@ -26732,7 +26737,7 @@ Note: importing keys does not verify this session.</source>
         <translation>此家庭服务器上无法进行呼叫。</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-491"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>尝试次数太多。稍后再试一次。</translation>
     </message>
@@ -26832,12 +26837,7 @@ Note: importing keys does not verify this session.</source>
         <translation>此电脑上的某些程序（防火墙或安全策略）阻止了与通话服务的连接。</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation>通话服务未能及时响应。</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+6"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation>Lightning 无法与通话服务建立安全连接。其证书或 TLS 设置被拒绝。</translation>
     </message>

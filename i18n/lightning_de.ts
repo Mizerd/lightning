@@ -26769,12 +26769,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="-548"/>
-        <location line="+917"/>
+        <location line="+918"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Die Bildschirmfreigabe konnte nicht gestartet werden.</translation>
     </message>
     <message>
-        <location line="-786"/>
+        <location line="-787"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
         <translation>Das Kamera-Portal deines Desktops hat Lightning keine Kamera angeboten. Wenn die Kamera in anderen Apps funktioniert, erlaube Lightning die Nutzung aller Geräte (in Flatseal: „All devices“) und schalte die Kamera dann erneut ein.</translation>
     </message>
@@ -26916,11 +26916,11 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+3"/>
-        <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation>Der Dienst des Anrufs hat nicht rechtzeitig geantwortet.</translation>
+        <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation>Lightning konnte keine sichere Verbindung zum Dienst des Anrufs herstellen. Sein Zertifikat oder seine TLS-Einrichtung wurde abgelehnt.</translation>
     </message>

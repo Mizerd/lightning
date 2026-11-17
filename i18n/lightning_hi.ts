@@ -26769,12 +26769,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="-548"/>
-        <location line="+917"/>
+        <location line="+918"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>स्क्रीन शेयरिंग प्रारंभ नहीं हो सकी.</translation>
     </message>
     <message>
-        <location line="-560"/>
+        <location line="-561"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>वेलैंड पर स्क्रीन शेयरिंग के लिए xdg-डेस्कटॉप-पोर्टल की आवश्यकता है, और यह प्रतिक्रिया नहीं दे रहा है। अपने डेस्कटॉप के लिए पोर्टल स्थापित करें या प्रारंभ करें - उदाहरण के लिए xdg-desktop-portal-kde या xdg-desktop-portal-gnome - फिर पुनः प्रयास करें।</translation>
     </message>
@@ -26815,7 +26815,12 @@ Note: importing keys does not verify this session.</source>
         <translation>कॉलिंग सेवा ने आपको इस कॉल से जोड़ने से इनकार कर दिया।</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+45"/>
+        <source>The call&apos;s service didn&apos;t answer at any of its addresses in time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
         <translation>Lightning कैमरा नहीं खोल सका। हो सकता है वह किसी दूसरे ऐप में उपयोग में हो, या निकाला हुआ हो।</translation>
     </message>
@@ -26825,7 +26830,7 @@ Note: importing keys does not verify this session.</source>
         <translation>इस होमसर्वर पर कॉलिंग उपलब्ध नहीं है.</translation>
     </message>
     <message>
-        <location line="-490"/>
+        <location line="-491"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>बहुत अधिक प्रयास. थोड़ी देर में पुनः प्रयास करें.</translation>
     </message>
@@ -26925,12 +26930,7 @@ Note: importing keys does not verify this session.</source>
         <translation>इस कंप्यूटर पर किसी चीज़ ने कॉल की सेवा से कनेक्शन रोक दिया — फ़ायरवॉल या सुरक्षा नीति।</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation>कॉल की सेवा ने समय पर उत्तर नहीं दिया।</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+6"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation>Lightning कॉल की सेवा से सुरक्षित कनेक्शन नहीं खोल सका। उसका प्रमाणपत्र या TLS सेटअप अस्वीकार कर दिया गया।</translation>
     </message>
