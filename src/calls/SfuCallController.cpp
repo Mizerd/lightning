@@ -1520,8 +1520,8 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("Something on this computer blocked the connection to the "
                   "call's service — a firewall or a security policy.");
     if (category == QLatin1String("connect_timeout"))
-        return tr("Lightning could not reach the call server. It didn't answer "
-                  "at any of its addresses in time.");
+        return tr("The call's service didn't answer at any of its addresses "
+                  "in time.");
     if (category == QLatin1String("tls_failed"))
         return tr("Lightning couldn't open a secure connection to the "
                   "call's service. Its certificate or its TLS setup was "
@@ -2191,6 +2191,9 @@ void SfuCallController::onSfuConnectionEvent(const QVariantMap &event)
     const QString type = event.value(QStringLiteral("type")).toString();
     if (type == QLatin1String("sfu_state")) {
         const QString state = event.value(QStringLiteral("state")).toString();
+        if (event.contains(QStringLiteral("connect")))
+            qCInfo(lcSfuCall) << "sfu connect state=" << state
+                              << event.value(QStringLiteral("connect")).toString();
         if (state == QLatin1String("failed")
             || state == QLatin1String("reconnecting")
             || state == QLatin1String("closed")

@@ -283,46 +283,57 @@ fn interleave_families(
     order
 }
 
+enum Race<S> {
+    Won { stream: S, address: std::net::SocketAddr },
+    Failed(Option<std::io::Error>),
+    TimedOut,
+}
+
+#[derive(Clone, Copy, Default)]
+struct RaceStats {
+    failed: usize,
+    pending: usize,
+}
+
 /// Happy Eyeballs (RFC 8305) over the approved addresses, under one shared
 /// deadline: families alternate, the next address starts after a short
 /// stagger or as soon as an attempt fails, the first success wins and the
 /// rest are dropped.
 ///
-/// Only transport failures move on. An HTTP status, TLS alert or refused
-/// upgrade is the server answering, the same at every address.
-///
-/// The connect step is a parameter so the race is testable offline.
-async fn walk_addresses<S, F, Fut>(
+/// `attempt` must only establish a connection. It must not send anything,
+/// because every loser is dropped and a request already written would reach
+/// the server as a second join.
+async fn race_connect<S, F, Fut>(
     addresses: Vec<std::net::SocketAddr>,
     deadline: tokio::time::Instant,
     mut attempt: F,
-) -> ConnectWalk<S>
+) -> (Race<S>, RaceStats)
 where
     F: FnMut(std::net::SocketAddr) -> Fut,
-    Fut: std::future::Future<
-        Output = Result<S, tokio_tungstenite::tungstenite::Error>,
-    >,
+    Fut: std::future::Future<Output = std::io::Result<S>>,
 {
     use futures_util::stream::FuturesUnordered;
     let mut queue = interleave_families(addresses);
     let mut running = FuturesUnordered::new();
     let mut next_at = tokio::time::Instant::now();
     let mut last = None;
-    let mut failed = 0usize;
+    let mut stats = RaceStats::default();
     loop {
         if queue.is_empty() && running.is_empty() {
-            return ConnectWalk::Failed(last);
+            return (Race::Failed(last), stats);
         }
         tokio::select! {
             _ = tokio::time::sleep_until(next_at), if !queue.is_empty() => {
                 let address = queue.pop_front().expect("checked non-empty");
                 let started = attempt(address);
+                let cap = if queue.is_empty() { None } else { Some(ATTEMPT_TIMEOUT) };
                 running.push(async move {
-                    let result = tokio::time::timeout(ATTEMPT_TIMEOUT, started)
-                        .await
-                        .unwrap_or_else(|_| Err(
-                            tokio_tungstenite::tungstenite::Error::Io(
-                                std::io::ErrorKind::TimedOut.into())));
+                    let result = match cap {
+                        Some(cap) => tokio::time::timeout(cap, started).await
+                            .unwrap_or_else(|_| Err(
+                                std::io::ErrorKind::TimedOut.into())),
+                        None => started.await,
+                    };
                     (address, result)
                 });
                 next_at = tokio::time::Instant::now() + ATTEMPT_STAGGER;
@@ -330,26 +341,19 @@ where
             Some((address, result)) = StreamExt::next(&mut running) => {
                 match result {
                     Ok(stream) => {
-                        eprintln!(
-                            "sfu connect: won address={address} failed_before={failed}");
-                        return ConnectWalk::Connected(stream);
+                        stats.pending = running.len();
+                        return (Race::Won { stream, address }, stats);
                     }
                     Err(err) => {
-                        failed += 1;
-                        let transport = matches!(
-                            err, tokio_tungstenite::tungstenite::Error::Io(_));
+                        stats.failed += 1;
                         last = Some(err);
-                        if !transport {
-                            return ConnectWalk::Failed(last);
-                        }
                         next_at = tokio::time::Instant::now();
                     }
                 }
             }
             _ = tokio::time::sleep_until(deadline) => {
-                eprintln!("sfu connect: deadline failed={failed} pending={}",
-                          running.len());
-                return ConnectWalk::TimedOut;
+                stats.pending = running.len();
+                return (Race::TimedOut, stats);
             }
         }
     }
@@ -851,33 +855,48 @@ impl SubscriberCandidates {
     }
 }
 
+/// The race covers TCP only. The WebSocket upgrade carries the access token
+/// and creates the LiveKit participant, so it runs once, on the winner.
 async fn dial_signal(
     target: &url::Url,
     addresses: Vec<std::net::SocketAddr>,
     budget: Duration,
-) -> ConnectWalk<SignalStream> {
-    walk_addresses(
-        addresses,
-        tokio::time::Instant::now() + budget,
-        move |address| async move {
-            let tcp = tokio::net::TcpStream::connect(address)
-                .await
-                .map_err(tokio_tungstenite::tungstenite::Error::Io)?;
-            let mut config =
-                tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
-            config.max_message_size = Some(MAX_SIGNAL_FRAME);
-            config.max_frame_size = Some(MAX_SIGNAL_FRAME);
-            tokio_tungstenite::client_async_tls_with_config(
-                target.as_str(),
-                tcp,
-                Some(config),
-                None,
-            )
-            .await
-            .map(|(stream, _)| stream)
-        },
+) -> (ConnectWalk<SignalStream>, String) {
+    let deadline = tokio::time::Instant::now() + budget;
+    let (race, stats) = race_connect(addresses, deadline, |address| {
+        tokio::net::TcpStream::connect(address)
+    })
+    .await;
+    let family = |address: &std::net::SocketAddr| {
+        if address.is_ipv6() { "v6" } else { "v4" }
+    };
+    let (tcp, family) = match race {
+        Race::Won { stream, address } => (stream, family(&address)),
+        Race::TimedOut => return (ConnectWalk::TimedOut, describe_race("none", stats)),
+        Race::Failed(err) => return (
+            ConnectWalk::Failed(err.map(tokio_tungstenite::tungstenite::Error::Io)),
+            describe_race("none", stats)),
+    };
+    let mut config =
+        tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+    config.max_message_size = Some(MAX_SIGNAL_FRAME);
+    config.max_frame_size = Some(MAX_SIGNAL_FRAME);
+    let upgrade = tokio::time::timeout_at(
+        deadline,
+        tokio_tungstenite::client_async_tls_with_config(
+            target.as_str(), tcp, Some(config), None),
     )
-    .await
+    .await;
+    let walk = match upgrade {
+        Ok(Ok((stream, _))) => ConnectWalk::Connected(stream),
+        Ok(Err(err)) => ConnectWalk::Failed(Some(err)),
+        Err(_) => ConnectWalk::TimedOut,
+    };
+    (walk, describe_race(family, stats))
+}
+
+fn describe_race(family: &str, stats: RaceStats) -> String {
+    format!("family={family} failed={} pending={}", stats.failed, stats.pending)
 }
 
 async fn resume_signal(
@@ -891,7 +910,7 @@ async fn resume_signal(
     for delay in RESUME_RETRY_DELAYS {
         tokio::time::sleep(delay).await;
         let mut stream = match dial_signal(
-            &target, addresses.to_vec(), RESUME_ANSWER_TIMEOUT).await
+            &target, addresses.to_vec(), RESUME_ANSWER_TIMEOUT).await.0
         {
             ConnectWalk::Connected(stream) => stream,
             ConnectWalk::Failed(Some(tokio_tungstenite::tungstenite::Error::Http(_))) => {
@@ -991,12 +1010,15 @@ async fn run_session(
             return;
         }
     };
-    let mut stream = match dial_signal(&url, addresses.clone(), SFU_TIMEOUT).await {
+    let (walk, connect_info) =
+        dial_signal(&url, addresses.clone(), SFU_TIMEOUT).await;
+    let mut stream = match walk {
         ConnectWalk::Connected(stream) => stream,
         ConnectWalk::TimedOut => {
             emit(json!({
                 "type": "sfu_state", "generation": generation,
                 "state": "failed", "category": "connect_timeout",
+                "connect": connect_info,
             }));
             return;
         }
@@ -1010,6 +1032,7 @@ async fn run_session(
             emit(json!({
                 "type": "sfu_state", "generation": generation,
                 "state": "failed", "category": category,
+                "connect": connect_info,
             }));
             return;
         }
@@ -1018,7 +1041,7 @@ async fn run_session(
 
     emit(json!({
         "type": "sfu_state", "generation": generation, "state": "signalling",
-        "category": "",
+        "category": "", "connect": connect_info,
     }));
 
     let mut ping_ticker =
@@ -1882,81 +1905,8 @@ mod tests {
                    "two different connect failures share one category");
     }
 
-    #[tokio::test]
-    async fn an_unreachable_first_address_is_not_the_whole_host() {
-        use std::sync::{Arc, Mutex};
-
-        let v6: std::net::SocketAddr = "[2001:db8::1]:443".parse().unwrap();
-        let v4: std::net::SocketAddr = "203.0.113.7:443".parse().unwrap();
-        let tried = Arc::new(Mutex::new(Vec::new()));
-        let seen = Arc::clone(&tried);
-
-        let walk = walk_addresses(
-            vec![v6, v4],
-            tokio::time::Instant::now() + Duration::from_secs(5),
-            move |address| {
-                let seen = Arc::clone(&seen);
-                async move {
-                    seen.lock().expect("the walk is single-threaded")
-                        .push(address);
-                    if address.is_ipv6() {
-                        return Err(tokio_tungstenite::tungstenite::Error::Io(
-                            std::io::Error::new(
-                                std::io::ErrorKind::NetworkUnreachable,
-                                "no route")));
-                    }
-                    Ok(address)
-                }
-            },
-        )
-        .await;
-
-        assert!(matches!(walk, ConnectWalk::Connected(address)
-                               if address == v4),
-                "the walk did not fall through to the reachable address");
-        assert_eq!(*tried.lock().expect("poisoned"), vec![v6, v4],
-                   "both addresses must be tried, in resolver order");
-    }
-
-    #[tokio::test]
-    async fn the_whole_address_walk_shares_one_budget() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
-        let addresses: Vec<std::net::SocketAddr> = (1..=6u8)
-            .map(|i| format!("203.0.113.{i}:443").parse().unwrap())
-            .collect();
-        let attempts = Arc::new(AtomicUsize::new(0));
-        let counter = Arc::clone(&attempts);
-        let budget = Duration::from_millis(500);
-        let per_attempt = Duration::from_millis(200);
-
-        let started = std::time::Instant::now();
-        let walk: ConnectWalk<()> = walk_addresses(
-            addresses.clone(),
-            tokio::time::Instant::now() + budget,
-            move |_| {
-                let counter = Arc::clone(&counter);
-                async move {
-                    counter.fetch_add(1, Ordering::SeqCst);
-                    tokio::time::sleep(per_attempt).await;
-                    Err(tokio_tungstenite::tungstenite::Error::Io(
-                        std::io::Error::new(
-                            std::io::ErrorKind::ConnectionRefused, "closed")))
-                }
-            },
-        )
-        .await;
-        let elapsed = started.elapsed();
-
-        assert!(matches!(walk, ConnectWalk::TimedOut),
-                "six slow addresses ran to completion instead of being cut \
-                 off at the shared deadline");
-        assert!(attempts.load(Ordering::SeqCst) < 6,
-                "every address was tried despite the budget running out");
-        assert!(elapsed < budget + per_attempt * 2,
-                "the walk took {elapsed:?} against a {budget:?} budget");
-
+    fn io_err(kind: std::io::ErrorKind) -> std::io::Error {
+        kind.into()
     }
 
     #[tokio::test]
@@ -1967,7 +1917,7 @@ mod tests {
         let good = listener.local_addr().unwrap();
 
         let started = std::time::Instant::now();
-        let walk = walk_addresses(
+        let (race, stats) = race_connect(
             vec![dead, good],
             tokio::time::Instant::now() + Duration::from_secs(20),
             move |address| async move {
@@ -1975,19 +1925,110 @@ mod tests {
                     std::future::pending::<()>().await;
                 }
                 tokio::net::TcpStream::connect(address).await
-                    .map(|_| address)
-                    .map_err(tokio_tungstenite::tungstenite::Error::Io)
             },
         )
         .await;
 
-        assert!(matches!(walk, ConnectWalk::Connected(a) if a == good));
+        assert!(matches!(race, Race::Won { address, .. } if address == good));
+        assert_eq!(stats.pending, 1, "the dead attempt must be dropped");
         assert!(started.elapsed() < Duration::from_secs(2),
-                "took {:?}: the dead address still blocked the walk",
+                "took {:?}: the dead address still blocked the race",
                 started.elapsed());
     }
 
     #[tokio::test]
+    async fn a_refused_address_does_not_stop_the_race() {
+        let refused: std::net::SocketAddr = "203.0.113.1:443".parse().unwrap();
+        let good: std::net::SocketAddr = "203.0.113.2:443".parse().unwrap();
+        let (race, stats) = race_connect(
+            vec![refused, good],
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            move |address| async move {
+                if address == refused {
+                    return Err(io_err(std::io::ErrorKind::ConnectionRefused));
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                Ok(address)
+            },
+        )
+        .await;
+        assert!(matches!(race, Race::Won { address, .. } if address == good));
+        assert_eq!(stats.failed, 1);
+    }
+
+    #[tokio::test]
+    async fn only_the_winner_is_kept_when_two_addresses_connect() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        struct Guard(Arc<AtomicUsize>);
+        impl Drop for Guard {
+            fn drop(&mut self) { self.0.fetch_add(1, Ordering::SeqCst); }
+        }
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let a: std::net::SocketAddr = "203.0.113.1:443".parse().unwrap();
+        let b: std::net::SocketAddr = "203.0.113.2:443".parse().unwrap();
+        let counter = Arc::clone(&dropped);
+        let (race, _) = race_connect(
+            vec![a, b],
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            move |address| {
+                let guard = Guard(Arc::clone(&counter));
+                async move {
+                    let _guard = guard;
+                    if address == a {
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                    }
+                    Ok(address)
+                }
+            },
+        )
+        .await;
+        assert!(matches!(race, Race::Won { address, .. } if address == b));
+        assert_eq!(dropped.load(Ordering::SeqCst), 2,
+                   "the loser was not dropped");
+    }
+
+    #[tokio::test]
+    async fn exactly_one_upgrade_reaches_the_servers() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut addresses = Vec::new();
+        for _ in 0..2 {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await
+                .expect("loopback listener");
+            addresses.push(listener.local_addr().unwrap());
+            let requests = Arc::clone(&requests);
+            tokio::spawn(async move {
+                while let Ok((mut socket, _)) = listener.accept().await {
+                    let requests = Arc::clone(&requests);
+                    tokio::spawn(async move {
+                        let mut buf = vec![0u8; 4096];
+                        if socket.read(&mut buf).await.unwrap_or(0) > 0 {
+                            requests.fetch_add(1, Ordering::SeqCst);
+                            let _ = socket.write_all(
+                                b"HTTP/1.1 400 Bad Request\r\n\
+                                  content-length: 0\r\n\r\n").await;
+                        }
+                    });
+                }
+            });
+        }
+        let target = url::Url::parse("ws://sfu.test/rtc?access_token=x")
+            .unwrap();
+        let (walk, _) = dial_signal(&target, addresses, Duration::from_secs(5))
+            .await;
+        assert!(matches!(walk, ConnectWalk::Failed(Some(
+            tokio_tungstenite::tungstenite::Error::Http(_)))));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(requests.load(Ordering::SeqCst), 1,
+                   "more than one address received the upgrade");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn families_alternate_and_all_dead_ends_in_a_bounded_failure() {
         let order = interleave_families(vec![
             "[2001:db8::1]:443".parse().unwrap(),
@@ -1998,65 +2039,29 @@ mod tests {
         assert_eq!(order.iter().map(|a| a.is_ipv6()).collect::<Vec<_>>(),
                    [true, false, true, false]);
 
-        let addresses: Vec<std::net::SocketAddr> = vec![
-            "[2001:db8::1]:443".parse().unwrap(),
-            "203.0.113.1:443".parse().unwrap(),
-        ];
-        let started = std::time::Instant::now();
-        let walk: ConnectWalk<()> = walk_addresses(
-            addresses,
-            tokio::time::Instant::now() + Duration::from_secs(60),
+        let started = tokio::time::Instant::now();
+        let (race, stats): (Race<()>, _) = race_connect(
+            vec!["[2001:db8::1]:443".parse().unwrap(),
+                 "203.0.113.1:443".parse().unwrap()],
+            started + Duration::from_secs(20),
             |_| async { std::future::pending().await },
         )
         .await;
-        let ConnectWalk::Failed(Some(err)) = walk else {
-            panic!("all-dead addresses did not end as a transport failure");
-        };
-        assert_eq!(classify_ws_error(&err), "connect_timeout");
-        assert!(started.elapsed() < ATTEMPT_TIMEOUT + Duration::from_secs(2));
-    }
+        assert!(matches!(race, Race::TimedOut));
+        assert_eq!(stats.pending, 1,
+                   "the last attempt is capped by the deadline, not 8 s");
+        assert_eq!(started.elapsed(), Duration::from_secs(20));
 
-    #[tokio::test]
-    async fn a_refusal_from_the_server_is_not_retried_at_another_address() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
-        for (status, expected) in
-            [(403u16, "sfu_forbidden"), (404, "sfu_not_found")]
-        {
-            let addresses: Vec<std::net::SocketAddr> = (1..=4u8)
-                .map(|i| format!("203.0.113.{i}:443").parse().unwrap())
-                .collect();
-            let attempts = Arc::new(AtomicUsize::new(0));
-            let counter = Arc::clone(&attempts);
-
-            let walk: ConnectWalk<()> = walk_addresses(
-                addresses,
-                tokio::time::Instant::now() + Duration::from_secs(5),
-                move |_| {
-                    let counter = Arc::clone(&counter);
-                    async move {
-                        counter.fetch_add(1, Ordering::SeqCst);
-                        let response =
-                            tokio_tungstenite::tungstenite::http::Response::
-                                builder()
-                                .status(status)
-                                .body(None::<Vec<u8>>)
-                                .expect("a status-only response");
-                        Err(tokio_tungstenite::tungstenite::Error::Http(
-                            response))
-                    }
-                },
-            )
-            .await;
-
-            assert_eq!(attempts.load(Ordering::SeqCst), 1,
-                       "a {status} was retried at another address");
-            let ConnectWalk::Failed(Some(err)) = walk else {
-                panic!("a {status} did not end the walk as a failure");
-            };
-            assert_eq!(classify_ws_error(&err), expected);
-        }
+        let (race, stats): (Race<()>, _) = race_connect(
+            vec!["[2001:db8::1]:443".parse().unwrap(),
+                 "203.0.113.1:443".parse().unwrap()],
+            started + Duration::from_secs(60),
+            |_| async { Err(io_err(std::io::ErrorKind::HostUnreachable)) },
+        )
+        .await;
+        let Race::Failed(Some(err)) = race else { panic!("not a failure") };
+        assert_eq!(classify_io_error(&err), "sfu_unreachable");
+        assert_eq!(stats.failed, 2);
     }
 
     #[test]
