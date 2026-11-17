@@ -19179,7 +19179,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+191"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+197"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1 联系人</translation>
@@ -29611,7 +29611,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+104"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+108"/>
         <source>Export pack</source>
         <translation>导出表情包</translation>
     </message>
@@ -29671,7 +29671,7 @@ Note: importing keys does not verify this session.</source>
         <translation>操作失败。您的旧包未改变，请稍后重试。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+20"/>
         <source>Saved.</source>
         <translation>已保存。</translation>
     </message>
@@ -29903,26 +29903,37 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+0"/>
+        <location line="+53"/>
         <source>Confirm remove</source>
         <translation>确认移除</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="-32"/>
         <source>This pack has no images.</source>
         <translation>此表情包没有图片。</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <source>Remove every image from this pack</source>
-        <translation>移除此包中的所有图片</translation>
+        <location line="+15"/>
+        <source>Confirm empty</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+129"/>
+        <source>This deletes the pack from the room for everyone and turns it off for you. Messages already sent keep their images, and the images themselves are not deleted from the server.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-128"/>
         <source>Empty pack</source>
         <translation>清空包</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+17"/>
+        <source>Remove pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Add images…</source>
         <translation>添加图片…</translation>
     </message>
@@ -29962,7 +29973,7 @@ Note: importing keys does not verify this session.</source>
         <translation>导入…</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+17"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
@@ -29980,7 +29991,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>StickerPackManager</name>
     <message>
-        <location filename="../src/stickers/StickerPackManager.cpp" line="+1075"/>
+        <location filename="../src/stickers/StickerPackManager.cpp" line="+1083"/>
         <source>Enter a name.</source>
         <translation>请输入名称。</translation>
     </message>
