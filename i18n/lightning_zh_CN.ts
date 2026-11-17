@@ -2380,30 +2380,50 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 </context>
 <context>
     <name>BulkRedactionBar</name>
-    <message>
-        <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
-        <source>Deleting %1 of %2 messages…</source>
-        <translation>正在删除 %1/%2 条消息…</translation>
-    </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location filename="../qml/BulkRedactionBar.qml" line="+35"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>已选中 %n 条消息</numerusform>
         </translation>
     </message>
-    <message>
-        <location line="+3"/>
-        <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation>已在 %1/%2 条消息后停止；%3 条失败。</translation>
+    <message numerus="yes">
+        <location line="-3"/>
+        <source>Deleting %1 of %n message(s)…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
+        <location line="+7"/>
+        <source>Stopped after %1 of %n message(s); %2 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation>已删除 %1/%2 条消息；%3 条失败。</translation>
+        <source>Stopped after %1 of %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s); %1 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+7"/>
         <location line="+61"/>
         <source>Cancel</source>
         <translation>取消</translation>
@@ -30314,7 +30334,7 @@ Note: importing keys does not verify this session.</source>
         <translation>管理</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+32"/>
         <location line="+1"/>
         <source>New pack name</source>
         <translation>新包名称</translation>
@@ -30380,7 +30400,7 @@ Note: importing keys does not verify this session.</source>
         <translation>已保存。您其他设备上的旧应用可能暂时看不到此更改。</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
         <source>Pack created. Add images from the sticker picker or Manage.</source>
         <translation>包已创建。可在贴纸选择器或“管理”中添加图片。</translation>
     </message>
@@ -32001,7 +32021,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+666"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+675"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>此后端不支持附件。</translation>
@@ -32017,7 +32037,7 @@ Note: importing keys does not verify this session.</source>
         <translation>无法读取剪贴板中的图片。</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+75"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>无法从此图片中移除照片详情，因此未发送。你可以在“设置 → 隐私”中更改此项。</translation>
     </message>
@@ -32040,7 +32060,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>上传失败。请重试或移除。</translation>
     </message>
@@ -32053,7 +32073,7 @@ Note: importing keys does not verify this session.</source>
         <translation>将此话题标为已读</translation>
     </message>
     <message>
-        <location line="+1184"/>
+        <location line="+1218"/>
         <source>Jump to the newest reply</source>
         <translation>跳到最新回复</translation>
     </message>
@@ -32065,7 +32085,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1546"/>
+        <location line="-1580"/>
         <source>This room has been replaced.</source>
         <translation>此房间已被替换。</translation>
     </message>
@@ -32167,13 +32187,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-90"/>
         <location line="+92"/>
-        <location line="+297"/>
+        <location line="+314"/>
         <location line="+72"/>
         <source>Replies</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-459"/>
+        <location line="-476"/>
         <source>Unread</source>
         <translation>未读</translation>
     </message>
@@ -32218,7 +32238,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+60"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32281,7 +32301,7 @@ Note: importing keys does not verify this session.</source>
         <translation>正在加载更早的回复…</translation>
     </message>
     <message>
-        <location line="+157"/>
+        <location line="+174"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>正在回复 %1</translation>

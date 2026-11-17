@@ -2433,13 +2433,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 </context>
 <context>
     <name>BulkRedactionBar</name>
-    <message>
-        <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
-        <source>Deleting %1 of %2 messages…</source>
-        <translation>جارٍ حذف %1 من %2 رسالة…</translation>
-    </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location filename="../qml/BulkRedactionBar.qml" line="+35"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>لم تُحدَّد رسائل</numerusform>
@@ -2450,18 +2445,68 @@ It does not touch your encryption keys, your sign-in or any message on the serve
             <numerusform>حُددت %n رسالة</numerusform>
         </translation>
     </message>
-    <message>
-        <location line="+3"/>
-        <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation>توقف بعد %1 من %2 رسالة؛ فشل %3.</translation>
+    <message numerus="yes">
+        <location line="-3"/>
+        <source>Deleting %1 of %n message(s)…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
+        <location line="+7"/>
+        <source>Stopped after %1 of %n message(s); %2 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation>حُذفت %1 من %2 رسالة؛ فشل %3.</translation>
+        <source>Stopped after %1 of %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s); %1 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+7"/>
         <location line="+61"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
@@ -30890,7 +30935,7 @@ Note: importing keys does not verify this session.</source>
         <translation>إدارة</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+32"/>
         <location line="+1"/>
         <source>New pack name</source>
         <translation>اسم الحزمة الجديدة</translation>
@@ -30956,7 +31001,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تم الحفظ. قد لا ترى التطبيقات الأقدم على أجهزتك الأخرى هذا التغيير بعد.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
         <source>Pack created. Add images from the sticker picker or Manage.</source>
         <translation>أُنشئت الحزمة. أضف صورًا من منتقي الملصقات أو من «إدارة».</translation>
     </message>
@@ -32687,7 +32732,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+666"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+675"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>المرفقات غير مدعومة على هذه الخلفية.</translation>
@@ -32703,7 +32748,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّرت قراءة صورة الحافظة.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+75"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>تعذّرت إزالة تفاصيل الصورة من هذه الصورة، فلم تُرسَل. يمكنك تغيير ذلك في الإعدادات ← الخصوصية.</translation>
     </message>
@@ -32726,7 +32771,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>فشل الرفع. أعد المحاولة أو أزله.</translation>
     </message>
@@ -32739,7 +32784,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعليم هذا الخيط كمقروء</translation>
     </message>
     <message>
-        <location line="+1184"/>
+        <location line="+1218"/>
         <source>Jump to the newest reply</source>
         <translation>الانتقال إلى أحدث رد</translation>
     </message>
@@ -32756,7 +32801,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1546"/>
+        <location line="-1580"/>
         <source>This room has been replaced.</source>
         <translation>تم استبدال هذه الغرفة.</translation>
     </message>
@@ -32863,13 +32908,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-90"/>
         <location line="+92"/>
-        <location line="+297"/>
+        <location line="+314"/>
         <location line="+72"/>
         <source>Replies</source>
         <translation>الردود</translation>
     </message>
     <message>
-        <location line="-459"/>
+        <location line="-476"/>
         <source>Unread</source>
         <translation>غير مقروء</translation>
     </message>
@@ -32914,7 +32959,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+60"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32982,7 +33027,7 @@ Note: importing keys does not verify this session.</source>
         <translation>جارٍ تحميل ردود أقدم…</translation>
     </message>
     <message>
-        <location line="+157"/>
+        <location line="+174"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>الرد على %1</translation>

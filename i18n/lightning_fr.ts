@@ -2391,31 +2391,56 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 </context>
 <context>
     <name>BulkRedactionBar</name>
-    <message>
-        <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
-        <source>Deleting %1 of %2 messages…</source>
-        <translation>Suppression de %1 messages sur %2…</translation>
-    </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location filename="../qml/BulkRedactionBar.qml" line="+35"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>%n message sélectionné</numerusform>
             <numerusform>%n messages sélectionnés</numerusform>
         </translation>
     </message>
-    <message>
-        <location line="+3"/>
-        <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation>Arrêté après %1 messages sur %2 ; %3 en échec.</translation>
+    <message numerus="yes">
+        <location line="-3"/>
+        <source>Deleting %1 of %n message(s)…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
+        <location line="+7"/>
+        <source>Stopped after %1 of %n message(s); %2 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation>%1 messages sur %2 supprimés ; %3 en échec.</translation>
+        <source>Stopped after %1 of %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s); %1 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+7"/>
         <location line="+61"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
@@ -30431,7 +30456,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Gérer</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+32"/>
         <location line="+1"/>
         <source>New pack name</source>
         <translation>Nom du nouveau pack</translation>
@@ -30497,7 +30522,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Enregistré. Les anciennes applications de vos autres appareils peuvent ne pas encore voir ce changement.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
         <source>Pack created. Add images from the sticker picker or Manage.</source>
         <translation>Pack créé. Ajoutez des images depuis le sélecteur d’autocollants ou Gérer.</translation>
     </message>
@@ -32140,7 +32165,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+666"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+675"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Les pièces jointes ne sont pas prises en charge par ce backend.</translation>
@@ -32156,7 +32181,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>L&apos;image du presse-papiers n&apos;a pas pu être lue.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+75"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Les détails de la photo n&apos;ont pas pu être retirés de cette image, elle n&apos;a donc pas été envoyée. Vous pouvez modifier cela dans Paramètres, Confidentialité.</translation>
     </message>
@@ -32179,7 +32204,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Échec de l&apos;envoi. Réessayez ou supprimez.</translation>
     </message>
@@ -32192,7 +32217,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Marquer ce fil comme lu</translation>
     </message>
     <message>
-        <location line="+1184"/>
+        <location line="+1218"/>
         <source>Jump to the newest reply</source>
         <translation>Aller à la réponse la plus récente</translation>
     </message>
@@ -32205,7 +32230,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         </translation>
     </message>
     <message>
-        <location line="-1546"/>
+        <location line="-1580"/>
         <source>This room has been replaced.</source>
         <translation>Ce salon a été remplacé.</translation>
     </message>
@@ -32308,13 +32333,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="-90"/>
         <location line="+92"/>
-        <location line="+297"/>
+        <location line="+314"/>
         <location line="+72"/>
         <source>Replies</source>
         <translation>Réponses</translation>
     </message>
     <message>
-        <location line="-459"/>
+        <location line="-476"/>
         <source>Unread</source>
         <translation>Non lu</translation>
     </message>
@@ -32359,7 +32384,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+60"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32423,7 +32448,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Chargement des réponses plus anciennes…</translation>
     </message>
     <message>
-        <location line="+157"/>
+        <location line="+174"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>Réponse à %1</translation>

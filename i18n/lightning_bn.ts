@@ -2389,31 +2389,56 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 </context>
 <context>
     <name>BulkRedactionBar</name>
-    <message>
-        <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
-        <source>Deleting %1 of %2 messages…</source>
-        <translation>%2টির মধ্যে %1টি বার্তা মোছা হচ্ছে…</translation>
-    </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location filename="../qml/BulkRedactionBar.qml" line="+35"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>%nটি বার্তা নির্বাচিত</numerusform>
             <numerusform>%nটি বার্তা নির্বাচিত</numerusform>
         </translation>
     </message>
-    <message>
-        <location line="+3"/>
-        <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation>%2টির মধ্যে %1টি বার্তার পরে থেমেছে; %3টি ব্যর্থ।</translation>
+    <message numerus="yes">
+        <location line="-3"/>
+        <source>Deleting %1 of %n message(s)…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
+        <location line="+7"/>
+        <source>Stopped after %1 of %n message(s); %2 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <location line="+4"/>
-        <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation>%2টির মধ্যে %1টি বার্তা মোছা হয়েছে; %3টি ব্যর্থ।</translation>
+        <source>Stopped after %1 of %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s); %1 failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Deleted %n message(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+7"/>
         <location line="+61"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
@@ -30422,7 +30447,7 @@ Note: importing keys does not verify this session.</source>
         <translation>পরিচালনা করুন</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+32"/>
         <location line="+1"/>
         <source>New pack name</source>
         <translation>নতুন প্যাকের নাম</translation>
@@ -30488,7 +30513,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সংরক্ষিত। আপনার অন্য ডিভাইসের পুরোনো অ্যাপ হয়তো এখনও এই পরিবর্তন দেখবে না।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
         <source>Pack created. Add images from the sticker picker or Manage.</source>
         <translation>প্যাক তৈরি হয়েছে। স্টিকার পিকার বা ম্যানেজ থেকে ছবি যোগ করুন।</translation>
     </message>
@@ -32131,7 +32156,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+666"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+675"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
@@ -32147,7 +32172,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ক্লিপবোর্ডের ছবি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+75"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>এই ছবি থেকে ছবির বিবরণ সরানো যায়নি, তাই এটি পাঠানো হয়নি। সেটিংস, গোপনীয়তায় এটি বদলাতে পারেন।</translation>
     </message>
@@ -32170,7 +32195,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>আপলোড ব্যর্থ। আবার চেষ্টা করুন বা সরান।</translation>
     </message>
@@ -32183,7 +32208,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এই থ্রেড পড়া হয়েছে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="+1184"/>
+        <location line="+1218"/>
         <source>Jump to the newest reply</source>
         <translation>সবচেয়ে নতুন উত্তরে যান</translation>
     </message>
@@ -32196,7 +32221,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1546"/>
+        <location line="-1580"/>
         <source>This room has been replaced.</source>
         <translation>এই রুমটি প্রতিস্থাপন করা হয়েছে।</translation>
     </message>
@@ -32299,13 +32324,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-90"/>
         <location line="+92"/>
-        <location line="+297"/>
+        <location line="+314"/>
         <location line="+72"/>
         <source>Replies</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-459"/>
+        <location line="-476"/>
         <source>Unread</source>
         <translation>অপঠিত</translation>
     </message>
@@ -32350,7 +32375,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+60"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32414,7 +32439,7 @@ Note: importing keys does not verify this session.</source>
         <translation>পুরনো উত্তর লোড হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+157"/>
+        <location line="+174"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>%1-কে উত্তর</translation>
