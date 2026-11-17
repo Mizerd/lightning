@@ -161,6 +161,83 @@ class QmlComponentLoadTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void everyPackEditorActionStaysInsideTheDialogWhileConfirming()
+    {
+        QQmlApplicationEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+ApplicationWindow {
+    width: 700; height: 760
+    visible: true
+    property alias editor: ed
+    StickerPackEditor {
+        id: ed
+        stickers: QtObject {
+            property string editorPackId: ""
+            property bool editing: false
+            property bool transferring: false
+            property bool migrating: false
+            property int revision: 0
+            property var editorImages: ListModel {}
+            function packInfo(id) { return ({ namespace: "stable" }) }
+            function packImageMap(id) { return ({}) }
+            function comparePack(id, base) { return ({ any: false }) }
+            function failedUploadCount() { return 2 }
+            function shareLink(id) { return "https://matrix.to/#/!r:example.org" }
+            function copyShareText(id) { return true }
+            function removePack(id) {}
+            function deletePack(id) {}
+        }
+    }
+}
+)QML", QUrl());
+        QTRY_VERIFY(component.status() != QQmlComponent::Loading);
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY(root);
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        QObject *editor = root->property("editor").value<QObject *>();
+        QVERIFY(editor);
+
+        QVERIFY(QMetaObject::invokeMethod(
+            editor, "openFor", Q_ARG(QVariant, QStringLiteral("room:!r:example.org:")),
+            Q_ARG(QVariant, QStringLiteral("Cats")), Q_ARG(QVariant, true)));
+        QTRY_VERIFY(editor->property("opened").toBool());
+
+        auto *content = editor->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        const QStringList states = { QString(), QStringLiteral("confirmingDelete"),
+                                     QStringLiteral("confirmingRemove") };
+        for (const QString &state : states) {
+            editor->setProperty("confirmingDelete", state == QLatin1String("confirmingDelete"));
+            editor->setProperty("confirmingRemove", state == QLatin1String("confirmingRemove"));
+            QTest::qWait(50);
+            int checked = 0;
+            for (QQuickItem *item : content->findChildren<QQuickItem *>()) {
+                const QString name = item->objectName();
+                if (!name.startsWith(QLatin1String("stickerPack"))
+                    || !name.endsWith(QLatin1String("Button")) || !item->isVisible())
+                    continue;
+                ++checked;
+                const QRectF box = item->mapRectToItem(
+                    content, QRectF(0, 0, item->width(), item->height()));
+                QVERIFY2(box.left() >= -0.5 && box.right() <= content->width() + 0.5
+                             && box.top() >= -0.5 && box.bottom() <= content->height() + 0.5,
+                         qPrintable(QStringLiteral("%1 leaves the dialog (state '%2'): %3,%4 %5x%6 in %7x%8")
+                                        .arg(name, state).arg(box.x()).arg(box.y())
+                                        .arg(box.width()).arg(box.height())
+                                        .arg(content->width()).arg(content->height())));
+            }
+            QVERIFY2(checked >= 5, "the editor's action buttons were not found");
+        }
+        QVERIFY2(content->findChild<QQuickItem *>(QStringLiteral("stickerPackRemoveButton")),
+                 "a manageable room pack has no Remove pack button");
+    }
+
     void streamInfoPollsOnlyWhileTheSurfaceIsVisible()
     {
         QQmlApplicationEngine engine;
