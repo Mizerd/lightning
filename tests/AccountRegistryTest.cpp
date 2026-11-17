@@ -33,8 +33,11 @@ public:
     QString readSecret(const QString &userId,
                        const QString &key) const override
     {
+        if (key == QLatin1String("accessToken"))
+            ++m_accessTokenReads;
         return m_values.value(userId + QLatin1Char('/') + key);
     }
+    int accessTokenReads() const { return m_accessTokenReads; }
 
     bool deleteSecret(const QString &userId, const QString &key) override
     {
@@ -58,6 +61,7 @@ public:
 
 private:
     QHash<QString, QString> m_values;
+    mutable int m_accessTokenReads = 0;
 };
 
 namespace {
@@ -125,6 +129,26 @@ private Q_SLOTS:
         QSettings settings;
         settings.clear();
         settings.sync();
+    }
+
+    void repeatedAccountRefreshesReadTheKeyringOnce()
+    {
+        FakeSecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        AccountManager accounts(&settings);
+        saveAlice(settings);
+
+        const int before = secrets.accessTokenReads();
+        for (int i = 0; i < 6; ++i) {
+            QVERIFY(!accounts.account(kAliceId).value("needsSignIn").toBool());
+            QVERIFY(!accounts.accounts().isEmpty());
+        }
+        QVERIFY2(secrets.accessTokenReads() - before <= 1,
+                 "account refreshes must not re-read the access token");
+
+        QVERIFY(settings.clearSessionForAccount(kAliceId));
+        QVERIFY(!settings.hasAccessTokenFor(kAliceId));
     }
 
     void savesMultipleAccountsDistinctly()

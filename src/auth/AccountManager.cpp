@@ -53,7 +53,7 @@ bool AccountManager::needsSignIn(const QString &userId) const
         return true;
     // A locked keyring or missing session bus is not a lost sign-in. Read
     // first: the unavailable flag reflects the most recent read.
-    const bool tokenEmpty = m_settings->accessTokenFor(userId).isEmpty();
+    const bool tokenEmpty = !m_settings->hasAccessTokenFor(userId);
     if (secretBackendUnavailable())
         return false;
     return tokenEmpty;

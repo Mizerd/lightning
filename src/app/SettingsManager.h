@@ -3,6 +3,7 @@
 #include "storage/AppDataPaths.h"
 
 #include <QHash>
+#include <QMutex>
 #include <QObject>
 #include <QRect>
 #include <QSet>
@@ -918,6 +919,10 @@ public:
     QString lastOpenedRoom(const QString &userId) const;
     void setLastOpenedRoom(const QString &userId, const QString &roomId);
     QString accessTokenFor(const QString &userId) const;
+    // Presence only, remembered once a read found a token: UI refreshes call
+    // this on every accountsChanged and each keyring read can be a hardware
+    // decryption. The token itself is never held, so rotation cannot stale it.
+    bool hasAccessTokenFor(const QString &userId) const;
     bool updateSessionTokens(const QString &userId,
                              const QString &accessToken,
                              const QString &refreshToken);
@@ -1175,6 +1180,9 @@ private:
     void markKeyringItems(const QString &slug, const char *how) const;
     void noteKeyringBackend(const QString &userId) const;
     mutable QSet<QString> m_keyringBackendChangeLogged;
+    void forgetTokenPresence() const;
+    mutable QMutex m_tokenPresentMutex;
+    mutable QSet<QString> m_tokenPresent;
     QString keyringBackendForStore(const QString &userId) const;
     std::pair<QString, QString> m_keyringBackendBeingCleared;
     enum class LegacyAdoption { Adopted, CopyFailed, NotAdoptable, Unreadable };

@@ -664,12 +664,33 @@ QVariantMap SettingsManager::accountRecord(const QString &userId) const
     return record;
 }
 
+void SettingsManager::forgetTokenPresence() const
+{
+    const QMutexLocker lock(&m_tokenPresentMutex);
+    m_tokenPresent.clear();
+}
+
 QString SettingsManager::accessTokenFor(const QString &userId) const
 {
     const QString uid = userId.trimmed();
     if (uid.isEmpty() || !m_secretStore)
         return {};
     return readAccountSecret(uid, kSecretAccessToken);
+}
+
+bool SettingsManager::hasAccessTokenFor(const QString &userId) const
+{
+    const QString uid = userId.trimmed();
+    {
+        const QMutexLocker lock(&m_tokenPresentMutex);
+        if (m_tokenPresent.contains(uid))
+            return true;
+    }
+    if (accessTokenFor(uid).isEmpty())
+        return false;
+    const QMutexLocker lock(&m_tokenPresentMutex);
+    m_tokenPresent.insert(uid);
+    return true;
 }
 
 QString SettingsManager::activeAccountUserId() const
@@ -954,6 +975,7 @@ void SettingsManager::clearDemoAccounts()
     if (m_secretStore) {
         for (const QString &uid : ids)
             m_secretStore->clearAccountSecrets(uid);
+        forgetTokenPresence();
     }
     Q_EMIT accountsChanged();
     Q_EMIT sessionChanged();
@@ -965,6 +987,7 @@ void SettingsManager::setSecretStore(SecretStore *store)
     if (m_secretStore == store)
         return;
     m_secretStore = store;
+    forgetTokenPresence();
     // Before any read or write: an unscoped shared store refuses both.
     if (m_secretStore && m_secretStore->isSharedBetweenInstalls())
         m_secretStore->setInstallScope(keyringInstallId());
@@ -1070,6 +1093,7 @@ bool SettingsManager::declineAdoptedKeyringItems(const QString &userId,
         return false;
     markKeyringItems(slug, kKeyringItemsDeclined);
     const bool cleared = m_secretStore->clearAccountSecrets(uid);
+    forgetTokenPresence();
     if (!cleared)
         qCWarning(lcSettings) << "keyring: could not remove this install's copy "
                                  "of another install's sign-in"
@@ -5493,6 +5517,7 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
         }
         secretsCleared = m_secretStore->clearAccountSecrets(recordUserId)
                          && sharedCopyCleared;
+        forgetTokenPresence();
         m_keyringBackendBeingCleared = {};
         if (!secretsCleared) {
             qCWarning(lcSettings)
