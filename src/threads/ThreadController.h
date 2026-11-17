@@ -226,6 +226,7 @@ private:
     QString timelineId() const;
     bool dispatchAttachments();
     void dispatchAttachment(int row);
+    void pumpAttachments();
     void parkAttachments();
 
     struct VoiceOp {

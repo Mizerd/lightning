@@ -33,7 +33,7 @@ ThreadController::ThreadController(QObject *parent)
     connect(m_attachments, &AttachmentQueueModel::countChanged, this,
             [this] { Q_EMIT attachmentsChanged(); });
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
-            this, &ThreadController::dispatchAttachment);
+            this, &ThreadController::pumpAttachments);
     m_draftDebounce.setSingleShot(true);
     m_draftDebounce.setInterval(1000);
     connect(&m_draftDebounce, &QTimer::timeout, this,
@@ -771,9 +771,31 @@ bool ThreadController::dispatchAttachments()
         if (!m_replyToEventId.isEmpty())
             entries[row].replyToEventId = m_replyToEventId;
         any = true;
-        dispatchAttachment(row);
     }
+    pumpAttachments();
     return any;
+}
+
+// One row at a time in tray order, as MessageComposer::pumpAttachments does:
+// dispatching every row at once lands them in upload-completion order.
+void ThreadController::pumpAttachments()
+{
+    if (!m_client || m_state != Ready || m_roomId.isEmpty()
+        || m_rootEventId.isEmpty())
+        return;
+    auto &entries = m_attachments->entries();
+    for (int row = 0; row < entries.size(); ++row) {
+        const QString state = entries[row].state;
+        if (state == QLatin1String("dispatching"))
+            return;
+        if (state != QLatin1String("queued") || !entries[row].sendRequested)
+            continue;
+        if (entries[row].posterPending)
+            return;
+        dispatchAttachment(row);
+        if (entries[row].state == QLatin1String("dispatching"))
+            return;
+    }
 }
 
 void ThreadController::dispatchAttachment(int row)
@@ -917,6 +939,7 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
             entries[row].opId = 0;
             m_attachments->updateEntry(row);
         }
+        pumpAttachments();
         return;
     }
     for (auto it = m_parkedAttachments.begin();

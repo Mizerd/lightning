@@ -60,9 +60,6 @@ own engine. NOT TESTED: no second SFU was available.
   `m.new_content`.
 - A text sent right after a spoiler can arrive before it: the spoiler uploads
   off the room's send lane so an unbounded upload never blocks text sends.
-- Several spoilers sent together from the thread panel upload concurrently and
-  land in completion order (`ThreadController` has no pump like the main
-  composer's `pumpAttachments`).
 
 
 ## 2026-11-07 — CLOSED: the 2026-11-05 follow-ups (branch `followups`)
