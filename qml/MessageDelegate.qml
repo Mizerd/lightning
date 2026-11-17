@@ -2158,7 +2158,7 @@ Item {
 
                             Loader {
                                 active: (bodyLoader.bodyText || "").indexOf(
-                                            "<td width=\"3\" bgcolor") >= 0
+                                            "style=\"border-color:") >= 0
                                 sourceComponent: Item {
                                     QuoteBars {
                                         id: bodyQuotes
@@ -2297,7 +2297,7 @@ Item {
                                             Loader {
                                                 active: (segmentRow.modelData.text
                                                          || "").indexOf(
-                                                    "<td width=\"3\" bgcolor") >= 0
+                                                    "style=\"border-color:") >= 0
                                                 sourceComponent: Item {
                                                     QuoteBars {
                                                         id: segmentQuotes

@@ -621,7 +621,7 @@ private Q_SLOTS:
                            "</blockquote>after"),
             nullptr, QString(), style);
         QVERIFY2(!out.contains(QStringLiteral("<blockquote")), qPrintable(out));
-        QCOMPARE(out.count(QStringLiteral("bgcolor=\"#445566\"")), 2);
+        QCOMPARE(out.count(QStringLiteral("border-color:#445566")), 2);
         QCOMPARE(out.count(QStringLiteral("color:#778899")), 2);
         QCOMPARE(out.count(QStringLiteral("<table")),
                  out.count(QStringLiteral("</table>")));
@@ -630,7 +630,7 @@ private Q_SLOTS:
         QVERIFY2(out.contains(QStringLiteral("<b>b</b>")), qPrintable(out));
 
         const QString bare = sanitize(QStringLiteral("<blockquote>x"));
-        QVERIFY2(bare.contains(QStringLiteral("bgcolor=\"#808080\"")),
+        QVERIFY2(bare.contains(QStringLiteral("border-color:#808080")),
                  qPrintable(bare));
         QCOMPARE(bare.count(QStringLiteral("</table>")), 1);
         QVERIFY(!sanitize(QStringLiteral("x</blockquote>y"))

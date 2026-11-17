@@ -39,9 +39,10 @@ void QuoteBars::collect(QTextFrame *frame, QVariantList &out) const
         if (!child)
             continue;
         if (auto *table = qobject_cast<QTextTable *>(child)) {
-            const QTextTableCell bar = table->cellAt(0, 0);
-            if (table->rows() == 1 && table->columns() == 2
-                && bar.format().background().style() == Qt::SolidPattern) {
+            const QTextTableFormat format = table->format();
+            if (table->rows() == 1 && table->columns() == 1
+                && format.border() == 0
+                && format.borderBrush().style() == Qt::SolidPattern) {
                 const QRectF r =
                     m_textDocument->documentLayout()->frameBoundingRect(table);
                 out.append(QVariantMap{
@@ -49,7 +50,7 @@ void QuoteBars::collect(QTextFrame *frame, QVariantList &out) const
                     {QStringLiteral("y"), r.y()},
                     {QStringLiteral("height"), r.height()},
                     {QStringLiteral("color"),
-                     bar.format().background().color()},
+                     format.borderBrush().color()},
                 });
             }
         }

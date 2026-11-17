@@ -160,6 +160,20 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    bool supportsRoomScopedAttachmentSend() const override { return true; }
+    int roomBytesSends = 0;
+    quint64 sendAttachmentBytesToRoom(const QString &, const QByteArray &bytes,
+                                      const QString &, const QString &mime,
+                                      const QString &caption, int,
+                                      int) override
+    {
+        ++roomBytesSends;
+        lastBytes = bytes;
+        lastMime = mime;
+        lastCaption = caption;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
     QByteArray lastBytes;
     quint64 sendAttachmentBytes(const QString &, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
@@ -952,6 +966,22 @@ private Q_SLOTS:
         QCOMPARE(client.lastReplyTo, QStringLiteral("$voice:example.org"));
         QVERIFY(!composer.isReplying());
         QCOMPARE(composer.text(), QStringLiteral("draft stays"));
+    }
+
+    void aClipboardImageTakesTheTextAsItsCaption()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setSendTextAsCaption(true);
+        QVERIFY(composer.attachments()->addImageData(
+                    tinyPng(), QStringLiteral("image/png"), 1, 1).isEmpty());
+        composer.setText(QStringLiteral("look at this"));
+        composer.send();
+        QCOMPARE(client.roomBytesSends, 1);
+        QCOMPARE(client.byteSends, 0);
+        QCOMPARE(client.lastCaption, QStringLiteral("look at this"));
     }
 
     void failedDispatchIsRetryable()

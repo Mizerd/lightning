@@ -1180,16 +1180,16 @@ QString MessageHtml::sanitize(
                     + mentionStyle.codeBackground.toHtmlEscaped()
                     + QStringLiteral("\">");
             } else if (name == QLatin1String("blockquote")) {
-                // Neither a blockquote's nor a table cell's border-left is
-                // painted by Quick's text (only cell backgrounds are), so the
-                // bar is an empty first cell with a bgcolor.
+                // Quick's text paints no border, so QuoteBars draws the bar
+                // from the table's border-color; an empty bar cell would add
+                // a blank line to every copied selection.
                 ++quoteDepth;
-                out += QStringLiteral("<table cellspacing=\"0\" cellpadding=\"0\">"
-                                      "<tr><td width=\"3\" bgcolor=\"")
+                out += QStringLiteral("<table border=\"0\" cellspacing=\"0\" "
+                                      "cellpadding=\"0\" style=\"border-color:")
                     + (mentionStyle.quoteBar.isEmpty()
                            ? QStringLiteral("#808080")
                            : mentionStyle.quoteBar.toHtmlEscaped())
-                    + QStringLiteral("\"></td><td style=\"padding-left:8px;")
+                    + QStringLiteral("\"><tr><td style=\"padding-left:11px;")
                     + (mentionStyle.quoteInk.isEmpty()
                            ? QString()
                            : QStringLiteral(" color:")

@@ -8,6 +8,9 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QTextDocumentFragment>
 #include <QtTest/QtTest>
 
 // Quick's text paints a table cell's background only behind its own lines and
@@ -64,6 +67,20 @@ private Q_SLOTS:
                     break;
                 }
         QVERIFY2(nestedBarRows >= 8, qPrintable(QString::number(nestedBarRows)));
+    }
+
+    void copyingAcrossAQuoteAddsNoBlankLine()
+    {
+        QTextDocument doc;
+        doc.setHtml(MessageHtml::sanitize(
+            QStringLiteral("<p>head</p><blockquote>quoted</blockquote>"
+                           "<p>tail</p>"),
+            nullptr, QString(), {}));
+        QTextCursor cursor(&doc);
+        cursor.select(QTextCursor::Document);
+        const QString text = cursor.selection().toPlainText();
+        QVERIFY2(text.contains(QStringLiteral("head\nquoted")),
+                 qPrintable(text));
     }
 };
 

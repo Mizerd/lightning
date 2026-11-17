@@ -329,7 +329,13 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
         auto &entry = entries[row];
-        if (entry.state != QLatin1String("queued") || entry.localPath.isEmpty())
+        if (entry.state != QLatin1String("queued"))
+            continue;
+        // The plain bytes send has no caption; the room-scoped one takes a
+        // caption but no reply target. Spoiler and scheduled sends take both.
+        if (entry.localPath.isEmpty() && !entry.spoiler && !m_preparingForSchedule
+            && (!m_client || !m_client->supportsRoomScopedAttachmentSend()
+                || !m_replyingToEventId.isEmpty()))
             continue;
         entry.caption = body;
         return true;
@@ -375,9 +381,9 @@ QVariantMap MessageComposer::prepareAttachmentsForSchedule(
     // The dialog snapshot names the room; the composer may have moved since.
     if (m_client && !m_roomId.isEmpty() && roomId == m_roomId) {
         const QString caption = captionBody.trimmed();
+        m_preparingForSchedule = true;
         captioned = takeTextAsCaption(caption, mentionIds);
         auto &entries = m_attachments->entries();
-        m_preparingForSchedule = true;
         for (int row = 0; row < entries.size(); ++row) {
             auto &entry = entries[row];
             // sendRequested: already queued behind an earlier Send.
@@ -499,6 +505,10 @@ void MessageComposer::dispatchAttachment(int row)
                 m_roomId, root, sendPath, entry.mime, caption, entry.width,
                 entry.height, entry.animated, entry.durationMs,
                 entry.replyToEventId);
+    } else if (entry.localPath.isEmpty() && !caption.isEmpty()) {
+        opId = m_client->sendAttachmentBytesToRoom(
+            m_roomId, sendData, entry.fileName, entry.mime, caption,
+            entry.width, entry.height);
     } else if (entry.localPath.isEmpty()) {
         opId = m_client->sendAttachmentBytes(m_roomId, sendData,
                                              entry.fileName, entry.mime,

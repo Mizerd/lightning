@@ -2237,8 +2237,39 @@ async fn edit_room_pack_inner(
     if matches!(edit, PackEdit::RemovePack) {
         // Best effort: a dangling subscription only shows as "no longer exists".
         let _ = set_room_pack_enabled_inner(client, room_id, state_key, false, namespace).await;
+        if namespace == Namespace::Stable {
+            clear_legacy_twin(client, &room, room_id, state_key).await;
+        }
     }
     Ok(code)
+}
+
+pub(crate) fn legacy_twin_needs_clearing(read: &PackRead) -> bool {
+    matches!(read, PackRead::Found(v) if v.as_object().is_some_and(|o| !o.is_empty()))
+}
+
+/// Legacy-only readers would still list the pack after a stable removal.
+async fn clear_legacy_twin(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::room::Room,
+    room_id: &str,
+    state_key: &str,
+) {
+    let read = read_room_pack_fresh(client, room_id, state_key, Namespace::Legacy).await;
+    if !legacy_twin_needs_clearing(&read) {
+        return;
+    }
+    if !can_manage_room_packs(client, room_id, Namespace::Legacy).await {
+        eprintln!("sticker pack removal partial: legacy twin kept, no power for the legacy type");
+        return;
+    }
+    let sent = room
+        .send_state_event_raw(Namespace::Legacy.room_type(), state_key, json!({}))
+        .await;
+    forget_room(client, room_id);
+    if sent.is_err() {
+        eprintln!("sticker pack removal partial: legacy twin could not be cleared");
+    }
 }
 
 /// The content of a NEW stable pack: schema-valid (`images` present even when
@@ -3687,6 +3718,14 @@ mod tests {
             rec(Namespace::Stable, "k", json!({}), 2),
         ];
         assert!(resolve_room_packs(records).is_empty());
+    }
+
+    #[test]
+    fn a_legacy_twin_is_cleared_only_when_it_still_holds_a_pack() {
+        assert!(legacy_twin_needs_clearing(&PackRead::Found(json!({ "images": {} }))));
+        assert!(!legacy_twin_needs_clearing(&PackRead::Found(json!({}))));
+        assert!(!legacy_twin_needs_clearing(&PackRead::Absent));
+        assert!(!legacy_twin_needs_clearing(&PackRead::Failed("x".into())));
     }
 
     #[test]
