@@ -28,6 +28,12 @@ public:
     {
         RoomInfo room;
         room.id = roomId;
+        if (roomId == QLatin1String("!dm:x")) {
+            room.isDirect = true;
+            room.directUserId = QStringLiteral("@dave:x");
+            room.name = QStringLiteral("Dave Real");
+            return room;
+        }
         const QString prefix = roomId + QLatin1Char('|');
         for (auto it = names.cbegin(); it != names.cend(); ++it) {
             if (!it.key().startsWith(prefix))
@@ -121,6 +127,18 @@ private Q_SLOTS:
         QCOMPARE(C::callerNameIn(&client, QStringLiteral("!other:x"),
                                  QStringLiteral("@carol:x")),
                  QStringLiteral("carol"));
+    }
+
+    void aDirectCallerWithNoLoadedMembersIsNamedByTheRoom()
+    {
+        NamedMembersClient client;
+        using C = CallController;
+        QCOMPARE(C::callerNameIn(&client, QStringLiteral("!dm:x"),
+                                 QStringLiteral("@dave:x")),
+                 QStringLiteral("Dave Real"));
+        QCOMPARE(C::callerNameIn(&client, QStringLiteral("!dm:x"),
+                                 QStringLiteral("@eve:x")),
+                 QStringLiteral("eve"));
     }
 
     void anInvisibleCharacterCannotEscapeTheCollisionCheck()

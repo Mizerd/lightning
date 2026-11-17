@@ -509,7 +509,13 @@ QString CallController::callerNameIn(const MatrixClient *client,
 {
     if (!client || userId.isEmpty())
         return presentableCallerName(userId, QString());
-    const QString name = client->displayNameFor(roomId, userId);
+    QString name = client->displayNameFor(roomId, userId);
+    if (name.isEmpty() || name == userId) {
+        // The DM's members may not be loaded yet; its own name is the peer's.
+        const RoomInfo dm = client->roomInfo(roomId);
+        if (dm.isDirect && dm.directUserId == userId && dm.directUserIds.size() <= 1)
+            name = dm.name;
+    }
     // Another member showing the same name is someone the card could be
     // mistaken for. Compared as DISPLAYED: "Alice" plus an invisible mark
     // renders as "Alice", so the raw strings must not decide.
