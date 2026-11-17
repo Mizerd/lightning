@@ -2009,6 +2009,7 @@ mod tests {
                         let mut buf = vec![0u8; 4096];
                         if socket.read(&mut buf).await.unwrap_or(0) > 0 {
                             requests.fetch_add(1, Ordering::SeqCst);
+                            tokio::time::sleep(Duration::from_millis(400)).await;
                             let _ = socket.write_all(
                                 b"HTTP/1.1 400 Bad Request\r\n\
                                   content-length: 0\r\n\r\n").await;

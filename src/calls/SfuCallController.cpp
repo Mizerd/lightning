@@ -2191,9 +2191,6 @@ void SfuCallController::onSfuConnectionEvent(const QVariantMap &event)
     const QString type = event.value(QStringLiteral("type")).toString();
     if (type == QLatin1String("sfu_state")) {
         const QString state = event.value(QStringLiteral("state")).toString();
-        if (event.contains(QStringLiteral("connect")))
-            qCInfo(lcSfuCall) << "sfu connect state=" << state
-                              << event.value(QStringLiteral("connect")).toString();
         if (state == QLatin1String("failed")
             || state == QLatin1String("reconnecting")
             || state == QLatin1String("closed")

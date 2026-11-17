@@ -11101,6 +11101,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                               << "lanAllowance="
                               << event.value(QStringLiteral("lan_allowance")).toString();
         }
+        if (type == QLatin1String("sfu_state")
+            && event.contains(QStringLiteral("connect"))) {
+            qCInfo(lcRust) << "sfu connect connection="
+                           << event.value(QStringLiteral("connection_id")).toInt()
+                           << "state=" << event.value(QStringLiteral("state")).toString()
+                           << event.value(QStringLiteral("connect")).toString();
+        }
         if (event.value(QStringLiteral("connection_id")).toInt() != 0)
             return true;
     }
