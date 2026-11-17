@@ -28,7 +28,7 @@ public:
     {
         RoomInfo room;
         room.id = roomId;
-        if (roomId == QLatin1String("!dm:x")) {
+        if (roomId == QLatin1String("!dm2:x")) {
             room.isDirect = true;
             room.directUserId = QStringLiteral("@dave:x");
             room.name = QStringLiteral("Dave Real");
@@ -133,10 +133,10 @@ private Q_SLOTS:
     {
         NamedMembersClient client;
         using C = CallController;
-        QCOMPARE(C::callerNameIn(&client, QStringLiteral("!dm:x"),
+        QCOMPARE(C::callerNameIn(&client, QStringLiteral("!dm2:x"),
                                  QStringLiteral("@dave:x")),
                  QStringLiteral("Dave Real"));
-        QCOMPARE(C::callerNameIn(&client, QStringLiteral("!dm:x"),
+        QCOMPARE(C::callerNameIn(&client, QStringLiteral("!dm2:x"),
                                  QStringLiteral("@eve:x")),
                  QStringLiteral("eve"));
     }
