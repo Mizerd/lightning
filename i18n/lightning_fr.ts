@@ -8018,7 +8018,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2683"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2702"/>
         <source>Voice message</source>
         <translation>Message vocal</translation>
     </message>
@@ -11528,7 +11528,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+602"/>
+        <location filename="../qml/MainScreen.qml" line="+610"/>
         <source>Resize room list</source>
         <translation>Redimensionner la liste des salons</translation>
     </message>
@@ -12433,12 +12433,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>L&apos;image du presse-papiers n&apos;a pas pu être lue.</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+167"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Les données de localisation de la photo n&apos;ont pas pu être retirées de cette image, elle n&apos;a donc pas été envoyée. Vous pouvez modifier cela dans Paramètres, Confidentialité.</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+65"/>
         <source>The attachment could not be queued.</source>
         <translation>La pièce jointe n&apos;a pas pu être mise en file d&apos;attente.</translation>
     </message>
@@ -12469,7 +12469,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+746"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+748"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Ajouter un lien</translation>
@@ -12840,7 +12840,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Enregistrer un message vocal</translation>
     </message>
     <message>
-        <location line="-3161"/>
+        <location line="-3163"/>
         <source>A recording is already in progress.</source>
         <translation>Un enregistrement est déjà en cours.</translation>
     </message>
@@ -12860,7 +12860,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>L&apos;enregistrement vocal est indisponible.</translation>
     </message>
     <message>
-        <location line="+2878"/>
+        <location line="+2880"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Plus</translation>
@@ -12907,17 +12907,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Envoyer</translation>
     </message>
     <message>
-        <location line="+145"/>
-        <source>Send later… (not available with attachments)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+11"/>
+        <location line="+154"/>
         <source>Scheduled messages</source>
         <translation>Messages programmés</translation>
     </message>
     <message>
-        <location line="-157"/>
+        <location line="-155"/>
         <source>Save edit</source>
         <translation>Enregistrer la modification</translation>
     </message>
@@ -12959,7 +12954,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Options d&apos;envoi (%1 programmé(s))</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+119"/>
         <source>Send later…</source>
         <translation>Envoyer plus tard…</translation>
     </message>
@@ -13025,13 +13020,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+91"/>
-        <location line="+864"/>
+        <location line="+906"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>Répondre</translation>
     </message>
     <message>
-        <location line="-1959"/>
+        <location line="-2001"/>
         <source>(original message not loaded)</source>
         <translation>(message d&apos;origine non chargé)</translation>
     </message>
@@ -13045,12 +13040,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         </translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+117"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>Clé de salon manquante. Restaurez votre clé de récupération dans les Paramètres, ou attendez qu&apos;un autre appareil vérifié partage la clé.</translation>
     </message>
     <message>
-        <location line="+183"/>
+        <location line="+204"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation>Cette session ne peut pas déverrouiller les messages chiffrés</translation>
     </message>
@@ -13075,8 +13070,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>En attente des clés…</translation>
     </message>
     <message>
-        <location line="-1012"/>
-        <location line="+1021"/>
+        <location line="-1054"/>
+        <location line="+1063"/>
         <source>Retry decryption</source>
         <translation>Réessayer le déchiffrement</translation>
     </message>
@@ -13086,7 +13081,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Paramètres de sécurité</translation>
     </message>
     <message>
-        <location line="-1930"/>
+        <location line="-1972"/>
         <source>Link</source>
         <translation>Lien</translation>
     </message>
@@ -13096,7 +13091,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Ouvrir ce fil</translation>
     </message>
     <message>
-        <location line="+657"/>
+        <location line="+699"/>
         <source>Show the link preview again</source>
         <translation>Afficher à nouveau l&apos;aperçu du lien</translation>
     </message>
@@ -13278,12 +13273,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Répondre dans un fil</translation>
     </message>
     <message>
-        <location line="-1971"/>
+        <location line="-2013"/>
         <source>Original message removed</source>
         <translation>Message d&apos;origine supprimé</translation>
     </message>
     <message>
-        <location line="+1981"/>
+        <location line="+2023"/>
         <source>Open in room</source>
         <translation>Ouvrir dans le salon</translation>
     </message>
@@ -13481,7 +13476,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-3581"/>
+        <location line="-3623"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -13515,22 +13510,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3549"/>
+        <location line="+3591"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5034"/>
+        <location line="-5076"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4098"/>
+        <location line="+4140"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-4657"/>
+        <location line="-4699"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
@@ -13581,7 +13576,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Message supprimé</translation>
     </message>
     <message>
-        <location line="+444"/>
+        <location line="+486"/>
         <source>%1 • not sent: connection problem</source>
         <translation>%1 • non envoyé : problème de connexion</translation>
     </message>
@@ -13861,10 +13856,10 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-5445"/>
+        <location line="-5487"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4096"/>
+        <location line="+4138"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13877,9 +13872,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-5826"/>
+        <location line="-5868"/>
         <location line="+564"/>
-        <location line="+4199"/>
+        <location line="+4241"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -14081,11 +14076,11 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+354"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+356"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+624"/>
+        <location line="+652"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
@@ -20407,7 +20402,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>ScheduledSendController</name>
     <message>
-        <location filename="../src/models/ScheduledSendController.cpp" line="+63"/>
+        <location filename="../src/models/ScheduledSendController.cpp" line="+62"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
         <translation>Conservé dans Lightning à la place : le serveur ne peut pas garder un message chiffré.</translation>
     </message>
@@ -20437,7 +20432,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Le salon n&apos;a pas accepté ce message. Il n&apos;a pas été envoyé.</translation>
     </message>
     <message>
-        <location line="+192"/>
+        <location line="+236"/>
         <source>Lightning closed before the server confirmed this message. Check the room before scheduling it again.</source>
         <translation>Lightning s&apos;est fermé avant que le serveur ne confirme ce message. Vérifiez le salon avant de le programmer à nouveau.</translation>
     </message>
@@ -20447,19 +20442,29 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lightning s&apos;est fermé pendant l&apos;envoi. Vérifiez le salon avant de l&apos;envoyer à nouveau.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+61"/>
+        <source>Attachment</source>
+        <translation type="unfinished">Pièce jointe</translation>
+    </message>
+    <message>
+        <location line="+64"/>
         <source>The server could not be asked to cancel this message.</source>
         <translation>Impossible de demander au serveur d&apos;annuler ce message.</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+73"/>
         <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
         <translation>Lightning n&apos;a pas pu joindre le serveur pour l&apos;envoyer maintenant. Il reste programmé.</translation>
     </message>
     <message>
-        <location line="+141"/>
+        <location line="+155"/>
         <source>Waiting for the connection.</source>
         <translation>En attente de la connexion.</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>The attachment could not be sent.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -21017,7 +21022,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>SendLaterDialog</name>
     <message>
-        <location filename="../qml/SendLaterDialog.qml" line="+126"/>
+        <location filename="../qml/SendLaterDialog.qml" line="+141"/>
         <source>Send later</source>
         <translation>Envoyer plus tard</translation>
     </message>
@@ -21027,7 +21032,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Messages programmés</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+25"/>
+        <source>With the attachments in the composer. They are uploaded now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>In 30 minutes</source>
         <translation>Dans 30 minutes</translation>
     </message>
@@ -21083,12 +21093,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+6"/>
-        <location line="+141"/>
+        <location line="+154"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-135"/>
+        <location line="-148"/>
         <source>Schedule</source>
         <translation>Programmer</translation>
     </message>
@@ -21123,12 +21133,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>En mémoire uniquement</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+9"/>
+        <source>Uploading %1…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Attachment: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Send now</source>
         <translation>Envoyer maintenant</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Done</source>
         <translation>Terminé</translation>
     </message>
@@ -32732,7 +32752,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1563"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1582"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -32782,7 +32802,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1279"/>
+        <location line="+1298"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>

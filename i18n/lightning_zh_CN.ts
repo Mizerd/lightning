@@ -7989,7 +7989,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2683"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2702"/>
         <source>Voice message</source>
         <translation>语音消息</translation>
     </message>
@@ -11490,7 +11490,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+602"/>
+        <location filename="../qml/MainScreen.qml" line="+610"/>
         <source>Resize room list</source>
         <translation>调整房间列表大小</translation>
     </message>
@@ -12391,12 +12391,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法读取剪贴板中的图片。</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+167"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>无法从此图片中移除照片详情，因此未发送。你可以在“设置 → 隐私”中更改此项。</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+65"/>
         <source>The attachment could not be queued.</source>
         <translation>无法将该附件加入队列。</translation>
     </message>
@@ -12427,7 +12427,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+746"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+748"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>添加链接</translation>
@@ -12798,7 +12798,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>录制语音消息</translation>
     </message>
     <message>
-        <location line="-3161"/>
+        <location line="-3163"/>
         <source>A recording is already in progress.</source>
         <translation>已有录音正在进行。</translation>
     </message>
@@ -12818,7 +12818,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>语音录制不可用。</translation>
     </message>
     <message>
-        <location line="+2878"/>
+        <location line="+2880"/>
         <location line="+1"/>
         <source>More</source>
         <translation>更多</translation>
@@ -12865,17 +12865,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>发送</translation>
     </message>
     <message>
-        <location line="+145"/>
-        <source>Send later… (not available with attachments)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+11"/>
+        <location line="+154"/>
         <source>Scheduled messages</source>
         <translation>定时消息</translation>
     </message>
     <message>
-        <location line="-157"/>
+        <location line="-155"/>
         <source>Save edit</source>
         <translation>保存修改</translation>
     </message>
@@ -12917,7 +12912,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>发送选项（%1 条已定时）</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+119"/>
         <source>Send later…</source>
         <translation>稍后发送…</translation>
     </message>
@@ -12983,13 +12978,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+864"/>
+        <location line="+906"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-1959"/>
+        <location line="-2001"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
@@ -13002,12 +12997,12 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+117"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>缺少房间密钥。请在设置中用恢复密钥恢复，或等待另一台已验证的设备共享密钥。</translation>
     </message>
     <message>
-        <location line="+183"/>
+        <location line="+204"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation>此会话无法解锁加密消息</translation>
     </message>
@@ -13032,8 +13027,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>正在等待密钥…</translation>
     </message>
     <message>
-        <location line="-1012"/>
-        <location line="+1021"/>
+        <location line="-1054"/>
+        <location line="+1063"/>
         <source>Retry decryption</source>
         <translation>重试解密</translation>
     </message>
@@ -13043,7 +13038,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>安全设置</translation>
     </message>
     <message>
-        <location line="-1930"/>
+        <location line="-1972"/>
         <source>Link</source>
         <translation>链接</translation>
     </message>
@@ -13053,7 +13048,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>打开此话题</translation>
     </message>
     <message>
-        <location line="+657"/>
+        <location line="+699"/>
         <source>Show the link preview again</source>
         <translation>再次显示链接预览</translation>
     </message>
@@ -13235,12 +13230,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>在消息列中回复</translation>
     </message>
     <message>
-        <location line="-1971"/>
+        <location line="-2013"/>
         <source>Original message removed</source>
         <translation>原始消息已删除</translation>
     </message>
     <message>
-        <location line="+1981"/>
+        <location line="+2023"/>
         <source>Open in room</source>
         <translation>在房间中打开</translation>
     </message>
@@ -13438,7 +13433,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-3581"/>
+        <location line="-3623"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13472,22 +13467,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3549"/>
+        <location line="+3591"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5034"/>
+        <location line="-5076"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4098"/>
+        <location line="+4140"/>
         <source>Image</source>
         <translation>图片</translation>
     </message>
     <message>
-        <location line="-4657"/>
+        <location line="-4699"/>
         <source>Attachment</source>
         <translation>附件</translation>
     </message>
@@ -13536,7 +13531,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>消息已删除</translation>
     </message>
     <message>
-        <location line="+444"/>
+        <location line="+486"/>
         <source>%1 • not sent: connection problem</source>
         <translation>%1 • 未发送：连接出现问题</translation>
     </message>
@@ -13815,10 +13810,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-5445"/>
+        <location line="-5487"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4096"/>
+        <location line="+4138"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13831,9 +13826,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-5826"/>
+        <location line="-5868"/>
         <location line="+564"/>
-        <location line="+4199"/>
+        <location line="+4241"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -14032,11 +14027,11 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+354"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+356"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+624"/>
+        <location line="+652"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
@@ -20335,7 +20330,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ScheduledSendController</name>
     <message>
-        <location filename="../src/models/ScheduledSendController.cpp" line="+63"/>
+        <location filename="../src/models/ScheduledSendController.cpp" line="+62"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
         <translation>改为保存在 Lightning 中：服务器无法保存加密消息。</translation>
     </message>
@@ -20365,7 +20360,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>房间未接受此消息。消息未发送。</translation>
     </message>
     <message>
-        <location line="+192"/>
+        <location line="+236"/>
         <source>Lightning closed before the server confirmed this message. Check the room before scheduling it again.</source>
         <translation>在服务器确认此消息之前，Lightning 已关闭。请在再次定时发送前检查该房间。</translation>
     </message>
@@ -20375,19 +20370,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>发送此消息时 Lightning 已关闭。请在再次发送前检查该房间。</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+61"/>
+        <source>Attachment</source>
+        <translation type="unfinished">附件</translation>
+    </message>
+    <message>
+        <location line="+64"/>
         <source>The server could not be asked to cancel this message.</source>
         <translation>无法请求服务器取消此消息。</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+73"/>
         <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
         <translation>Lightning 无法连接服务器以立即发送此消息。它仍处于定时状态。</translation>
     </message>
     <message>
-        <location line="+141"/>
+        <location line="+155"/>
         <source>Waiting for the connection.</source>
         <translation>正在等待连接。</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>The attachment could not be sent.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -20942,7 +20947,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SendLaterDialog</name>
     <message>
-        <location filename="../qml/SendLaterDialog.qml" line="+126"/>
+        <location filename="../qml/SendLaterDialog.qml" line="+141"/>
         <source>Send later</source>
         <translation>稍后发送</translation>
     </message>
@@ -20952,7 +20957,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>定时消息</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+25"/>
+        <source>With the attachments in the composer. They are uploaded now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>In 30 minutes</source>
         <translation>30 分钟后</translation>
     </message>
@@ -21008,12 +21018,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+141"/>
+        <location line="+154"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-135"/>
+        <location line="-148"/>
         <source>Schedule</source>
         <translation>定时</translation>
     </message>
@@ -21048,12 +21058,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>仅保存在内存中</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+9"/>
+        <source>Uploading %1…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Attachment: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Send now</source>
         <translation>立即发送</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
@@ -32588,7 +32608,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1563"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1582"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 将显示名称从“%2”改为“%3”，并更换了头像。</translation>
     </message>
@@ -32638,7 +32658,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 started a call.</translation>
     </message>
     <message>
-        <location line="+1279"/>
+        <location line="+1298"/>
         <source>%1 is typing…</source>
         <translation>%1 正在输入…</translation>
     </message>

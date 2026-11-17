@@ -8018,7 +8018,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2683"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2702"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -11528,7 +11528,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+602"/>
+        <location filename="../qml/MainScreen.qml" line="+610"/>
         <source>Resize room list</source>
         <translation>Raumliste in der Größe ändern</translation>
     </message>
@@ -12433,12 +12433,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Das Bild aus der Zwischenablage konnte nicht gelesen werden.</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+167"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Die Fotodetails konnten nicht aus diesem Bild entfernt werden, daher wurde es nicht gesendet. Du kannst das unter Einstellungen, Datenschutz ändern.</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+65"/>
         <source>The attachment could not be queued.</source>
         <translation>Der Anhang konnte nicht in die Warteschlange gestellt werden.</translation>
     </message>
@@ -12489,7 +12489,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Sprachaufnahme ist nicht verfügbar.</translation>
     </message>
     <message>
-        <location line="+682"/>
+        <location line="+684"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Link hinzufügen</translation>
@@ -12949,12 +12949,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Sendeoptionen (%1 geplant)</translation>
     </message>
     <message>
-        <location line="+120"/>
-        <source>Send later… (not available with attachments)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
+        <location line="+119"/>
         <source>Send later…</source>
         <translation>Später senden …</translation>
     </message>
@@ -13001,14 +12996,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-571"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4096"/>
+        <location line="+4138"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-5813"/>
+        <location line="-5855"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -13021,24 +13016,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3549"/>
+        <location line="+3591"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5034"/>
+        <location line="-5076"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4098"/>
+        <location line="+4140"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-4658"/>
+        <location line="-4700"/>
         <location line="+564"/>
-        <location line="+4199"/>
+        <location line="+4241"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -13046,7 +13041,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-6054"/>
+        <location line="-6096"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -13103,12 +13098,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+1021"/>
+        <location line="+1063"/>
         <source>Retry decryption</source>
         <translation>Entschlüsselung erneut versuchen</translation>
     </message>
     <message>
-        <location line="-833"/>
+        <location line="-875"/>
         <location line="+162"/>
         <source>Avatar for %1</source>
         <translation>Avatar von %1</translation>
@@ -13151,13 +13146,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+864"/>
+        <location line="+906"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>Antworten</translation>
     </message>
     <message>
-        <location line="-1961"/>
+        <location line="-2003"/>
         <source>Original message removed</source>
         <translation>Ursprüngliche Nachricht entfernt</translation>
     </message>
@@ -13181,12 +13176,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nachricht gelöscht</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+114"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>Raumschlüssel fehlt. Stelle deinen Wiederherstellungsschlüssel in den Einstellungen wieder her oder warte, bis ein anderes verifiziertes Gerät den Schlüssel teilt.</translation>
     </message>
     <message>
-        <location line="+183"/>
+        <location line="+204"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation>Diese Sitzung kann verschlüsselte Nachrichten nicht entsperren</translation>
     </message>
@@ -13596,12 +13591,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2505"/>
+        <location line="-2547"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
     <message>
-        <location line="+1847"/>
+        <location line="+1889"/>
         <source>Delete message?</source>
         <translation>Nachricht löschen?</translation>
     </message>
@@ -14081,11 +14076,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+354"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+356"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+624"/>
+        <location line="+652"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
@@ -20407,7 +20402,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>ScheduledSendController</name>
     <message>
-        <location filename="../src/models/ScheduledSendController.cpp" line="+63"/>
+        <location filename="../src/models/ScheduledSendController.cpp" line="+62"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
         <translation>Stattdessen in Lightning behalten: Der Server kann keine verschlüsselte Nachricht vorhalten.</translation>
     </message>
@@ -20437,7 +20432,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Der Raum hat diese Nachricht nicht akzeptiert. Sie wurde nicht gesendet.</translation>
     </message>
     <message>
-        <location line="+192"/>
+        <location line="+236"/>
         <source>Lightning closed before the server confirmed this message. Check the room before scheduling it again.</source>
         <translation>Lightning wurde geschlossen, bevor der Server diese Nachricht bestätigt hat. Prüfe den Raum, bevor du sie erneut planst.</translation>
     </message>
@@ -20447,19 +20442,29 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Lightning wurde beim Senden geschlossen. Prüfe den Raum, bevor du sie erneut sendest.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+61"/>
+        <source>Attachment</source>
+        <translation type="unfinished">Anhang</translation>
+    </message>
+    <message>
+        <location line="+64"/>
         <source>The server could not be asked to cancel this message.</source>
         <translation>Der Server konnte nicht gebeten werden, diese Nachricht abzubrechen.</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+73"/>
         <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
         <translation>Lightning konnte den Server nicht erreichen, um dies jetzt zu senden. Es ist weiterhin geplant.</translation>
     </message>
     <message>
-        <location line="+141"/>
+        <location line="+155"/>
         <source>Waiting for the connection.</source>
         <translation>Warte auf die Verbindung.</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>The attachment could not be sent.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -21017,7 +21022,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>SendLaterDialog</name>
     <message>
-        <location filename="../qml/SendLaterDialog.qml" line="+126"/>
+        <location filename="../qml/SendLaterDialog.qml" line="+141"/>
         <source>Send later</source>
         <translation>Später senden</translation>
     </message>
@@ -21027,7 +21032,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Geplante Nachrichten</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+25"/>
+        <source>With the attachments in the composer. They are uploaded now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>In 30 minutes</source>
         <translation>In 30 Minuten</translation>
     </message>
@@ -21083,12 +21093,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+141"/>
+        <location line="+154"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location line="-135"/>
+        <location line="-148"/>
         <source>Schedule</source>
         <translation>Planen</translation>
     </message>
@@ -21123,12 +21133,22 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nur im Arbeitsspeicher</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+9"/>
+        <source>Uploading %1…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Attachment: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>Send now</source>
         <translation>Jetzt senden</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Done</source>
         <translation>Fertig</translation>
     </message>
@@ -32732,7 +32752,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1563"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1582"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 hat den Anzeigenamen von „%2“ in „%3“ geändert und den Avatar geändert.</translation>
     </message>
@@ -32782,7 +32802,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 hat einen Anruf gestartet.</translation>
     </message>
     <message>
-        <location line="+1279"/>
+        <location line="+1298"/>
         <source>%1 is typing…</source>
         <translation>%1 schreibt …</translation>
     </message>
