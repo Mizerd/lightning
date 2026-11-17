@@ -119,6 +119,69 @@ queue disabled; re-enabling in {} ms (attempt {})",
     });
 }
 
+pub(crate) enum QueuedSend {
+    Sent(matrix_sdk::ruma::OwnedEventId),
+    Failed(String),
+    // Still in the queue (or cancelled by the user): the room's timeline
+    // shows it, so the caller reports nothing.
+    Unresolved,
+}
+
+/// Sends through the room's send queue rather than `Room::send`, so a
+/// timeline opened while the request is in flight carries the local echo
+/// and reconciles it, instead of the message vanishing until sync.
+pub(crate) async fn send_queued(
+    room: &matrix_sdk::Room,
+    content: matrix_sdk::ruma::events::AnyMessageLikeEventContent,
+    wait: Duration,
+) -> QueuedSend {
+    use matrix_sdk::send_queue::RoomSendQueueUpdate;
+    let queue = room.send_queue();
+    queue.set_enabled(true);
+    let Ok((_, mut updates)) = queue.subscribe().await else {
+        return QueuedSend::Failed("the send queue is unavailable".to_owned());
+    };
+    let handle = match queue.send(content).await {
+        Ok(handle) => handle,
+        Err(err) => return QueuedSend::Failed(err.to_string()),
+    };
+    let deadline = tokio::time::Instant::now() + wait;
+    // SendHandle exposes no transaction id in 0.18; its NewLocalEvent clone shares created_at.
+    // shortcut: two sends to one room in the same millisecond may swap outcomes; key on the txn id once the SDK exposes it.
+    let mut txn = None;
+    loop {
+        let update = match tokio::time::timeout_at(deadline, updates.recv()).await {
+            Ok(Ok(update)) => update,
+            Ok(Err(RecvError::Lagged(_))) => continue,
+            Ok(Err(RecvError::Closed)) | Err(_) => return QueuedSend::Unresolved,
+        };
+        let ours = |id: &matrix_sdk::ruma::OwnedTransactionId| txn.as_ref() == Some(id);
+        match update {
+            RoomSendQueueUpdate::NewLocalEvent(echo) if txn.is_none() => {
+                if let matrix_sdk::send_queue::LocalEchoContent::Event { send_handle, .. } =
+                    &echo.content
+                {
+                    if send_handle.created_at == handle.created_at {
+                        txn = Some(echo.transaction_id);
+                    }
+                }
+            }
+            RoomSendQueueUpdate::SentEvent { transaction_id, event_id } if ours(&transaction_id) => {
+                return QueuedSend::Sent(event_id);
+            }
+            RoomSendQueueUpdate::SendError { transaction_id, error, is_recoverable: false }
+                if ours(&transaction_id) =>
+            {
+                return QueuedSend::Failed(error.to_string());
+            }
+            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } if ours(&transaction_id) => {
+                return QueuedSend::Unresolved;
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,6 +260,70 @@ mod tests {
             }
         }
         false
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_timeline_opened_mid_send_keeps_the_message_and_reconciles_it() {
+        use matrix_sdk_ui::timeline::RoomExt;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!mid:localhost");
+        let room = server.sync_joined_room(&client, room_id).await;
+        server.mock_room_state_encryption().plain().mount().await;
+        server
+            .mock_room_send()
+            .ok_with_delay(event_id!("$sent"), Duration::from_millis(800))
+            .mount()
+            .await;
+
+        let sending = {
+            let room = room.clone();
+            tokio::spawn(async move {
+                send_queued(
+                    &room,
+                    RoomMessageEventContent::text_plain("hello").into(),
+                    Duration::from_secs(10),
+                )
+                .await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let timeline = room.timeline().await.unwrap();
+        let mut echoed = false;
+        for _ in 0..10 {
+            echoed = timeline.items().await.iter().any(|item| {
+                item.as_event().is_some_and(|ev| {
+                    ev.is_local_echo()
+                        && ev.content().as_message().is_some_and(|m| m.body() == "hello")
+                })
+            });
+            if echoed {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+        assert!(echoed, "a timeline opened mid-send does not show the message being sent");
+        match sending.await.unwrap() {
+            QueuedSend::Sent(id) => assert_eq!(id, event_id!("$sent")),
+            _ => panic!("the queued send did not report the server's event id"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_refused_send_reports_failure() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!refused:localhost");
+        let room = server.sync_joined_room(&client, room_id).await;
+        server.mock_room_state_encryption().plain().mount().await;
+        server.mock_room_send().error_too_large().mount().await;
+        let outcome = send_queued(
+            &room,
+            RoomMessageEventContent::text_plain("x").into(),
+            Duration::from_secs(10),
+        )
+        .await;
+        assert!(matches!(outcome, QueuedSend::Failed(_)));
     }
 
     #[tokio::test(flavor = "multi_thread")]

@@ -1310,14 +1310,6 @@ though note this exposure is NOT new and must not be over-weighted: the manual
 Retry button and `retry_decryption_after_import` (uncoalesced, on ordinary key
 arrival) already drive that same path continuously.
 
-### Latent, follow-up, not blocking
-
-`m_pendingSends` is never cleared on open/close/reset, only on sign-out, while
-the mirror it indexes into is replaced wholesale. After a reset `handleSendOk`
-finds nothing and silently returns, so a C++-side echo can vanish with no
-status update and no error. A disappearance rather than a duplication, and
-only reachable when no live timeline is active.
-
 ## 2026-09-20 — WITHDRAWN: the "expected, not a regression" note was written about a regression
 
 **This entry replaces one that said the opposite and told you not to

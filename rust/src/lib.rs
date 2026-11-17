@@ -3380,18 +3380,17 @@ pub unsafe extern "C" fn mx_rust_send_text(
             // Same strict outgoing sanitizer as the composer's lanes: raw HTML
             // and a `javascript:` link would otherwise reach other clients.
             timeline::sanitize_outgoing_formatted(&mut content.msgtype);
-            let txn: OwnedTransactionId = transaction_id.clone().into();
-            match room.send(content).with_transaction_id(txn).await {
-                Ok(result) => enqueue(
+            match sendrecovery::send_queued(&room, content.into(), std::time::Duration::from_secs(600)).await {
+                sendrecovery::QueuedSend::Sent(event_id) => enqueue(
                     &events,
                     json!({
                         "type": "send_ok",
                         "room_id": room_id,
                         "transaction_id": transaction_id,
-                        "event_id": result.response.event_id.to_string(),
+                        "event_id": event_id.to_string(),
                     }),
                 ),
-                Err(err) => enqueue(
+                sendrecovery::QueuedSend::Failed(err) => enqueue(
                     &events,
                     json!({
                         "type": "send_failed",
@@ -3400,6 +3399,7 @@ pub unsafe extern "C" fn mx_rust_send_text(
                         "message": format_matrix_error("Matrix Rust SDK send failed", err),
                     }),
                 ),
+                sendrecovery::QueuedSend::Unresolved => {}
             }
         });
 
