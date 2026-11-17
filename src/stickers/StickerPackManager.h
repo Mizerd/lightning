@@ -113,6 +113,7 @@ public:
                                          const QString &key,
                                          const QString &description);
     Q_INVOKABLE void deletePack(const QString &packId);
+    Q_INVOKABLE void removePack(const QString &packId);
     Q_INVOKABLE bool canManagePack(const QString &packId) const;
     Q_INVOKABLE QVariantMap packInfo(const QString &packId) const;
     Q_INVOKABLE void createRoomPack(const QString &roomId, const QString &name,

@@ -44,6 +44,7 @@ Dialog {
         describingKey = null
         confirmingMigrate = false
         confirmingDelete = false
+        confirmingRemove = false
         removingKey = null
         open()
     }
@@ -76,6 +77,8 @@ Dialog {
     /// Not undoable: Matrix has no delete verb for either store, so the pack is
     /// emptied and its name dropped.
     property bool confirmingDelete: false
+    property bool confirmingRemove: false
+    property bool removeRequested: false
     property bool confirmingMigrate: false
     property bool homeUnavailable: false
 
@@ -153,6 +156,8 @@ Dialog {
                                    + "unchanged; try again later.")
         }
         function onEditFinished(ok, category, shortcode) {
+            const removed = root.removeRequested
+            root.removeRequested = false
             root.ownEditPending = ok
             if (ok)
                 rebaseTimer.restart()
@@ -160,7 +165,12 @@ Dialog {
             root.describingKey = null
             root.removingKey = null
             root.confirmingDelete = false
+            root.confirmingRemove = false
             root.noticeIsError = !ok
+            if (ok && removed) {
+                root.close()
+                return
+            }
             if (ok) {
                 root.notice = qsTr("Saved.")
                 return
@@ -659,7 +669,8 @@ Dialog {
         }
         }
 
-        RowLayout {
+        Flow {
+            objectName: "stickerPackActions"
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
 
@@ -667,16 +678,36 @@ Dialog {
                 objectName: "stickerPackDeleteButton"
                 visible: root.canManage
                 text: root.confirmingDelete
-                      ? qsTr("Remove every image from this pack")
+                      ? qsTr("Confirm empty")
                       : qsTr("Empty pack")
                 kind: root.confirmingDelete ? "danger" : "ghost"
                 size: "sm"
                 enabled: !root.busy
                 onClicked: {
+                    root.confirmingRemove = false
                     if (root.confirmingDelete)
                         root.stickers.deletePack(root.packId)
                     else
                         root.confirmingDelete = true
+                }
+            }
+            AppButton {
+                objectName: "stickerPackRemoveButton"
+                visible: root.canManage && root.packId !== "user"
+                text: root.confirmingRemove
+                      ? qsTr("Confirm remove")
+                      : qsTr("Remove pack")
+                kind: root.confirmingRemove ? "danger" : "ghost"
+                size: "sm"
+                enabled: !root.busy
+                onClicked: {
+                    root.confirmingDelete = false
+                    if (root.confirmingRemove) {
+                        root.removeRequested = true
+                        root.stickers.removePack(root.packId)
+                    } else {
+                        root.confirmingRemove = true
+                    }
                 }
             }
             AppButton {
@@ -736,6 +767,10 @@ Dialog {
                 enabled: !root.busy && !root.transferring
                 onClicked: importDialog.open()
             }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
             Item { Layout.fillWidth: true }
             AppBusyIndicator {
                 visible: root.busy || root.transferring
@@ -763,6 +798,19 @@ Dialog {
                   : qsTr("This removes every image and the pack's name. It "
                          + "cannot be undone, and for a room's pack everyone "
                          + "in the room loses it.")
+        }
+        Label {
+            objectName: "stickerPackRemoveWarning"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            visible: root.confirmingRemove
+            textFormat: Text.PlainText
+            color: AppTheme.danger
+            font.pixelSize: AppTheme.textMeta
+            text: qsTr("This deletes the pack from the room for everyone and "
+                       + "turns it off for you. Messages already sent keep "
+                       + "their images, and the images themselves are not "
+                       + "deleted from the server.")
         }
     }
 

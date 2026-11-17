@@ -2104,6 +2104,7 @@ pub(crate) enum PackEdit {
     SetUsage { usage: String },
     SetBody { key: String, body: String },
     DeletePack,
+    RemovePack,
 }
 
 impl PackEdit {
@@ -2135,6 +2136,9 @@ impl PackEdit {
             }
             // Legacy drops the name too: a named empty pack would not read as
             // deleted there.
+            // `{}` in either dialect is "no pack": it drops out of every list
+            // and cannot resurrect a legacy twin.
+            PackEdit::RemovePack => Ok((json!({}), String::new())),
             PackEdit::DeletePack => match namespace {
                 Namespace::Legacy => Ok((json!({}), String::new())),
                 Namespace::Stable => {
@@ -2230,6 +2234,10 @@ async fn edit_room_pack_inner(
         .await;
     forget_room(client, room_id);
     written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    if matches!(edit, PackEdit::RemovePack) {
+        // Best effort: a dangling subscription only shows as "no longer exists".
+        let _ = set_room_pack_enabled_inner(client, room_id, state_key, false, namespace).await;
+    }
     Ok(code)
 }
 
@@ -3644,6 +3652,41 @@ mod tests {
         let (out, code) = PackEdit::DeletePack.apply(content).unwrap();
         assert_eq!(code, "");
         assert_eq!(out, json!({}));
+    }
+
+    #[test]
+    fn removing_a_pack_clears_both_dialects_so_it_leaves_every_list() {
+        let stable = json!({
+            "pack": { "display_name": "Blobs" },
+            "images": { "blob": { "url": "mxc://e/a" } }
+        });
+        let (out, _) = PackEdit::RemovePack.apply_in(stable.clone(), Namespace::Stable).unwrap();
+        assert_eq!(out, json!({}));
+        let (out, _) = PackEdit::RemovePack.apply_in(stable.clone(), Namespace::Legacy).unwrap();
+        assert_eq!(out, json!({}));
+
+        // Emptying a stable pack keeps `images: {}`, which still lists.
+        let (emptied, _) = PackEdit::DeletePack.apply_in(stable.clone(), Namespace::Stable).unwrap();
+        let listed = |content: Value| {
+            resolve_room_packs(vec![PackRecord {
+                namespace: Namespace::Stable,
+                state_key: "k".into(),
+                content,
+                ts: 2,
+            }])
+            .len()
+        };
+        assert_eq!(listed(emptied), 1);
+        assert_eq!(listed(json!({})), 0);
+    }
+
+    #[test]
+    fn a_removed_stable_pack_does_not_resurrect_its_legacy_twin() {
+        let records = vec![
+            rec(Namespace::Legacy, "k", json!({ "images": { "a": { "url": "mxc://e/a" } } }), 1),
+            rec(Namespace::Stable, "k", json!({}), 2),
+        ];
+        assert!(resolve_room_packs(records).is_empty());
     }
 
     #[test]

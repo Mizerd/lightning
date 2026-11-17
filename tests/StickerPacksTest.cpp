@@ -1139,6 +1139,33 @@ private Q_SLOTS:
         QVERIFY(!manager.editing());
     }
 
+    void removingAPackIsRoomOnlyAndNeedsPower()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap room = pack(QStringLiteral("room:!r:example.org:"),
+                                QStringLiteral("room"), QStringLiteral("Cats"),
+                                { image(QStringLiteral("dog"), kMxcC, true, false) });
+        room.insert(QStringLiteral("canManage"), false);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }),
+              room });
+
+        manager.removePack(QStringLiteral("user"));
+        manager.removePack(QStringLiteral("room:!r:example.org:"));
+        QCOMPARE(client.editCalls, 0);
+
+        room.insert(QStringLiteral("canManage"), true);
+        manager.applySnapshotForTest(kRoom, true, { room });
+        manager.removePack(QStringLiteral("room:!r:example.org:"));
+        QCOMPARE(client.editCalls, 1);
+        QCOMPARE(client.editAction, QStringLiteral("remove_pack"));
+        QCOMPARE(client.editRoom, QStringLiteral("!r:example.org"));
+    }
+
     void eachVerbSendsItsOwnActionToTheRightStore()
     {
         FakeClient client;

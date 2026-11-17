@@ -176,6 +176,9 @@ ApplicationWindow {
     StickerPackEditor {
         id: ed
         stickers: QtObject {
+            signal transferFinished(string kind, bool ok, string category, int added, int skipped, int failed, string name)
+            signal migrationFinished(bool ok, string category, var detail)
+            signal editFinished(bool ok, string category, string shortcode)
             property string editorPackId: ""
             property bool editing: false
             property bool transferring: false

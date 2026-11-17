@@ -7221,6 +7221,7 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
             "set_usage" => stickers::PackEdit::SetUsage { usage: arg_a },
             "set_body" => stickers::PackEdit::SetBody { key: arg_a, body: arg_b },
             "delete_pack" => stickers::PackEdit::DeletePack,
+            "remove_pack" => stickers::PackEdit::RemovePack,
             _ => return Err("unknown pack edit".to_owned()),
         };
         stickers::edit_pack(bridge, op_id, room_id, state_key, edit, namespace)

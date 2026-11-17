@@ -518,6 +518,14 @@ void StickerPackManager::deletePack(const QString &packId)
     editPack(packId, QStringLiteral("delete_pack"), QString(), QString());
 }
 
+void StickerPackManager::removePack(const QString &packId)
+{
+    const int row = m_packs->indexOfPack(packId);
+    if (row < 0 || m_packs->packs().at(row).source != QLatin1String("room"))
+        return;
+    editPack(packId, QStringLiteral("remove_pack"), QString(), QString());
+}
+
 void StickerPackManager::onEditFinished(quint64 opId, bool ok,
                                         const QString &category,
                                         const QString &shortcode)
