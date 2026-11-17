@@ -366,12 +366,16 @@ void MessageComposer::dispatchAttachments()
 }
 
 QVariantMap MessageComposer::prepareAttachmentsForSchedule(
-    const QString &captionBody, const QStringList &mentionIds)
+    const QString &roomId, const QString &captionBody,
+    const QStringList &mentionIds)
 {
     QVariantList media;
     bool captioned = false;
-    if (m_client && !m_roomId.isEmpty()) {
-        captioned = takeTextAsCaption(captionBody.trimmed(), mentionIds);
+    bool captionDispatched = false;
+    // The dialog snapshot names the room; the composer may have moved since.
+    if (m_client && !m_roomId.isEmpty() && roomId == m_roomId) {
+        const QString caption = captionBody.trimmed();
+        captioned = takeTextAsCaption(caption, mentionIds);
         auto &entries = m_attachments->entries();
         m_preparingForSchedule = true;
         for (int row = 0; row < entries.size(); ++row) {
@@ -388,6 +392,8 @@ QVariantMap MessageComposer::prepareAttachmentsForSchedule(
                 entry.sendRequested = false;
                 continue;
             }
+            if (captioned && entry.caption == caption)
+                captionDispatched = true;
             media.append(QVariantMap{
                 { QStringLiteral("op"), entry.opId },
                 { QStringLiteral("fileName"), entry.fileName.isEmpty()
@@ -400,7 +406,7 @@ QVariantMap MessageComposer::prepareAttachmentsForSchedule(
         m_preparingForSchedule = false;
     }
     return QVariantMap{
-        { QStringLiteral("captioned"), captioned && !media.isEmpty() },
+        { QStringLiteral("captioned"), captionDispatched },
         { QStringLiteral("media"), media },
     };
 }

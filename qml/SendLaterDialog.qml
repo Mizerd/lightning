@@ -47,8 +47,12 @@ Dialog {
             return
         var message = root.message
         if (message.withAttachments === true) {
+            // Checked before anything uploads: past this point nothing is refused.
+            if (!root.scheduler.hasRoomFor(app.composer.attachments.rowCount() + 1))
+                return
             message = Object.assign({}, root.message)
             var prepared = app.composer.prepareAttachmentsForSchedule(
+                message.roomId,
                 message.captionable === true ? message.body : "",
                 message.mentionIds || [])
             message.media = prepared.media
@@ -147,6 +151,7 @@ Dialog {
             spacing: AppTheme.spacing8
             Label {
                 Layout.fillWidth: true
+                visible: text.length > 0
                 text: root.message.body || ""
                 color: AppTheme.stormTextSecondary
                 font.pixelSize: AppTheme.textBody

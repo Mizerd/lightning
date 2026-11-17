@@ -142,7 +142,8 @@ public:
     // once uploaded. {captioned, media: [{op, fileName, threadRootId,
     // replyToEventId}]}, ops answered on scheduledMediaPrepared.
     Q_INVOKABLE QVariantMap prepareAttachmentsForSchedule(
-        const QString &captionBody, const QStringList &mentionIds);
+        const QString &roomId, const QString &captionBody,
+        const QStringList &mentionIds);
 
     void setCustomEmojiUseRecorder(std::function<void(const QVariantMap &)> record)
     {

@@ -4542,6 +4542,15 @@ pub(crate) fn scheduled_media_content(json: &str) -> Result<serde_json::Value, S
     {
         return Err("Invalid message content.".to_owned());
     }
+    if let Some(relation) = value.get("m.relates_to") {
+        let allowed = match relation.get("rel_type") {
+            Some(rel) => rel.as_str() == Some("m.thread"),
+            None => relation.get("m.in_reply_to").is_some(),
+        };
+        if !allowed {
+            return Err("Invalid message content.".to_owned());
+        }
+    }
     Ok(value)
 }
 
@@ -4563,6 +4572,10 @@ pub(crate) fn schedule_content(
     let room = joined_room(&client, &room_id)?;
     if delay_ms == 0 {
         return Err("a scheduled send needs a delay".to_owned());
+    }
+    // The server stores delayed content as given: file keys must never go there.
+    if content.get("file").is_some() {
+        return Err("encrypted media cannot be held by the server".to_owned());
     }
     let raw = serde_json::value::to_raw_value(&content)
         .map_err(|_| "The message could not be built.".to_owned())?;
@@ -4659,6 +4672,19 @@ pub(crate) fn send_room_content(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
+        // File keys travel only inside an encrypted event.
+        if content.get("file").is_some()
+            && !room.latest_encryption_state().await.is_ok_and(|s| s.is_encrypted())
+        {
+            if timelines.lifecycle_current(lifecycle) {
+                enqueue(&events, json!({
+                    "type": "room_send_result", "lifecycle": lifecycle,
+                    "op_id": op_id, "room_id": room_id, "ok": false,
+                    "category": "rejected",
+                }));
+            }
+            return;
+        }
         let result = room.send_raw("m.room.message", content).await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -5854,6 +5880,22 @@ mod tests {
         assert!(scheduled_media_content(r#"{"msgtype":"m.text","body":"hi"}"#).is_err());
         assert!(scheduled_media_content(r#"{"msgtype":"m.image"}"#).is_err());
         assert!(scheduled_media_content("[]").is_err());
+        assert!(scheduled_media_content(
+            r#"{"msgtype":"m.image","url":"mxc://hs/a","m.relates_to":{"rel_type":"m.thread","event_id":"$r"}}"#
+        )
+        .is_ok());
+        assert!(scheduled_media_content(
+            r#"{"msgtype":"m.image","url":"mxc://hs/a","m.relates_to":{"m.in_reply_to":{"event_id":"$r"}}}"#
+        )
+        .is_ok());
+        assert!(scheduled_media_content(
+            r#"{"msgtype":"m.image","url":"mxc://hs/a","m.relates_to":{"rel_type":"m.replace","event_id":"$r"}}"#
+        )
+        .is_err());
+        assert!(scheduled_media_content(
+            r#"{"msgtype":"m.image","url":"mxc://hs/a","m.relates_to":{"event_id":"$r"}}"#
+        )
+        .is_err());
         assert!(scheduled_media_content("not json").is_err());
     }
 

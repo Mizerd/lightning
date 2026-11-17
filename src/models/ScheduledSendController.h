@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -68,8 +69,11 @@ public:
                                     const QString &threadRootId,
                                     const QString &replyToEventId) const;
     Q_INVOKABLE bool roomIsEncrypted(const QString &roomId) const;
+    Q_INVOKABLE bool hasRoomFor(int entries) const
+    { return m_entries.size() + entries <= kMaxEntries; }
 
     static constexpr qint64 kServerRetireGraceMs = 60 * 1000;
+    static constexpr int kMaxEntries = 64;
 
 Q_SIGNALS:
     void pendingChanged();
@@ -121,6 +125,7 @@ private:
     void clearAll();
     QVariantMap bodySpecFor(const Entry &e) const;
     bool connected() const;
+    QSet<QString> roomsSending() const;
 
     MatrixClient *m_client = nullptr;
     SettingsManager *m_settings = nullptr;

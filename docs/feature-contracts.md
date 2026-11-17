@@ -2329,6 +2329,10 @@ voice message, send, send options. **2026-09-03, from tester feedback:**
   button that is always present. The menu carries Send later (available only
   with something to send) and Scheduled messages (always, with the room's
   pending count). The scheduler itself is unchanged — see "Send later".
+- **Scheduled sends with a thread or reply relation (text and media) go out
+  through the room's `send`/`send_raw` with the relation in the content**, a
+  deliberate exception to the thread-focused send path: the room's timeline
+  need not be open at the deadline, so there is no local echo.
 - **The buttons can be switched off**, in Settings › Appearance › Message box
   › Message box buttons: formatting, emoji, GIFs and stickers, voice message,
   send options. **Attach is deliberately not offered**: it carries files and

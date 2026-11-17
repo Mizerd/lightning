@@ -10,7 +10,6 @@
 
 namespace {
 constexpr qint64 kMaxTimerMs = 24LL * 60 * 60 * 1000;
-constexpr int kMaxEntries = 64;
 }
 
 ScheduledSendController::ScheduledSendController(QObject *parent)
@@ -155,14 +154,16 @@ void ScheduledSendController::setClient(MatrixClient *client)
         }
     });
     connect(m_client, &MatrixClient::scheduledMediaPrepared, this,
-            [this](quint64 opId, const QString &, bool ok, bool encrypted,
+            [this](quint64 opId, const QString &roomId, bool ok, bool encrypted,
                    const QString &content) {
         for (int i = 0; i < m_entries.size(); ++i) {
             Entry &e = m_entries[i];
             if (e.prepareOp == 0 || e.prepareOp != opId)
                 continue;
             e.prepareOp = 0;
-            if (!ok || content.isEmpty()) {
+            // Content built for another room must never be sent here: its
+            // file keys or plain media follow that room's encryption.
+            if (!ok || content.isEmpty() || roomId != e.roomId) {
                 m_entries.removeAt(i);
             } else {
                 e.content = content;
@@ -191,6 +192,16 @@ void ScheduledSendController::setClient(MatrixClient *client)
         m_serverScheduling = -1;
         Q_EMIT supportChanged();
     });
+}
+
+QSet<QString> ScheduledSendController::roomsSending() const
+{
+    QSet<QString> rooms;
+    // An entry still uploading holds the room too: it may be due first.
+    for (const Entry &e : m_entries)
+        if (e.sendOp != 0 || e.prepareOp != 0)
+            rooms.insert(e.roomId);
+    return rooms;
 }
 
 bool ScheduledSendController::connected() const
@@ -428,8 +439,8 @@ QString ScheduledSendController::schedule(const QVariantMap &message,
             || m_entries.size() >= kMaxEntries))
         return {};
     QString firstId;
-    // A millisecond apart, so the server and the local queue keep tray order
-    // with the text last.
+    // A millisecond apart, so the server keeps tray order with the text last;
+    // the local queue sends one entry per room at a time (fireDue).
     qint64 at = sendAtMs;
     for (const QVariant &v : media) {
         const QVariantMap m = v.toMap();
@@ -665,9 +676,10 @@ void ScheduledSendController::armTimer()
     m_timer.stop();
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     qint64 earliest = -1;
+    const QSet<QString> sending = roomsSending();
     for (const Entry &e : m_entries) {
         qint64 at = -1;
-        if (e.prepareOp != 0)
+        if (e.prepareOp != 0 || (e.sendOp == 0 && sending.contains(e.roomId)))
             continue;
         if (e.mode == QLatin1String("local") && e.status == QLatin1String("pending"))
             at = e.sendAtMs;
@@ -705,11 +717,22 @@ void ScheduledSendController::fireDue()
         armTimer();
         return;
     }
+    // One send per room at a time, so entries due together keep their order.
+    QSet<QString> sending = roomsSending();
     for (int i = 0; i < m_entries.size(); ++i) {
         Entry &e = m_entries[i];
         if (e.mode == QLatin1String("local") && e.status == QLatin1String("pending")
-            && e.sendAtMs <= now)
+            && e.sendAtMs <= now && !sending.contains(e.roomId)) {
+            const QString roomId = e.roomId;
+            const qsizetype before = m_entries.size();
             dispatchLocal(e);
+            if (m_entries.size() < before) {
+                --i;
+                continue;
+            }
+            if (m_entries.at(i).sendOp != 0)
+                sending.insert(roomId);
+        }
     }
     armTimer();
 }

@@ -937,6 +937,40 @@ private Q_SLOTS:
         QVERIFY(h.scheduler.pending().isEmpty());
         QVERIFY(h.client.contentSends.isEmpty());
     }
+
+    void contentPreparedForAnotherRoomIsNeverSent()
+    {
+        Harness h;
+        h.enableServer();
+        const QString server = h.scheduler.schedule(
+            withMedia(message(kPlain, QString()), { 911 }), nowMs() + 90000);
+        Q_EMIT h.client.scheduledMediaPrepared(911, kEncrypted, true, true, kSecretContent);
+        QVERIFY(h.entry(server).isEmpty());
+
+        const QString local = h.scheduler.schedule(
+            withMedia(message(kEncrypted, QString()), { 912 }), nowMs() + 50);
+        Q_EMIT h.client.scheduledMediaPrepared(912, kPlain, true, false, kPlainContent);
+        QVERIFY(h.entry(local).isEmpty());
+        QTest::qWait(200);
+        QVERIFY(h.client.contentSchedules.isEmpty());
+        QVERIFY(h.client.contentSends.isEmpty());
+        QVERIFY(h.settings.scheduledSends().isEmpty());
+    }
+
+    void entriesDueTogetherInOneRoomLeaveOneAtATimeInOrder()
+    {
+        Harness h;
+        h.scheduler.schedule(withMedia(message(kPlain, QStringLiteral("after")), { 913 }),
+                             nowMs() + 60);
+        Q_EMIT h.client.scheduledMediaPrepared(913, kPlain, true, false, kPlainContent);
+        QTRY_COMPARE_WITH_TIMEOUT(h.client.contentSends.size(), 1, 3000);
+        QTest::qWait(200);
+        QVERIFY(h.client.roomSends.isEmpty());
+        Q_EMIT h.client.roomSendFinished(h.client.contentSends.first().op, kPlain, true,
+                                         QString());
+        QTRY_COMPARE_WITH_TIMEOUT(h.client.roomSends.size(), 1, 3000);
+        QCOMPARE(h.client.roomSends.first().body, QStringLiteral("after"));
+    }
 };
 
 QTEST_GUILESS_MAIN(ScheduledSendTest)

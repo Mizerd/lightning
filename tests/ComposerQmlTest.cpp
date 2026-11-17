@@ -1629,6 +1629,13 @@ private slots:
         QVERIFY(menuItem);
         QVERIFY(menuItem->property("enabled").toBool());
 
+        // An upload for the room the dialog was opened in, never another.
+        const QVariantMap refused = composer->prepareAttachmentsForSchedule(
+            QStringLiteral("!other:mock.local"), QString(), {});
+        QVERIFY(refused.value(QStringLiteral("media")).toList().isEmpty());
+        QTest::qWait(120);
+        QVERIFY(composer->hasAttachments());
+
         auto *bar = item("composerBar");
         QVERIFY(QMetaObject::invokeMethod(bar, "openSendLater"));
         auto *dialog = m_root->findChild<QObject *>(QStringLiteral("sendLaterDialog"));
