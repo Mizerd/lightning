@@ -293,6 +293,21 @@ private slots:
         QCOMPARE(bobCard->property("unreadCount").toInt(), 0);
     }
 
+    void anInactiveCardNeverAsksTheActiveSessionForItsAvatar()
+    {
+        m_controller->accounts()->updateProfile(
+            kAlice, QStringLiteral("Alice"), QStringLiteral("mxc://one.example/a"));
+        m_controller->accounts()->updateProfile(
+            kBob, QStringLiteral("Bob"), QStringLiteral("mxc://two.example/b"));
+        openMenu();
+        auto *aliceCard = findCard(kAlice);
+        auto *bobCard = findCard(kBob);
+        QVERIFY(aliceCard && bobCard);
+        QTRY_COMPARE(aliceCard->property("avatarMxc").toString(),
+                     QStringLiteral("mxc://one.example/a"));
+        QCOMPARE(bobCard->property("avatarMxc").toString(), QString());
+    }
+
     void statusStripSpeaksOnlyWhenSomethingIsWrong()
     {
         openMenu();

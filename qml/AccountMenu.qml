@@ -326,7 +326,8 @@ Popup {
                 active: modelData.isActive === true
                 displayName: modelData.displayName || ""
                 userId: modelData.userId || ""
-                avatarMxc: modelData.avatarUrl || ""
+                // An inactive account's picture must not be fetched through the active session.
+                avatarMxc: modelData.isActive === true ? (modelData.avatarUrl || "") : ""
                 needsSignIn: modelData.needsSignIn === true
                              || modelData.sessionRevoked === true
                 healthWarning: modelData.isActive === true
