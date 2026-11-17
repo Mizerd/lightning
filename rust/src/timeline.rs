@@ -3056,6 +3056,7 @@ send queue owes nothing for them: {in_flight:?}"
     let mut snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
     annotate_snapshot_verdicts(&room, &fallback_verdicts, &items, &mut snapshot).await;
+    annotate_room_gone_rows(&room, &mut snapshot).await;
     let mut backlog = crate::push_verdict::BacklogMarker::new(
         opened_ms,
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
@@ -3115,12 +3116,11 @@ send queue owes nothing for them: {in_flight:?}"
                 }
                 for (index, item) in tail.thread_roots_flipped_by(previous, cover) {
                     let repaint = VectorDiff::Set { index, value: item };
-                    enqueue(
-                        &events,
-                        diff_to_json(
-                            &room_id, room_gen, lifecycle, &repaint, &own_user, &registry,
-                        ),
+                    let mut value = diff_to_json(
+                        &room_id, room_gen, lifecycle, &repaint, &own_user, &registry,
                     );
+                    annotate_room_gone(&room, &mut value).await;
+                    enqueue(&events, value);
                 }
             }
             polls = stable_polls.next_update(), if stable_polls.watching() => {
@@ -3210,11 +3210,10 @@ impl StablePollRepaint<'_> {
         for id in changed {
             let Some((index, item)) = tail.find_event(&id) else { continue };
             let repaint = VectorDiff::Set { index, value: item };
-            enqueue(
-                self.events,
-                diff_to_json(self.room_id, self.room_gen, self.lifecycle, &repaint,
-                             self.own_user, self.registry),
-            );
+            let mut value = diff_to_json(self.room_id, self.room_gen, self.lifecycle, &repaint,
+                                         self.own_user, self.registry);
+            annotate_room_gone(self.room, &mut value).await;
+            enqueue(self.events, value);
         }
     }
 }
@@ -3321,6 +3320,7 @@ async fn open_thread_task(
     let mut snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
     annotate_snapshot_verdicts(&room, &fallback_verdicts, &items, &mut snapshot).await;
+    annotate_room_gone_rows(&room, &mut snapshot).await;
     let mut backlog = crate::push_verdict::BacklogMarker::new(
         opened_ms,
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
@@ -3617,8 +3617,9 @@ async fn open_context_task(
         Arc::new(Mutex::new(HashSet::new()));
     fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
 
-    let snapshot: Vec<serde_json::Value> =
+    let mut snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
+    annotate_room_gone_rows(&room, &mut snapshot).await;
     enqueue(
         &events,
         json!({
@@ -3645,7 +3646,9 @@ async fn open_context_task(
                 "context_generation": context_gen,
                 "lifecycle": lifecycle,
             });
-            enqueue(&events, fill_diff_json(base, &diff, &own_user, &registry));
+            let mut value = fill_diff_json(base, &diff, &own_user, &registry);
+            annotate_room_gone(&room, &mut value).await;
+            enqueue(&events, value);
         }
     }
 }
@@ -4129,7 +4132,8 @@ fn item_event_id(item: &Arc<TimelineItem>) -> Option<String> {
 }
 
 /// A send refused with 403 in a room the server no longer lists as joined is
-/// "room_gone"; the probe runs only when such a row is in the diff.
+/// "room_gone"; the probe runs only when such a row is present. Every emitter of
+/// event rows must pass them through here so `send_forbidden` never reaches C++.
 pub(crate) async fn annotate_room_gone(room: &matrix_sdk::Room, value: &mut serde_json::Value) {
     let Some(diff) = value.as_object_mut() else { return };
     let mut slots: Vec<&mut serde_json::Value> = Vec::new();
@@ -4140,6 +4144,14 @@ pub(crate) async fn annotate_room_gone(room: &matrix_sdk::Room, value: &mut serd
             _ => {}
         }
     }
+    annotate_room_gone_slots(room, slots).await;
+}
+
+pub(crate) async fn annotate_room_gone_rows(room: &matrix_sdk::Room, rows: &mut [serde_json::Value]) {
+    annotate_room_gone_slots(room, rows.iter_mut().collect()).await;
+}
+
+async fn annotate_room_gone_slots(room: &matrix_sdk::Room, mut slots: Vec<&mut serde_json::Value>) {
     slots.retain(|slot| slot.get("send_forbidden").is_some());
     if slots.is_empty() {
         return;

@@ -682,6 +682,11 @@ mod tests {
         assert_eq!(value["item"]["send_error"], "room_gone");
         assert!(value["item"].get("send_forbidden").is_none());
 
+        let mut snapshot = vec![json!({"send_error": "sent"}), row()["item"].clone()];
+        crate::timeline::annotate_room_gone_rows(&room, &mut snapshot).await;
+        assert_eq!(snapshot[1]["send_error"], "room_gone", "a reopened room's snapshot keeps it");
+        assert!(snapshot[1].get("send_forbidden").is_none());
+
         let (homeserver, _) = serve(TagScript::ForbiddenStillListed);
         let (_client, room) = client_with_room(&homeserver).await;
         let mut value = json!({"op": "reset", "items": [row()["item"].clone()]});

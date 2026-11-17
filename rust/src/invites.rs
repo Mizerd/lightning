@@ -311,7 +311,6 @@ mod tests {
 
     const INVITE_TS: u64 = 1_700_000_000_000;
 
-    // No event handler is installed: a restarted app never sees the invite_state again.
     #[tokio::test]
     async fn the_send_time_comes_from_the_stored_invite_state() {
         let server = MatrixMockServer::new().await;

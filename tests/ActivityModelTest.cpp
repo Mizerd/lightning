@@ -1033,10 +1033,29 @@ private Q_SLOTS:
         r.membership = RoomInfo::Invited;
         r.inviterUserId = QStringLiteral("@bob:mock.local");
         QVERIFY(h.model.noteInvite(r));
+        RoomInfo newer = r;
+        newer.id = QStringLiteral("!newer:mock.local");
+        newer.inviteSentMs = 1700000500000;
+        QVERIFY(h.model.noteInvite(newer));
+        QCOMPARE(h.row(0).value(QStringLiteral("roomId")).toString(), r.id);
+
         r.inviteSentMs = 1700000000000;
         h.model.noteInvite(r);
-        QCOMPARE(h.model.rowCount(), 1);
-        QCOMPARE(h.row(0).value(QStringLiteral("timestampMs")).toLongLong(), qint64(1700000000000));
+        QCOMPARE(h.model.rowCount(), 2);
+        QCOMPARE(h.row(0).value(QStringLiteral("roomId")).toString(), newer.id);
+        QCOMPARE(h.row(1).value(QStringLiteral("roomId")).toString(), r.id);
+        QCOMPARE(h.row(1).value(QStringLiteral("timestampMs")).toLongLong(), qint64(1700000000000));
+
+        QVariantMap stored = h.stored;
+        FakeClient client;
+        ActivityModel next;
+        next.setStore({ [&] { return stored; }, [&](const QVariantMap &m) { stored = m; } });
+        next.setClient(&client);
+        Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
+        r.inviteSentMs = 0;
+        QVERIFY(next.noteInvite(r));
+        QCOMPARE(next.entryAt(0).value(QStringLiteral("timestampMs")).toLongLong(),
+                 qint64(1700000000000));
     }
 
     void aKnownSendTimeReplacesTheFirstSeenRecordAndSurvivesAReload()
