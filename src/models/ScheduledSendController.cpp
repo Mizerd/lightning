@@ -154,6 +154,30 @@ void ScheduledSendController::setClient(MatrixClient *client)
             return;
         }
     });
+    connect(m_client, &MatrixClient::scheduledMediaPrepared, this,
+            [this](quint64 opId, const QString &, bool ok, bool encrypted,
+                   const QString &content) {
+        for (int i = 0; i < m_entries.size(); ++i) {
+            Entry &e = m_entries[i];
+            if (e.prepareOp == 0 || e.prepareOp != opId)
+                continue;
+            e.prepareOp = 0;
+            if (!ok || content.isEmpty()) {
+                m_entries.removeAt(i);
+            } else {
+                e.content = content;
+                e.isVolatile = e.isVolatile || encrypted;
+                if (e.mode == QLatin1String("server") && !e.isVolatile)
+                    submitServer(e);
+                else
+                    becomeLocal(e);
+            }
+            persist();
+            armTimer();
+            Q_EMIT pendingChanged();
+            return;
+        }
+    });
     connect(m_client, &MatrixClient::connectionStateChanged, this,
             [this](MatrixClient::ConnectionState state) {
         if (state == MatrixClient::Syncing) {
@@ -210,7 +234,7 @@ bool ScheduledSendController::wouldUseServer(const QString &roomId,
 
 bool ScheduledSendController::busy(const Entry &e) const
 {
-    return e.op != 0 || e.sendOp != 0 || e.cancelRequested
+    return e.op != 0 || e.sendOp != 0 || e.prepareOp != 0 || e.cancelRequested
         || e.status == QLatin1String("sending");
 }
 
@@ -234,6 +258,8 @@ QVariantMap ScheduledSendController::toMap(const Entry &e) const
         { QStringLiteral("delayId"), e.delayId },
         { QStringLiteral("threadRootId"), e.threadRootId },
         { QStringLiteral("replyToEventId"), e.replyToEventId },
+        { QStringLiteral("media"), e.mediaName },
+        { QStringLiteral("uploading"), e.prepareOp != 0 },
     };
 }
 
@@ -294,12 +320,15 @@ void ScheduledSendController::persist()
         return;
     QVariantList rows;
     for (const Entry &e : m_entries) {
-        if (e.isVolatile)
+        if (e.isVolatile || (!e.mediaName.isEmpty() && e.content.isEmpty()))
             continue;
         QVariantMap m = toMap(e);
         m.remove(QStringLiteral("roomName"));
         m.remove(QStringLiteral("busy"));
+        m.remove(QStringLiteral("uploading"));
         m.insert(QStringLiteral("mentionIds"), e.mentionIds);
+        if (!e.content.isEmpty())
+            m.insert(QStringLiteral("content"), e.content);
         rows.append(m);
     }
     m_settings->setScheduledSends(rows);
@@ -328,7 +357,10 @@ void ScheduledSendController::load()
         e.status = m.value(QStringLiteral("status")).toString();
         e.error = m.value(QStringLiteral("error")).toString();
         e.delayId = m.value(QStringLiteral("delayId")).toString();
-        if (e.id.isEmpty() || e.roomId.isEmpty() || e.body.isEmpty())
+        e.mediaName = m.value(QStringLiteral("media")).toString();
+        e.content = m.value(QStringLiteral("content")).toString();
+        if (e.id.isEmpty() || e.roomId.isEmpty()
+            || (e.mediaName.isEmpty() ? e.body.isEmpty() : e.content.isEmpty()))
             continue;
         if (e.mode == QLatin1String("server")) {
             if (e.delayId.isEmpty()) {
@@ -360,6 +392,24 @@ void ScheduledSendController::load()
     Q_EMIT pendingChanged();
 }
 
+ScheduledSendController::Entry ScheduledSendController::newEntry(
+    const QString &roomId, const QString &threadRootId,
+    const QString &replyToEventId, qint64 sendAtMs) const
+{
+    Entry e;
+    e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    e.roomId = roomId;
+    e.threadRootId = threadRootId;
+    e.replyToEventId = replyToEventId;
+    e.sendAtMs = sendAtMs;
+    e.isVolatile = roomIsEncrypted(roomId);
+    e.status = QStringLiteral("pending");
+    e.mode = wouldUseServer(roomId, threadRootId, replyToEventId)
+        ? QStringLiteral("server")
+        : QStringLiteral("local");
+    return e;
+}
+
 QString ScheduledSendController::schedule(const QVariantMap &message,
                                           qint64 sendAtMs)
 {
@@ -368,33 +418,52 @@ QString ScheduledSendController::schedule(const QVariantMap &message,
     load();
     const QString roomId = message.value(QStringLiteral("roomId")).toString();
     const QString body = message.value(QStringLiteral("body")).toString().trimmed();
-    if (roomId.isEmpty() || body.isEmpty())
+    const QVariantList media = message.value(QStringLiteral("media")).toList();
+    if (roomId.isEmpty() || (body.isEmpty() && media.isEmpty()))
         return {};
-    if (sendAtMs <= QDateTime::currentMSecsSinceEpoch())
+    // Attachments are already uploading, so refusing here would lose them: a
+    // deadline passed meanwhile just fires at once.
+    if (media.isEmpty()
+        && (sendAtMs <= QDateTime::currentMSecsSinceEpoch()
+            || m_entries.size() >= kMaxEntries))
         return {};
-    if (m_entries.size() >= kMaxEntries)
-        return {};
-    Entry e;
-    e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    e.roomId = roomId;
-    e.body = body;
-    e.html = message.value(QStringLiteral("html")).toString();
-    e.mentionIds = message.value(QStringLiteral("mentionIds")).toStringList();
-    e.threadRootId = message.value(QStringLiteral("threadRootId")).toString();
-    e.replyToEventId = message.value(QStringLiteral("replyToEventId")).toString();
-    e.sendAtMs = sendAtMs;
-    e.isVolatile = roomIsEncrypted(roomId);
-    e.status = QStringLiteral("pending");
-    e.mode = wouldUseServer(roomId, e.threadRootId, e.replyToEventId)
-        ? QStringLiteral("server")
-        : QStringLiteral("local");
-    m_entries.append(e);
-    if (e.mode == QLatin1String("server"))
-        submitServer(m_entries.last());
+    QString firstId;
+    // A millisecond apart, so the server and the local queue keep tray order
+    // with the text last.
+    qint64 at = sendAtMs;
+    for (const QVariant &v : media) {
+        const QVariantMap m = v.toMap();
+        Entry e = newEntry(roomId, m.value(QStringLiteral("threadRootId")).toString(),
+                           m.value(QStringLiteral("replyToEventId")).toString(), at++);
+        e.prepareOp = m.value(QStringLiteral("op")).toULongLong();
+        e.mediaName = m.value(QStringLiteral("fileName")).toString();
+        e.body = m.value(QStringLiteral("caption")).toString();
+        if (e.prepareOp == 0)
+            continue;
+        if (e.mediaName.isEmpty())
+            e.mediaName = tr("Attachment");
+        m_entries.append(e);
+        if (firstId.isEmpty())
+            firstId = e.id;
+    }
+    if (!body.isEmpty()) {
+        Entry e = newEntry(roomId,
+                           message.value(QStringLiteral("threadRootId")).toString(),
+                           message.value(QStringLiteral("replyToEventId")).toString(),
+                           at);
+        e.body = body;
+        e.html = message.value(QStringLiteral("html")).toString();
+        e.mentionIds = message.value(QStringLiteral("mentionIds")).toStringList();
+        m_entries.append(e);
+        if (e.mode == QLatin1String("server"))
+            submitServer(m_entries.last());
+        if (firstId.isEmpty())
+            firstId = e.id;
+    }
     persist();
     armTimer();
     Q_EMIT pendingChanged();
-    return e.id;
+    return firstId;
 }
 
 void ScheduledSendController::becomeLocal(Entry &e)
@@ -418,8 +487,10 @@ void ScheduledSendController::submitServer(Entry &e)
         becomeLocal(e);
         return;
     }
-    const quint64 op = m_client->scheduleMessage(e.roomId, e.body, bodySpecFor(e),
-                                                 e.mentionIds, delay);
+    const quint64 op = e.content.isEmpty()
+        ? m_client->scheduleMessage(e.roomId, e.body, bodySpecFor(e), e.mentionIds,
+                                    delay)
+        : m_client->scheduleContent(e.roomId, e.content, delay);
     if (op == 0) {
         becomeLocal(e);
         return;
@@ -462,7 +533,8 @@ void ScheduledSendController::cancel(const QString &id)
     Entry *e = find(id);
     if (!e)
         return;
-    if (e->mode == QLatin1String("server")) {
+    // While uploading nothing is scheduled anywhere yet.
+    if (e->prepareOp == 0 && e->mode == QLatin1String("server")) {
         if (e->op != 0 && e->delayId.isEmpty()) {
             e->cancelRequested = true;
             e->status = QStringLiteral("sending");
@@ -555,7 +627,7 @@ void ScheduledSendController::updateText(const QString &id, const QString &body,
                                          const QString &html)
 {
     Entry *e = find(id);
-    if (!e || body.trimmed().isEmpty())
+    if (!e || !e->mediaName.isEmpty() || body.trimmed().isEmpty())
         return;
     const QString trimmed = body.trimmed();
     if (e->mode == QLatin1String("server")) {
@@ -595,6 +667,8 @@ void ScheduledSendController::armTimer()
     qint64 earliest = -1;
     for (const Entry &e : m_entries) {
         qint64 at = -1;
+        if (e.prepareOp != 0)
+            continue;
         if (e.mode == QLatin1String("local") && e.status == QLatin1String("pending"))
             at = e.sendAtMs;
         else if (e.mode == QLatin1String("server") && !e.delayId.isEmpty()
@@ -642,7 +716,7 @@ void ScheduledSendController::fireDue()
 
 void ScheduledSendController::dispatchLocal(Entry &e)
 {
-    if (!m_client || e.sendOp != 0)
+    if (!m_client || e.sendOp != 0 || e.prepareOp != 0)
         return;
     if (e.status != QLatin1String("pending") && e.status != QLatin1String("failed"))
         return;
@@ -655,6 +729,16 @@ void ScheduledSendController::dispatchLocal(Entry &e)
     e.error.clear();
     persist();
     Q_EMIT pendingChanged();
+    if (!e.content.isEmpty()) {
+        e.sendOp = m_client->sendRoomContent(e.roomId, e.content);
+        if (e.sendOp == 0) {
+            e.status = QStringLiteral("failed");
+            e.error = tr("The attachment could not be sent.");
+            persist();
+            Q_EMIT pendingChanged();
+        }
+        return;
+    }
     const QVariantMap spec = bodySpecFor(e);
     const quint64 op = m_client->sendRoomMessage(e.roomId, e.body, spec, e.mentionIds,
                                                  e.replyToEventId, e.threadRootId);

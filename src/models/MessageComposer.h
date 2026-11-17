@@ -138,6 +138,11 @@ public:
     Q_INVOKABLE void send();
     Q_INVOKABLE void sendBypassingCommands();
     Q_INVOKABLE QVariantMap composedMessage() const;
+    // Uploads the queued attachments for "Send later"; rows leave the tray
+    // once uploaded. {captioned, media: [{op, fileName, threadRootId,
+    // replyToEventId}]}, ops answered on scheduledMediaPrepared.
+    Q_INVOKABLE QVariantMap prepareAttachmentsForSchedule(
+        const QString &captionBody, const QStringList &mentionIds);
 
     void setCustomEmojiUseRecorder(std::function<void(const QVariantMap &)> record)
     {
@@ -295,6 +300,7 @@ private:
     static qsizetype serializedContentBytes(const QString &body,
                                             const QString &html, bool edit);
     void dispatchAttachments();
+    void captureSendTarget(AttachmentQueueModel::Entry &entry) const;
     void pumpAttachments();
     void dispatchAttachment(int row);
     void parkAttachments();
@@ -303,6 +309,7 @@ private:
     bool takeTextAsCaption(const QString &body, const QStringList &mentionIds);
 
     MatrixClient *m_client = nullptr;
+    bool m_preparingForSchedule = false;
     quint64 m_slashJoinOp = 0;
     std::function<QString(const QString &)> m_emoticonResolver;
     std::function<void(const QVariantMap &)> m_customEmojiUseRecorder;

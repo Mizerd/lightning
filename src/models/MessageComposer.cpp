@@ -337,6 +337,20 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
     return false;
 }
 
+void MessageComposer::captureSendTarget(AttachmentQueueModel::Entry &entry) const
+{
+    if (!m_replyingToEventId.isEmpty())
+        entry.replyToEventId = m_replyingToEventId;
+    // The thread is captured with the reply: a row must not move between
+    // the room and a thread if the filter changes before it is sent.
+    const QString root = sendThreadRootId();
+    if (!root.isEmpty()) {
+        entry.threadRootId = root;
+        if (entry.replyToEventId == root)
+            entry.replyToEventId.clear();
+    }
+}
+
 void MessageComposer::dispatchAttachments()
 {
     if (!m_client || m_roomId.isEmpty())
@@ -346,18 +360,47 @@ void MessageComposer::dispatchAttachments()
         if (entries[row].state != QLatin1String("queued"))
             continue;
         entries[row].sendRequested = true;
-        if (!m_replyingToEventId.isEmpty())
-            entries[row].replyToEventId = m_replyingToEventId;
-        // The thread is captured with the reply: a row must not move between
-        // the room and a thread if the filter changes before it is sent.
-        const QString root = sendThreadRootId();
-        if (!root.isEmpty()) {
-            entries[row].threadRootId = root;
-            if (entries[row].replyToEventId == root)
-                entries[row].replyToEventId.clear();
-        }
+        captureSendTarget(entries[row]);
     }
     pumpAttachments();
+}
+
+QVariantMap MessageComposer::prepareAttachmentsForSchedule(
+    const QString &captionBody, const QStringList &mentionIds)
+{
+    QVariantList media;
+    bool captioned = false;
+    if (m_client && !m_roomId.isEmpty()) {
+        captioned = takeTextAsCaption(captionBody.trimmed(), mentionIds);
+        auto &entries = m_attachments->entries();
+        m_preparingForSchedule = true;
+        for (int row = 0; row < entries.size(); ++row) {
+            auto &entry = entries[row];
+            if (entry.state != QLatin1String("queued") || entry.posterPending)
+                continue;
+            entry.sendRequested = true;
+            captureSendTarget(entry);
+            dispatchAttachment(row);
+            if (entry.state != QLatin1String("dispatching")) {
+                // Never left for the pump: it would send it now.
+                entry.sendRequested = false;
+                continue;
+            }
+            media.append(QVariantMap{
+                { QStringLiteral("op"), entry.opId },
+                { QStringLiteral("fileName"), entry.fileName.isEmpty()
+                      ? QFileInfo(entry.localPath).fileName() : entry.fileName },
+                { QStringLiteral("threadRootId"), entry.threadRootId },
+                { QStringLiteral("replyToEventId"), entry.replyToEventId },
+                { QStringLiteral("caption"), entry.caption },
+            });
+        }
+        m_preparingForSchedule = false;
+    }
+    return QVariantMap{
+        { QStringLiteral("captioned"), captioned && !media.isEmpty() },
+        { QStringLiteral("media"), media },
+    };
 }
 
 // The send queue fixes its order when a file has been read and cached, which
@@ -412,7 +455,16 @@ void MessageComposer::dispatchAttachment(int row)
         m_attachments->updateEntry(row);
         return;
     }
-    if (entry.spoiler) {
+    if (m_preparingForSchedule) {
+        opId = entry.isSvg ? 0 : m_client->prepareScheduledMedia(
+            m_roomId, entry.threadRootId,
+            entry.localPath.isEmpty() ? QString() : sendPath, sendData,
+            entry.fileName.isEmpty() ? QFileInfo(entry.localPath).fileName()
+                                     : entry.fileName,
+            entry.mime, caption, entry.width, entry.height, entry.durationMs,
+            entry.animated, entry.spoiler, entry.poster, entry.posterWidth,
+            entry.posterHeight, entry.replyToEventId);
+    } else if (entry.spoiler) {
         opId = entry.isSvg ? 0 : m_client->sendSpoilerMedia(
             m_roomId, entry.threadRootId,
             entry.localPath.isEmpty() ? QString() : sendPath, sendData,

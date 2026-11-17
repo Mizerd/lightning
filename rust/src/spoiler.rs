@@ -118,6 +118,9 @@ pub(crate) struct SpoilerMediaSpec {
     pub height: u64,
     pub duration_ms: u64,
     pub animated: bool,
+    /// False builds plain media content (scheduled sends): no marker, and a
+    /// non-media type becomes `m.file`.
+    pub spoiler: bool,
 }
 
 pub(crate) fn spoiler_media_content(
@@ -125,12 +128,17 @@ pub(crate) fn spoiler_media_content(
     source: UploadedSource,
     thumbnail: Option<SpoilerThumb>,
 ) -> Result<Value, String> {
-    let msgtype = spoiler_msgtype(&spec.mimetype)
-        .ok_or_else(|| "Only images, videos and audio can be marked as spoilers.".to_owned())?;
+    let msgtype = match spoiler_msgtype(&spec.mimetype) {
+        Some(msgtype) => msgtype,
+        None if !spec.spoiler => "m.file",
+        None => {
+            return Err("Only images, videos and audio can be marked as spoilers.".to_owned())
+        }
+    };
     let mut info = Map::new();
     info.insert("mimetype".into(), spec.mimetype.clone().into());
     info.insert("size".into(), spec.size.into());
-    if msgtype != "m.audio" {
+    if msgtype == "m.image" || msgtype == "m.video" {
         if spec.width > 0 && spec.height > 0 {
             info.insert("w".into(), spec.width.into());
             info.insert("h".into(), spec.height.into());
@@ -156,7 +164,7 @@ pub(crate) fn spoiler_media_content(
             );
         }
     }
-    if msgtype != "m.image" && spec.duration_ms > 0 {
+    if (msgtype == "m.video" || msgtype == "m.audio") && spec.duration_ms > 0 {
         info.insert("duration".into(), spec.duration_ms.into());
     }
     let caption = spec.caption.as_deref().map(str::trim).filter(|c| !c.is_empty());
@@ -172,7 +180,9 @@ pub(crate) fn spoiler_media_content(
     content.insert(source.key.into(), source.value);
     content.insert("info".into(), Value::Object(info));
     content.insert("m.mentions".into(), json!({}));
-    content.insert(UNSTABLE_SPOILER.into(), true.into());
+    if spec.spoiler {
+        content.insert(UNSTABLE_SPOILER.into(), true.into());
+    }
     Ok(Value::Object(content))
 }
 
@@ -268,8 +278,12 @@ pub(crate) async fn prepare_spoiler(
         .mimetype
         .parse()
         .map_err(|_| "Unsupported attachment MIME type.".to_owned())?;
-    spoiler_msgtype(&spec.mimetype)
-        .ok_or_else(|| "Only images, videos and audio can be marked as spoilers.".to_owned())?;
+    if spec.spoiler {
+        spoiler_msgtype(&spec.mimetype).ok_or_else(|| {
+            "Only images, videos and audio can be marked as spoilers.".to_owned()
+        })?;
+    }
+    let spoiler = spec.spoiler;
     let encrypted = room
         .latest_encryption_state()
         .await
@@ -296,10 +310,9 @@ pub(crate) async fn prepare_spoiler(
                 .make_reply_event(typed, reply)
                 .await
                 .map_err(|_| "The replied-to message could not be loaded.".to_owned())?;
-            Ok(with_marker(
-                serde_json::to_value(&replied)
-                    .map_err(|_| "The spoiler event could not be built.".to_owned())?,
-            ))
+            let replied = serde_json::to_value(&replied)
+                .map_err(|_| "The spoiler event could not be built.".to_owned())?;
+            Ok(if spoiler { with_marker(replied) } else { replied })
         }
         None => Ok(content),
     }
@@ -331,6 +344,7 @@ mod tests {
             height: 480,
             duration_ms: 5000,
             animated: false,
+            spoiler: true,
         }
     }
 
@@ -468,6 +482,35 @@ mod tests {
         assert_eq!(upload_timeout(0).as_secs(), 120);
         assert_eq!(upload_timeout(64 * 1024 * 60).as_secs(), 180);
         assert_eq!(upload_timeout(u64::MAX).as_secs(), 3600);
+    }
+
+    #[test]
+    fn plain_media_carries_no_marker_and_a_document_becomes_a_file() {
+        let mut image = spec("image/png", Some("look"));
+        image.spoiler = false;
+        let content = spoiler_media_content(
+            &image,
+            UploadedSource { key: "url", value: "mxc://hs/i".into() },
+            None,
+        )
+        .unwrap();
+        assert_eq!(content["msgtype"], "m.image");
+        assert_eq!(content["body"], "look");
+        assert_eq!(spoiler_of(&content), None);
+        let mut pdf = spec("application/pdf", None);
+        pdf.spoiler = false;
+        let content = spoiler_media_content(
+            &pdf,
+            UploadedSource { key: "file", value: json!({ "url": "mxc://hs/p" }) },
+            None,
+        )
+        .unwrap();
+        assert_eq!(content["msgtype"], "m.file");
+        assert_eq!(content["body"], "cat.png");
+        assert_eq!(content["file"]["url"], "mxc://hs/p");
+        assert!(content["info"].get("w").is_none());
+        assert!(content["info"].get("duration").is_none());
+        assert_eq!(spoiler_of(&content), None);
     }
 
     #[test]

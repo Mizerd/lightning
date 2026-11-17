@@ -1612,7 +1612,7 @@ private slots:
         }
     }
 
-    void sendLaterIsRefusedWhileAttachmentsAreQueued()
+    void sendLaterTakesTheQueuedAttachmentsAndClearsTheComposer()
     {
         const QString previousRoom = m_controller->currentRoomId();
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -1622,16 +1622,46 @@ private slots:
         QVERIFY(dir.isValid());
         const QString txt = writeFile(dir, QStringLiteral("queued.txt"),
                                       QByteArrayLiteral("queued"));
-        composer->setText(QStringLiteral("caption"));
+        composer->setText(QStringLiteral("later text"));
         composer->addAttachment(QUrl::fromLocalFile(txt));
         QTRY_VERIFY(composer->hasAttachments());
         auto *menuItem = item("composerSendLaterMenuItem");
         QVERIFY(menuItem);
-        QVERIFY2(!menuItem->property("enabled").toBool(),
-                 "Send later would schedule the text and strand the attachment");
-        composer->attachments()->clearAll();
-        composer->setText(QString());
-        QTest::qWait(80);
+        QVERIFY(menuItem->property("enabled").toBool());
+
+        auto *bar = item("composerBar");
+        QVERIFY(QMetaObject::invokeMethod(bar, "openSendLater"));
+        auto *dialog = m_root->findChild<QObject *>(QStringLiteral("sendLaterDialog"));
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(dialog->property("hasMessage").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
+
+        QCOMPARE(composer->text(), QString());
+        QTRY_VERIFY2(!composer->hasAttachments(),
+                     "the scheduled attachment must leave the composer");
+        QObject *scheduler = m_controller->scheduledSends();
+        QStringList ids;
+        bool sawMedia = false;
+        bool sawText = false;
+        for (const QVariant &v : scheduler->property("pending").toList()) {
+            const QVariantMap e = v.toMap();
+            if (e.value(QStringLiteral("roomId")).toString()
+                != QLatin1String("!general:mock.local"))
+                continue;
+            ids << e.value(QStringLiteral("id")).toString();
+            if (e.value(QStringLiteral("media")).toString() == QLatin1String("queued.txt")) {
+                sawMedia = true;
+                QVERIFY(!e.value(QStringLiteral("uploading")).toBool());
+            }
+            if (e.value(QStringLiteral("body")).toString() == QLatin1String("later text"))
+                sawText = true;
+        }
+        QVERIFY(sawMedia);
+        QVERIFY(sawText);
+        for (const QString &id : ids)
+            QMetaObject::invokeMethod(scheduler, "cancel", Q_ARG(QString, id));
+        QTest::qWait(30);
         m_controller->setCurrentRoomId(previousRoom);
     }
 

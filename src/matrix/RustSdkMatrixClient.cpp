@@ -10504,6 +10504,40 @@ quint64 RustSdkMatrixClient::sendSpoilerMedia(const QString &roomId,
                                               int thumbnailHeight,
                                               const QString &replyToEventId)
 {
+    return mediaUpload(false, true, roomId, threadRootId, localPath, bytes,
+                       filename, mime, caption, width, height, durationMs,
+                       animated, thumbnail, thumbnailWidth, thumbnailHeight,
+                       replyToEventId);
+}
+
+quint64 RustSdkMatrixClient::prepareScheduledMedia(
+    const QString &roomId, const QString &threadRootId,
+    const QString &localPath, const QByteArray &bytes, const QString &filename,
+    const QString &mime, const QString &caption, int width, int height,
+    qint64 durationMs, bool animated, bool spoiler, const QByteArray &thumbnail,
+    int thumbnailWidth, int thumbnailHeight, const QString &replyToEventId)
+{
+    return mediaUpload(true, spoiler, roomId, threadRootId, localPath, bytes,
+                       filename, mime, caption, width, height, durationMs,
+                       animated, thumbnail, thumbnailWidth, thumbnailHeight,
+                       replyToEventId);
+}
+
+quint64 RustSdkMatrixClient::mediaUpload(bool prepareOnly, bool spoiler,
+                                         const QString &roomId,
+                                         const QString &threadRootId,
+                                         const QString &localPath,
+                                         const QByteArray &bytes,
+                                         const QString &filename,
+                                         const QString &mime,
+                                         const QString &caption,
+                                         int width, int height,
+                                         qint64 durationMs, bool animated,
+                                         const QByteArray &thumbnail,
+                                         int thumbnailWidth,
+                                         int thumbnailHeight,
+                                         const QString &replyToEventId)
+{
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || mime.isEmpty()
         || (localPath.isEmpty() && bytes.isEmpty()))
         return 0;
@@ -10518,27 +10552,63 @@ quint64 RustSdkMatrixClient::sendSpoilerMedia(const QString &roomId,
     const QByteArray captionBytes = caption.toUtf8();
     const QByteArray replyBytes = replyToEventId.toUtf8();
     const bool useBytes = localPath.isEmpty();
-    const QString result = takeRustString(mx_rust_send_spoiler_media(
-        m_rustHandle, room.constData(), root.constData(), path.constData(),
-        useBytes ? reinterpret_cast<const unsigned char *>(bytes.constData())
-                 : nullptr,
-        useBytes ? static_cast<size_t>(bytes.size()) : 0,
-        name.constData(), mimeBytes.constData(), captionBytes.constData(),
-        static_cast<unsigned long long>(qMax(0, width)),
-        static_cast<unsigned long long>(qMax(0, height)),
-        static_cast<unsigned long long>(qMax<qint64>(0, durationMs)),
-        animated ? 1 : 0,
-        hasThumb ? reinterpret_cast<const unsigned char *>(thumbnail.constData())
-                 : nullptr,
-        hasThumb ? static_cast<size_t>(thumbnail.size()) : 0,
-        static_cast<unsigned long long>(hasThumb ? thumbnailWidth : 0),
-        static_cast<unsigned long long>(hasThumb ? thumbnailHeight : 0),
-        replyBytes.constData(), opId));
+    const auto *data = useBytes
+        ? reinterpret_cast<const unsigned char *>(bytes.constData()) : nullptr;
+    const size_t len = useBytes ? static_cast<size_t>(bytes.size()) : 0;
+    const auto w = static_cast<unsigned long long>(qMax(0, width));
+    const auto h = static_cast<unsigned long long>(qMax(0, height));
+    const auto duration = static_cast<unsigned long long>(qMax<qint64>(0, durationMs));
+    const auto *thumbData = hasThumb
+        ? reinterpret_cast<const unsigned char *>(thumbnail.constData()) : nullptr;
+    const size_t thumbLen = hasThumb ? static_cast<size_t>(thumbnail.size()) : 0;
+    const auto tw = static_cast<unsigned long long>(hasThumb ? thumbnailWidth : 0);
+    const auto th = static_cast<unsigned long long>(hasThumb ? thumbnailHeight : 0);
+    const QString result = takeRustString(prepareOnly
+        ? mx_rust_prepare_scheduled_media(
+              m_rustHandle, room.constData(), root.constData(), path.constData(),
+              data, len, name.constData(), mimeBytes.constData(),
+              captionBytes.constData(), w, h, duration, animated ? 1 : 0,
+              spoiler ? 1 : 0, thumbData, thumbLen, tw, th,
+              replyBytes.constData(), opId)
+        : mx_rust_send_spoiler_media(
+              m_rustHandle, room.constData(), root.constData(), path.constData(),
+              data, len, name.constData(), mimeBytes.constData(),
+              captionBytes.constData(), w, h, duration, animated ? 1 : 0,
+              thumbData, thumbLen, tw, th, replyBytes.constData(), opId));
     if (!result.isEmpty()) {
-        qCWarning(lcRust) << "spoiler media send rejected";
+        qCWarning(lcRust) << (prepareOnly ? "scheduled media upload rejected"
+                                          : "spoiler media send rejected");
         return 0;
     }
     return opId;
+}
+
+quint64 RustSdkMatrixClient::scheduleContent(const QString &roomId,
+                                             const QString &contentJson,
+                                             qint64 delayMs)
+{
+    if (!m_rustHandle || roomId.isEmpty() || contentJson.isEmpty() || delayMs <= 0)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray content = contentJson.toUtf8();
+    const QString result = takeRustString(mx_rust_schedule_content(
+        m_rustHandle, room.constData(), content.constData(),
+        static_cast<unsigned long long>(delayMs), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::sendRoomContent(const QString &roomId,
+                                             const QString &contentJson)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || contentJson.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray content = contentJson.toUtf8();
+    const QString result = takeRustString(mx_rust_send_room_content(
+        m_rustHandle, room.constData(), content.constData(), opId));
+    return result.isEmpty() ? opId : 0;
 }
 
 quint64 RustSdkMatrixClient::sendThreadVideo(const QString &roomId,
@@ -13693,6 +13763,16 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
+    if (type == QLatin1String("scheduled_media_prepared")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        const bool ok = event.value(QStringLiteral("ok")).toBool();
+        Q_EMIT scheduledMediaPrepared(
+            opId(), roomId, ok, event.value(QStringLiteral("encrypted")).toBool(),
+            event.value(QStringLiteral("content")).toString());
+        Q_EMIT attachmentQueueFinished(
+            opId(), roomId, ok, event.value(QStringLiteral("category")).toString());
+        return true;
+    }
     if (type == QLatin1String("attachment_send_result")) {
         Q_EMIT attachmentQueueFinished(
             opId(), event.value(QStringLiteral("room_id")).toString(),

@@ -111,6 +111,23 @@ public:
     QList<ScheduleCall> scheduleCalls;
     struct UpdateCall { QString delayId; QString action; quint64 op; };
     QList<UpdateCall> updateCalls;
+    struct ContentCall { QString roomId; QString content; qint64 delayMs; quint64 op; };
+    QList<ContentCall> contentSchedules;
+    QList<ContentCall> contentSends;
+
+    quint64 scheduleContent(const QString &roomId, const QString &content,
+                            qint64 delayMs) override
+    {
+        const quint64 op = nextOp++;
+        contentSchedules.append({ roomId, content, delayMs, op });
+        return op;
+    }
+    quint64 sendRoomContent(const QString &roomId, const QString &content) override
+    {
+        const quint64 op = nextOp++;
+        contentSends.append({ roomId, content, 0, op });
+        return op;
+    }
 
     QString persistedStatusFor(const QString &body) const
     {
@@ -237,6 +254,27 @@ QVariantMap message(const QString &roomId, const QString &body,
 }
 
 qint64 nowMs() { return QDateTime::currentMSecsSinceEpoch(); }
+
+QVariantMap withMedia(QVariantMap m, const QList<quint64> &ops,
+                      const QString &caption = QString())
+{
+    QVariantList media;
+    for (quint64 op : ops)
+        media.append(QVariantMap{
+            { QStringLiteral("op"), op },
+            { QStringLiteral("fileName"), QStringLiteral("file-%1.png").arg(op) },
+            { QStringLiteral("threadRootId"), m.value(QStringLiteral("threadRootId")) },
+            { QStringLiteral("replyToEventId"), m.value(QStringLiteral("replyToEventId")) },
+            { QStringLiteral("caption"), media.isEmpty() ? caption : QString() },
+        });
+    m.insert(QStringLiteral("media"), media);
+    return m;
+}
+
+const QString kPlainContent =
+    QStringLiteral(R"({"msgtype":"m.image","body":"a.png","url":"mxc://hs/a"})");
+const QString kSecretContent =
+    QStringLiteral(R"({"msgtype":"m.image","body":"a.png","file":{"key":"SECRET"}})");
 
 struct Harness {
     FakeSecretStore secrets;
@@ -726,6 +764,177 @@ private Q_SLOTS:
         QCOMPARE(h.scheduler.pendingCount(), 0);
         QVERIFY(h.scheduler.pending().isEmpty());
         QCOMPARE(h.scheduler.serverScheduling(), -1);
+    }
+
+    void anAttachmentIsScheduledOnTheServerOnlyOnceUploaded()
+    {
+        Harness h;
+        h.enableServer();
+        const QString id = h.scheduler.schedule(
+            withMedia(message(kPlain, QString()), { 900 }), nowMs() + 90000);
+        QVERIFY(!id.isEmpty());
+        QVariantMap e = h.entry(id);
+        QCOMPARE(e.value(QStringLiteral("media")).toString(), QStringLiteral("file-900.png"));
+        QVERIFY(e.value(QStringLiteral("uploading")).toBool());
+        QVERIFY(e.value(QStringLiteral("busy")).toBool());
+        QVERIFY(!e.contains(QStringLiteral("content")));
+        QVERIFY(h.client.contentSchedules.isEmpty());
+        QVERIFY(h.client.scheduleCalls.isEmpty());
+        QVERIFY(h.settings.scheduledSends().isEmpty());
+
+        Q_EMIT h.client.scheduledMediaPrepared(900, kPlain, true, false, kPlainContent);
+        QCOMPARE(h.client.contentSchedules.size(), 1);
+        QCOMPARE(h.client.contentSchedules.first().content, kPlainContent);
+        QVERIFY(h.client.contentSchedules.first().delayMs > 80000);
+        QVERIFY(h.client.scheduleCalls.isEmpty());
+        Q_EMIT h.client.scheduledSendFinished(h.client.contentSchedules.first().op, kPlain,
+                                              true, QStringLiteral("delay-m"), QString());
+        e = h.entry(id);
+        QCOMPARE(e.value(QStringLiteral("mode")).toString(), QStringLiteral("server"));
+        QCOMPARE(e.value(QStringLiteral("delayId")).toString(), QStringLiteral("delay-m"));
+        QVERIFY(!e.contains(QStringLiteral("content")));
+        const QVariantList rows = h.settings.scheduledSends();
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("content")).toString(),
+                 kPlainContent);
+
+        // A reschedule resubmits the same content.
+        h.scheduler.reschedule(id, nowMs() + 200000);
+        Q_EMIT h.client.scheduledUpdateFinished(h.client.updateCalls.last().op,
+                                                QStringLiteral("delay-m"),
+                                                QStringLiteral("cancel"), true, QString());
+        QCOMPARE(h.client.contentSchedules.size(), 2);
+        QCOMPARE(h.client.contentSchedules.last().content, kPlainContent);
+    }
+
+    void anEncryptedRoomsAttachmentStaysInMemoryAndIsSentLocally()
+    {
+        Harness h;
+        h.enableServer();
+        const QString id = h.scheduler.schedule(
+            withMedia(message(kEncrypted, QString()), { 901 }), nowMs() + 80);
+        QCOMPARE(h.entry(id).value(QStringLiteral("mode")).toString(), QStringLiteral("local"));
+        QVERIFY(h.entry(id).value(QStringLiteral("volatile")).toBool());
+        // Due while still uploading: it waits for its content.
+        QTest::qWait(200);
+        QVERIFY(h.client.contentSends.isEmpty());
+        Q_EMIT h.client.scheduledMediaPrepared(901, kEncrypted, true, true, kSecretContent);
+        QTRY_COMPARE_WITH_TIMEOUT(h.client.contentSends.size(), 1, 3000);
+        QCOMPARE(h.client.contentSends.first().roomId, kEncrypted);
+        QCOMPARE(h.client.contentSends.first().content, kSecretContent);
+        QVERIFY(h.client.contentSchedules.isEmpty());
+        QVERIFY(h.settings.scheduledSends().isEmpty());
+        Q_EMIT h.client.roomSendFinished(h.client.contentSends.first().op, kEncrypted, true,
+                                         QString());
+        QVERIFY(h.entry(id).isEmpty());
+    }
+
+    void contentHoldingFileKeysIsNeverPersistedEvenInARoomThoughtUnencrypted()
+    {
+        Harness h;
+        h.enableServer();
+        const QString id = h.scheduler.schedule(
+            withMedia(message(kPlain, QString()), { 902 }), nowMs() + 90000);
+        Q_EMIT h.client.scheduledMediaPrepared(902, kPlain, true, true, kSecretContent);
+        const QVariantMap e = h.entry(id);
+        QCOMPARE(e.value(QStringLiteral("mode")).toString(), QStringLiteral("local"));
+        QVERIFY(e.value(QStringLiteral("volatile")).toBool());
+        QVERIFY(h.client.contentSchedules.isEmpty());
+        for (const QVariant &v : h.settings.scheduledSends())
+            QVERIFY(!v.toMap().value(QStringLiteral("content")).toString().contains(
+                QStringLiteral("SECRET")));
+        QVERIFY(h.settings.scheduledSends().isEmpty());
+    }
+
+    void anUnencryptedLocalAttachmentPersistsAndAMissedOneFiresOnNextStart()
+    {
+        qint64 at = 0;
+        {
+            Harness h;
+            at = nowMs() + 400;
+            const QString id = h.scheduler.schedule(
+                withMedia(message(kPlain, QString(), QString(), QStringLiteral("$reply")),
+                          { 903 }), at);
+            Q_EMIT h.client.scheduledMediaPrepared(903, kPlain, true, false, kPlainContent);
+            QCOMPARE(h.entry(id).value(QStringLiteral("mode")).toString(),
+                     QStringLiteral("local"));
+            QCOMPARE(h.settings.scheduledSends().size(), 1);
+            h.scheduler.setClient(nullptr);
+        }
+        QTest::qWait(500);
+        Harness next;
+        Q_EMIT next.client.connectionStateChanged(MatrixClient::Syncing);
+        QTRY_COMPARE_WITH_TIMEOUT(next.client.contentSends.size(), 1, 3000);
+        QCOMPARE(next.client.contentSends.first().content, kPlainContent);
+        Q_EMIT next.client.roomSendFinished(next.client.contentSends.first().op, kPlain,
+                                            true, QString());
+        QVERIFY(next.settings.scheduledSends().isEmpty());
+        QTest::qWait(100);
+        QCOMPARE(next.client.contentSends.size(), 1);
+    }
+
+    void aFailedUploadDropsTheEntryAndACancelledOneIgnoresItsLateResult()
+    {
+        Harness h;
+        const QString failed = h.scheduler.schedule(
+            withMedia(message(kPlain, QString()), { 904 }), nowMs() + 60000);
+        Q_EMIT h.client.scheduledMediaPrepared(904, kPlain, false, false, QString());
+        QVERIFY(h.entry(failed).isEmpty());
+
+        const QString cancelled = h.scheduler.schedule(
+            withMedia(message(kPlain, QString()), { 905 }), nowMs() + 60000);
+        h.scheduler.cancel(cancelled);
+        QVERIFY(h.entry(cancelled).isEmpty());
+        Q_EMIT h.client.scheduledMediaPrepared(905, kPlain, true, false, kPlainContent);
+        QVERIFY(h.scheduler.pending().isEmpty());
+        QVERIFY(h.settings.scheduledSends().isEmpty());
+    }
+
+    void severalAttachmentsAndTheTextKeepTrayOrderAndACaptionIsNotSentTwice()
+    {
+        Harness h;
+        const qint64 at = nowMs() + 60000;
+        h.scheduler.schedule(withMedia(message(kPlain, QStringLiteral("text")), { 906, 907 }),
+                             at);
+        QVariantList rows = h.scheduler.pending();
+        QCOMPARE(rows.size(), 3);
+        QCOMPARE(rows.at(0).toMap().value(QStringLiteral("media")).toString(),
+                 QStringLiteral("file-906.png"));
+        QCOMPARE(rows.at(1).toMap().value(QStringLiteral("media")).toString(),
+                 QStringLiteral("file-907.png"));
+        QCOMPARE(rows.at(2).toMap().value(QStringLiteral("body")).toString(),
+                 QStringLiteral("text"));
+        QVERIFY(rows.at(0).toMap().value(QStringLiteral("sendAtMs")).toLongLong()
+                < rows.at(1).toMap().value(QStringLiteral("sendAtMs")).toLongLong());
+        QVERIFY(rows.at(1).toMap().value(QStringLiteral("sendAtMs")).toLongLong()
+                < rows.at(2).toMap().value(QStringLiteral("sendAtMs")).toLongLong());
+
+        Harness captioned;
+        const QString id = captioned.scheduler.schedule(
+            withMedia(message(kPlain, QString()), { 908 }, QStringLiteral("look")), at);
+        QCOMPARE(captioned.scheduler.pending().size(), 1);
+        QCOMPARE(captioned.entry(id).value(QStringLiteral("body")).toString(),
+                 QStringLiteral("look"));
+        // The caption is inside the content; it cannot be edited as text.
+        Q_EMIT captioned.client.scheduledMediaPrepared(908, kPlain, true, false,
+                                                       kPlainContent);
+        captioned.scheduler.updateText(id, QStringLiteral("changed"), QString());
+        QCOMPARE(captioned.entry(id).value(QStringLiteral("body")).toString(),
+                 QStringLiteral("look"));
+    }
+
+    void signOutDropsUploadingAndPreparedAttachments()
+    {
+        Harness h;
+        h.scheduler.schedule(withMedia(message(kEncrypted, QString()), { 909, 910 }),
+                             nowMs() + 60000);
+        Q_EMIT h.client.scheduledMediaPrepared(909, kEncrypted, true, true, kSecretContent);
+        QCOMPARE(h.scheduler.pending().size(), 2);
+        Q_EMIT h.client.loggedOut();
+        QVERIFY(h.scheduler.pending().isEmpty());
+        Q_EMIT h.client.scheduledMediaPrepared(910, kEncrypted, true, true, kSecretContent);
+        QVERIFY(h.scheduler.pending().isEmpty());
+        QVERIFY(h.client.contentSends.isEmpty());
     }
 };
 

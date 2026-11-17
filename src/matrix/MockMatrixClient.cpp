@@ -10,6 +10,8 @@
 #include <QByteArray>
 #include <QFile>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileInfo>
 #include <QTimer>
 #include <QUrl>
@@ -753,6 +755,34 @@ quint64 MockMatrixClient::sendThreadVoiceMessage(const QString &roomId,
         replyToEventId);
     if (opId != 0)
         ++m_threadVoiceCalls;
+    return opId;
+}
+
+quint64 MockMatrixClient::prepareScheduledMedia(
+    const QString &roomId, const QString &threadRootId, const QString &localPath,
+    const QByteArray &bytes, const QString &filename, const QString &mime,
+    const QString &caption, int width, int height, qint64 durationMs,
+    bool animated, bool spoiler, const QByteArray &thumbnail, int thumbnailWidth,
+    int thumbnailHeight, const QString &replyToEventId)
+{
+    Q_UNUSED(threadRootId); Q_UNUSED(bytes); Q_UNUSED(width); Q_UNUSED(height);
+    Q_UNUSED(durationMs); Q_UNUSED(animated); Q_UNUSED(spoiler);
+    Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth); Q_UNUSED(thumbnailHeight);
+    Q_UNUSED(replyToEventId);
+    if (!m_timelines.contains(roomId))
+        return 0;
+    const quint64 opId = ++m_opCounter;
+    const QString name = filename.isEmpty() ? QFileInfo(localPath).fileName() : filename;
+    const QString content = QString::fromUtf8(QJsonDocument(QJsonObject{
+        { QStringLiteral("msgtype"), mime.startsWith(QLatin1String("image/"))
+              ? QStringLiteral("m.image") : QStringLiteral("m.file") },
+        { QStringLiteral("body"), caption.isEmpty() ? name : caption },
+        { QStringLiteral("url"), QStringLiteral("mxc://mock.local/%1").arg(opId) },
+    }).toJson(QJsonDocument::Compact));
+    QTimer::singleShot(50, this, [this, opId, roomId, content] {
+        Q_EMIT scheduledMediaPrepared(opId, roomId, true, false, content);
+        Q_EMIT attachmentQueueFinished(opId, roomId, true, QString());
+    });
     return opId;
 }
 

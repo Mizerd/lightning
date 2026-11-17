@@ -889,6 +889,40 @@ public:
     virtual quint64 updateScheduledMessage(const QString &delayId,
                                            const QString &action)
     { Q_UNUSED(delayId); Q_UNUSED(action); return 0; }
+    // Uploads a scheduled attachment now and answers on BOTH
+    // attachmentQueueFinished and scheduledMediaPrepared; nothing is sent.
+    // Same arguments as sendSpoilerMedia, plus whether to mark it a spoiler.
+    virtual quint64 prepareScheduledMedia(const QString &roomId,
+                                          const QString &threadRootId,
+                                          const QString &localPath,
+                                          const QByteArray &bytes,
+                                          const QString &filename,
+                                          const QString &mime,
+                                          const QString &caption,
+                                          int width, int height,
+                                          qint64 durationMs, bool animated,
+                                          bool spoiler,
+                                          const QByteArray &thumbnail,
+                                          int thumbnailWidth,
+                                          int thumbnailHeight,
+                                          const QString &replyToEventId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(threadRootId); Q_UNUSED(localPath);
+        Q_UNUSED(bytes); Q_UNUSED(filename); Q_UNUSED(mime); Q_UNUSED(caption);
+        Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(durationMs);
+        Q_UNUSED(animated); Q_UNUSED(spoiler); Q_UNUSED(thumbnail);
+        Q_UNUSED(thumbnailWidth); Q_UNUSED(thumbnailHeight);
+        Q_UNUSED(replyToEventId);
+        return 0;
+    }
+    // Prepared content from scheduledMediaPrepared: answers on
+    // scheduledSendFinished / roomSendFinished respectively.
+    virtual quint64 scheduleContent(const QString &roomId,
+                                    const QString &contentJson, qint64 delayMs)
+    { Q_UNUSED(roomId); Q_UNUSED(contentJson); Q_UNUSED(delayMs); return 0; }
+    virtual quint64 sendRoomContent(const QString &roomId,
+                                    const QString &contentJson)
+    { Q_UNUSED(roomId); Q_UNUSED(contentJson); return 0; }
     virtual quint64 sendRoomMessage(const QString &roomId, const QString &body,
                                     const QVariantMap &bodySpec,
                                     const QStringList &mentionUserIds,
@@ -1659,6 +1693,9 @@ Q_SIGNALS:
                                  const QString &category);
     void roomSendFinished(quint64 opId, const QString &roomId, bool ok,
                           const QString &category);
+    // `encrypted`: the content carries file keys and must stay in memory.
+    void scheduledMediaPrepared(quint64 opId, const QString &roomId, bool ok,
+                                bool encrypted, const QString &contentJson);
     void reactionEventReceived(const QString &roomId, const QString &reactionEventId,
                                const QString &targetEventId, const QString &senderId,
                                const QString &key, qint64 timestampMs,

@@ -273,13 +273,15 @@ Item {
         sendLaterDialog.openFor({})
     }
     function openSendLater() {
-        if (app.composer.hasAttachments)
-            return
-        if (!app.composer.canSend || app.composer.text.trim().length === 0) {
+        if (!app.composer.canSend || (app.composer.text.trim().length === 0
+                                      && !app.composer.hasAttachments)) {
             sendLaterDialog.openFor({})
             return
         }
         var snapshot = app.composer.composedMessage()
+        snapshot.withAttachments = app.composer.hasAttachments
+        // A rich document is sent as its own message, never as a caption.
+        snapshot.captionable = !root.richMode
         if (root.richMode) {
             var composed = app.richComposer.composeDocument(richInput.textDocument)
             snapshot.body = composed.body
@@ -3237,10 +3239,8 @@ Item {
         AppMenuItem {
             objectName: "composerSendLaterMenuItem"
             iconName: "schedule"
-            text: app.composer.hasAttachments
-                  ? qsTr("Send later… (not available with attachments)")
-                  : qsTr("Send later…")
-            enabled: app.composer.canSend && !app.composer.hasAttachments
+            text: qsTr("Send later…")
+            enabled: app.composer.canSend
             onTriggered: root.openSendLater()
         }
         AppMenuItem {

@@ -477,6 +477,20 @@ public:
                             qint64 delayMs) override;
     quint64 updateScheduledMessage(const QString &delayId,
                                    const QString &action) override;
+    quint64 prepareScheduledMedia(const QString &roomId,
+                                  const QString &threadRootId,
+                                  const QString &localPath,
+                                  const QByteArray &bytes,
+                                  const QString &filename, const QString &mime,
+                                  const QString &caption, int width, int height,
+                                  qint64 durationMs, bool animated, bool spoiler,
+                                  const QByteArray &thumbnail,
+                                  int thumbnailWidth, int thumbnailHeight,
+                                  const QString &replyToEventId) override;
+    quint64 scheduleContent(const QString &roomId, const QString &contentJson,
+                            qint64 delayMs) override;
+    quint64 sendRoomContent(const QString &roomId,
+                            const QString &contentJson) override;
     quint64 sendRoomMessage(const QString &roomId, const QString &body,
                             const QVariantMap &bodySpec,
                             const QStringList &mentionUserIds,
@@ -1210,4 +1224,13 @@ private:
     quint64 m_opCounter = 0;
     qint64 m_maxUploadSize = 0;
     bool m_uploadLimitRequested = false;
+
+private:
+    quint64 mediaUpload(bool prepareOnly, bool spoiler, const QString &roomId,
+                        const QString &threadRootId, const QString &localPath,
+                        const QByteArray &bytes, const QString &filename,
+                        const QString &mime, const QString &caption, int width,
+                        int height, qint64 durationMs, bool animated,
+                        const QByteArray &thumbnail, int thumbnailWidth,
+                        int thumbnailHeight, const QString &replyToEventId);
 };

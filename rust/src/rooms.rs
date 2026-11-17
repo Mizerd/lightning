@@ -4524,10 +4524,38 @@ pub(crate) fn schedule_message(
     delay_ms: u64,
     op_id: u64,
 ) -> Result<(), String> {
+    let spec = crate::timeline::parse_body_spec(&spec_json)?;
+    let content = crate::timeline::outgoing_content(&body, &spec, mention_user_ids);
+    let content = serde_json::to_value(&content)
+        .map_err(|_| "The message could not be built.".to_owned())?;
+    schedule_content(bridge, room_id, content, delay_ms, op_id)
+}
+
+/// Media event content Lightning prepared for a scheduled send, read back
+/// from the scheduler. Only a plain media message is accepted.
+pub(crate) fn scheduled_media_content(json: &str) -> Result<serde_json::Value, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json).map_err(|_| "Invalid message content.".to_owned())?;
+    let msgtype = value.get("msgtype").and_then(serde_json::Value::as_str);
+    if !matches!(msgtype, Some("m.image" | "m.file" | "m.video" | "m.audio"))
+        || (value.get("url").is_none() && value.get("file").is_none())
+    {
+        return Err("Invalid message content.".to_owned());
+    }
+    Ok(value)
+}
+
+pub(crate) fn schedule_content(
+    bridge: &RustClient,
+    room_id: String,
+    content: serde_json::Value,
+    delay_ms: u64,
+    op_id: u64,
+) -> Result<(), String> {
     use matrix_sdk::ruma::api::client::delayed_events::{
         delayed_message_event, DelayParameters,
     };
-    use matrix_sdk::ruma::events::{AnyMessageLikeEventContent, MessageLikeEventType};
+    use matrix_sdk::ruma::events::MessageLikeEventType;
     use matrix_sdk::ruma::TransactionId;
     use std::time::Duration;
 
@@ -4536,8 +4564,8 @@ pub(crate) fn schedule_message(
     if delay_ms == 0 {
         return Err("a scheduled send needs a delay".to_owned());
     }
-    let spec = crate::timeline::parse_body_spec(&spec_json)?;
-    let content = crate::timeline::outgoing_content(&body, &spec, mention_user_ids);
+    let raw = serde_json::value::to_raw_value(&content)
+        .map_err(|_| "The message could not be built.".to_owned())?;
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
@@ -4555,21 +4583,12 @@ pub(crate) fn schedule_message(
             refuse(&events, "encrypted_unsupported");
             return;
         }
-        let raw = match matrix_sdk::ruma::serde::Raw::new(
-            &AnyMessageLikeEventContent::RoomMessage(content),
-        ) {
-            Ok(raw) => raw.cast_unchecked(),
-            Err(_) => {
-                refuse(&events, "rejected");
-                return;
-            }
-        };
         let request = delayed_message_event::unstable::Request::new_raw(
             room.room_id().to_owned(),
             TransactionId::new(),
             MessageLikeEventType::RoomMessage,
             DelayParameters::Timeout { timeout: Duration::from_millis(delay_ms) },
-            raw,
+            matrix_sdk::ruma::serde::Raw::from_json(raw),
         );
         let answer = client.send(request).await;
         if !timelines.lifecycle_current(lifecycle) {
@@ -4583,6 +4602,78 @@ pub(crate) fn schedule_message(
             })),
             Err(err) => refuse(&events, classify_room_error(&err.to_string())),
         }
+    });
+    Ok(())
+}
+
+/// Uploads a scheduled attachment now (encrypted in an encrypted room) and
+/// hands the finished content back; `encrypted` says it holds file keys and
+/// must never be persisted.
+pub(crate) fn prepare_scheduled_media(
+    bridge: &RustClient,
+    room_id: String,
+    request: crate::spoiler::SpoilerSend,
+    upload_bytes: u64,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let prepared = tokio::time::timeout(
+            crate::spoiler::upload_timeout(upload_bytes),
+            crate::spoiler::prepare_spoiler(&client, &room, request),
+        )
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, match prepared {
+            Ok(Ok(content)) => json!({
+                "type": "scheduled_media_prepared", "op_id": op_id,
+                "lifecycle": lifecycle, "room_id": room_id, "ok": true,
+                "encrypted": content.get("file").is_some(),
+                "content": content.to_string(),
+            }),
+            _ => json!({
+                "type": "scheduled_media_prepared", "op_id": op_id,
+                "lifecycle": lifecycle, "room_id": room_id, "ok": false,
+                "category": "rejected",
+            }),
+        });
+    });
+    Ok(())
+}
+
+pub(crate) fn send_room_content(
+    bridge: &RustClient,
+    room_id: String,
+    content: serde_json::Value,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = room.send_raw("m.room.message", content).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, match result {
+            Ok(_) => json!({
+                "type": "room_send_result", "lifecycle": lifecycle,
+                "op_id": op_id, "room_id": room_id, "ok": true,
+            }),
+            Err(err) => json!({
+                "type": "room_send_result", "lifecycle": lifecycle,
+                "op_id": op_id, "room_id": room_id, "ok": false,
+                "category": classify_room_error(&err.to_string()),
+            }),
+        });
     });
     Ok(())
 }
@@ -5754,6 +5845,17 @@ pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduled_content_must_be_a_media_message_with_a_source() {
+        assert!(scheduled_media_content(r#"{"msgtype":"m.image","url":"mxc://hs/a"}"#).is_ok());
+        assert!(scheduled_media_content(r#"{"msgtype":"m.file","file":{"url":"mxc://hs/b"}}"#)
+            .is_ok());
+        assert!(scheduled_media_content(r#"{"msgtype":"m.text","body":"hi"}"#).is_err());
+        assert!(scheduled_media_content(r#"{"msgtype":"m.image"}"#).is_err());
+        assert!(scheduled_media_content("[]").is_err());
+        assert!(scheduled_media_content("not json").is_err());
+    }
 
     #[test]
     fn media_timeout_classes_stay_below_watchdog() {

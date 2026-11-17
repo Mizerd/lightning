@@ -182,6 +182,16 @@ public:
                                 const QString &filename, const QString &mime,
                                 int width, int height,
                                 const QString &replyToEventId) override;
+    quint64 prepareScheduledMedia(const QString &roomId,
+                                  const QString &threadRootId,
+                                  const QString &localPath,
+                                  const QByteArray &bytes,
+                                  const QString &filename, const QString &mime,
+                                  const QString &caption, int width, int height,
+                                  qint64 durationMs, bool animated, bool spoiler,
+                                  const QByteArray &thumbnail,
+                                  int thumbnailWidth, int thumbnailHeight,
+                                  const QString &replyToEventId) override;
     QString lastAttachmentReplyToForTest() const { return m_lastAttachmentReplyTo; }
     QString lastAttachmentCaptionForTest() const { return m_lastAttachmentCaption; }
     int threadAttachmentCallsForTest() const { return m_threadAttachmentCalls; }

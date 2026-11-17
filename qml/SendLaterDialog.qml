@@ -34,8 +34,9 @@ Dialog {
             scheduler.probeSupport()
         open()
     }
-    readonly property bool hasMessage: !!message && !!message.body
-                                       && message.body.length > 0
+    readonly property bool hasMessage: !!message
+                                       && ((!!message.body && message.body.length > 0)
+                                           || message.withAttachments === true)
     readonly property string roomId: hasMessage ? message.roomId : app.currentRoomId
 
     function submit() {
@@ -44,7 +45,17 @@ Dialog {
         var at = root.sendAtMs()
         if (at < 0)
             return
-        var id = root.scheduler.schedule(root.message, at)
+        var message = root.message
+        if (message.withAttachments === true) {
+            message = Object.assign({}, root.message)
+            var prepared = app.composer.prepareAttachmentsForSchedule(
+                message.captionable === true ? message.body : "",
+                message.mentionIds || [])
+            message.media = prepared.media
+            if (prepared.captioned)
+                message.body = ""
+        }
+        var id = root.scheduler.schedule(message, at)
         if (id.length > 0) {
             app.composer.clear()
             root.close()
@@ -143,6 +154,14 @@ Dialog {
                 maximumLineCount: 2
                 wrapMode: Text.Wrap
                 textFormat: Text.PlainText
+            }
+            Label {
+                visible: root.message.withAttachments === true
+                Layout.fillWidth: true
+                text: qsTr("With the attachments in the composer. They are uploaded now.")
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                wrapMode: Text.WordWrap
             }
             SegmentedControl {
                 objectName: "sendLaterPresets"
@@ -284,7 +303,19 @@ Dialog {
                         Item { Layout.fillWidth: true }
                     }
                     Label {
+                        visible: (modelData.media || "").length > 0
+                        Layout.fillWidth: true
+                        text: modelData.uploading
+                              ? qsTr("Uploading %1…").arg(modelData.media)
+                              : qsTr("Attachment: %1").arg(modelData.media)
+                        color: AppTheme.stormText
+                        font.pixelSize: AppTheme.textMeta
+                        elide: Text.ElideMiddle
+                        textFormat: Text.PlainText
+                    }
+                    Label {
                         visible: root.editingId !== modelData.id
+                                 && (modelData.body || "").length > 0
                         Layout.fillWidth: true
                         text: modelData.body
                         color: AppTheme.stormTextSecondary
@@ -327,6 +358,7 @@ Dialog {
                             kind: "ghost"
                             size: "sm"
                             objectName: "sendLaterEditToggle"
+                            visible: (modelData.media || "").length === 0
                             text: root.editingId === modelData.id ? qsTr("Done") : qsTr("Edit text")
                             enabled: !modelData.busy
                             onClicked: {
@@ -353,7 +385,7 @@ Dialog {
                             kind: "danger"
                             size: "sm"
                             text: qsTr("Cancel")
-                            enabled: !modelData.busy
+                            enabled: !modelData.busy || modelData.uploading === true
                             onClicked: root.scheduler.cancel(modelData.id)
                         }
                     }

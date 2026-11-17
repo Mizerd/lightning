@@ -23,6 +23,14 @@ class SettingsManager;
 //     memory-only: their plaintext is never written to disk, and the UI says
 //     so.
 //
+// An attachment is one entry per file, uploaded when scheduled (encrypted in
+// an encrypted room); the entry then holds the finished event content, so
+// either mechanism sends it like a text. Content holding file keys is
+// memory-only like any encrypted entry, and never reaches QML. An entry is
+// not persisted until its upload finishes, and a failed upload drops it: the
+// row stays in the composer, marked failed. A cancelled upload stays on the
+// server unreferenced.
+//
 // Server-side mutations are serialized on the entry's single in-flight op: a
 // reschedule or edit cancels first and replaces only after the server
 // confirms. A failed cancel is reported and never followed by a second
@@ -90,8 +98,13 @@ private:
         bool hasNextText = false;
         QString nextBody;
         QString nextHtml;
+        QString mediaName;
+        QString content;
+        quint64 prepareOp = 0;
     };
 
+    Entry newEntry(const QString &roomId, const QString &threadRootId,
+                   const QString &replyToEventId, qint64 sendAtMs) const;
     QVariantMap toMap(const Entry &e) const;
     Entry *find(const QString &id);
     int indexOf(const QString &id) const;
