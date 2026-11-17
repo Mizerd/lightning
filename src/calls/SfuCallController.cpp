@@ -1520,7 +1520,8 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("Something on this computer blocked the connection to the "
                   "call's service — a firewall or a security policy.");
     if (category == QLatin1String("connect_timeout"))
-        return tr("The call's service didn't answer in time.");
+        return tr("Lightning could not reach the call server. It didn't answer "
+                  "at any of its addresses in time.");
     if (category == QLatin1String("tls_failed"))
         return tr("Lightning couldn't open a secure connection to the "
                   "call's service. Its certificate or its TLS setup was "
