@@ -136,17 +136,10 @@ fn handle_names(handle: &matrix_sdk::send_queue::SendHandle, txn: &matrix_sdk::r
 fn is_ours(
     echo: &matrix_sdk::send_queue::LocalEcho,
     handle: &matrix_sdk::send_queue::SendHandle,
-    content: &serde_json::Value,
 ) -> bool {
-    let matrix_sdk::send_queue::LocalEchoContent::Event { serialized_event, send_handle, .. } =
-        &echo.content
-    else {
-        return false;
-    };
-    let (raw, _) = serialized_event.clone().into_raw();
-    handle_names(handle, &echo.transaction_id)
-        && send_handle.created_at == handle.created_at
-        && serde_json::from_str::<serde_json::Value>(raw.json().get()).ok().as_ref() == Some(content)
+    // By transaction id alone: an edit of the queued echo rewrites its content.
+    matches!(echo.content, matrix_sdk::send_queue::LocalEchoContent::Event { .. })
+        && handle_names(handle, &echo.transaction_id)
 }
 
 enum AfterLag {
@@ -159,9 +152,8 @@ enum AfterLag {
 fn after_lag(
     echoes: &[matrix_sdk::send_queue::LocalEcho],
     handle: &matrix_sdk::send_queue::SendHandle,
-    content: &serde_json::Value,
 ) -> AfterLag {
-    let Some(echo) = echoes.iter().find(|echo| is_ours(echo, handle, content)) else {
+    let Some(echo) = echoes.iter().find(|echo| is_ours(echo, handle)) else {
         return AfterLag::Gone;
     };
     match &echo.content {
@@ -182,9 +174,6 @@ pub(crate) async fn send_queued(
     wait: Duration,
 ) -> QueuedSend {
     use matrix_sdk::send_queue::RoomSendQueueUpdate;
-    let Ok(json) = serde_json::to_value(&content) else {
-        return QueuedSend::Failed("the message could not be serialized".to_owned());
-    };
     let queue = room.send_queue();
     // Overrides the recovery back-off for this room; a paused queue would
     // otherwise hold a message the user just sent until the next retry.
@@ -213,7 +202,7 @@ pub(crate) async fn send_queued(
                     return QueuedSend::Unresolved;
                 };
                 updates = fresh;
-                match after_lag(&echoes, &handle, &json) {
+                match after_lag(&echoes, &handle) {
                     AfterLag::Gone => return QueuedSend::Sent(None),
                     AfterLag::Wedged(reason) => return failed(reason).await,
                     AfterLag::Queued(id) => txn = Some(id),
@@ -225,7 +214,7 @@ pub(crate) async fn send_queued(
         let ours = |id: &matrix_sdk::ruma::OwnedTransactionId| txn.as_ref() == Some(id);
         match update {
             RoomSendQueueUpdate::NewLocalEvent(echo) if txn.is_none() => {
-                if is_ours(&echo, &handle, &json) {
+                if is_ours(&echo, &handle) {
                     txn = Some(echo.transaction_id);
                 }
             }
@@ -421,23 +410,26 @@ mod tests {
         server.mock_room_state_encryption().plain().mount().await;
         server.mock_room_send().error_too_large().mount().await;
         let queue = room.send_queue();
-        let content: matrix_sdk::ruma::events::AnyMessageLikeEventContent =
-            RoomMessageEventContent::text_plain("ours").into();
-        let json = serde_json::to_value(&content).unwrap();
-        let other = serde_json::to_value(
-            matrix_sdk::ruma::events::AnyMessageLikeEventContent::from(
-                RoomMessageEventContent::text_plain("other"),
-            ),
-        )
-        .unwrap();
-
         queue.set_enabled(false);
         let (_, mut updates) = queue.subscribe().await.unwrap();
-        let handle = queue.send(content).await.unwrap();
+        let handle = queue.send(RoomMessageEventContent::text_plain("ours").into()).await.unwrap();
+        let other = queue.send(RoomMessageEventContent::text_plain("other").into()).await.unwrap();
         let echoes = queue.subscribe().await.unwrap().0;
-        assert!(matches!(after_lag(&echoes, &handle, &json), AfterLag::Queued(_)));
-        assert!(matches!(after_lag(&echoes, &handle, &other), AfterLag::Gone));
-        assert!(matches!(after_lag(&[], &handle, &json), AfterLag::Gone));
+        let (AfterLag::Queued(mine), AfterLag::Queued(theirs)) =
+            (after_lag(&echoes, &handle), after_lag(&echoes, &other))
+        else {
+            panic!("a queued send read as gone");
+        };
+        assert_ne!(mine, theirs, "two sends matched the same queued echo");
+        assert!(matches!(after_lag(&[], &handle), AfterLag::Gone));
+
+        assert!(handle.edit(RoomMessageEventContent::text_plain("edited").into()).await.unwrap());
+        let echoes = queue.subscribe().await.unwrap().0;
+        assert!(
+            matches!(after_lag(&echoes, &handle), AfterLag::Queued(_)),
+            "an edited, still-queued echo read as sent"
+        );
+        other.abort().await.unwrap();
 
         queue.set_enabled(true);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
@@ -447,7 +439,7 @@ mod tests {
             }
         }
         let echoes = queue.subscribe().await.unwrap().0;
-        assert!(matches!(after_lag(&echoes, &handle, &json), AfterLag::Wedged(_)));
+        assert!(matches!(after_lag(&echoes, &handle), AfterLag::Wedged(_)));
     }
 
     #[tokio::test(flavor = "multi_thread")]
