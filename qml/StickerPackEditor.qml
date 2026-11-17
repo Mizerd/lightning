@@ -45,6 +45,7 @@ Dialog {
         confirmingMigrate = false
         confirmingDelete = false
         confirmingRemove = false
+        removeRequested = false
         removingKey = null
         open()
     }
@@ -703,8 +704,8 @@ Dialog {
                 onClicked: {
                     root.confirmingDelete = false
                     if (root.confirmingRemove) {
-                        root.removeRequested = true
                         root.stickers.removePack(root.packId)
+                        root.removeRequested = root.stickers.editing
                     } else {
                         root.confirmingRemove = true
                     }

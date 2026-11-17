@@ -2134,11 +2134,11 @@ impl PackEdit {
                 }
                 set_pack_usage_content(existing, usage).map(|c| (c, String::new()))
             }
-            // Legacy drops the name too: a named empty pack would not read as
-            // deleted there.
             // `{}` in either dialect is "no pack": it drops out of every list
             // and cannot resurrect a legacy twin.
             PackEdit::RemovePack => Ok((json!({}), String::new())),
+            // Legacy drops the name too: a named empty pack would not read as
+            // deleted there.
             PackEdit::DeletePack => match namespace {
                 Namespace::Legacy => Ok((json!({}), String::new())),
                 Namespace::Stable => {
