@@ -2090,7 +2090,7 @@ requirement that we trust that identity) both reach QML. The Sessions chip,
 both filters and the account rollup key on the second and label it
 "Verified" — wrong in BOTH directions, including a green badge for a device
 matrix-sdk does not trust. `verified` is read in one line of the file. §6:
-trust labels come from SDK state. Fixed in `536a4429`: one Rust-computed `trusted` flag feeds all of them.
+trust labels come from SDK state. FIXED in `536a4429`.
 
 Full account in `docs/round-history.md`, 2026-09-20 — also the ToolTip that is
 centred on its anchor, a Qt border painting inside the bounds under an Avatar,
