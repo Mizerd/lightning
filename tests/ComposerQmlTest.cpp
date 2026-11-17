@@ -1612,6 +1612,29 @@ private slots:
         }
     }
 
+    void sendLaterIsRefusedWhileAttachmentsAreQueued()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        auto *composer = m_controller->composer();
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString txt = writeFile(dir, QStringLiteral("queued.txt"),
+                                      QByteArrayLiteral("queued"));
+        composer->setText(QStringLiteral("caption"));
+        composer->addAttachment(QUrl::fromLocalFile(txt));
+        QTRY_VERIFY(composer->hasAttachments());
+        auto *menuItem = item("composerSendLaterMenuItem");
+        QVERIFY(menuItem);
+        QVERIFY2(!menuItem->property("enabled").toBool(),
+                 "Send later would schedule the text and strand the attachment");
+        composer->attachments()->clearAll();
+        composer->setText(QString());
+        QTest::qWait(80);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
     void aSecondPressOnAPickerButtonClosesItsPanel()
     {
         auto *bar = item("composerBar");

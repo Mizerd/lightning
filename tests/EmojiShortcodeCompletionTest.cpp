@@ -174,6 +174,14 @@ private Q_SLOTS:
         QVERIFY2(!stillCustom.isEmpty(), "custom packs must still complete on one+ chars");
     }
 
+    void completionsAreOfferedWhileEditing()
+    {
+        m_composer->beginEdit(QStringLiteral("$e"), QStringLiteral(":blob"),
+                              QString(), QString());
+        QVERIFY(m_composer->isEditing());
+        QVERIFY(!m_composer->emojiCompletionsAt(5).isEmpty());
+    }
+
     void noPopupForEmoticonsOrTimes_data()
     {
         QTest::addColumn<QString>("text");

@@ -273,6 +273,8 @@ Item {
         sendLaterDialog.openFor({})
     }
     function openSendLater() {
+        if (app.composer.hasAttachments)
+            return
         if (!app.composer.canSend || app.composer.text.trim().length === 0) {
             sendLaterDialog.openFor({})
             return
@@ -3235,8 +3237,10 @@ Item {
         AppMenuItem {
             objectName: "composerSendLaterMenuItem"
             iconName: "schedule"
-            text: qsTr("Send later…")
-            enabled: app.composer.canSend
+            text: app.composer.hasAttachments
+                  ? qsTr("Send later… (not available with attachments)")
+                  : qsTr("Send later…")
+            enabled: app.composer.canSend && !app.composer.hasAttachments
             onTriggered: root.openSendLater()
         }
         AppMenuItem {

@@ -1192,8 +1192,6 @@ constexpr int kMaxEmojiCompletions = 12;
 
 QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
 {
-    if (!m_editingEventId.isEmpty())
-        return {};
     return emojiCompletionsForText(m_text, cursorPos);
 }
 
