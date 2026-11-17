@@ -186,7 +186,7 @@ ApplicationWindow {
             function packImageMap(id) { return ({}) }
             function comparePack(id, base) { return ({ any: false }) }
             function failedUploadCount() { return 2 }
-            function shareLink(id) { return "https://matrix.to/#/!r:example.org" }
+            function shareLink(id) { return "matrix.to-link" }
             function copyShareText(id) { return true }
             function removePack(id) {}
             function deletePack(id) {}
