@@ -88,6 +88,7 @@ std::atomic<bool> g_shareSystemMemoryCaptureFailed{false};
 QString g_pipewirePluginVersionForTest;
 constexpr const char kCaptureRetryKey[] = "lightning-capture-retry";
 constexpr const char kLowPriorityKey[] = "lightning-low-priority";
+constexpr const char kProbeGateKey[] = "lightning-probe-gate";
 
 int captureRetryStamp(GObject *bin)
 {
@@ -1320,15 +1321,19 @@ true);
     m_asyncStarts.clear();
     // A lowered bin finishes its frame at the lowest priority, so the
     // pipeline's NULL would join it on this thread for as long as a game
-    // keeps the CPU. It stops off this thread; awaitPublishTeardowns() bounds
-    // what is still running at the next teardown.
+    // keeps the CPU. It stops off this thread, possibly after this engine is
+    // gone, so its gate closes first.
     for (GstElement *bin : std::as_const(m_publishedBins)) {
         if (!m_publisher.pipeline
             || GST_OBJECT_PARENT(bin) != GST_OBJECT(m_publisher.pipeline)
             || !g_object_get_data(G_OBJECT(bin), kLowPriorityKey))
             continue;
+        if (auto *gate = static_cast<std::shared_ptr<ProbeGate> *>(
+                g_object_get_data(G_OBJECT(bin), kProbeGateKey))) {
+            std::lock_guard<std::mutex> lock((*gate)->mutex);
+            (*gate)->open = false;
+        }
         gst_object_ref(bin);
-        gst_element_set_locked_state(bin, TRUE);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
         m_pendingTeardowns->fetch_add(1);
         auto *pending = new std::shared_ptr<std::atomic<int>>(m_pendingTeardowns);
@@ -1505,9 +1510,17 @@ lightning_low_priority_pool_class_init(LightningLowPriorityPoolClass *klass)
 static void lightning_low_priority_pool_init(LightningLowPriorityPool *) {}
 
 namespace {
-void markLowPriority(GstElement *bin)
+void markLowPriority(GstElement *bin,
+                     const std::shared_ptr<SfuMediaEngine::ProbeGate> &gate)
 {
     g_object_set_data(G_OBJECT(bin), kLowPriorityKey, GINT_TO_POINTER(1));
+    g_object_set_data_full(
+        G_OBJECT(bin), kProbeGateKey,
+        new std::shared_ptr<SfuMediaEngine::ProbeGate>(gate),
+        [](gpointer data) {
+            delete static_cast<std::shared_ptr<SfuMediaEngine::ProbeGate> *>(
+                data);
+        });
 }
 
 GstTaskPool *lowPriorityTaskPool()
@@ -4804,7 +4817,7 @@ int SfuMediaEngine::videoThreads()
 QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu, bool keepOnGpu)
 {
     if (!gpu) {
-        // One thread converts a 4K capture at ~33 fps on a 2012 laptop core.
+        // One thread is too slow for a 4K capture on an older laptop.
         return QStringLiteral("videoconvertscale n-threads=%1")
             .arg(std::max(2, videoThreads()));
     }
@@ -5974,7 +5987,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
     }
     gst_element_set_name(bin, cid.toUtf8().constData());
-    markLowPriority(bin);
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {
         Q_EMIT failed(QStringLiteral("camera_failed"));
         return;
@@ -5995,8 +6007,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     streamInfo->scaling = useGpu ? QStringLiteral("GPU") : QStringLiteral("CPU");
     auto probeState = std::make_shared<PublishProbeState>();
     const bool asyncStart = !screenShare && pipewireFd >= 0;
-    const std::shared_ptr<ProbeGate> gate =
-        asyncStart ? std::make_shared<ProbeGate>() : nullptr;
+    const auto gate = std::make_shared<ProbeGate>();
+    markLowPriority(bin, gate);
     probeState->startedMs = monotonicMs();
     probeState->screenShare = screenShare;
     probeState->keepByReference = m_shareGlEncode && screenShare;
@@ -6491,7 +6503,8 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
         gst_object_unref(backup);
         return false;
     }
-    markLowPriority(backup);
+    const auto gate = std::make_shared<ProbeGate>();
+    markLowPriority(backup, gate);
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), backup))
         return false;
     GstPad *rtp = gst_element_get_static_pad(backup, "src");
@@ -6516,7 +6529,7 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
     stats->scaling = glMemory ? QStringLiteral("GPU") : QStringLiteral("CPU");
     GstElement *encoder = gst_bin_get_by_name(GST_BIN(backup), "sendq");
     GstPad *frames = gst_element_get_static_pad(encoder, "src");
-    installEncryptProbe(frames, true);
+    installEncryptProbe(frames, true, gate);
     instrumentStreamInfo(frames, stats, false);
     instrumentStreamInfo(rtp, stats, true);
     gst_object_unref(frames);

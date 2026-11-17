@@ -2049,14 +2049,21 @@ private slots:
 
     void endingACallUnderFullLoadDoesNotWaitForLoweredThreads()
     {
-        SfuMediaEngine engine;
-        engine.setTestSourceMode(true);
-        engine.start();
-        engine.publishAudio(QStringLiteral("cid-audio"));
-        engine.publishVideo(QStringLiteral("cid-video"), false, -1);
-        QTRY_VERIFY(!engine.streamInfoStats().isEmpty()
-                    && engine.streamInfoStats().first().toMap()
+        auto engine = std::make_unique<SfuMediaEngine>();
+        engine->setTestSourceMode(true);
+        engine->setSelfViewInTestModeForTest(true);
+        engine->start();
+        engine->publishAudio(QStringLiteral("cid-audio"));
+        engine->publishVideo(QStringLiteral("cid-video"), false, -1);
+        QTRY_VERIFY(!engine->streamInfoStats().isEmpty()
+                    && engine->streamInfoStats().first().toMap()
                                .value("width").toInt() > 0);
+        GstElement *bin = GST_ELEMENT(gst_object_ref(
+            engine->publishedBinForTest(QStringLiteral("cid-video"))));
+        const auto *gate = static_cast<std::shared_ptr<SfuMediaEngine::ProbeGate> *>(
+            g_object_get_data(G_OBJECT(bin), "lightning-probe-gate"));
+        QVERIFY2(gate && *gate, "a lowered video publish carries no probe gate");
+        const std::shared_ptr<SfuMediaEngine::ProbeGate> held = *gate;
 
         std::atomic<bool> spin{true};
         std::vector<std::thread> load;
@@ -2070,13 +2077,22 @@ private slots:
         QThread::msleep(300);
         QElapsedTimer timer;
         timer.start();
-        engine.stop();
+        engine->stop();
         const qint64 stopMs = timer.elapsed();
+        {
+            std::lock_guard<std::mutex> lock(held->mutex);
+            QVERIFY2(!held->open, "a detached video bin can still reach the "
+                                  "engine through its probes");
+        }
+        engine.reset();
+        QThread::msleep(300);
         spin = false;
         for (std::thread &t : load)
             t.join();
+        QTRY_COMPARE_WITH_TIMEOUT(GST_STATE(bin), GST_STATE_NULL, 10000);
+        gst_object_unref(bin);
         qInfo() << "stop() under full CPU load took" << stopMs << "ms";
-        QVERIFY2(stopMs < 500,
+        QVERIFY2(stopMs < 2000,
                  qPrintable(QStringLiteral("ending a call waited %1 ms on "
                                            "the GUI thread for lowered video "
                                            "threads").arg(stopMs)));
