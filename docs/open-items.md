@@ -1,5 +1,9 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-11-17 — ACCEPTED FOLLOW-UP: the account list's "needs sign-in" badge trusts a remembered token (GitHub #83)
+
+`SettingsManager::hasAccessTokenFor` remembers that a token was found, so the badge does not re-read the keyring on every refresh. A token deleted outside the app keeps the badge on "present" until restart; account switch and removal still read the keyring for real.
+
 ## 2026-11-14 — NOT TESTED: VP9 receive on an encrypted call (GitHub #72)
 
 No VP9 sender has been run against it live; the evidence is CTest

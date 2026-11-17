@@ -7425,7 +7425,7 @@ AppController::signInStateFor(const QString &userId) const
     // mock account as signed out.
     if (m_backend == MockBackend)
         return SignInState::Usable;
-    if (m_settings && m_settings->hasAccessTokenFor(userId))
+    if (m_settings && !m_settings->accessTokenFor(userId).isEmpty())
         return SignInState::Usable;
     if (m_accounts && m_accounts->needsSignIn(userId)) {
         return m_settings->secretsWrittenHereForRecordedDevice(userId)

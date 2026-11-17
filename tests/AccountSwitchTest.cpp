@@ -1227,6 +1227,30 @@ private Q_SLOTS:
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
     }
 
+    void aKeyringThatLocksAfterAPresenceCheckStillRefusesTheSwitch()
+    {
+        AppController app(AppController::HttpBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.settings()->setActiveAccountUserId(kAlice);
+
+        QVERIFY(!app.accounts()->needsSignIn(kBob));
+        secrets.setLocked(true);
+
+        QSignalSpy errors(&app, &AppController::errorReported);
+        app.switchToAccount(kBob);
+
+        QCOMPARE(errors.count(), 1);
+        QVERIFY(!app.accountSwitching());
+        QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
+    }
+
     void aMachineWithNoKeyringStillSwitchesAccounts()
     {
         AppController app(AppController::HttpBackend);
