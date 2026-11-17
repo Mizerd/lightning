@@ -306,6 +306,8 @@ private slots:
         QTRY_COMPARE(aliceCard->property("avatarMxc").toString(),
                      QStringLiteral("mxc://one.example/a"));
         QCOMPARE(bobCard->property("avatarMxc").toString(), QString());
+        m_controller->accounts()->updateProfile(kAlice, QString(), QString());
+        m_controller->accounts()->updateProfile(kBob, QString(), QString());
     }
 
     void statusStripSpeaksOnlyWhenSomethingIsWrong()
