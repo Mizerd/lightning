@@ -1182,9 +1182,11 @@ the shipped one against a game at nice 0.
   its threads, so on a 2-core/4-thread budget beside a two-thread game the
   share burned **2.5 cores and fell to ~19 fps**; `threads=2` did the same work
   in **1.0 core at 30 fps**, and the game went from ~420/600 frames over budget
-  to ~5. `videoconvertscale n-threads` mattered far less. Both now take
+  to ~5. `videoconvertscale n-threads` mattered far less. vp8enc takes
   `videoThreads()` = a quarter of the logical CPUs, 1..4 (4 on a 16+ CPU box,
-  unchanged there).
+  unchanged there); the converter takes at least 2, because one thread
+  converts a 4K capture to 1080p at ~50 fps on this host's core (2 threads:
+  ~80, 4: ~83, on a 4-CPU budget) and so at roughly 33 fps on a 2012 laptop.
 * **Video publish threads run `SCHED_IDLE`** (nice 19 if refused; `LOWEST` on
   Windows, UTILITY QoS on macOS), on a pool that gives every task its own
   thread: a lowered thread cannot raise itself again and must never come back
@@ -1193,6 +1195,24 @@ the shipped one against a game at nice 0.
   (15.7 ms against 10.2 alone): a share thread on a game thread's SMT sibling
   slows it whatever its priority. `videoconvertscale`'s own helper threads are
   GLib pool threads and keep normal priority.
+* **SCHED_IDLE, not nice 19, measured.** Same 2c/4t harness, game at nice 10
+  (above the share, still below the desktop), three threads at 12 ms per
+  frame: over-budget frames normal 30-45, nice 19 27-37, SCHED_IDLE 1-3. Two
+  game threads: 0-1 in all three. Nice 19 buys nothing here: what the game
+  loses is wakeup latency, and only an idle-policy thread is preempted at once.
+* **A lowered bin is never joined on the GUI thread.** The pipeline's NULL at
+  `stop()`/`suspend()` used to join every video thread there, and an idle
+  thread finishing its frame under load took up to ~0.9 s (review measurement,
+  two CPUs, four spinners). `teardown()` takes those bins out of the pipeline
+  and stops them through `gst_element_call_async`; what is still running at the
+  next teardown is waited for at most `kTeardownWaitMs` and logged.
+  `endingACallUnderFullLoadDoesNotWaitForLoweredThreads` runs two spinners per
+  CPU and times `stop()`: 16.5 s and 41.6 s on the gitlab.com runner without
+  this, under 500 ms with it.
+* Locks a lowered thread still takes briefly, accepted: the keep-alive
+  pointer swap, `SfuVideoRouter`'s mutex, and vpxenc's encoder lock when
+  `applyShareQualityLive()` sets `target-bitrate` from the GUI. The self-view
+  copy moved outside the gate mutex the encrypt probe and the GUI take.
 * **`sendq`, after the encoder, keeps normal priority on purpose.** The encrypt
   probe sits on its src pad, and `m_sendCryptor`, rtpbin and the transport are
   shared with audio: a lowered thread preempted while holding one of those
