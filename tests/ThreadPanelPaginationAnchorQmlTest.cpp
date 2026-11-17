@@ -573,7 +573,8 @@ private Q_SLOTS:
         QVERIFY2(scroll->height() <= cap + 0.5,
                  qPrintable(QStringLiteral("the root body is %1 px, over its %2 px cap")
                                 .arg(scroll->height()).arg(cap)));
-        QCOMPARE(scroll->property("interactive").toBool(), scrolls);
+        QCOMPARE(scroll->property("contentHeight").toReal() > scroll->height() + 0.5,
+                 scrolls);
         if (!scrolls) {
             QCOMPARE(qRound(scroll->height()), qRound(body->implicitHeight()));
             return;
@@ -586,8 +587,16 @@ private Q_SLOTS:
         QCOMPARE(scroll->property("contentY").toReal(), lastY);
     }
 
+    void theThreadRootTextCanBeSelectedByDragging_data()
+    {
+        QTest::addColumn<int>("lineCount");
+        QTest::newRow("short root") << 2;
+        QTest::newRow("long scrolling root") << 60;
+    }
+
     void theThreadRootTextCanBeSelectedByDragging()
     {
+        QFETCH(int, lineCount);
         QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
@@ -603,7 +612,7 @@ private Q_SLOTS:
         QVERIFY(rootIndex >= 0);
         TimelineEvent rootEvent = events.at(rootIndex);
         QStringList lines;
-        for (int i = 1; i <= 60; ++i)
+        for (int i = 1; i <= lineCount; ++i)
             lines << QStringLiteral("line%1 selectable words").arg(i);
         rootEvent.body = lines.join(QLatin1Char('\n'));
         mock->changeEventAtForTest(kGeneral, rootIndex, rootEvent);
@@ -635,7 +644,7 @@ private Q_SLOTS:
         QVERIFY(scroll && body);
         QTRY_VERIFY(body->isVisible());
         QTRY_COMPARE(body->property("text").toString(), rootEvent.body);
-        QVERIFY(scroll->property("interactive").toBool());
+        const bool scrolls = lineCount > 10;
 
         const QPoint from = body->mapToScene(QPointF(2, 8)).toPoint();
         const QPoint to = body->mapToScene(QPointF(120, 8)).toPoint();
@@ -647,6 +656,15 @@ private Q_SLOTS:
                          .startsWith(QStringLiteral("line1")),
                      "dragging across the root selected nothing");
         QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+        if (!scrolls)
+            return;
+
+        QWheelEvent wheel(QPointF(from), QPointF(window.mapToGlobal(from)),
+                          QPoint(), QPoint(0, -120), Qt::NoButton, {},
+                          Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(&window, &wheel);
+        QTRY_VERIFY2(scroll->property("contentY").toReal() > 0,
+                     "the wheel no longer scrolls a long root");
     }
 
     void draggingTheReplyScrollBarUpStopsFollowingTheNewestReply()

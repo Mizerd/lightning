@@ -849,9 +849,16 @@ Rectangle {
                     visible: panel.rootData.loaded === true && !panel.rootCollapsed
                     contentWidth: width
                     contentHeight: rootBody.implicitHeight
-                    interactive: contentHeight > height
+                    // Not interactive: a Flickable steals the mouse drag the
+                    // TextEdit needs for selection. Wheel and the bar still scroll.
+                    interactive: false
                     boundsBehavior: Flickable.StopAtBounds
                     clip: true
+                    WheelHandler {
+                        target: rootBodyFlick
+                        orientation: Qt.Vertical
+                        enabled: rootBodyFlick.contentHeight > rootBodyFlick.height
+                    }
                     readonly property string shownRootId: panel.rootData.eventId || ""
                     onShownRootIdChanged: contentY = 0
                     TextEdit {
