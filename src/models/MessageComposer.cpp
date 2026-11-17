@@ -376,7 +376,9 @@ QVariantMap MessageComposer::prepareAttachmentsForSchedule(
         m_preparingForSchedule = true;
         for (int row = 0; row < entries.size(); ++row) {
             auto &entry = entries[row];
-            if (entry.state != QLatin1String("queued") || entry.posterPending)
+            // sendRequested: already queued behind an earlier Send.
+            if (entry.state != QLatin1String("queued") || entry.posterPending
+                || entry.sendRequested)
                 continue;
             entry.sendRequested = true;
             captureSendTarget(entry);
