@@ -551,6 +551,12 @@ Item {
         if (app.thread && app.thread.model && app.thread.model.setMentionStyle)
             app.thread.model.setMentionStyle(accent, soft, code, linkInk,
                                              AppTheme.underlineLinks)
+        var bar = "" + AppTheme.borderStrong
+        var ink = "" + AppTheme.textSecondary
+        if (app.timeline && app.timeline.setQuoteStyle)
+            app.timeline.setQuoteStyle(bar, ink)
+        if (app.thread && app.thread.model && app.thread.model.setQuoteStyle)
+            app.thread.model.setQuoteStyle(bar, ink)
     }
     Component.onCompleted: {
         applyDirection()
@@ -568,6 +574,8 @@ Item {
         function onAccentSoftChanged() { _pushMentionStyle() }
         function onCodeBlockChanged() { _pushMentionStyle() }
         function onLinkChanged() { _pushMentionStyle() }
+        function onBorderStrongChanged() { _pushMentionStyle() }
+        function onTextSecondaryChanged() { _pushMentionStyle() }
         function onUnderlineLinksChanged() { _pushMentionStyle() }
     }
 

@@ -13,6 +13,8 @@ struct MentionStyle {
     QString linkColor;
     QString codeBackground;
     bool underlineMentions = false;
+    QString quoteBar;
+    QString quoteInk;
 };
 
 QString sanitize(

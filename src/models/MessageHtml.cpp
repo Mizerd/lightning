@@ -839,6 +839,7 @@ QString MessageHtml::sanitize(
     int codeDepth = 0;
     QList<bool> tableEmitted;
     QList<qsizetype> openTableStarts;
+    int quoteDepth = 0;
     qint64 tableCellsKept = 0;
     const auto closeEmittedTable = [&out, &openTableStarts, &tableCellsKept]() {
         const qsizetype start = openTableStarts.takeLast();
@@ -1151,8 +1152,15 @@ QString MessageHtml::sanitize(
                 // </br> and </hr> mean nothing, and Qt reads them as closing
                 // whatever was opened right after the <br>/<hr> (see
                 // measureEmittedTable), so they are never emitted.
-                if (name != QLatin1String("br") && name != QLatin1String("hr"))
+                if (name == QLatin1String("blockquote")) {
+                    if (quoteDepth > 0) {
+                        --quoteDepth;
+                        out += QStringLiteral("</td></tr></table>");
+                    }
+                } else if (name != QLatin1String("br")
+                           && name != QLatin1String("hr")) {
                     out += QStringLiteral("</") + name + QStringLiteral(">");
+                }
             } else if (name == QLatin1String("ol")) {
                 const QString rawStart =
                     extractAttr(t.raw, QStringLiteral("start"));
@@ -1171,12 +1179,22 @@ QString MessageHtml::sanitize(
                     + QStringLiteral(" style=\"background-color:")
                     + mentionStyle.codeBackground.toHtmlEscaped()
                     + QStringLiteral("\">");
-            } else if (!mentionStyle.linkColor.isEmpty()
-                       && name == QLatin1String("blockquote")) {
-                out += QStringLiteral("<blockquote style=\"border-left:3px "
-                                      "solid ")
-                    + mentionStyle.linkColor.toHtmlEscaped()
-                    + QStringLiteral("; padding-left:10px; margin-left:2px\">");
+            } else if (name == QLatin1String("blockquote")) {
+                // Qt ignores border-left on a blockquote; a one-cell table's
+                // cell border is the only bar it paints.
+                ++quoteDepth;
+                out += QStringLiteral("<table cellspacing=\"0\" cellpadding=\"0\">"
+                                      "<tr><td style=\"border-left:3px solid ")
+                    + (mentionStyle.quoteBar.isEmpty()
+                           ? QStringLiteral("#808080")
+                           : mentionStyle.quoteBar.toHtmlEscaped())
+                    + QStringLiteral("; padding-left:8px;")
+                    + (mentionStyle.quoteInk.isEmpty()
+                           ? QString()
+                           : QStringLiteral(" color:")
+                                 + mentionStyle.quoteInk.toHtmlEscaped()
+                                 + QLatin1Char(';'))
+                    + QStringLiteral("\">");
             } else {
                 out += QStringLiteral("<") + name + QStringLiteral(">");
             }
@@ -1191,6 +1209,8 @@ QString MessageHtml::sanitize(
         if (anchorEmitted.takeLast())
             out += QLatin1String("</a>");
     }
+    while (quoteDepth-- > 0)
+        out += QStringLiteral("</td></tr></table>");
     while (!openTableStarts.isEmpty())
         closeEmittedTable();
     return markEmoji(out);

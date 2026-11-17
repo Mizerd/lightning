@@ -1326,7 +1326,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionLinkColor,
-                                      m_codeBackgroundColor, m_underlineMentions},
+                                      m_codeBackgroundColor, m_underlineMentions,
+                                  m_quoteBarColor, m_quoteInkColor},
             m_spoilersRevealed.contains(e.eventId));
         if (!e.eventId.isEmpty()) {
             m_sanitizedHtmlCache.insert(e.eventId, sanitized);
@@ -1363,7 +1364,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionLinkColor,
-                                      m_codeBackgroundColor, m_underlineMentions},
+                                      m_codeBackgroundColor, m_underlineMentions,
+                                  m_quoteBarColor, m_quoteInkColor},
             m_spoilersRevealed.contains(e.eventId));
         QVariantList out;
         bool hasCodeBlock = false;
@@ -1883,6 +1885,23 @@ QString TimelineModel::markRoomMention(const QString &safeHtml,
     if (!hexColor.match(fill).hasMatch() || !hexColor.match(ink).hasMatch())
         return MessageHtml::markRoomMention(safeHtml, m_mentionAccentColor);
     return MessageHtml::markRoomMention(safeHtml, ink, fill);
+}
+
+void TimelineModel::setQuoteStyle(const QString &bar, const QString &ink)
+{
+    static const QRegularExpression hexColor(
+        QStringLiteral("^#[0-9a-fA-F]{6}$"));
+    const QString nextBar = hexColor.match(bar).hasMatch() ? bar.toLower() : QString();
+    const QString nextInk = hexColor.match(ink).hasMatch() ? ink.toLower() : QString();
+    if (nextBar == m_quoteBarColor && nextInk == m_quoteInkColor)
+        return;
+    m_quoteBarColor = nextBar;
+    m_quoteInkColor = nextInk;
+    clearRenderedHtml();
+    const int exposed = rowCount();
+    if (exposed > 0)
+        Q_EMIT dataChanged(index(0), index(exposed - 1),
+                           {FormattedBodyRole, MessageSegmentsRole});
 }
 
 void TimelineModel::setMentionStyle(const QString &accentColor,
@@ -2735,7 +2754,8 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
         },
         m_selfUserId,
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
-                                  m_codeBackgroundColor, m_underlineMentions},
+                                  m_codeBackgroundColor, m_underlineMentions,
+                                  m_quoteBarColor, m_quoteInkColor},
 true);
 }
 
@@ -3034,6 +3054,7 @@ QString TimelineModel::sanitizeHtml(const QString &html) const
         },
         m_selfUserId,
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
-                                  m_codeBackgroundColor, m_underlineMentions},
+                                  m_codeBackgroundColor, m_underlineMentions,
+                                  m_quoteBarColor, m_quoteInkColor},
 true);
 }

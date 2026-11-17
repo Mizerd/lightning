@@ -611,6 +611,32 @@ private Q_SLOTS:
                  QStringLiteral("real"));
     }
 
+    void plainQuoteIsDrawnAsABarCellAndNestsAndKeepsItsContents()
+    {
+        const MessageHtml::MentionStyle style{QString(), QString(), QString(),
+                                              false, QStringLiteral("#445566"),
+                                              QStringLiteral("#778899")};
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral("<blockquote>a <b>b</b><blockquote>inner</blockquote>"
+                           "</blockquote>after"),
+            nullptr, QString(), style);
+        QVERIFY2(!out.contains(QStringLiteral("<blockquote")), qPrintable(out));
+        QCOMPARE(out.count(QStringLiteral("border-left:3px solid #445566")), 2);
+        QCOMPARE(out.count(QStringLiteral("color:#778899")), 2);
+        QCOMPARE(out.count(QStringLiteral("<table")),
+                 out.count(QStringLiteral("</table>")));
+        QVERIFY2(out.endsWith(QStringLiteral("</td></tr></table>after")),
+                 qPrintable(out));
+        QVERIFY2(out.contains(QStringLiteral("<b>b</b>")), qPrintable(out));
+
+        const QString bare = sanitize(QStringLiteral("<blockquote>x"));
+        QVERIFY2(bare.contains(QStringLiteral("border-left:3px solid")),
+                 qPrintable(bare));
+        QCOMPARE(bare.count(QStringLiteral("</table>")), 1);
+        QVERIFY(!sanitize(QStringLiteral("x</blockquote>y"))
+                     .contains(QStringLiteral("</table>")));
+    }
+
     void unknownTagsAreDroppedButTextKept()
     {
         QCOMPARE(sanitize(QStringLiteral("<marquee>hello</marquee>")),

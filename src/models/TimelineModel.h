@@ -313,6 +313,8 @@ public:
                                      const QString &linkColor = QString(),
                                      bool underlineLinks = false);
 
+    Q_INVOKABLE void setQuoteStyle(const QString &bar, const QString &ink);
+
     Q_INVOKABLE QString markRoomMention(const QString &safeHtml,
                                         const QString &fill,
                                         const QString &ink) const;
@@ -468,6 +470,8 @@ private:
     QString m_mentionLinkColor;
     QString m_codeBackgroundColor;
     bool m_underlineMentions = false;
+    QString m_quoteBarColor;
+    QString m_quoteInkColor;
 
     bool m_showRoomActivity = true;
     bool m_showMembershipEvents = true;
