@@ -46,7 +46,9 @@ void QuoteBars::collect(QTextFrame *frame, QVariantList &out) const
                 const QRectF r =
                     m_textDocument->documentLayout()->frameBoundingRect(table);
                 out.append(QVariantMap{
-                    {QStringLiteral("x"), r.x()},
+                    {QStringLiteral("x"),
+                     r.x() - table->cellAt(0, 0).format()
+                                 .toTableCellFormat().leftPadding()},
                     {QStringLiteral("y"), r.y()},
                     {QStringLiteral("height"), r.height()},
                     {QStringLiteral("color"),
