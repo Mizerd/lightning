@@ -2474,16 +2474,17 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location line="+4"/>
+        <location line="+30"/>
         <source>That message cannot be deleted with your current permissions.</source>
         <translation>Essa mensagem não pode ser eliminada com as suas permissões atuais.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-26"/>
         <source>Select up to 50 messages at once.</source>
         <translation>Selecione no máximo 50 mensagens de cada vez.</translation>
     </message>
     <message numerus="yes">
-        <location line="+82"/>
+        <location line="+96"/>
         <source>%n message(s) in the range cannot be deleted.</source>
         <translation>
             <numerusform>%n mensagem do intervalo não pode ser eliminada.</numerusform>
@@ -12468,7 +12469,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+744"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+746"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Adicionar ligação</translation>
@@ -12839,7 +12840,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Gravar uma mensagem de voz</translation>
     </message>
     <message>
-        <location line="-3159"/>
+        <location line="-3161"/>
         <source>A recording is already in progress.</source>
         <translation>Já está em curso uma gravação.</translation>
     </message>
@@ -12859,7 +12860,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>A gravação de voz está indisponível.</translation>
     </message>
     <message>
-        <location line="+2876"/>
+        <location line="+2878"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Mais</translation>
@@ -12906,12 +12907,17 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Enviar</translation>
     </message>
     <message>
-        <location line="+154"/>
+        <location line="+145"/>
+        <source>Send later… (not available with attachments)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Scheduled messages</source>
         <translation>Mensagens agendadas</translation>
     </message>
     <message>
-        <location line="-155"/>
+        <location line="-157"/>
         <source>Save edit</source>
         <translation>Guardar a edição</translation>
     </message>
@@ -12953,7 +12959,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Opções de envio (%1 agendadas)</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+121"/>
         <source>Send later…</source>
         <translation>Enviar mais tarde…</translation>
     </message>
@@ -20464,7 +20470,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Escolha o que compartilhar</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+66"/>
         <source>Display %1</source>
         <translation>Exibir %1</translation>
     </message>
@@ -20484,7 +20490,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Primário</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+287"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>Todos na chamada veem toda a tela que você escolher.</translation>
     </message>
@@ -20504,7 +20510,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Telas</translation>
     </message>
     <message>
-        <location line="+185"/>
+        <location line="+181"/>
         <source>No screens were found.</source>
         <translation>Nenhuma tela foi encontrada.</translation>
     </message>
@@ -26757,18 +26763,18 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
-        <location line="+110"/>
+        <location line="+163"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>O compartilhamento de tela não está disponível nesta área de trabalho.</translation>
     </message>
     <message>
-        <location line="-495"/>
-        <location line="+886"/>
+        <location line="-548"/>
+        <location line="+917"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Não foi possível iniciar o compartilhamento de tela.</translation>
     </message>
     <message>
-        <location line="-529"/>
+        <location line="-560"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>O compartilhamento de tela no Wayland precisa do xdg-desktop-portal e não está respondendo. Instale ou inicie o portal para sua área de trabalho — por exemplo xdg-desktop-portal-kde ou xdg-desktop-portal-gnome — e tente novamente.</translation>
     </message>
@@ -26784,7 +26790,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+53"/>
-        <location line="+128"/>
+        <location line="+159"/>
         <source>No display is available to share.</source>
         <translation>Nenhum display está disponível para compartilhamento.</translation>
     </message>
@@ -26824,7 +26830,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Muitas tentativas. Tente novamente em alguns instantes.</translation>
     </message>
     <message>
-        <location line="-691"/>
+        <location line="-722"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
         <translation>O portal de câmara do seu ambiente de trabalho não ofereceu nenhuma câmara ao Lightning. Se a câmara funciona noutras aplicações, permita que o Lightning use todos os dispositivos (no Flatseal: «Todos os dispositivos»), e depois volte a ligar a câmara.</translation>
     </message>
@@ -26859,7 +26865,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>A partilha de ecrã não está disponível nesta versão em sandbox (Flatpak ou Snap) numa sessão X11: só consegue partilhar através do portal de partilha de ecrã do ambiente de trabalho, que não está disponível, e os plugins GStreamer instalados no seu sistema não podem ser usados a partir do sandbox. Para partilhar o ecrã, use o AppImage ou um pacote da distribuição do Lightning, que captam diretamente um ecrã X11, ou inicie sessão numa sessão Wayland, onde o portal do ambiente de trabalho fornece a partilha de ecrã. Se o xdg-desktop-portal do seu ambiente de trabalho suporta transmissão de ecrã em X11, confirme que está instalado e em execução.</translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+474"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation>Não tem permissão para entrar em chamadas nesta sala. Um administrador da sala pode aumentar o seu nível de permissão; o Lightning não consegue alterar o que a participação nas chamadas exige.</translation>
     </message>
@@ -27069,7 +27075,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>O áudio da chamada parou: a saída de som deste computador desligou-se. Retoma quando uma saída estiver novamente disponível; se não retomar, saia da chamada e volte a entrar.</translation>
     </message>
     <message>
-        <location line="+2077"/>
+        <location line="+2083"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>O som da partilha de ecrã está desativado: este pacote não inclui os plugins de captura de áudio necessários.</translation>
     </message>
@@ -27154,7 +27160,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation type="unfinished">Participante</translation>
     </message>
     <message>
-        <location line="-4498"/>
+        <location line="-4504"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Esta sala está criptografada e as chamadas criptografadas ainda não estão disponíveis nesta versão.</translation>
     </message>
@@ -32803,12 +32809,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5276"/>
+        <location line="+5289"/>
         <source>Space</source>
         <translation>Espaço</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5275"/>
+        <location filename="../qml/TimelinePane.qml" line="-5288"/>
         <source>Home</source>
         <translation>Início</translation>
     </message>
@@ -33243,7 +33249,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Voltar à mensagem mais recente</translation>
     </message>
     <message numerus="yes">
-        <location line="+258"/>
+        <location line="+268"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>%n mensagem selecionada</numerusform>
@@ -33256,12 +33262,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Toque nas mensagens para as selecionar</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>Delete…</source>
         <translation>Eliminar…</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Forward…</source>
         <translation>Reencaminhar…</translation>
     </message>
@@ -33543,8 +33549,8 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6559"/>
-        <location line="+6736"/>
+        <location filename="../qml/TimelinePane.qml" line="-6572"/>
+        <location line="+6749"/>
         <source>Room</source>
         <translation>Sala</translation>
     </message>
@@ -33611,21 +33617,21 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>As salas continuam a existir e você continua nelas — apenas saem da lista deste espaço.</translation>
     </message>
     <message>
-        <location line="-1426"/>
-        <location line="+197"/>
-        <location line="+1243"/>
+        <location line="-1439"/>
+        <location line="+209"/>
+        <location line="+1244"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5863"/>
+        <location line="-5876"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
     <message>
-        <location line="+5095"/>
+        <location line="+5108"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33701,7 +33707,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Largue ficheiros para os anexar</translation>
     </message>
     <message>
-        <location line="-5311"/>
+        <location line="-5324"/>
         <source>Join space</source>
         <translation>Entrar no espaço</translation>
     </message>
@@ -35265,7 +35271,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2420"/>
+        <location filename="../src/main.cpp" line="+2435"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Cliente Matrix nativo Qt/QML. Backend: --backend={mock,http,rust}. Predefinição: rust (http em compilações sem o Rust SDK).</translation>
     </message>

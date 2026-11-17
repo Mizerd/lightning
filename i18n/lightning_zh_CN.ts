@@ -2459,16 +2459,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
+        <location line="+30"/>
         <source>That message cannot be deleted with your current permissions.</source>
         <translation>以你当前的权限无法删除该消息。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-26"/>
         <source>Select up to 50 messages at once.</source>
         <translation>一次最多选择 50 条消息。</translation>
     </message>
     <message numerus="yes">
-        <location line="+82"/>
+        <location line="+96"/>
         <source>%n message(s) in the range cannot be deleted.</source>
         <translation>
             <numerusform>范围内有 %n 条消息无法删除。</numerusform>
@@ -12426,7 +12427,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+744"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+746"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>添加链接</translation>
@@ -12797,7 +12798,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>录制语音消息</translation>
     </message>
     <message>
-        <location line="-3159"/>
+        <location line="-3161"/>
         <source>A recording is already in progress.</source>
         <translation>已有录音正在进行。</translation>
     </message>
@@ -12817,7 +12818,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>语音录制不可用。</translation>
     </message>
     <message>
-        <location line="+2876"/>
+        <location line="+2878"/>
         <location line="+1"/>
         <source>More</source>
         <translation>更多</translation>
@@ -12864,12 +12865,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>发送</translation>
     </message>
     <message>
-        <location line="+154"/>
+        <location line="+145"/>
+        <source>Send later… (not available with attachments)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Scheduled messages</source>
         <translation>定时消息</translation>
     </message>
     <message>
-        <location line="-155"/>
+        <location line="-157"/>
         <source>Save edit</source>
         <translation>保存修改</translation>
     </message>
@@ -12911,7 +12917,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>发送选项（%1 条已定时）</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+121"/>
         <source>Send later…</source>
         <translation>稍后发送…</translation>
     </message>
@@ -20392,7 +20398,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>选择要分享的内容</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+66"/>
         <source>Display %1</source>
         <translation>显示%1</translation>
     </message>
@@ -20412,7 +20418,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>小学</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+287"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>通话中的每个人都会看到您选择的整个显示。</translation>
     </message>
@@ -20432,7 +20438,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>屏幕</translation>
     </message>
     <message>
-        <location line="+185"/>
+        <location line="+181"/>
         <source>No screens were found.</source>
         <translation>没有找到任何屏幕。</translation>
     </message>
@@ -26664,18 +26670,18 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
-        <location line="+110"/>
+        <location line="+163"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>屏幕共享在此桌面上不可用。</translation>
     </message>
     <message>
-        <location line="-495"/>
-        <location line="+886"/>
+        <location line="-548"/>
+        <location line="+917"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>屏幕共享无法启动。</translation>
     </message>
     <message>
-        <location line="-529"/>
+        <location line="-560"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Wayland 上的屏幕共享需要 xdg-desktop-portal，但它没有响应。安装或启动桌面门户（例如 xdg-desktop-portal-kde 或 xdg-desktop-portal-gnome），然后重试。</translation>
     </message>
@@ -26691,7 +26697,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+53"/>
-        <location line="+128"/>
+        <location line="+159"/>
         <source>No display is available to share.</source>
         <translation>没有可供共享的显示。</translation>
     </message>
@@ -26731,7 +26737,7 @@ Note: importing keys does not verify this session.</source>
         <translation>尝试次数太多。稍后再试一次。</translation>
     </message>
     <message>
-        <location line="-691"/>
+        <location line="-722"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
         <translation>你桌面的摄像头门户没有向 Lightning 提供摄像头。如果其他应用中摄像头可以工作，请允许 Lightning 使用所有设备（在 Flatseal 中：“All devices”），然后重新开启摄像头。</translation>
     </message>
@@ -26766,7 +26772,7 @@ Note: importing keys does not verify this session.</source>
         <translation>在 X11 会话中，此沙盒版本（Flatpak 或 Snap）无法进行屏幕共享：它只能通过桌面的屏幕共享门户进行共享，而该门户不可用，并且系统上安装的 GStreamer 插件无法从沙盒内使用。要共享屏幕，请使用 Lightning 的 AppImage 或发行版软件包（它们可直接捕获 X11 屏幕），或登录 Wayland 会话，此时桌面门户可提供屏幕共享。如果你桌面的 xdg-desktop-portal 支持在 X11 上进行屏幕投射，请确保它已安装并正在运行。</translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+474"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation>你无权加入此房间中的通话。房间管理员可以提高你在其中的权限级别；Lightning 无法更改通话成员资格本身的要求。</translation>
     </message>
@@ -26976,7 +26982,7 @@ Note: importing keys does not verify this session.</source>
         <translation>通话声音已停止：此电脑的声音输出已断开。当有可用输出时将恢复；如果没有恢复，请离开并重新加入通话。</translation>
     </message>
     <message>
-        <location line="+2077"/>
+        <location line="+2083"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>屏幕共享声音已关闭：此软件包缺少所需的音频捕获插件。</translation>
     </message>
@@ -27061,7 +27067,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">参加者</translation>
     </message>
     <message>
-        <location line="-4498"/>
+        <location line="-4504"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
@@ -32658,12 +32664,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5276"/>
+        <location line="+5289"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5275"/>
+        <location filename="../qml/TimelinePane.qml" line="-5288"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -33098,7 +33104,7 @@ Note: importing keys does not verify this session.</source>
         <translation>返回最新消息</translation>
     </message>
     <message numerus="yes">
-        <location line="+258"/>
+        <location line="+268"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>已选中 %n 条消息</numerusform>
@@ -33110,12 +33116,12 @@ Note: importing keys does not verify this session.</source>
         <translation>点击消息以选择</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>Delete…</source>
         <translation>删除…</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Forward…</source>
         <translation>转发…</translation>
     </message>
@@ -33394,8 +33400,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6559"/>
-        <location line="+6736"/>
+        <location filename="../qml/TimelinePane.qml" line="-6572"/>
+        <location line="+6749"/>
         <source>Room</source>
         <translation>房间</translation>
     </message>
@@ -33458,21 +33464,21 @@ Note: importing keys does not verify this session.</source>
         <translation>这些房间会继续存在，你也仍在其中 —— 它们只是离开这个空间的列表。</translation>
     </message>
     <message>
-        <location line="-1426"/>
-        <location line="+197"/>
-        <location line="+1243"/>
+        <location line="-1439"/>
+        <location line="+209"/>
+        <location line="+1244"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-5863"/>
+        <location line="-5876"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
     <message>
-        <location line="+5095"/>
+        <location line="+5108"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33548,7 +33554,7 @@ Note: importing keys does not verify this session.</source>
         <translation>拖放文件以添加附件</translation>
     </message>
     <message>
-        <location line="-5311"/>
+        <location line="-5324"/>
         <source>Join space</source>
         <translation>加入空间</translation>
     </message>
@@ -35111,7 +35117,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2420"/>
+        <location filename="../src/main.cpp" line="+2435"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>

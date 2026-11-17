@@ -2474,16 +2474,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
+        <location line="+30"/>
         <source>That message cannot be deleted with your current permissions.</source>
         <translation>आपकी वर्तमान अनुमतियों से वह संदेश हटाया नहीं जा सकता।</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-26"/>
         <source>Select up to 50 messages at once.</source>
         <translation>एक बार में अधिकतम 50 संदेश चुनें।</translation>
     </message>
     <message numerus="yes">
-        <location line="+82"/>
+        <location line="+96"/>
         <source>%n message(s) in the range cannot be deleted.</source>
         <translation>
             <numerusform>सीमा में %n संदेश हटाया नहीं जा सकता।</numerusform>
@@ -12468,7 +12469,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+744"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+746"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>लिंक जोड़ें</translation>
@@ -12839,7 +12840,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>वॉइस संदेश रिकॉर्ड करें</translation>
     </message>
     <message>
-        <location line="-3159"/>
+        <location line="-3161"/>
         <source>A recording is already in progress.</source>
         <translation>एक रिकॉर्डिंग पहले से चल रही है।</translation>
     </message>
@@ -12859,7 +12860,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>वॉइस रिकॉर्डिंग उपलब्ध नहीं है।</translation>
     </message>
     <message>
-        <location line="+2876"/>
+        <location line="+2878"/>
         <location line="+1"/>
         <source>More</source>
         <translation>और</translation>
@@ -12906,12 +12907,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>भेजें</translation>
     </message>
     <message>
-        <location line="+154"/>
+        <location line="+145"/>
+        <source>Send later… (not available with attachments)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Scheduled messages</source>
         <translation>शेड्यूल किए संदेश</translation>
     </message>
     <message>
-        <location line="-155"/>
+        <location line="-157"/>
         <source>Save edit</source>
         <translation>संपादन सहेजें</translation>
     </message>
@@ -12953,7 +12959,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>भेजने के विकल्प (%1 शेड्यूल किए)</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+121"/>
         <source>Send later…</source>
         <translation>बाद में भेजें…</translation>
     </message>
@@ -20464,7 +20470,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>चुनें कि क्या साझा करना है</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+66"/>
         <source>Display %1</source>
         <translation>प्रदर्शन %1</translation>
     </message>
@@ -20484,7 +20490,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>प्राथमिक</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+287"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>कॉल में मौजूद हर व्यक्ति आपके द्वारा चुने गए संपूर्ण डिस्प्ले को देखता है।</translation>
     </message>
@@ -20504,7 +20510,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्क्रीन</translation>
     </message>
     <message>
-        <location line="+185"/>
+        <location line="+181"/>
         <source>No screens were found.</source>
         <translation>कोई स्क्रीन नहीं मिली.</translation>
     </message>
@@ -26757,18 +26763,18 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
-        <location line="+110"/>
+        <location line="+163"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>इस डेस्कटॉप पर स्क्रीन शेयरिंग उपलब्ध नहीं है.</translation>
     </message>
     <message>
-        <location line="-495"/>
-        <location line="+886"/>
+        <location line="-548"/>
+        <location line="+917"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>स्क्रीन शेयरिंग प्रारंभ नहीं हो सकी.</translation>
     </message>
     <message>
-        <location line="-529"/>
+        <location line="-560"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>वेलैंड पर स्क्रीन शेयरिंग के लिए xdg-डेस्कटॉप-पोर्टल की आवश्यकता है, और यह प्रतिक्रिया नहीं दे रहा है। अपने डेस्कटॉप के लिए पोर्टल स्थापित करें या प्रारंभ करें - उदाहरण के लिए xdg-desktop-portal-kde या xdg-desktop-portal-gnome - फिर पुनः प्रयास करें।</translation>
     </message>
@@ -26784,7 +26790,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+53"/>
-        <location line="+128"/>
+        <location line="+159"/>
         <source>No display is available to share.</source>
         <translation>साझा करने के लिए कोई डिस्प्ले उपलब्ध नहीं है.</translation>
     </message>
@@ -26824,7 +26830,7 @@ Note: importing keys does not verify this session.</source>
         <translation>बहुत अधिक प्रयास. थोड़ी देर में पुनः प्रयास करें.</translation>
     </message>
     <message>
-        <location line="-691"/>
+        <location line="-722"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
         <translation>आपके डेस्कटॉप के कैमरा पोर्टल ने Lightning को कोई कैमरा नहीं दिया। यदि कैमरा अन्य ऐप में काम करता है, तो Lightning को सभी डिवाइस इस्तेमाल करने दें (Flatseal में: &quot;All devices&quot;), फिर कैमरा दोबारा चालू करें।</translation>
     </message>
@@ -26859,7 +26865,7 @@ Note: importing keys does not verify this session.</source>
         <translation>X11 सत्र में इस सैंडबॉक्स वाले (Flatpak या Snap) बिल्ड में स्क्रीन शेयरिंग उपलब्ध नहीं है: यह केवल डेस्कटॉप के स्क्रीन-शेयरिंग पोर्टल से साझा कर सकता है, जो उपलब्ध नहीं है, और आपके सिस्टम पर इंस्टॉल GStreamer प्लगइन सैंडबॉक्स से इस्तेमाल नहीं हो सकते। अपनी स्क्रीन साझा करने के लिए Lightning का AppImage या डिस्ट्रीब्यूशन पैकेज इस्तेमाल करें, जो X11 स्क्रीन सीधे कैप्चर करते हैं, या Wayland सत्र में लॉग इन करें, जहाँ आपके डेस्कटॉप का पोर्टल स्क्रीन शेयरिंग देता है। यदि आपका xdg-desktop-portal X11 पर स्क्रीन कास्टिंग समर्थित करता है, तो सुनिश्चित करें कि वह इंस्टॉल और चालू है।</translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+474"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation>आपको इस रूम की कॉल में शामिल होने की अनुमति नहीं है। रूम का एडमिन इसमें आपका पावर लेवल बढ़ा सकता है; Lightning यह नहीं बदल सकता कि कॉल सदस्यता को स्वयं क्या चाहिए।</translation>
     </message>
@@ -27069,7 +27075,7 @@ Note: importing keys does not verify this session.</source>
         <translation>कॉल का ऑडियो रुक गया: इस कंप्यूटर का साउंड आउटपुट डिस्कनेक्ट हो गया। आउटपुट दोबारा उपलब्ध होने पर यह फिर शुरू होता है; न हो तो कॉल छोड़कर फिर शामिल हों।</translation>
     </message>
     <message>
-        <location line="+2077"/>
+        <location line="+2083"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>स्क्रीन शेयर की ध्वनि बंद है: इस पैकेज में आवश्यक ऑडियो कैप्चर प्लगइन नहीं हैं।</translation>
     </message>
@@ -27154,7 +27160,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">प्रतिभागी</translation>
     </message>
     <message>
-        <location line="-4498"/>
+        <location line="-4504"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>यह रूम एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>
@@ -32803,12 +32809,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5276"/>
+        <location line="+5289"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5275"/>
+        <location filename="../qml/TimelinePane.qml" line="-5288"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -33243,7 +33249,7 @@ Note: importing keys does not verify this session.</source>
         <translation>नवीनतम संदेश पर लौटें</translation>
     </message>
     <message numerus="yes">
-        <location line="+258"/>
+        <location line="+268"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>%n संदेश चुना गया</numerusform>
@@ -33256,12 +33262,12 @@ Note: importing keys does not verify this session.</source>
         <translation>संदेश चुनने के लिए उन पर टैप करें</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>Delete…</source>
         <translation>हटाएँ…</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Forward…</source>
         <translation>फ़ॉरवर्ड करें…</translation>
     </message>
@@ -33543,8 +33549,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6559"/>
-        <location line="+6736"/>
+        <location filename="../qml/TimelinePane.qml" line="-6572"/>
+        <location line="+6749"/>
         <source>Room</source>
         <translation>कक्ष</translation>
     </message>
@@ -33611,21 +33617,21 @@ Note: importing keys does not verify this session.</source>
         <translation>कक्ष बने रहते हैं और आप उनमें बने रहते हैं — वे बस इस स्पेस की सूची से निकल जाते हैं।</translation>
     </message>
     <message>
-        <location line="-1426"/>
-        <location line="+197"/>
-        <location line="+1243"/>
+        <location line="-1439"/>
+        <location line="+209"/>
+        <location line="+1244"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5863"/>
+        <location line="-5876"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
     </message>
     <message>
-        <location line="+5095"/>
+        <location line="+5108"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33701,7 +33707,7 @@ Note: importing keys does not verify this session.</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-5311"/>
+        <location line="-5324"/>
         <source>Join space</source>
         <translation>स्पेस में शामिल हों</translation>
     </message>
@@ -35265,7 +35271,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2420"/>
+        <location filename="../src/main.cpp" line="+2435"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>नेटिव Qt/QML Matrix क्लाइंट। बैकएंड: --backend={mock,http,rust}। डिफ़ॉल्ट: rust (Rust SDK रहित बिल्ड में http)।</translation>
     </message>

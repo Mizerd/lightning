@@ -2459,16 +2459,17 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+4"/>
+        <location line="+30"/>
         <source>That message cannot be deleted with your current permissions.</source>
         <translation>Pesan itu tidak dapat dihapus dengan izin Anda saat ini.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-26"/>
         <source>Select up to 50 messages at once.</source>
         <translation>Pilih paling banyak 50 pesan sekaligus.</translation>
     </message>
     <message numerus="yes">
-        <location line="+82"/>
+        <location line="+96"/>
         <source>%n message(s) in the range cannot be deleted.</source>
         <translation>
             <numerusform>%n pesan dalam rentang tidak dapat dihapus.</numerusform>
@@ -12426,7 +12427,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+744"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+746"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Tambahkan tautan</translation>
@@ -12797,7 +12798,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Rekam pesan suara</translation>
     </message>
     <message>
-        <location line="-3159"/>
+        <location line="-3161"/>
         <source>A recording is already in progress.</source>
         <translation>Rekaman sedang berlangsung.</translation>
     </message>
@@ -12817,7 +12818,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Perekaman suara tidak tersedia.</translation>
     </message>
     <message>
-        <location line="+2876"/>
+        <location line="+2878"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Lainnya</translation>
@@ -12864,12 +12865,17 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Kirim</translation>
     </message>
     <message>
-        <location line="+154"/>
+        <location line="+145"/>
+        <source>Send later… (not available with attachments)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Scheduled messages</source>
         <translation>Pesan terjadwal</translation>
     </message>
     <message>
-        <location line="-155"/>
+        <location line="-157"/>
         <source>Save edit</source>
         <translation>Simpan suntingan</translation>
     </message>
@@ -12911,7 +12917,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Opsi kirim (%1 terjadwal)</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+121"/>
         <source>Send later…</source>
         <translation>Kirim nanti…</translation>
     </message>
@@ -20392,7 +20398,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Pilih apa yang ingin dibagikan</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+66"/>
         <source>Display %1</source>
         <translation>Tampilkan %1</translation>
     </message>
@@ -20412,7 +20418,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Utama</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+287"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>Semua orang dalam panggilan melihat keseluruhan tampilan yang Anda pilih.</translation>
     </message>
@@ -20432,7 +20438,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Layar</translation>
     </message>
     <message>
-        <location line="+185"/>
+        <location line="+181"/>
         <source>No screens were found.</source>
         <translation>Tidak ada layar yang ditemukan.</translation>
     </message>
@@ -26664,18 +26670,18 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location filename="../src/calls/SfuCallController.cpp" line="+633"/>
         <location line="+387"/>
-        <location line="+110"/>
+        <location line="+163"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>Berbagi layar tidak tersedia di desktop ini.</translation>
     </message>
     <message>
-        <location line="-495"/>
-        <location line="+886"/>
+        <location line="-548"/>
+        <location line="+917"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Berbagi layar tidak dapat dimulai.</translation>
     </message>
     <message>
-        <location line="-529"/>
+        <location line="-560"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Berbagi layar di Wayland memerlukan xdg-desktop-portal, dan tidak merespons. Instal atau mulai portal untuk desktop Anda — misalnya xdg-desktop-portal-kde atau xdg-desktop-portal-gnome — lalu coba lagi.</translation>
     </message>
@@ -26691,7 +26697,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+53"/>
-        <location line="+128"/>
+        <location line="+159"/>
         <source>No display is available to share.</source>
         <translation>Tidak ada tampilan yang tersedia untuk dibagikan.</translation>
     </message>
@@ -26731,7 +26737,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Terlalu banyak upaya. Coba lagi sebentar lagi.</translation>
     </message>
     <message>
-        <location line="-691"/>
+        <location line="-722"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
         <translation>Portal kamera desktop Anda tidak memberi Lightning kamera. Jika kamera berfungsi di aplikasi lain, izinkan Lightning memakai semua perangkat (di Flatseal: &quot;All devices&quot;), lalu nyalakan kamera lagi.</translation>
     </message>
@@ -26766,7 +26772,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Berbagi layar tidak tersedia di build sandbox (Flatpak atau Snap) pada sesi X11: hanya dapat berbagi lewat portal berbagi layar desktop, dan tidak ada yang tersedia, serta plugin GStreamer yang terpasang di sistem Anda tidak dapat dipakai dari sandbox. Untuk berbagi layar, gunakan AppImage atau paket distribusi Lightning, yang menangkap layar X11 secara langsung, atau masuk ke sesi Wayland, tempat portal desktop Anda menyediakan berbagi layar. Jika xdg-desktop-portal desktop Anda mendukung screen casting di X11, pastikan terpasang dan berjalan.</translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+474"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation>Anda tidak memiliki izin untuk bergabung ke panggilan di ruang ini. Admin ruang dapat menaikkan level daya Anda di dalamnya; Lightning tidak dapat mengubah apa yang diperlukan keanggotaan panggilan itu sendiri.</translation>
     </message>
@@ -26976,7 +26982,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Suara panggilan berhenti: keluaran suara komputer ini terputus. Suara berlanjut saat keluaran tersedia lagi; jika tidak, keluar lalu bergabung kembali ke panggilan.</translation>
     </message>
     <message>
-        <location line="+2077"/>
+        <location line="+2083"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Suara berbagi layar dinonaktifkan: paket ini tidak memiliki plugin penangkapan audio yang diperlukan.</translation>
     </message>
@@ -27061,7 +27067,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation type="unfinished">Peserta</translation>
     </message>
     <message>
-        <location line="-4498"/>
+        <location line="-4504"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Ruangan ini dienkripsi, dan panggilan terenkripsi belum tersedia di build ini.</translation>
     </message>
@@ -32658,12 +32664,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5276"/>
+        <location line="+5289"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5275"/>
+        <location filename="../qml/TimelinePane.qml" line="-5288"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -33098,7 +33104,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Kembali ke pesan terbaru</translation>
     </message>
     <message numerus="yes">
-        <location line="+258"/>
+        <location line="+268"/>
         <source>%n message(s) selected</source>
         <translation>
             <numerusform>%n pesan dipilih</numerusform>
@@ -33110,12 +33116,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Ketuk pesan untuk memilihnya</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>Delete…</source>
         <translation>Hapus…</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Forward…</source>
         <translation>Teruskan…</translation>
     </message>
@@ -33394,8 +33400,8 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6559"/>
-        <location line="+6736"/>
+        <location filename="../qml/TimelinePane.qml" line="-6572"/>
+        <location line="+6749"/>
         <source>Room</source>
         <translation>Ruang</translation>
     </message>
@@ -33458,21 +33464,21 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Ruangnya tetap ada dan Anda tetap di dalamnya — hanya keluar dari daftar Space ini.</translation>
     </message>
     <message>
-        <location line="-1426"/>
-        <location line="+197"/>
-        <location line="+1243"/>
+        <location line="-1439"/>
+        <location line="+209"/>
+        <location line="+1244"/>
         <location line="+77"/>
         <source>Cancel</source>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-5863"/>
+        <location line="-5876"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Lihat profil</translation>
     </message>
     <message>
-        <location line="+5095"/>
+        <location line="+5108"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Gambar (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33548,7 +33554,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Lepaskan berkas untuk melampirkannya</translation>
     </message>
     <message>
-        <location line="-5311"/>
+        <location line="-5324"/>
         <source>Join space</source>
         <translation>Gabung ke space</translation>
     </message>
@@ -35111,7 +35117,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2420"/>
+        <location filename="../src/main.cpp" line="+2435"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Klien Matrix Qt/QML asli. Backend: --backend={mock,http,rust}. Bawaan: rust (http pada build tanpa Rust SDK).</translation>
     </message>
