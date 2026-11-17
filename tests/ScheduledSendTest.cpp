@@ -620,6 +620,9 @@ private Q_SLOTS:
         h.scheduler.schedule(message(kPlain, QStringLiteral("as reply"), QString(),
                                      QStringLiteral("$target")),
                              nowMs() + 60);
+        // One send per room at a time: the second leaves once the first lands.
+        QTRY_COMPARE_WITH_TIMEOUT(h.client.roomSends.size(), 1, 3000);
+        h.answerRoomSend(true);
         QTRY_COMPARE_WITH_TIMEOUT(h.client.roomSends.size(), 2, 3000);
         QString threadRoot, replyTarget;
         for (const RoomSend &m : h.client.roomSends) {
