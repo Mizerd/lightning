@@ -73,6 +73,15 @@ pub(crate) fn relation_target(raw: &Raw<AnySyncTimelineEvent>) -> Option<String>
         .flatten()
 }
 
+/// A redaction, or a vote/end whose reference was stripped by one. Neither
+/// names its poll, so any of them may have changed any watched tally.
+fn is_redaction(raw: &Raw<AnySyncTimelineEvent>) -> bool {
+    let Some(kind) = raw.get_field::<String>("type").ok().flatten() else { return false };
+    kind == "m.room.redaction"
+        || ((RESPONSE_TYPES.contains(&kind.as_str()) || END_TYPES.contains(&kind.as_str()))
+            && relation_target(raw).is_none())
+}
+
 pub(crate) fn relating(raw: &Raw<AnySyncTimelineEvent>) -> Option<Relating> {
     let kind = raw.get_field::<String>("type").ok().flatten()?;
     let sender = raw.get_field::<OwnedUserId>("sender").ok().flatten()?;
@@ -215,7 +224,13 @@ impl Watch {
                         _ => Vec::new(),
                     };
                     for event in values {
-                        if let Some(target) = relation_target(event.raw()) {
+                        if is_redaction(event.raw()) {
+                            for id in self.polls.keys() {
+                                if !hit.contains(id) {
+                                    hit.push(id.clone());
+                                }
+                            }
+                        } else if let Some(target) = relation_target(event.raw()) {
                             if self.polls.contains_key(&target) && !hit.contains(&target) {
                                 hit.push(target);
                             }
@@ -371,5 +386,16 @@ mod tests {
         thread["content"]["m.relates_to"]["rel_type"] = json!("m.thread");
         assert_eq!(relation_target(&raw(thread)), None);
         assert!(parse_start(&raw(response("$v", "@b:x", 1, &["a"], true))).is_none());
+    }
+
+    #[test]
+    fn a_redaction_or_a_redacted_vote_may_change_any_tally() {
+        assert!(!is_redaction(&raw(response("$v", "@b:x", 1, &["a"], true))));
+        let mut redacted = response("$v", "@b:x", 1, &["a"], true);
+        redacted["content"] = json!({});
+        assert!(is_redaction(&raw(redacted)));
+        assert!(is_redaction(&raw(json!({"type": "m.room.redaction", "event_id": "$r",
+            "sender": "@b:x", "origin_server_ts": 2, "content": {}}))));
+        assert!(!is_redaction(&raw(start_json())));
     }
 }

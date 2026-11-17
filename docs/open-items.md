@@ -79,8 +79,6 @@ own engine. NOT TESTED: no second SFU was available.
 
 ACCEPTED FOLLOW-UPS from the §18 review of `followups`:
 
-- L2: a redacted stable-poll vote or end is not re-tallied until the next
-  response or end arrives (a redaction is not a reference to the poll).
 - L6: the https-only test asks for plain http directly; no test drives a real
   https -> http redirect hop (needs a local TLS server).
 - Threaded stable polls stay unrendered everywhere, the thread panel included.
