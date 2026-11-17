@@ -672,6 +672,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_forbidden_send_in_a_room_the_server_dropped_reads_room_gone() {
+        let row = || json!({"op": "set", "item": {"send_error": "rejected", "send_forbidden": true}});
+
+        let (homeserver, _) = serve(TagScript::Forbidden);
+        let (_client, room) = client_with_room(&homeserver).await;
+        let mut value = row();
+        crate::timeline::annotate_room_gone(&room, &mut value).await;
+        assert_eq!(value["item"]["send_error"], "room_gone");
+        assert!(value["item"].get("send_forbidden").is_none());
+
+        let (homeserver, _) = serve(TagScript::ForbiddenStillListed);
+        let (_client, room) = client_with_room(&homeserver).await;
+        let mut value = json!({"op": "reset", "items": [row()["item"].clone()]});
+        crate::timeline::annotate_room_gone(&room, &mut value).await;
+        assert_eq!(value["items"][0]["send_error"], "rejected", "still listed: the refusal stands");
+        assert!(value["items"][0].get("send_forbidden").is_none());
+    }
+
+    #[tokio::test]
     async fn the_unread_mark_survives_one_dropped_connection() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");

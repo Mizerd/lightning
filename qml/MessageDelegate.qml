@@ -2569,6 +2569,9 @@ Item {
                                             if (why === "rejected")
                                                 return qsTr("%1 • not sent: the server refused it")
                                                     .arg(ts)
+                                            if (why === "room_gone")
+                                                return qsTr("%1 • not sent: you're no longer in this room")
+                                                    .arg(ts)
                                             return qsTr("%1 • failed").arg(ts)
                                         }
                                         if (model.edited) return qsTr("(edited)")
@@ -2583,6 +2586,14 @@ Item {
                                                     && !(model.isOwn && model.status !== 1
                                                          && model.status !== undefined
                                                          && model.status === 2)
+                                    ToolTip.text: qsTr("You're no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.")
+                                    ToolTip.visible: goneHover.hovered
+                                    ToolTip.delay: 400
+                                    HoverHandler {
+                                        id: goneHover
+                                        enabled: model.isOwn === true && model.status === 2
+                                                 && model.sendErrorCategory === "room_gone"
+                                    }
                                     HoverHandler {
                                         id: editedHover
                                         enabled: model.edited === true

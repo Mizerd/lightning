@@ -3160,6 +3160,7 @@ send queue owes nothing for them: {in_flight:?}"
                     annotate_push_verdicts(
                         &room, &fallback_verdicts, &mut push_context, judged, &mut value,
                     ).await;
+                    annotate_room_gone(&room, &mut value).await;
                     if decrypted {
                         annotate_decrypted_set(&diff, &mut value, opened_ms, now);
                     }
@@ -3394,6 +3395,7 @@ async fn open_thread_task(
                     annotate_push_verdicts(
                         &room, &fallback_verdicts, &mut push_context, judged, &mut value,
                     ).await;
+                    annotate_room_gone(&room, &mut value).await;
                     if decrypted {
                         annotate_decrypted_set(&diff, &mut value, opened_ms, now);
                     }
@@ -4126,6 +4128,32 @@ fn item_event_id(item: &Arc<TimelineItem>) -> Option<String> {
     item.as_event().and_then(|event| event.event_id()).map(|id| id.to_string())
 }
 
+/// A send refused with 403 in a room the server no longer lists as joined is
+/// "room_gone"; the probe runs only when such a row is in the diff.
+pub(crate) async fn annotate_room_gone(room: &matrix_sdk::Room, value: &mut serde_json::Value) {
+    let Some(diff) = value.as_object_mut() else { return };
+    let mut slots: Vec<&mut serde_json::Value> = Vec::new();
+    for (key, entry) in diff.iter_mut() {
+        match (key.as_str(), entry) {
+            ("item", item) => slots.push(item),
+            ("items", serde_json::Value::Array(items)) => slots.extend(items.iter_mut()),
+            _ => {}
+        }
+    }
+    slots.retain(|slot| slot.get("send_forbidden").is_some());
+    if slots.is_empty() {
+        return;
+    }
+    let gone = crate::invites::server_dropped_room(room).await;
+    for slot in slots {
+        let Some(slot) = slot.as_object_mut() else { continue };
+        slot.remove("send_forbidden");
+        if gone {
+            slot.insert("send_error".to_owned(), "room_gone".into());
+        }
+    }
+}
+
 fn annotate_decrypted_set(
     diff: &VectorDiff<Arc<TimelineItem>>,
     value: &mut serde_json::Value,
@@ -4629,10 +4657,15 @@ fn event_item_to_json(
             EventSendState::Sent { .. } => {
                 out["send_state"] = "sent".into();
             }
-            EventSendState::SendingFailed { is_recoverable, .. } => {
+            EventSendState::SendingFailed { error, is_recoverable } => {
                 out["send_state"] = "failed".into();
                 out["send_error"] =
                     if *is_recoverable { "network" } else { "rejected" }.into();
+                if !*is_recoverable
+                    && crate::roomaction::failure_reason(error).starts_with("http_403_")
+                {
+                    out["send_forbidden"] = true.into();
+                }
             }
         }
     }
