@@ -8266,11 +8266,9 @@ void RustSdkMatrixClient::handleEncryptedSendFailed(const QJsonObject &event)
 void RustSdkMatrixClient::failPendingSend(const QString &transactionId, const QString &message)
 {
     const auto pendingIt = m_pendingSends.find(transactionId);
-    if (pendingIt == m_pendingSends.end()) {
-        if (!message.isEmpty())
-            Q_EMIT errorOccurred(tr("Send failed: %1").arg(message));
+    // Unknown here: a late result for a send another account made.
+    if (pendingIt == m_pendingSends.end())
         return;
-    }
 
     const PendingSend pending = pendingIt.value();
     m_pendingSends.erase(pendingIt);

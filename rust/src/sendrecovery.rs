@@ -120,23 +120,74 @@ queue disabled; re-enabling in {} ms (attempt {})",
 }
 
 pub(crate) enum QueuedSend {
-    Sent(matrix_sdk::ruma::OwnedEventId),
+    // None when a lagged subscription saw the request leave the queue
+    // without its SentEvent.
+    Sent(Option<matrix_sdk::ruma::OwnedEventId>),
     Failed(String),
-    // Still in the queue (or cancelled by the user): the room's timeline
-    // shows it, so the caller reports nothing.
+    // Still queued after the wait: the room's timeline shows it.
     Unresolved,
+}
+
+// shortcut: SendHandle exposes no transaction id in 0.18, so it is read from its Debug output; use SendHandle::transaction_id() once the SDK has it.
+fn handle_names(handle: &matrix_sdk::send_queue::SendHandle, txn: &matrix_sdk::ruma::TransactionId) -> bool {
+    format!("{handle:?}").contains(&format!("transaction_id: {txn:?}"))
+}
+
+fn is_ours(
+    echo: &matrix_sdk::send_queue::LocalEcho,
+    handle: &matrix_sdk::send_queue::SendHandle,
+    content: &serde_json::Value,
+) -> bool {
+    let matrix_sdk::send_queue::LocalEchoContent::Event { serialized_event, send_handle, .. } =
+        &echo.content
+    else {
+        return false;
+    };
+    let (raw, _) = serialized_event.clone().into_raw();
+    handle_names(handle, &echo.transaction_id)
+        && send_handle.created_at == handle.created_at
+        && serde_json::from_str::<serde_json::Value>(raw.json().get()).ok().as_ref() == Some(content)
+}
+
+enum AfterLag {
+    Gone,
+    Wedged(String),
+    Queued(matrix_sdk::ruma::OwnedTransactionId),
+}
+
+// Lost updates are recovered from the queue's own snapshot: absent means sent.
+fn after_lag(
+    echoes: &[matrix_sdk::send_queue::LocalEcho],
+    handle: &matrix_sdk::send_queue::SendHandle,
+    content: &serde_json::Value,
+) -> AfterLag {
+    let Some(echo) = echoes.iter().find(|echo| is_ours(echo, handle, content)) else {
+        return AfterLag::Gone;
+    };
+    match &echo.content {
+        matrix_sdk::send_queue::LocalEchoContent::Event { send_error: Some(error), .. } => {
+            AfterLag::Wedged(error.to_string())
+        }
+        _ => AfterLag::Queued(echo.transaction_id.clone()),
+    }
 }
 
 /// Sends through the room's send queue rather than `Room::send`, so a
 /// timeline opened while the request is in flight carries the local echo
-/// and reconciles it, instead of the message vanishing until sync.
+/// and reconciles it, instead of the message vanishing until sync. A failure
+/// removes the request, so "failed" still means nothing will be sent.
 pub(crate) async fn send_queued(
     room: &matrix_sdk::Room,
     content: matrix_sdk::ruma::events::AnyMessageLikeEventContent,
     wait: Duration,
 ) -> QueuedSend {
     use matrix_sdk::send_queue::RoomSendQueueUpdate;
+    let Ok(json) = serde_json::to_value(&content) else {
+        return QueuedSend::Failed("the message could not be serialized".to_owned());
+    };
     let queue = room.send_queue();
+    // Overrides the recovery back-off for this room; a paused queue would
+    // otherwise hold a message the user just sent until the next retry.
     queue.set_enabled(true);
     let Ok((_, mut updates)) = queue.subscribe().await else {
         return QueuedSend::Failed("the send queue is unavailable".to_owned());
@@ -145,37 +196,49 @@ pub(crate) async fn send_queued(
         Ok(handle) => handle,
         Err(err) => return QueuedSend::Failed(err.to_string()),
     };
+    let failed = |reason: String| {
+        let handle = handle.clone();
+        async move {
+            let _ = handle.abort().await;
+            QueuedSend::Failed(reason)
+        }
+    };
     let deadline = tokio::time::Instant::now() + wait;
-    // SendHandle exposes no transaction id in 0.18; its NewLocalEvent clone shares created_at.
-    // shortcut: two sends to one room in the same millisecond may swap outcomes; key on the txn id once the SDK exposes it.
-    let mut txn = None;
+    let mut txn: Option<matrix_sdk::ruma::OwnedTransactionId> = None;
     loop {
         let update = match tokio::time::timeout_at(deadline, updates.recv()).await {
             Ok(Ok(update)) => update,
-            Ok(Err(RecvError::Lagged(_))) => continue,
+            Ok(Err(RecvError::Lagged(_))) => {
+                let Ok((echoes, fresh)) = queue.subscribe().await else {
+                    return QueuedSend::Unresolved;
+                };
+                updates = fresh;
+                match after_lag(&echoes, &handle, &json) {
+                    AfterLag::Gone => return QueuedSend::Sent(None),
+                    AfterLag::Wedged(reason) => return failed(reason).await,
+                    AfterLag::Queued(id) => txn = Some(id),
+                }
+                continue;
+            }
             Ok(Err(RecvError::Closed)) | Err(_) => return QueuedSend::Unresolved,
         };
         let ours = |id: &matrix_sdk::ruma::OwnedTransactionId| txn.as_ref() == Some(id);
         match update {
             RoomSendQueueUpdate::NewLocalEvent(echo) if txn.is_none() => {
-                if let matrix_sdk::send_queue::LocalEchoContent::Event { send_handle, .. } =
-                    &echo.content
-                {
-                    if send_handle.created_at == handle.created_at {
-                        txn = Some(echo.transaction_id);
-                    }
+                if is_ours(&echo, &handle, &json) {
+                    txn = Some(echo.transaction_id);
                 }
             }
             RoomSendQueueUpdate::SentEvent { transaction_id, event_id } if ours(&transaction_id) => {
-                return QueuedSend::Sent(event_id);
+                return QueuedSend::Sent(Some(event_id));
             }
             RoomSendQueueUpdate::SendError { transaction_id, error, is_recoverable: false }
                 if ours(&transaction_id) =>
             {
-                return QueuedSend::Failed(error.to_string());
+                return failed(error.to_string()).await;
             }
             RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } if ours(&transaction_id) => {
-                return QueuedSend::Unresolved;
+                return QueuedSend::Failed("cancelled".to_owned());
             }
             _ => {}
         }
@@ -304,7 +367,7 @@ mod tests {
         }
         assert!(echoed, "a timeline opened mid-send does not show the message being sent");
         match sending.await.unwrap() {
-            QueuedSend::Sent(id) => assert_eq!(id, event_id!("$sent")),
+            QueuedSend::Sent(id) => assert_eq!(id.as_deref(), Some(event_id!("$sent"))),
             _ => panic!("the queued send did not report the server's event id"),
         }
     }
@@ -324,6 +387,67 @@ mod tests {
         )
         .await;
         assert!(matches!(outcome, QueuedSend::Failed(_)));
+        assert!(
+            room.send_queue().subscribe().await.unwrap().0.is_empty(),
+            "a failed send stays queued and could still go out later"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_send_handle_debug_names_its_transaction_id() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_joined_room(&client, room_id!("!dbg:localhost")).await;
+        server.mock_room_state_encryption().plain().mount().await;
+        let queue = room.send_queue();
+        queue.set_enabled(false);
+        let (_, mut updates) = queue.subscribe().await.unwrap();
+        let handle = queue.send(RoomMessageEventContent::text_plain("d").into()).await.unwrap();
+        let RoomSendQueueUpdate::NewLocalEvent(echo) = updates.recv().await.unwrap() else {
+            panic!("no local echo");
+        };
+        assert!(
+            handle_names(&handle, &echo.transaction_id),
+            "SendHandle's Debug output changed: {handle:?}"
+        );
+        assert!(!handle_names(&handle, matrix_sdk::ruma::TransactionId::new().as_ref()));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_lagged_watcher_reads_its_outcome_from_the_queue() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_joined_room(&client, room_id!("!lag:localhost")).await;
+        server.mock_room_state_encryption().plain().mount().await;
+        server.mock_room_send().error_too_large().mount().await;
+        let queue = room.send_queue();
+        let content: matrix_sdk::ruma::events::AnyMessageLikeEventContent =
+            RoomMessageEventContent::text_plain("ours").into();
+        let json = serde_json::to_value(&content).unwrap();
+        let other = serde_json::to_value(
+            matrix_sdk::ruma::events::AnyMessageLikeEventContent::from(
+                RoomMessageEventContent::text_plain("other"),
+            ),
+        )
+        .unwrap();
+
+        queue.set_enabled(false);
+        let (_, mut updates) = queue.subscribe().await.unwrap();
+        let handle = queue.send(content).await.unwrap();
+        let echoes = queue.subscribe().await.unwrap().0;
+        assert!(matches!(after_lag(&echoes, &handle, &json), AfterLag::Queued(_)));
+        assert!(matches!(after_lag(&echoes, &handle, &other), AfterLag::Gone));
+        assert!(matches!(after_lag(&[], &handle, &json), AfterLag::Gone));
+
+        queue.set_enabled(true);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+        while let Ok(Ok(update)) = tokio::time::timeout_at(deadline, updates.recv()).await {
+            if matches!(update, RoomSendQueueUpdate::SendError { is_recoverable: false, .. }) {
+                break;
+            }
+        }
+        let echoes = queue.subscribe().await.unwrap().0;
+        assert!(matches!(after_lag(&echoes, &handle, &json), AfterLag::Wedged(_)));
     }
 
     #[tokio::test(flavor = "multi_thread")]

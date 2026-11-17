@@ -3387,7 +3387,7 @@ pub unsafe extern "C" fn mx_rust_send_text(
                         "type": "send_ok",
                         "room_id": room_id,
                         "transaction_id": transaction_id,
-                        "event_id": event_id.to_string(),
+                        "event_id": event_id.map(|id| id.to_string()).unwrap_or_default(),
                     }),
                 ),
                 sendrecovery::QueuedSend::Failed(err) => enqueue(
