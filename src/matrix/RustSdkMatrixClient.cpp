@@ -8037,29 +8037,6 @@ void RustSdkMatrixClient::recoverFromBackup(const QString &recoveryKey)
     }
 }
 
-void RustSdkMatrixClient::reloadRoomTimeline(const QString &roomId, int limit)
-{
-    if (!m_loggedIn || !m_rustHandle) {
-        Q_EMIT errorOccurred(tr("Reload timeline: not signed in."));
-        return;
-    }
-    if (roomId.isEmpty()) return;
-    const QByteArray idBytes = roomId.toUtf8();
-    const unsigned int clamped =
-        limit <= 0 ? 30u
-                   : static_cast<unsigned int>(std::min(limit, 200));
-    qCInfo(lcRust) << "reload_timeline start room="
-                   << matrix::e2ee::redactId(roomId)
-                   << "limit=" << clamped;
-    const QString result = takeRustString(mx_rust_reload_room_timeline(
-        m_rustHandle, idBytes.constData(), clamped));
-    if (!result.isEmpty()) {
-        Q_EMIT errorOccurred(
-            result.startsWith(QLatin1String("error: "))
-                ? result.mid(7) : result);
-    }
-}
-
 void RustSdkMatrixClient::acceptVerification(const QString &flowId)
 {
     if (!m_rustHandle || flowId.isEmpty()) return;

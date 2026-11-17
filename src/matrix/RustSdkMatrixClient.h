@@ -117,7 +117,6 @@ public:
     // through keyBackupResult(...). Do not expose to QML.
     void recoverFromBackup(const QString &recoveryKey);
 
-    void reloadRoomTimeline(const QString &roomId, int limit = 30);
 
     void openRoomTimeline(const QString &roomId);
     bool reloadRoomTimelineAtLive(const QString &roomId);

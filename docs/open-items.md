@@ -2332,11 +2332,6 @@ machine: send a picture from Element to a Lightning account with the room
 closed, and confirm the toast says "Sent an image" and the Activity row carries
 the camera icon.
 
-**The reload path's media rows are kind-only.** `reloadRoomTimeline` emits no
-`media_mxc`, mimetype, size or dimensions and never did, so a media row built
-there names a file it cannot fetch. Harmless only while that function has no
-callers — verified: only its declaration and definition exist, and
-`reloadRoomTimelineAtLive` is a different function.
 
 
 Moved out of `CLAUDE.md` §16 on 2026-09-11: that file had reached 140,752
