@@ -1553,7 +1553,9 @@ Rectangle {
                     }
                 }
 
-                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: AppScrollBar {
+                    objectName: "threadReplyScrollBar"
+                    policy: ScrollBar.AsNeeded }
             }
 
             AbstractButton {

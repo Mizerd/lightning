@@ -586,6 +586,153 @@ private Q_SLOTS:
         QCOMPARE(scroll->property("contentY").toReal(), lastY);
     }
 
+    void theThreadRootTextCanBeSelectedByDragging()
+    {
+        QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        const auto events = mock->timeline(kGeneral);
+        int rootIndex = -1;
+        for (int i = 0; i < events.size(); ++i)
+            if (events.at(i).eventId == rootId)
+                rootIndex = i;
+        QVERIFY(rootIndex >= 0);
+        TimelineEvent rootEvent = events.at(rootIndex);
+        QStringList lines;
+        for (int i = 1; i <= 60; ++i)
+            lines << QStringLiteral("line%1 selectable words").arg(i);
+        rootEvent.body = lines.join(QLatin1Char('\n'));
+        mock->changeEventAtForTest(kGeneral, rootIndex, rootEvent);
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(340, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, kSignalTimeoutMs));
+
+        auto *scroll = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootBodyScroll"));
+        auto *body = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootBody"));
+        QVERIFY(scroll && body);
+        QTRY_VERIFY(body->isVisible());
+        QTRY_COMPARE(body->property("text").toString(), rootEvent.body);
+        QVERIFY(scroll->property("interactive").toBool());
+
+        const QPoint from = body->mapToScene(QPointF(2, 8)).toPoint();
+        const QPoint to = body->mapToScene(QPointF(120, 8)).toPoint();
+        QTest::mousePress(&window, Qt::LeftButton, {}, from);
+        for (int x = from.x(); x <= to.x(); x += 10)
+            QTest::mouseMove(&window, QPoint(x, from.y()));
+        QTest::mouseRelease(&window, Qt::LeftButton, {}, to);
+        QTRY_VERIFY2(body->property("selectedText").toString()
+                         .startsWith(QStringLiteral("line1")),
+                     "dragging across the root selected nothing");
+        QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+    }
+
+    void draggingTheReplyScrollBarUpStopsFollowingTheNewestReply()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        const QString timelineId =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        auto reply = [](int i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$bar%1:mock.local").arg(i);
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("reply %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(100 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            return e;
+        };
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 40; ++i)
+            events.append(reply(i));
+        mock->resetTimelineForTest(timelineId, events, 0);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.thread()->model()->rowCount() >= 40, kSignalTimeoutMs);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(400, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, kSignalTimeoutMs));
+        auto *replyList = root->findChild<QQuickItem *>(
+            QStringLiteral("threadReplyList"));
+        auto *bar = root->findChild<QQuickItem *>(
+            QStringLiteral("threadReplyScrollBar"));
+        QVERIFY(replyList && bar);
+        QTRY_VERIFY_WITH_TIMEOUT(replyList->property("count").toInt() >= 40,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(replyList->property("followLatest").toBool()
+                                     && bar->isVisible(),
+                                 kSignalTimeoutMs);
+        QTest::qWait(300);
+
+        const qreal size = bar->property("size").toReal();
+        const qreal pos = bar->property("position").toReal();
+        const QPoint grab = bar->mapToScene(
+            QPointF(bar->width() / 2, (pos + size / 2) * bar->height())).toPoint();
+        QTest::mousePress(&window, Qt::LeftButton, {}, grab);
+        for (int y = grab.y(); y >= 0; y -= 15)
+            QTest::mouseMove(&window, QPoint(grab.x(), y));
+        QTest::mouseMove(&window, QPoint(grab.x(), 0));
+        QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(grab.x(), 0));
+        QCoreApplication::processEvents();
+
+        QVERIFY2(replyList->property("contentY").toReal()
+                     < replyList->property("originY").toReal() + 50,
+                 "the scroll bar drag did not reach the top");
+        QVERIFY2(!replyList->property("followLatest").toBool(),
+                 "still following the newest reply after dragging to the top");
+        const qreal before = replyList->property("contentY").toReal();
+        mock->appendEventForTest(timelineId, reply(40));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.thread()->model()->rowCount() >= 41, kSignalTimeoutMs);
+        QTest::qWait(500);
+        QCOMPARE(replyList->property("contentY").toReal(), before);
+    }
+
     void theThreadRootCollapsesToOneLineAndRemembersIt()
     {
         QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
