@@ -227,8 +227,10 @@ void ThreadController::setClient(MatrixClient *client)
                     }
                     if (m_state == Opening)
                         setState(Ready);
-                    if (m_state == Ready)
+                    if (m_state == Ready) {
                         startHistoryFill();
+                        pumpAttachments();
+                    }
                 });
         connect(m_client, &MatrixClient::threadTimelineFailed, this,
                 [this](const QString &roomId, const QString &rootEventId,
@@ -968,6 +970,13 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
 
 void ThreadController::parkAttachments()
 {
+    // Rows already sent go now, to the thread they were sent from.
+    auto &pending = m_attachments->entries();
+    for (int row = 0; row < pending.size(); ++row) {
+        if (pending[row].state == QLatin1String("queued")
+            && pending[row].sendRequested)
+            dispatchAttachment(row);
+    }
     const QList<AttachmentQueueModel::Entry> entries = m_attachments->takeAll();
     const QString key = timelineId();
     if (key.isEmpty())

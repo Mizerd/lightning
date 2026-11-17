@@ -1466,6 +1466,37 @@ private Q_SLOTS:
         QCOMPARE(sent.mid(sent.size() - 3), expected);
     }
 
+    void threadAttachmentsSentBeforeClosingStillAllGoOut()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QTemporaryFile f[3] = {
+            QTemporaryFile(QDir::tempPath() + QStringLiteral("/lightning-XXXXXX.png")),
+            QTemporaryFile(QDir::tempPath() + QStringLiteral("/lightning-XXXXXX.png")),
+            QTemporaryFile(QDir::tempPath() + QStringLiteral("/lightning-XXXXXX.png"))};
+        for (auto &file : f) {
+            QVERIFY(file.open());
+            QImage(4, 4, QImage::Format_RGB32).save(file.fileName(), "PNG");
+            controller.addAttachment(QUrl::fromLocalFile(file.fileName()));
+        }
+        controller.sendText(QString{});
+        QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+        controller.close();
+        QTRY_COMPARE_WITH_TIMEOUT(client.threadAttachmentCallsForTest(), 3,
+                                  kSignalTimeoutMs);
+        int inThread = 0;
+        for (const auto &e : client.timeline(kGeneral))
+            if (e.type == TimelineEvent::Image && e.threadRootId == rootId)
+                ++inThread;
+        QVERIFY(inThread >= 3);
+    }
+
     void aThreadPhotoLeavesWithoutItsLocation()
     {
         MockMatrixClient client;
