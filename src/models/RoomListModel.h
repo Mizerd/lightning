@@ -191,6 +191,10 @@ private:
     int m_archivedUnreadCount = 0;
     int m_archivedCount = 0;
     void updateUnreadTotals();
+    void unarchiveOnNewUnread(const RoomInfo &room, bool counts);
+    struct UnreadBaseline { bool counts = false; int unread = 0; int highlight = 0; };
+    QHash<QString, UnreadBaseline> m_unreadBaseline;
+    QSet<QString> m_unarchiveRequested;
     int notificationModeOf(const QString &roomId) const;
     int shownUnread(const RoomInfo &room) const;
     std::function<int(const QString &)> m_modeOf;

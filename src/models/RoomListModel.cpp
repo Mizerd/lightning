@@ -99,7 +99,11 @@ void RoomListModel::setClient(MatrixClient *client)
         // entry would let the next account's own receipt for the same room
         // clear that room's bell.
         connect(m_client, &MatrixClient::loggedOut,
-                this, [this] { m_pendingMarkRead.clear(); });
+                this, [this] {
+            m_pendingMarkRead.clear();
+            m_unreadBaseline.clear();
+            m_unarchiveRequested.clear();
+        });
         // Only a mark-as-read WE asked for announces itself: the event carries
         // the room alone (not the event it landed on), and the same event also
         // follows ordinary in-room receipts.
@@ -112,6 +116,8 @@ void RoomListModel::setClient(MatrixClient *client)
                 [this](const QString &roomId) { m_pendingMarkRead.remove(roomId); });
     }
     m_pendingMarkRead.clear();
+    m_unreadBaseline.clear();
+    m_unarchiveRequested.clear();
     Q_EMIT roomFavouritesSupportedChanged();
     refresh();
 }
@@ -1055,6 +1061,9 @@ void RoomListModel::updateUnreadTotals()
     int archivedUnread = 0;
     if (m_client) {
         for (const RoomInfo &room : m_client->rooms()) {
+            if (room.membership == RoomInfo::Joined && !room.isSpace)
+                unarchiveOnNewUnread(room, roomunread::countsAsUnread(
+                                               room, notificationModeOf(room.id)));
             if (room.isArchived) {
                 if (room.membership == RoomInfo::Joined && !room.isSpace
                     && passesScopeFilter(room)) {
@@ -1089,6 +1098,30 @@ void RoomListModel::updateUnreadTotals()
     m_archivedCount = archived;
     m_archivedUnreadCount = archivedUnread;
     Q_EMIT unreadTotalsChanged();
+}
+
+void RoomListModel::unarchiveOnNewUnread(const RoomInfo &room, bool counts)
+{
+    const auto prev = m_unreadBaseline.value(room.id, UnreadBaseline{});
+    const bool known = m_unreadBaseline.contains(room.id);
+    m_unreadBaseline.insert(room.id, { counts, room.unreadCount, room.highlightCount });
+    if (!room.isArchived) {
+        m_unarchiveRequested.remove(room.id);
+        return;
+    }
+    // A room first seen already unread (initial sync, or archived while unread)
+    // is a baseline, not news.
+    if (!known || !counts || !m_client || !m_client->initialSyncDone()
+        || m_client->connectionState() != MatrixClient::Syncing
+        || m_unarchiveRequested.contains(room.id))
+        return;
+    const bool fresh = room.unreadCount > prev.unread || room.highlightCount > prev.highlight
+                       || (!prev.counts && !room.markedUnread);
+    if (!fresh)
+        return;
+    m_unarchiveRequested.insert(room.id);
+    QMetaObject::invokeMethod(this, [this, id = room.id] { setRoomArchived(id, false); },
+                              Qt::QueuedConnection);
 }
 
 void RoomListModel::updateFavouritesBoundary()

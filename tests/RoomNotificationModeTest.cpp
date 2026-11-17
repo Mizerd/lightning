@@ -2,6 +2,7 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomUnreadRule.h"
 #include "models/RoomListModel.h"
 #include "models/SpaceChannelModel.h"
 #include "spaces/SpaceManager.h"
@@ -32,7 +33,18 @@ public:
 
     QList<RoomInfo> roomList;
 
+    QStringList archiveCalls;
+    bool initialDone = true;
+
     void announce() { Q_EMIT roomsChanged(); }
+    bool initialSyncDone() const override { return initialDone; }
+    void setRoomArchived(const QString &id, bool archived) override
+    {
+        archiveCalls << id;
+        for (RoomInfo &r : roomList)
+            if (r.id == id) r.isArchived = archived;
+        Q_EMIT roomsChanged();
+    }
 
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
@@ -1242,6 +1254,61 @@ private Q_SLOTS:
         QCOMPARE(reloaded.at(1).at(1).toBool(), false);
         QCOMPARE(app.currentRoomId(), other);
 #endif
+    }
+
+    void anArchivedRoomReturnsOnlyOnANewUnread()
+    {
+        auto *fake = new SpaceFakeClient(this);
+        RoomListModel model;
+        int mode = roomunread::kModeAllMessages;
+        model.setNotificationModeSource([&mode](const QString &) { return mode; });
+        model.setClient(fake);
+        auto room = [&](const QString &id) -> RoomInfo & {
+            for (RoomInfo &r : fake->roomList)
+                if (r.id == id) return r;
+            fake->roomList << joinedRoom(id);
+            return fake->roomList.last();
+        };
+        const QString quiet = QStringLiteral("!quiet:example.org");
+        const QString loud = QStringLiteral("!loud:example.org");
+        const QString muted = QStringLiteral("!muted:example.org");
+        room(quiet).isArchived = true;
+        room(loud).isArchived = true;
+        room(loud).unreadCount = 3;
+        fake->announce();
+        QCoreApplication::processEvents();
+        QVERIFY2(fake->archiveCalls.isEmpty(), "first sight (even unread) is a baseline");
+
+        room(loud).unreadCount = 3;
+        room(quiet).lastMessagePreview = QStringLiteral("own message");
+        room(quiet).hasUnreadMessages = false;
+        fake->announce();
+        QCoreApplication::processEvents();
+        QVERIFY2(fake->archiveCalls.isEmpty(), "no new unread, nothing returns");
+
+        fake->initialDone = false;
+        room(quiet).unreadCount = 1;
+        fake->announce();
+        QCoreApplication::processEvents();
+        QVERIFY2(fake->archiveCalls.isEmpty(), "initial sync backfill does not return a room");
+        fake->initialDone = true;
+        room(quiet).unreadCount = 0;
+        fake->announce();
+
+        room(loud).unreadCount = 4;
+        fake->announce();
+        QTRY_COMPARE(fake->archiveCalls, QStringList{loud});
+        QVERIFY(!room(loud).isArchived);
+        QVERIFY(room(quiet).isArchived);
+
+        room(muted).isArchived = true;
+        fake->announce();
+        mode = roomunread::kModeMute;
+        model.notificationModeChanged();
+        room(muted).unreadCount = 2;
+        fake->announce();
+        QCoreApplication::processEvents();
+        QCOMPARE(fake->archiveCalls, QStringList{loud});
     }
 
 private:
