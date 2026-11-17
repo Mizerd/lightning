@@ -27,15 +27,13 @@ No VP9 sender has been run against it live; the evidence is CTest
 
 
 
-## 2026-11-08 — ACCEPTED FOLLOW-UP: the search index keeps the rows of rooms the user left
+## 2026-11-17 — DECIDED: the search index keeps a left room's rows
 
-`MatrixClient::forgetIndexedRoom` (FFI `mx_rust_search_index_forget_room`)
-has no caller, so the indexed messages of a room the user left, was kicked or
-banned from stay searchable until "Clear index". Not wired in the autoindex
-round: leave, kick, ban and forget arrive by different paths, and whether
-leaving should also drop the room's searchable history is a product decision
-(a user may leave a room and still want to find what was said there). The
-live handler, gap fill and index-all already ignore rooms that are not joined.
+Leave, kick and ban keep the room's indexed messages, as Element keeps a left
+room's history readable. Removing an account deletes the index with its store
+directory. Rows go only on an explicit Forget, and Lightning has no Forget
+action yet, so `MatrixClient::forgetIndexedRoom` still has no caller: wire it
+in the same change that adds one.
 
 ## 2026-11-07 — ACCEPTED FOLLOW-UP: secondary multi-SFU connections do not act on a resume
 
