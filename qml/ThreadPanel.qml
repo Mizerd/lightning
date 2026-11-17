@@ -854,9 +854,13 @@ Rectangle {
                     clip: true
                     readonly property string shownRootId: panel.rootData.eventId || ""
                     onShownRootIdChanged: contentY = 0
-                    Label {
+                    TextEdit {
                         id: rootBody
                         objectName: "threadRootBody"
+                        readOnly: true
+                        selectByMouse: true
+                        selectionColor: AppTheme.textSelection
+                        selectedTextColor: AppTheme.text
                         textFormat: Text.PlainText
                         width: rootBodyFlick.width
                         text: panel.rootBodyText
@@ -866,9 +870,8 @@ Rectangle {
                                 || panel.rootData.undecryptable === true)
                                ? AppTheme.textMuted : AppTheme.text
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-                        lineHeight: AppTheme.lineHeightBody
-                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
+                        Accessible.name: text
                     }
                     ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 }
@@ -1555,7 +1558,22 @@ Rectangle {
 
                 ScrollBar.vertical: AppScrollBar {
                     objectName: "threadReplyScrollBar"
-                    policy: ScrollBar.AsNeeded }
+                    policy: ScrollBar.AsNeeded
+                    onPressedChanged: {
+                        if (pressed)
+                            app.threadScroll.cancel()
+                        else
+                            replyList.afterWheelSettled()
+                    }
+                    onPositionChanged: {
+                        if (!pressed)
+                            return
+                        replyList.followLatest = replyList.atBottomEdge()
+                        if (replyList.contentY - replyList.originY
+                                < replyList.height * 0.5)
+                            app.thread.model.requestOlder()
+                    }
+                }
             }
 
             AbstractButton {
