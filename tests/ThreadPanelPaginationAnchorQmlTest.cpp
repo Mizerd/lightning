@@ -649,12 +649,24 @@ private Q_SLOTS:
         const QPoint from = body->mapToScene(QPointF(2, 8)).toPoint();
         const QPoint to = body->mapToScene(QPointF(120, 8)).toPoint();
         QTest::mousePress(&window, Qt::LeftButton, {}, from);
-        for (int x = from.x(); x <= to.x(); x += 10)
+        const QQuickItem *grabber = window.mouseGrabberItem();
+        const QString grabbed = grabber
+            ? QString::fromLatin1(grabber->metaObject()->className())
+                  + QLatin1Char('/') + grabber->objectName()
+            : QStringLiteral("none");
+        for (int x = from.x(); x <= to.x(); x += 10) {
             QTest::mouseMove(&window, QPoint(x, from.y()));
+            QTest::qWait(10);
+        }
         QTest::mouseRelease(&window, Qt::LeftButton, {}, to);
         QTRY_VERIFY2(body->property("selectedText").toString()
                          .startsWith(QStringLiteral("line1")),
-                     "dragging across the root selected nothing");
+                     qPrintable(QStringLiteral(
+                         "dragging across the root selected nothing; grab=%1 sel=%2 "
+                         "enabled=%3 visible=%4 size=%5x%6")
+                         .arg(grabbed, body->property("selectedText").toString())
+                         .arg(body->isEnabled()).arg(body->isVisible())
+                         .arg(body->width()).arg(body->height())));
         QCOMPARE(scroll->property("contentY").toReal(), 0.0);
         if (!scrolls)
             return;
