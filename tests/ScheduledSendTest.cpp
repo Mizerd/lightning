@@ -909,6 +909,7 @@ private Q_SLOTS:
         QVERIFY(rows.at(1).toMap().value(QStringLiteral("sendAtMs")).toLongLong()
                 < rows.at(2).toMap().value(QStringLiteral("sendAtMs")).toLongLong());
 
+        h.settings.setScheduledSends({});
         Harness captioned;
         const QString id = captioned.scheduler.schedule(
             withMedia(message(kPlain, QString()), { 908 }, QStringLiteral("look")), at);
