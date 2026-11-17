@@ -1062,6 +1062,10 @@ private:
         KeyringLost,
     };
     SignInState signInStateFor(const QString &userId) const;
+    // Switches to the newest saved account that can be read; false when none
+    // can, with *anyUnreadable set if the keyring hid at least one.
+    bool continueWithSavedAccount(const QString &skipUserId,
+                                  bool *anyUnreadable);
     void refreshKeyringUnavailable();
     void setKeyringUnavailable(bool unavailable);
     void explainUnrestoredLaunch();
@@ -1173,6 +1177,9 @@ private:
     QString m_adoptTarget;
     quint64 m_queuedSwitchEpoch = 0;
     bool m_keyringUnavailable = false;
+    // An account whose removal was refused at sign-out; Try again must not
+    // reopen it in place of the accounts the keyring hid.
+    QString m_keyringRetrySkipUserId;
     bool m_revokedDetach = false;
     QString m_switchFallbackUserId;
     QString m_lastSessionUserId;

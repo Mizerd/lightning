@@ -1071,9 +1071,6 @@ What remains open:
   the file keyring; one in the file keyring reads as "cannot tell" (keyring
   notice) when the portal did not answer. Live NOT TESTED (real Flatpak,
   portal coming and going).
-- **"Try again" from the signed-out path.** The keyring notice and its retry
-  appear when a launch lands on the login screen; a sign-out that leaves other
-  accounts unreadable still says "restart Lightning".
 - **A browser-sign-in account (OAuth, SSO) whose keyring lost its sign-in**
   gets the card but no way to continue as the same device: its sign-in here
   cannot ask for a device, so it still ends in "already signed in on this
@@ -1083,9 +1080,8 @@ What remains open:
   §18 APPROVED). That covers the whoami check for password adoptions
   (`RustSdkMatrixClient.cpp` `startAdoptedSessionCheck`, `oauth.rs`
   `mx_rust_whoami_probe`) and recording the backend (`LibSecretStore.cpp`, a
-  one-time warning). The rest lands after 0.10.2, in this order: "Try again"
-  from the signed-out path; an OAuth lost sign-in resumes on the recorded
-  device; then the OAuth adoption check after the first refresh. Plan in `docs/roadmap.md`.
+  one-time warning). The rest lands after 0.10.2, in this order: an OAuth
+  lost sign-in resumes on the recorded device; then the OAuth adoption check after the first refresh. Plan in `docs/roadmap.md`.
 - **Adopted sessions are UNVERIFIED.** An item written by an older build
   (`net.smetonis.matrixclient.Secret`) is copied into the install's own items
   at first start (`keyringItems=adopted-unverified`). Offline nothing tells

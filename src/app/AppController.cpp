@@ -6344,6 +6344,18 @@ bool AppController::retryKeyring()
             Q_EMIT errorReported(
                 tr("The keyring still does not return this account's saved "
                    "sign-in."));
+        } else if (m_settings->activeAccountUserId().isEmpty()) {
+            bool anyUnreadable = false;
+            if (!continueWithSavedAccount(m_keyringRetrySkipUserId,
+                                          &anyUnreadable)
+                && anyUnreadable) {
+                setKeyringUnavailable(true);
+                Q_EMIT errorReported(
+                    tr("Lightning can't read this device's saved sign-ins "
+                       "right now — the system keyring is locked or "
+                       "unavailable. Unlock it and try again."));
+                return false;
+            }
         }
     }
     return true;
@@ -6893,34 +6905,44 @@ void AppController::onLoggedOut()
                "Nothing was deleted."));
     }
     setConnectionStatus(tr("Not connected"));
+    m_keyringRetrySkipUserId = removalRefusedUserId;
+    bool anyUnreadable = false;
+    if (continueWithSavedAccount(removalRefusedUserId, &anyUnreadable))
+        return;
+    if (anyUnreadable) {
+        // The login screen's keyring notice carries Try again.
+        setKeyringUnavailable(true);
+        Q_EMIT errorReported(
+            tr("Lightning can't read this device's saved sign-ins right now — "
+               "the system keyring is locked or unavailable. Unlock it and "
+               "try again."));
+    }
+    setCurrentScreen(LoginScreen);
+    Q_EMIT loggedInChanged();
+}
+
+bool AppController::continueWithSavedAccount(const QString &skipUserId,
+                                             bool *anyUnreadable)
+{
     const QStringList remaining = m_settings->savedAccountUserIds();
     // An empty token read is not evidence an account is gone: with a locked
     // keyring every account reads tokenless.
-    bool anyUnreadable = false;
     for (auto it = remaining.crbegin(); it != remaining.crend(); ++it) {
-        if (*it == removalRefusedUserId)
+        if (*it == skipUserId)
             continue;
         switch (signInStateFor(*it)) {
         case SignInState::Usable:
             switchToAccount(*it);
-            return;
+            return true;
         case SignInState::Unreadable:
-            anyUnreadable = true;
+            *anyUnreadable = true;
             break;
         case SignInState::Gone:
         case SignInState::KeyringLost:
             break;
         }
     }
-    if (anyUnreadable) {
-        Q_EMIT errorReported(
-            tr("Lightning can't read this device's saved sign-ins right now — "
-               "the system keyring is locked or unavailable. Your other "
-               "accounts are still on this device; unlock the keyring and "
-               "restart Lightning to continue with them."));
-    }
-    setCurrentScreen(LoginScreen);
-    Q_EMIT loggedInChanged();
+    return false;
 }
 
 void AppController::setAccountSwitching(bool switching)

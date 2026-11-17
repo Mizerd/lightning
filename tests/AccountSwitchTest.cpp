@@ -1335,6 +1335,40 @@ private Q_SLOTS:
                  "what failed");
     }
 
+    void aSignOutIntoALockedKeyringContinuesOnTryAgain()
+    {
+        FakeSecretStore *secrets = nullptr;
+        AppController app(AppController::HttpBackend, false,
+                          [&secrets](QObject *parent) {
+                              auto store = std::make_unique<FakeSecretStore>(parent);
+                              secrets = store.get();
+                              return std::unique_ptr<SecretStore>(std::move(store));
+                          });
+        QVERIFY(secrets != nullptr);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.settings()->setActiveAccountUserId(kAlice);
+
+        secrets->setLocked(true);
+        app.auth()->logout();
+        QCOMPARE(app.currentScreen(), AppController::LoginScreen);
+        QVERIFY2(app.keyringUnavailable(),
+                 "the login screen offers no Try again for a locked keyring");
+        QVERIFY(app.settings()->hasSavedAccount(kBob));
+
+        QVERIFY(!app.retryKeyring());
+        QVERIFY(app.keyringUnavailable());
+
+        secrets->setLocked(false);
+        QVERIFY(app.retryKeyring());
+        QVERIFY(!app.keyringUnavailable());
+        QTRY_COMPARE(app.settings()->activeAccountUserId(), kBob);
+    }
+
     void trayAvailableCanNotifyItsBindings()
     {
         AppController app(AppController::MockBackend);
