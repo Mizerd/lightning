@@ -925,6 +925,19 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
             lightning::calls::holdCaptureToClock(captured, rtp, hold);
             m_session.clockHold = hold;
         }
+        if (rtp) {
+            gst_pad_add_probe(
+                rtp, GST_PAD_PROBE_TYPE_BUFFER,
+                [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                    static_cast<std::shared_ptr<std::atomic<quint64>> *>(data)
+                        ->get()->fetch_add(1);
+                    return GST_PAD_PROBE_OK;
+                },
+                new std::shared_ptr<std::atomic<quint64>>(m_session.rtpHanded),
+                [](gpointer data) {
+                    delete static_cast<std::shared_ptr<std::atomic<quint64>> *>(data);
+                });
+        }
         if (captured)
             gst_object_unref(captured);
         if (rtp)
@@ -2211,10 +2224,12 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
         || iceState == GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED;
     const bool inStalled = report > 0 && transportUp
         && inboundAudio == m_session.lastInboundAudioPackets;
+    const quint64 handed = m_session.rtpHanded->load();
     const bool outStalled = report > 0 && transportUp && !m_session.micMuted
-        && outboundAudio == m_session.lastOutboundAudioPackets;
+        && handed == m_session.lastRtpHanded;
     m_session.lastInboundAudioPackets = inboundAudio;
     m_session.lastOutboundAudioPackets = outboundAudio;
+    m_session.lastRtpHanded = handed;
     if (m_remoteVideoReceiving
         && QDateTime::currentMSecsSinceEpoch() - m_lastRemoteFrameMs.load()
             > kRemoteVideoStallMs) {
@@ -2227,7 +2242,8 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
     const QString counts =
         QStringLiteral("inbound audio packets=%1 bytes=%2 lost=%3 decoded=%4 "
                        "outbound audio packets=%5 inbound other packets=%6 "
-                       "ice=%7 video frames decoded=%8 sent=%9")
+                       "ice=%7 video frames decoded=%8 sent=%9 "
+                       "rtp handed to webrtcbin=%10")
             .arg(inboundAudio)
             .arg(inboundAudioBytes)
             .arg(inboundLost)
@@ -2236,7 +2252,8 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
             .arg(inboundOther)
             .arg(iceState)
             .arg(m_decodedVideoFrames.load())
-            .arg(m_sentVideoFrames->load());
+            .arg(m_sentVideoFrames->load())
+            .arg(handed);
     if (inStalled || outStalled) {
         qCWarning(lcCallMedia).noquote()
             << "rtp stats:" << (inStalled ? "no audio arriving;" : "")
