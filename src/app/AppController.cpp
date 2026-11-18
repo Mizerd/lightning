@@ -7432,6 +7432,9 @@ void AppController::switchToAccount(const QString &userId)
     std::optional<lightning::accounts::LiveSessionTicket> adoption;
     if (m_sessionPool && adopting)
         adoption = m_sessionPool->takeForAdoption(target);
+    // Adoption moves the epoch, as a release does (onLiveSwitchReleased).
+    if (adoption && m_parkedOpen && m_parkedOpen->userId == target)
+        m_parkedOpen->epoch = m_sessionPool->epochFor(target);
 
     trace::stepBegin(trace::Step::S4);
     m_settings->setActiveAccountUserId(target);
