@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include "models/TimelineModel.h"
@@ -37,6 +38,8 @@ public:
     Q_ENUM(State)
 
     static constexpr int kMaxEdgePages = 25;
+    // As long as PaginationController waits for a page that never reports.
+    static constexpr int kOpenTimeoutMs = 30000;
 
     explicit ContextController(QObject *parent = nullptr);
 
@@ -70,6 +73,7 @@ public:
     Q_INVOKABLE void tracePhase(const QString &phase);
 
     void handleCurrentRoomChanged(const QString &currentRoomId);
+    void setOpenTimeoutMsForTest(int ms) { m_openWatchdog.setInterval(ms); }
 
 Q_SIGNALS:
     void stateChanged();
@@ -105,5 +109,6 @@ private:
     int m_newerPages = 0;
     bool m_scrollTraceEnabled = false;
     QElapsedTimer m_openTimer;
+    QTimer m_openWatchdog;
     QSet<QString> m_tracedPhases;
 };
