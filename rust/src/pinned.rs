@@ -114,7 +114,7 @@ pub(crate) fn fetch_pinned(
             None if !allow_remote => Vec::new(),
             None if crate::optprobe::state_known_absent(&client, &room_id, PINNED_KEY) => Vec::new(),
             None => {
-                crate::optprobe::state_pace().await;
+                crate::optprobe::state_pace(&client).await;
                 let loaded = tokio::time::timeout(
                     PINNED_REQUEST_TIMEOUT,
                     room.load_pinned_events(),

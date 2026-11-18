@@ -291,12 +291,12 @@ pub(crate) fn fetch_room_background(
                 serde_json::from_str::<Value>(&json).ok().map(|v| parse_content(&v))
             });
         let room_key = room.room_id().to_string();
-        let parsed = if let Some(parsed) = stored {
-            parsed
-        } else if crate::optprobe::state_known_absent(&client, &room_key, ROOM_BACKGROUND_EVENT) {
+        let parsed = if stored.is_none()
+            && crate::optprobe::state_known_absent(&client, &room_key, ROOM_BACKGROUND_EVENT)
+        {
             Parsed::None
         } else {
-            crate::optprobe::state_pace().await;
+            crate::optprobe::state_pace(&client).await;
             match client.send(request).with_request_config(config).await {
                 Ok(response) => {
                     crate::optprobe::state_forget(&client, &room_key, ROOM_BACKGROUND_EVENT);
@@ -308,8 +308,10 @@ pub(crate) fn fetch_room_background(
                     let text = err.to_string().to_ascii_lowercase();
                     if text.contains("m_not_found") || text.contains("404") {
                         crate::optprobe::state_mark_absent(&client, &room_key, ROOM_BACKGROUND_EVENT);
+                        Parsed::None
+                    } else {
+                        stored.unwrap_or(Parsed::None)
                     }
-                    Parsed::None
                 }
             }
         };

@@ -1485,6 +1485,7 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         let events = Arc::clone(&bridge.events);
         if let Some(user) = client.as_ref().and_then(|client| client.user_id()) {
             roomaction::forget_archived_account(user);
+            optprobe::forget_account_id(user.as_str());
         }
         if let Some(client) = client {
             spawn_session_thread(bridge.op_thread_name(), move || {
@@ -12395,7 +12396,7 @@ async fn run_modern_sync(
                             first_sync = false;
                             arm_preview_scan(&mut scan_due, last_backfill_scan);
                             first_response.store(false, Ordering::SeqCst);
-                            optprobe::settle(&client);
+                            optprobe::settle(&client).await;
                             enqueue(&events, json!({ "type": "initial_sync_done" }));
                         }
                     }
@@ -13013,7 +13014,7 @@ async fn run_classic_sync_with(
                 }
                 enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
                 if first_response.swap(false, Ordering::SeqCst) {
-                    optprobe::settle(&client);
+                    optprobe::settle(&client).await;
                     enqueue(&events, json!({ "type": "initial_sync_done" }));
                 }
                 progress.touch();

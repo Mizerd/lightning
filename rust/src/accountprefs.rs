@@ -202,7 +202,8 @@ pub(crate) fn write(
 }
 
 async fn put(client: &Client, event_type: &str, content: &Value) -> Result<(), String> {
-    crate::optprobe::note_write(client, event_type);
+    crate::optprobe::guard_write(client, event_type).await?;
+    crate::optprobe::note_write(client, event_type, Some(content));
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let raw = Raw::new(content).map_err(|_| "invalid_content".to_owned())?.cast_unchecked();
     let request = set_global_account_data::v3::Request::new_raw(

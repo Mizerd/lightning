@@ -320,10 +320,12 @@ async fn read_scope(client: &Client, scope: &str) -> Result<Option<Entry>, Strin
     let raw = if scope.is_empty() || scope == SETTINGS_TYPE {
         let ty = if scope == SETTINGS_TYPE { SETTINGS_TYPE } else { GLOBAL_TYPE };
         crate::optprobe::read_global(client, ty, Some(bounded()), false).await?
-    } else if crate::optprobe::state_known_absent(client, scope, ROOM_AD_KEY) {
+    } else if crate::optprobe::state_known_absent(client, scope, ROOM_AD_KEY)
+        && read_store(client, scope).await.is_none()
+    {
         None
     } else {
-        crate::optprobe::state_pace().await;
+        crate::optprobe::state_pace(client).await;
         let raw = read_server(client, scope).await?;
         if raw.is_none() {
             crate::optprobe::state_mark_absent(client, scope, ROOM_AD_KEY);
@@ -678,7 +680,7 @@ async fn put_global(client: &Client, event_type: &str, content: &Value) -> Resul
     if !is_canonical_json_safe(content) {
         return Err("invalid_content".to_owned());
     }
-    crate::optprobe::note_write(client, event_type);
+    crate::optprobe::note_write(client, event_type, Some(content));
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let raw = Raw::new(content).map_err(|_| "invalid_content".to_owned())?.cast_unchecked();
     let request = set_global_account_data::v3::Request::new_raw(

@@ -1161,7 +1161,7 @@ async fn write_account_data(
         .account()
         .set_account_data_raw(GlobalAccountDataEventType::from(event_type), raw)
         .await;
-    forget_own_write(client, event_type);
+    forget_own_write(client, event_type, content);
     written
         .map(|_| ())
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())
@@ -1315,8 +1315,8 @@ where
     }
 }
 
-fn forget_own_write(client: &matrix_sdk::Client, event_type: &str) {
-    crate::optprobe::note_write(client, event_type);
+fn forget_own_write(client: &matrix_sdk::Client, event_type: &str, content: &Value) {
+    crate::optprobe::note_write(client, event_type, Some(content));
 }
 
 fn server_answer<E>(
@@ -1385,12 +1385,8 @@ async fn ask_account_data(
     if crate::optprobe::proves_absent(client, event_type) {
         return ServerAnswer::Absent;
     }
-    crate::optprobe::state_pace().await;
-    let answer = server_answer(client.account().fetch_account_data(ty.clone()).await);
-    if !matches!(answer, ServerAnswer::Failed) {
-        crate::optprobe::served(client, event_type);
-    }
-    answer
+    crate::optprobe::state_pace(client).await;
+    server_answer(client.account().fetch_account_data(ty.clone()).await)
 }
 
 async fn read_global_account_data_typed(
@@ -2227,7 +2223,7 @@ async fn edit_user_pack_inner(
         .map_err(|_| "rejected".to_owned())?
         .cast_unchecked();
     let written = client.account().set_account_data_raw(ty, raw).await;
-    forget_own_write(&client, USER_EMOTES);
+    forget_own_write(&client, USER_EMOTES, &content);
     written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
 }
@@ -2517,7 +2513,7 @@ async fn add_to_user_pack_inner(
         .map_err(|_| "rejected".to_owned())?
         .cast_unchecked();
     let written = client.account().set_account_data_raw(ty, raw).await;
-    forget_own_write(&client, USER_EMOTES);
+    forget_own_write(&client, USER_EMOTES, &content);
     written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
 }

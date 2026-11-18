@@ -60,7 +60,7 @@ async fn put(client: &Client, event_type: &str, content: &Value) -> Result<(), S
     if !is_canonical_json_safe(content) {
         return Err("invalid_content".to_owned());
     }
-    crate::optprobe::note_write(client, event_type);
+    crate::optprobe::note_write(client, event_type, Some(content));
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let raw = Raw::new(content).map_err(|_| "invalid_content".to_owned())?.cast_unchecked();
     let request = set_global_account_data::v3::Request::new_raw(

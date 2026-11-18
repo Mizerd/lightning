@@ -397,7 +397,7 @@ pub(crate) fn fetch_room_banner(
                 StateEventType::from(event_type),
                 String::new(),
             );
-            crate::optprobe::state_pace().await;
+            crate::optprobe::state_pace(&client).await;
             match client.send(request).with_request_config(config).await {
                 Ok(response) => {
                     if let Some(url) = banner_url_from_json(response.event_or_content.get()) {
