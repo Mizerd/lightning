@@ -206,7 +206,7 @@ Item {
                          : (root.isUnread && !root.muted) ? AppTheme.roomNameUnread
                                                           : AppTheme.roomName
                     font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-                    font.weight: (selected || (root.isUnread && !root.muted))
+                    font.weight: (root.isUnread && !root.muted)
                                  ? AppTheme.weightBold : AppTheme.weightMedium
                     elide: Label.ElideRight
                     // Explicit, not the implicit default: an implicit left follows
