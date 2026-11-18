@@ -137,8 +137,8 @@ Rectangle {
             if (Math.abs(target - list.contentY) < 0.5)
                 break
             ++view.tracePins
-            if (!view.restoreFillPending)
-                contextWheel.stopGlide()
+            if (contextWheel.gliding)
+                contextWheel.glideTargetY += target - list.contentY
             list.contentY = target
         }
         if (view.restoreFillPending)
