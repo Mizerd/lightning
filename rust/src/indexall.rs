@@ -54,8 +54,8 @@ pub(crate) struct Progress {
     /// Wall-clock ms of the last run that left nothing to walk; 0 = never.
     #[serde(default)]
     pub finished_ms: u64,
-    /// Rooms last walked with undecryptable history and no room key since: a
-    /// background start skips them, a user-started run does not.
+    /// Rooms last walked with undecryptable history and no room key since:
+    /// no start walks them again until one arrives.
     #[serde(default)]
     pub utd_rooms: BTreeSet<String>,
     /// The megolm sessions a `utd_rooms` room was missing. A room absent here
@@ -201,7 +201,12 @@ struct Inner {
     retry_in_ms: u64,
     held_reported: bool,
     walked_utd_sessions: Option<(String, Option<BTreeSet<String>>)>,
+    /// Keys that arrived for the queued room while it is walked or waits; an
+    /// empty session means keys were missed. Such a key is never announced again.
+    keys_during_walk: Option<(String, BTreeSet<String>)>,
 }
+
+const MAX_KEYS_DURING_WALK: usize = 256;
 
 /// The per-account control block. One per bridge, i.e. per store directory,
 /// so a run can only ever write the index and record of its own account.
@@ -434,9 +439,17 @@ impl Control {
     /// room, and those must not re-queue its whole history.
     pub(crate) fn keys_arrived(&self, keys: impl Iterator<Item = (String, String)>) {
         let mut inner = self.lock();
+        let walking = self.current_room_locked(&mut inner);
+        let mut during = inner.keys_during_walk.take().filter(|(room, _)| Some(room) == walking.as_ref());
         let progress = self.loaded(&mut inner);
         let mut changed = false;
         for (room, session) in keys {
+            if walking.as_deref() == Some(room.as_str()) {
+                let seen = &mut during.get_or_insert_with(|| (room.clone(), BTreeSet::new())).1;
+                if seen.len() < MAX_KEYS_DURING_WALK {
+                    seen.insert(session.clone());
+                }
+            }
             let wanted = progress
                 .utd_sessions
                 .get(&room)
@@ -446,11 +459,35 @@ impl Control {
                 changed = true;
             }
         }
+        inner.keys_during_walk = during;
         if changed {
+            let snapshot = self.loaded(&mut inner).clone();
+            drop(inner);
+            self.persist(&snapshot);
+        }
+    }
+
+    /// The key stream lagged: which keys arrived is unknown, so any key wakes
+    /// every waiting room again, and the room being walked is not parked.
+    pub(crate) fn keys_missed(&self) {
+        let mut inner = self.lock();
+        if let Some(room) = self.current_room_locked(&mut inner) {
+            let mut during = inner.keys_during_walk.take().filter(|(r, _)| *r == room)
+                .unwrap_or_else(|| (room, BTreeSet::new()));
+            during.1.insert(String::new());
+            inner.keys_during_walk = Some(during);
+        }
+        let progress = self.loaded(&mut inner);
+        if !progress.utd_sessions.is_empty() {
+            progress.utd_sessions.clear();
             let snapshot = progress.clone();
             drop(inner);
             self.persist(&snapshot);
         }
+    }
+
+    fn current_room_locked(&self, inner: &mut Inner) -> Option<String> {
+        self.loaded(inner).current().map(str::to_owned)
     }
 
     pub(crate) fn forget_room(&self, room_id: &str) {
@@ -544,6 +581,12 @@ impl Control {
         inner.in_room_written = 0;
         inner.retry_in_ms = 0;
         let walked = inner.walked_utd_sessions.take();
+        let during = inner
+            .keys_during_walk
+            .take()
+            .filter(|(room, _)| room == room_id)
+            .map(|(_, sessions)| sessions)
+            .unwrap_or_default();
         if inner.epoch != epoch {
             return;
         }
@@ -563,14 +606,20 @@ impl Control {
                 progress.undecryptable =
                     progress.undecryptable.saturating_add(undecryptable as u64);
                 progress.utd_sessions.remove(room_id);
+                let missing = walked
+                    .filter(|(room, _)| room == room_id)
+                    .and_then(|(_, sessions)| sessions)
+                    .filter(|sessions| !sessions.is_empty());
+                let key_landed = during.contains("")
+                    || match &missing {
+                        Some(sessions) => during.iter().any(|s| sessions.contains(s)),
+                        None => !during.is_empty(),
+                    };
                 if undecryptable > 0 {
                     progress.undecryptable_rooms += 1;
-                    if progress.utd_rooms.len() < MAX_COMPLETE {
+                    if !key_landed && progress.utd_rooms.len() < MAX_COMPLETE {
                         progress.utd_rooms.insert(room_id.to_owned());
-                        if let Some((_, Some(sessions))) = walked
-                            .filter(|(room, sessions)| room == room_id
-                                && sessions.as_ref().is_some_and(|s| !s.is_empty()))
-                        {
+                        if let Some(sessions) = missing {
                             progress.utd_sessions.insert(room_id.to_owned(), sessions);
                         }
                     }
@@ -1199,6 +1248,55 @@ mod tests {
         let status = control.status(None);
         assert_eq!(status.total, 2, "Stop then start queued rooms the stopped run had walked");
         assert_eq!(status.current_room, "!c:x");
+    }
+
+    fn walk_with_utd(control: &Control, during: impl FnOnce(&Control)) {
+        assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
+        let epoch = control.epoch();
+        control.note_utd_sessions("!e2e:x", Some(["s".to_owned()].into_iter().collect()));
+        during(control);
+        control.commit_room(
+            epoch,
+            "!e2e:x",
+            RoomResult::Done { written: 1, undecryptable: 1 },
+            Duration::ZERO,
+        );
+        control.finish(Ending::Finished);
+    }
+
+    #[test]
+    fn a_key_that_lands_during_the_walk_keeps_the_room_walkable() {
+        let control = Control::new(Path::new(""));
+        walk_with_utd(&control, |c| c.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "s".to_owned()))));
+        assert_eq!(
+            control.begin(false, || rooms(&[("!e2e:x", 1)])),
+            Begin::Started,
+            "a key that arrived mid-walk was lost and the room parked for ever"
+        );
+    }
+
+    #[test]
+    fn an_unrelated_key_during_the_walk_still_parks_the_room() {
+        let control = Control::new(Path::new(""));
+        walk_with_utd(&control, |c| c.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "live".to_owned()))));
+        assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::NothingToDo);
+    }
+
+    #[test]
+    fn a_lagged_key_stream_wakes_every_waiting_room() {
+        let control = Control::new(Path::new(""));
+        walk_with_utd(&control, |_| {});
+        control.keys_missed();
+        control.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "unrelated".to_owned())));
+        assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
+
+        let control = Control::new(Path::new(""));
+        walk_with_utd(&control, |c| c.keys_missed());
+        assert_eq!(
+            control.begin(false, || rooms(&[("!e2e:x", 1)])),
+            Begin::Started,
+            "keys missed during the walk parked the room"
+        );
     }
 
     #[test]

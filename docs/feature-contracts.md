@@ -2139,7 +2139,7 @@ above. The event cache this index duplicates is unchanged.)
   Undecryptable history is never indexed; a room that still holds any is not
   recorded as done, and no run (background or user-started) walks it again
   until a room key arrives for one of the megolm sessions the walk was missing
-  (up to 64 recorded per room; past that, or in an older record, any key for
+  (up to 16 recorded per room; past that, or in an older record, any key for
   the room) — by then matrix-sdk's redecryptor has rewritten what that key
   opens, in the event-cache store the walk re-reads. A key for new live
   traffic does not re-queue a room (#98: active rooms were re-walked every

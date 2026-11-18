@@ -924,7 +924,7 @@ pub(crate) async fn deep_index_room_gated<G: PageGate>(
     Ok(outcome)
 }
 
-pub(crate) const MAX_TRACKED_UTD_SESSIONS: usize = 64;
+pub(crate) const MAX_TRACKED_UTD_SESSIONS: usize = 16;
 
 fn note_undecryptable(
     seen: &mut HashSet<String>,

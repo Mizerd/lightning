@@ -11878,10 +11878,11 @@ async fn watch_room_keys_for_index_all(client: Client, index_all: Arc<indexall::
     };
     let mut stream = std::pin::pin!(stream);
     while let Some(update) = stream.next().await {
-        if let Ok(keys) = update {
-            index_all.keys_arrived(
+        match update {
+            Ok(keys) => index_all.keys_arrived(
                 keys.iter().map(|k| (k.room_id.to_string(), k.session_id.clone())),
-            );
+            ),
+            Err(_) => index_all.keys_missed(),
         }
     }
 }
