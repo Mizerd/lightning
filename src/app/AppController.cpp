@@ -7997,6 +7997,7 @@ void AppController::startLiveAccounts()
     noteLiveAccountsStep(QStringLiteral("labs:on"), QString());
     SecretStore *const guiSecretStore = m_settings->secretStore();
     m_accountActivity = std::make_unique<AccountActivityModel>(this);
+    m_unifiedInbox = new UnifiedInboxModel(m_accountActivity.get());
     m_accountList = std::make_unique<AccountListModel>(
         m_settings.get(), m_accounts.get(), m_accountActivity.get(),
         [this](const QString &uid) {
@@ -8009,6 +8010,7 @@ void AppController::startLiveAccounts()
     deps.accounts = m_accounts.get();
     deps.notifications = m_notifications.get();
     deps.activity = m_accountActivity.get();
+    deps.inbox = m_unifiedInbox;
     deps.proofs = &m_revocationProofs;
     deps.guiSecretStore = guiSecretStore;
     deps.secretStoreFactory = [factory = m_secretStoreFactory] {
@@ -8017,6 +8019,10 @@ void AppController::startLiveAccounts()
     deps.appStartMs = m_appStartWallMs;
     m_sessionPool = std::make_unique<la::SessionPool>(std::move(deps), this);
     la::SessionPool *pool = m_sessionPool.get();
+    m_unifiedInbox->setEpochSource(
+        [guard = QPointer<la::SessionPool>(pool)](const QString &uid) {
+            return guard ? guard->epochFor(uid) : ~quint64(0);
+        });
     m_accountList->setSignInProbe(
         [guard = QPointer<la::SessionPool>(pool)](const QString &uid,
                                                   std::function<void(bool)> done) {
@@ -8115,6 +8121,7 @@ void AppController::stopLiveAccounts()
         app->m_retiredLivePool = pool;
         auto *list = app->m_accountList.release();
         auto *activity = app->m_accountActivity.release();
+        app->m_unifiedInbox = nullptr;
         app->m_retiredAccountList = list;
         app->m_retiredAccountActivity = activity;
         app->m_notifications->setLiveAccountsMode(false);
@@ -8351,6 +8358,23 @@ bool AppController::claimCrossAccountOpen(const QString &accountUserId,
             tryFireParkedOpen();
     }, Qt::QueuedConnection);
     return true;
+}
+
+bool AppController::openUnifiedInboxEntry(const QString &accountUserId,
+                                          const QString &roomId,
+                                          const QString &eventId,
+                                          const QString &threadRootId)
+{
+    if (accountUserId.isEmpty() || roomId.isEmpty()
+        || accountUserId == m_settings->activeAccountUserId())
+        return false;
+    qCInfo(lcApp) << "unified inbox open for another account acct="
+                  << matrix::app_data::safeUserSlug(accountUserId);
+    const bool claimed =
+        claimCrossAccountOpen(accountUserId, roomId, eventId, threadRootId);
+    // No notification click follows this one for the claim to swallow.
+    m_claimedOpen.reset();
+    return claimed;
 }
 
 void AppController::tryFireParkedOpen()

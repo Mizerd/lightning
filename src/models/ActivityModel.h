@@ -147,6 +147,7 @@ public:
                             const QSet<QString> &ownThreadRoots,
                             const QStringList &keywords);
     static bool matchesKeyword(const QString &body, const QString &keyword);
+    static QString previewOf(const TimelineEvent &event);
 
 Q_SIGNALS:
     void countChanged();
@@ -211,7 +212,6 @@ private:
     qint64 now() const;
     static TimelineEvent normalised(const TimelineEvent &event);
     static QString realRoomId(const QString &roomId);
-    static QString previewOf(const TimelineEvent &event);
     static QString glyphForMsgtype(const QString &msgtype);
     QSet<QString> favouriteRoomIds() const;
     void refreshFavourites();

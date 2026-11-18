@@ -46,6 +46,7 @@
 #include "accounts/RevocationProofs.h"
 #include "models/AccountActivityModel.h"
 #include "models/AccountListModel.h"
+#include "models/UnifiedInboxModel.h"
 #include "app/NotificationNotices.h"
 #include "text/SpellChecker.h"
 
@@ -293,6 +294,8 @@ class AppController : public QObject
     Q_PROPERTY(bool liveAccountsActive READ liveAccountsActive
                NOTIFY liveAccountsActiveChanged)
     Q_PROPERTY(AccountActivityModel* accountActivity READ accountActivity
+               NOTIFY liveAccountsActiveChanged)
+    Q_PROPERTY(UnifiedInboxModel* unifiedInbox READ unifiedInbox
                NOTIFY liveAccountsActiveChanged)
     Q_PROPERTY(AccountListModel* accountList READ accountList
                NOTIFY liveAccountsActiveChanged)
@@ -544,6 +547,12 @@ public:
     AccountActivityModel *accountActivity() const
     { return m_accountActivity.get(); }
     AccountListModel *accountList() const { return m_accountList.get(); }
+    UnifiedInboxModel *unifiedInbox() const
+    { return m_accountActivity ? m_unifiedInbox : nullptr; }
+    Q_INVOKABLE bool openUnifiedInboxEntry(const QString &accountUserId,
+                                           const QString &roomId,
+                                           const QString &eventId,
+                                           const QString &threadRootId);
     int liveAccountCount() const { return m_liveAccountCount; }
     int maxLiveAccounts() const;
     int maxPinnedAccounts() const;
@@ -1240,6 +1249,8 @@ private:
     bool m_liveAccountsLabsAvailable = false;
     qint64 m_appStartWallMs = 0;
     std::unique_ptr<AccountActivityModel> m_accountActivity;
+    // Owned by m_accountActivity (its QObject child).
+    UnifiedInboxModel *m_unifiedInbox = nullptr;
     std::unique_ptr<AccountListModel> m_accountList;
     std::unique_ptr<lightning::accounts::SessionPool> m_sessionPool;
     QPointer<QObject> m_retiredLivePool;

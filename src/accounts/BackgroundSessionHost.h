@@ -16,6 +16,7 @@
 
 class AccountActivityModel;
 class SettingsManager;
+class UnifiedInboxModel;
 
 namespace lightning::accounts {
 
@@ -30,6 +31,7 @@ public:
         SettingsManager *settings = nullptr;
         NotificationManager *notifications = nullptr;
         AccountActivityModel *activity = nullptr;
+        UnifiedInboxModel *inbox = nullptr;
         std::function<qint64()> monotonicMs;
         // SENSITIVE: called with custody whenever the token generation moved
         // or the session was revoked. Never log the snapshot.
@@ -102,6 +104,7 @@ private:
     void handleQueued(const QString &raw);
     void handleTimelineEvent(const QJsonObject &event, bool decrypted);
     void rememberForwardedUtd(const QString &eventId);
+    void feedInbox(const TimelineEvent &event, const NotificationManager::Context &context);
     NotificationManager::Context contextFor(const QString &roomId, const QJsonObject &bg,
                                             const TimelineEvent &event);
     int modeFor(const QString &roomId);

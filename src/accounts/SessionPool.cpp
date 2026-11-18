@@ -602,6 +602,7 @@ void SessionPool::createHost(const QString &uid, const QByteArray &mediaKeyIn,
     hostDeps.settings = settings;
     hostDeps.notifications = m_deps.notifications;
     hostDeps.activity = m_deps.activity;
+    hostDeps.inbox = m_deps.inbox;
     hostDeps.monotonicMs = m_deps.monotonicMs;
     hostDeps.onCustody = [this](BackgroundSessionHost *host, const CustodySnapshot &custody) {
         onCustody(host, custody);
