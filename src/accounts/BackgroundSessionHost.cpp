@@ -7,6 +7,8 @@
 #include "matrix/RustTimelineIngest.h"
 #include "matrix/TimelineEvent.h"
 #include "models/AccountActivityModel.h"
+#include "models/ActivityModel.h"
+#include "models/UnifiedInboxModel.h"
 #include "notifications/NotificationContextBuilder.h"
 
 #include <QCoreApplication>
@@ -249,6 +251,12 @@ void BackgroundSessionHost::recomputeSummary(bool force)
                 m_deps.notifications->observeRoomUnreadFor(m_identity.userId, roomId, true);
         }
     }
+    if (m_deps.inbox) {
+        for (const QString &roomId : std::as_const(m_unreadRooms)) {
+            if (!unreadNow.contains(roomId))
+                m_deps.inbox->dropRoom(m_identity.userId, roomId);
+        }
+    }
     m_unreadRooms = std::move(unreadNow);
     const bool same = m_haveSummary && unreadRooms == m_lastUnreadRooms
         && mentions == m_lastMentions && m_invites == m_lastInvites
@@ -411,6 +419,8 @@ void BackgroundSessionHost::handleQueued(const QString &raw)
         const QString redacts = event.value(QStringLiteral("redacts")).toString();
         if (!redacts.isEmpty() && m_deps.notifications)
             m_deps.notifications->withdrawEvent(redacts);
+        if (!redacts.isEmpty() && m_deps.inbox)
+            m_deps.inbox->dropEvent(m_identity.userId, redacts);
         return;
     }
     if (type == QLatin1String("reaction_event")) {
@@ -483,6 +493,7 @@ void BackgroundSessionHost::handleTimelineEvent(const QJsonObject &event, bool d
     }
     const NotificationManager::Context context = contextFor(roomId, bg, timelineEvent);
     m_lastContext = context;
+    feedInbox(timelineEvent, context);
     ++m_notifyEvents;
     if (lateForwarded)
         ++m_lateDecryptedEvents;
@@ -492,6 +503,38 @@ void BackgroundSessionHost::handleTimelineEvent(const QJsonObject &event, bool d
         m_deps.notifications->processDecrypted(timelineEvent, context);
     else
         m_deps.notifications->processEvent(timelineEvent, context);
+}
+
+void BackgroundSessionHost::feedInbox(const TimelineEvent &event,
+                                      const NotificationManager::Context &context)
+{
+    if (!m_deps.inbox)
+        return;
+    // The notification rule, without its "desktop notifications on", "synced"
+    // and backlog gates: what arrived while the account was away belongs here.
+    NotificationManager::Context rule = context;
+    rule.notificationsEnabled = true;
+    rule.initialSyncComplete = true;
+    TimelineEvent candidate = event;
+    candidate.backlog = false;
+    const NotificationManager::Decision decision =
+        NotificationManager::decide(candidate, rule);
+    if (!decision.notify || (event.isEdit && !decision.mention))
+        return;
+    UnifiedInboxModel::Entry entry;
+    entry.accountUserId = m_identity.userId;
+    entry.accountLabel = m_identity.label;
+    entry.roomId = event.roomId;
+    entry.roomName = context.roomName;
+    entry.senderId = event.sender;
+    entry.senderName = event.senderDisplayName;
+    entry.preview = ActivityModel::previewOf(event);
+    entry.eventId = event.eventId;
+    entry.threadRootId = event.threadRootId;
+    entry.timestampMs = event.timestamp.toMSecsSinceEpoch();
+    entry.highlight = decision.mention;
+    entry.undecryptable = event.undecryptable;
+    m_deps.inbox->add(m_epoch, entry);
 }
 
 void BackgroundSessionHost::rememberForwardedUtd(const QString &eventId)

@@ -21,6 +21,7 @@ class AccountManager;
 class NotificationManager;
 class SecretStore;
 class SettingsManager;
+class UnifiedInboxModel;
 
 namespace lightning::accounts {
 
@@ -44,6 +45,7 @@ public:
         AccountManager *accounts = nullptr;
         NotificationManager *notifications = nullptr;
         AccountActivityModel *activity = nullptr;
+        UnifiedInboxModel *inbox = nullptr;
         RevocationProofs *proofs = nullptr;
         StoreOwnershipRegistry *registry = nullptr;
         RustBridgeApi *api = nullptr;

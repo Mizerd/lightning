@@ -572,6 +572,8 @@ set(APP_SOURCES
     src/accounts/KeyringWorker.cpp
     src/models/AccountActivityModel.h
     src/models/AccountActivityModel.cpp
+    src/models/UnifiedInboxModel.h
+    src/models/UnifiedInboxModel.cpp
     src/models/AccountListModel.h
     src/models/AccountListModel.cpp
     src/app/ConversationController.h
@@ -1390,6 +1392,7 @@ set(APP_QML_FILES
     qml/IdentityCard.qml
     qml/AccountActivityBadge.qml
     qml/AccountActivityFeed.qml
+    qml/UnifiedInboxSection.qml
     qml/LabsConcurrentAccountsCard.qml
     qml/TrustCard.qml
     qml/RecoveryKeyEntry.qml
@@ -2317,6 +2320,22 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME account-activity-model COMMAND account-activity-model-test)
     set_tests_properties(account-activity-model PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Live accounts (Labs): the unified inbox rows, their account gate and
+    # epoch, and what drops them.
+    qt_add_executable(unified-inbox-model-test
+        tests/UnifiedInboxModelTest.cpp
+        src/models/UnifiedInboxModel.h
+        src/models/UnifiedInboxModel.cpp
+        src/models/AccountActivityModel.h
+        src/models/AccountActivityModel.cpp
+    )
+    target_include_directories(unified-inbox-model-test PRIVATE src)
+    target_link_libraries(unified-inbox-model-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME unified-inbox-model COMMAND unified-inbox-model-test)
+    set_tests_properties(unified-inbox-model PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Labs switcher rows: no secret read at 200 accounts, sections, filter, the
@@ -7386,6 +7405,20 @@ if(BUILD_TESTING)
     target_link_libraries(account-badges-qml-test PRIVATE Qt6::Test)
     add_test(NAME account-badges-qml COMMAND account-badges-qml-test)
     set_tests_properties(account-badges-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Live accounts (Labs): the unified inbox section, its account label, the
+    # Labs hint and the click that switches account and opens the room.
+    qt_add_executable(unified-inbox-qml-test
+        tests/UnifiedInboxQmlTest.cpp
+        tests/support/LabsQmlFixture.h
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(unified-inbox-qml-test)
+    target_include_directories(unified-inbox-qml-test PRIVATE src tests)
+    target_link_libraries(unified-inbox-qml-test PRIVATE Qt6::Test)
+    add_test(NAME unified-inbox-qml COMMAND unified-inbox-qml-test)
+    set_tests_properties(unified-inbox-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Live accounts (Labs): the hidden Settings card, pins and refusals.

@@ -466,6 +466,14 @@ Dialog {
             }
         }
 
+        UnifiedInboxSection {
+            Layout.fillWidth: true
+            visible: hasContent && !!root.activity && root.activity.filter === "all"
+                     && root.activity.searchQuery.length === 0
+            onEntryOpened: root.close()
+            onSettingsOpened: root.close()
+        }
+
         Label {
             objectName: "activityHistoryUnavailable"
             visible: panelColumn.historyHintApplies && listView.count > 0

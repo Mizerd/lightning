@@ -9,6 +9,7 @@
 #include "matrix/RoomInfo.h"
 #include "matrix/RoomUnreadRule.h"
 #include "models/AccountActivityModel.h"
+#include "models/UnifiedInboxModel.h"
 #include "notifications/NotificationManager.h"
 #include "storage/InMemorySecretStore.h"
 #include "support/FakeRustBridge.h"
@@ -107,6 +108,7 @@ private Q_SLOTS:
     void aVerificationRequestRaisesOneLabelledCard();
     void aCancelledVerificationRequestDropsItsCard();
     void aHostRetiredMidTickShiftsNoOtherHost();
+    void aBackgroundEventFeedsTheUnifiedInboxUnderItsOwnAccount();
 
 private:
     std::unique_ptr<BackgroundSessionHost> makeHost(const QString &uid, const QString &label,
@@ -121,6 +123,7 @@ private:
     InMemorySecretStore m_secrets;
     std::unique_ptr<SettingsManager> m_settings;
     std::unique_ptr<AccountActivityModel> m_activity;
+    UnifiedInboxModel *m_inbox = nullptr;
     std::unique_ptr<FakeRustBridge> m_fake;
     qint64 m_now = 0;
 };
@@ -148,6 +151,7 @@ void BackgroundHostTest::init()
     m_settings->saveSession(kHs, kBob, QStringLiteral("BOBDEV"),
                             QStringLiteral("bob-token-fixture"));
     m_activity = std::make_unique<AccountActivityModel>();
+    m_inbox = new UnifiedInboxModel(m_activity.get());
     m_fake = std::make_unique<FakeRustBridge>();
     m_now = 0;
 }
@@ -178,6 +182,7 @@ BackgroundHostTest::makeHost(const QString &uid, const QString &label,
     deps.settings = m_settings.get();
     deps.notifications = notifications;
     deps.activity = m_activity.get();
+    deps.inbox = m_inbox;
     deps.monotonicMs = [this] { return m_now; };
     BackgroundSessionHost::Identity identity;
     identity.userId = uid;
@@ -688,6 +693,61 @@ void BackgroundHostTest::aHostRetiredMidTickShiftsNoOtherHost()
     QCOMPARE(drainer.tick(), 2);
     QCOMPARE(started(c.get()), 1);
     QCOMPARE(started(b.get()), 1);
+}
+
+
+void BackgroundHostTest::aBackgroundEventFeedsTheUnifiedInboxUnderItsOwnAccount()
+{
+    m_settings->setActiveAccountUserId(kBob);
+    m_activity->setActiveUserId(kBob);
+    auto host = makeHost(kAlice, QStringLiteral("Alice (work)"));
+    m_activity->setLiveState(kAlice, AccountActivityModel::Running);
+    const QString room = QStringLiteral("!inbox:example.org");
+    const QString muted = QStringLiteral("!muted:example.org");
+    setModeFor(kAlice, muted, roomunread::kModeMute);
+    m_fake->setCounts(handleOf(*host),
+                      QJsonArray{QJsonArray{room, 2, 1, kHasUnread | kEncryptionKnown}}, 0,
+                      true);
+    // Before initial_sync_done: what arrived while away, which notifications skip.
+    m_fake->pushEvent(handleOf(*host), timelineEvent(room, QStringLiteral("$e1"),
+                                                     QStringLiteral("@carol:example.org"), true));
+    m_fake->pushEvent(handleOf(*host), timelineEvent(room, QStringLiteral("$own"), kAlice));
+    m_fake->pushEvent(handleOf(*host), timelineEvent(muted, QStringLiteral("$m"),
+                                                     QStringLiteral("@carol:example.org")));
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 1);
+    const QVariantMap row = m_inbox->entryAt(0);
+    QCOMPARE(row.value(QStringLiteral("accountUserId")).toString(), kAlice);
+    QCOMPARE(row.value(QStringLiteral("accountLabel")).toString(), QStringLiteral("Alice (work)"));
+    QCOMPARE(row.value(QStringLiteral("roomId")).toString(), room);
+    QCOMPARE(row.value(QStringLiteral("roomName")).toString(), QStringLiteral("Fixture room"));
+    QCOMPARE(row.value(QStringLiteral("senderName")).toString(), QStringLiteral("Carol"));
+    QCOMPARE(row.value(QStringLiteral("preview")).toString(), QStringLiteral("fixture body"));
+    QCOMPARE(row.value(QStringLiteral("eventId")).toString(), QStringLiteral("$e1"));
+    QVERIFY(row.value(QStringLiteral("highlight")).toBool());
+
+    m_fake->pushEvent(handleOf(*host),
+                      QJsonObject{{QStringLiteral("type"), QStringLiteral("event_redacted")},
+                                  {QStringLiteral("room_id"), room},
+                                  {QStringLiteral("redacts"), QStringLiteral("$e1")}});
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 0);
+
+    m_fake->pushEvent(handleOf(*host), timelineEvent(room, QStringLiteral("$e2"),
+                                                     QStringLiteral("@carol:example.org")));
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 1);
+    // Read on another device: the room leaves the account's unread set.
+    m_fake->setCounts(handleOf(*host), QJsonArray{QJsonArray{room, 0, 0, kEncryptionKnown}});
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 0);
+
+    // The foreground account's own events never reach the inbox.
+    m_activity->setLiveState(kAlice, AccountActivityModel::Active);
+    m_fake->pushEvent(handleOf(*host), timelineEvent(room, QStringLiteral("$e3"),
+                                                     QStringLiteral("@carol:example.org")));
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 0);
 }
 
 QTEST_MAIN(BackgroundHostTest)
