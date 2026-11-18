@@ -10843,8 +10843,17 @@ Item {
 
                     UpdatesSettingsSection {
                         objectName: "updatesSection"
-                        visible: root.section === "updates"
+                        visible: root.section === "updates" && !!app.updateManager
                         Layout.fillWidth: true
+                    }
+
+                    Label {
+                        objectName: "updatesUnavailableLabel"
+                        visible: root.section === "updates" && !app.updateManager
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.stormTextMuted
+                        text: qsTr("Updates are handled by your distribution's package manager.")
                     }
 
                     Loader {

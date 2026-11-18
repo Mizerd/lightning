@@ -122,8 +122,10 @@
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
 
 namespace {
+#ifdef LIGHTNING_UPDATER_ENABLED
 constexpr int kAutomaticUpdateCheckDelayMs =
     int(lightning::update::UpdateManager::kStartupQuietPeriodMs) + 5 * 1000;
+#endif
 
 std::unique_ptr<SecretStore> makeSecretStore(
     const AppController::SecretStoreFactory &factory, QObject *parent)
@@ -459,11 +461,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_callDevices  = std::make_unique<CallDeviceController>(this);
     m_callSounds   = std::make_unique<CallSoundController>(this);
     m_audioTester  = std::make_unique<AudioDeviceTester>(this);
+#ifdef LIGHTNING_UPDATER_ENABLED
     m_updateManager = std::make_unique<lightning::update::UpdateManager>(this);
     m_about->setPackageKind(m_updateManager->installTypeLabel());
-#ifdef HAVE_LIGHTNING_WEBRTC
-    m_about->setGstreamerVersion(lightning::gst::versionString());
-#endif
     QTimer::singleShot(kAutomaticUpdateCheckDelayMs, m_updateManager.get(), [this] {
         m_updateManager->maybeCheckAutomatically();
     });
@@ -476,6 +476,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 Q_EMIT applicationQuitIntended();
                 QCoreApplication::quit();
             });
+#else
+    m_about->setPackageKind(lightning::update::installTypeLabel(
+        lightning::update::detectInstallType()));
+#endif
+#ifdef HAVE_LIGHTNING_WEBRTC
+    m_about->setGstreamerVersion(lightning::gst::versionString());
+#endif
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
     m_savedMessages = std::make_unique<SavedMessagesController>(this);
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);

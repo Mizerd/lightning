@@ -52,6 +52,9 @@ if(NOT LIGHTNING_DISABLE_CCACHE
     endif()
 endif()
 
+option(LIGHTNING_ENABLE_UPDATER
+    "Build the in-app updater (off for distro packages)" ON)
+
 # Update-manifest signatures are verified with Ed25519 via OpenSSL 3's EVP API.
 # REQUIRED: an updater must never silently lose signature verification. Only
 # libcrypto is used; TLS stays with Qt.
@@ -1020,6 +1023,9 @@ set(APP_SOURCES
     src/update/Version.cpp
     src/update/InstallType.h
     src/update/InstallType.cpp
+)
+if(LIGHTNING_ENABLE_UPDATER)
+list(APPEND APP_SOURCES
     src/update/UpdateTrustStore.h
     src/update/UpdateTrustStore.cpp
     src/update/SignatureVerifier.h
@@ -1037,6 +1043,7 @@ set(APP_SOURCES
     src/updater/ArtifactDigest.h
     src/updater/ArtifactDigest.cpp
 )
+endif()
 
 if(ENABLE_RUST_SDK_BACKEND)
     list(APPEND APP_SOURCES
@@ -1599,6 +1606,9 @@ function(_lightning_configure_qml_module target _scope)
 
     # Update trust configuration: the only values the updater takes from the
     # build.
+    if(LIGHTNING_ENABLE_UPDATER)
+        target_compile_definitions(${target} ${_scope} LIGHTNING_UPDATER_ENABLED=1)
+    endif()
     target_compile_definitions(${target} ${_scope}
         LIGHTNING_INSTALL_TYPE="${LIGHTNING_INSTALL_TYPE}"
         LIGHTNING_UPDATE_PUBKEY_2026A="${LIGHTNING_UPDATE_PUBKEY_2026A}"
@@ -7568,6 +7578,7 @@ if(BUILD_TESTING)
     # ------------------------------------------------------------------
     # Update system. Each suite links only the sources it exercises, never the
     # application.
+    if(LIGHTNING_ENABLE_UPDATER)
     set(_update_crypto_sources
         src/update/Version.cpp
         src/update/InstallType.cpp
@@ -7650,6 +7661,7 @@ if(BUILD_TESTING)
             PRIVATE LIGHTNING_UPDATER_HAVE_ZLIB=1)
     endif()
     add_test(NAME updater-zip-safety COMMAND updater-zip-safety-test)
+    endif()
 
     # The room-list registry: the index space the SDK's diffs address. Pure
     # QJson in, QHash/QStringList out; no FFI.
@@ -7717,6 +7729,7 @@ if(BUILD_TESTING)
     add_test(NAME audio-device-tester COMMAND audio-device-tester-test)
     set_tests_properties(audio-device-tester PROPERTIES TIMEOUT 120)
 
+    if(LIGHTNING_ENABLE_UPDATER)
     qt_add_executable(updater-relaunch-environment-test
         tests/RelaunchEnvironmentTest.cpp src/updater/RelaunchEnvironment.cpp)
     target_include_directories(updater-relaunch-environment-test PRIVATE src)
@@ -7728,13 +7741,16 @@ if(BUILD_TESTING)
     target_include_directories(updater-portable-swap-test PRIVATE src)
     target_link_libraries(updater-portable-swap-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME updater-portable-swap COMMAND updater-portable-swap-test)
+    endif()
 
+    if(LIGHTNING_ENABLE_UPDATER)
     # QML contract scan for the Updates settings surface. Needs no app graph.
     qt_add_executable(updates-ui-contract-test tests/UpdatesUiContractTest.cpp)
     target_link_libraries(updates-ui-contract-test PRIVATE Qt6::Core Qt6::Test)
     target_compile_definitions(updates-ui-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME updates-ui-contract COMMAND updates-ui-contract-test)
+    endif()
 
     # Room history behind the mouse Back/Forward buttons and
     # nav.historyBack/Forward: cap, truncation, skipping, lobby. Pure Qt Core.
@@ -7966,6 +7982,7 @@ endif()
 # Qt6::Core only, nothing from src/matrix, src/app or src/storage, so it cannot
 # reach an account, token or store. It only receives already-verified
 # artifacts.
+if(LIGHTNING_ENABLE_UPDATER)
 qt_add_executable(lightning-updater
     src/updater/main.cpp
     src/updater/UpdaterArgs.h        src/updater/UpdaterArgs.cpp
@@ -7991,10 +8008,18 @@ else()
         -Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
-install(TARGETS lightning-matrix lightning-updater
+endif()
+
+install(TARGETS lightning-matrix
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION bin
 )
+if(LIGHTNING_ENABLE_UPDATER)
+    install(TARGETS lightning-updater
+        BUNDLE  DESTINATION .
+        RUNTIME DESTINATION bin
+    )
+endif()
 
 # Desktop integration: launcher entry + hicolor application icons. The icon
 # name "lightning" matches the desktop file's Icon= key; the generated sizes

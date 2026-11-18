@@ -112,7 +112,9 @@
 #include "presence/PresenceManager.h"
 #include "presence/GameActivity.h"
 #include "presence/MusicActivity.h"
+#ifdef LIGHTNING_UPDATER_ENABLED
 #include "update/UpdateManager.h"
+#endif
 #include "threads/ThreadManager.h"
 
 #include <QFont>
@@ -403,7 +405,11 @@ class AppController : public QObject
     Q_PROPERTY(GifSearchController* gif READ gif CONSTANT)
     Q_PROPERTY(GifSendController* gifSend READ gifSend CONSTANT)
     Q_PROPERTY(StickerPackManager* stickers READ stickers CONSTANT)
+#ifdef LIGHTNING_UPDATER_ENABLED
     Q_PROPERTY(lightning::update::UpdateManager* updateManager READ updateManager CONSTANT)
+#else
+    Q_PROPERTY(QObject* updateManager READ updateManager CONSTANT)
+#endif
     Q_PROPERTY(TimelineScrollController* timelineScroll READ timelineScroll CONSTANT)
     Q_PROPERTY(TimelineScrollController* threadScroll READ threadScroll CONSTANT)
 
@@ -718,7 +724,11 @@ public:
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
     GifSearchController *gif() const { return m_gif.get(); }
+#ifdef LIGHTNING_UPDATER_ENABLED
     lightning::update::UpdateManager *updateManager() const { return m_updateManager.get(); }
+#else
+    QObject *updateManager() const { return nullptr; }
+#endif
     GifSendController *gifSend() const { return m_gifSend.get(); }
     StickerPackManager *stickers() const { return m_stickers.get(); }
     TimelineScrollController *timelineScroll() const { return m_timelineScroll.get(); }
@@ -1430,7 +1440,9 @@ private:
     std::unique_ptr<LinkPreviewController> m_linkPreviews;
     std::unique_ptr<MatrixGifTransport> m_gifTransport;
     std::unique_ptr<GifSearchController> m_gif;
+#ifdef LIGHTNING_UPDATER_ENABLED
     std::unique_ptr<lightning::update::UpdateManager> m_updateManager;
+#endif
     std::unique_ptr<GifSendController> m_gifSend;
     std::unique_ptr<StickerPackManager> m_stickers;
     std::unique_ptr<TimelineScrollController> m_timelineScroll;

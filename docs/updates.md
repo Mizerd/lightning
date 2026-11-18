@@ -319,6 +319,14 @@ Settings → Updates.
 refuses installation outright, so a source tree can never turn itself into a
 packaged installation.
 
+## Disabling the updater
+
+A distribution that ships updates itself builds with
+`-DLIGHTNING_ENABLE_UPDATER=OFF` (see `docs/building.md`). Nothing in this
+document then applies: the `src/update` network code, the helper and the update
+prompts are not built, and Settings > Updates states that the package manager
+handles updates.
+
 ## Behaviour by package format
 
 | Format | What Lightning does |

@@ -24,6 +24,22 @@ nix develop -c cmake -S . -B build -G Ninja
 nix develop -c cmake --build build
 ```
 
+## Building for a distribution
+
+Distro packages that update through their own package manager should configure
+with:
+
+```sh
+cmake -S . -B build -DLIGHTNING_ENABLE_UPDATER=OFF
+```
+
+That compiles out the in-app updater: no update checks or network access for
+updates, no `lightning-updater` helper (not built, not installed), no update
+notifications, and Settings > Updates shows one line saying updates are handled
+by the package manager. Version and install-type detection stay (About still
+reports the package kind). The default is ON; `LIGHTNING_ENABLE_UPDATER=OFF`
+also leaves out the updater test suites.
+
 ## Tests
 
 ```sh
