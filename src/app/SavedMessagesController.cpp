@@ -144,6 +144,7 @@ void SavedMessagesController::setClient(MatrixClient *client)
         // it added (in m_refs, not in m_beforeWrite) and what it removed (the
         // reverse). Re-adding the whole local copy would resurrect an item
         // another device removed after our last read.
+        m_desiredBeforeMerge = m_refs;
         QSet<QString> before;
         QSet<QString> desired;
         for (const Ref &ref : std::as_const(m_beforeWrite))
@@ -201,9 +202,17 @@ void SavedMessagesController::setClient(MatrixClient *client)
         emitChanged();
     });
     connect(client, &MatrixClient::accountPrefWritten, this,
-            [this](const QString &type, bool ok, const QString &) {
+            [this](const QString &type, bool ok, const QString &category) {
         if (type != kType || !m_busy)
             return;
+        if (!ok && category == QLatin1String("stale_absence") && !m_staleRetried) {
+            m_staleRetried = true;
+            m_refs = m_desiredBeforeMerge;
+            m_fetchingForWrite = true;
+            ++m_pendingReads;
+            m_client->readAccountPref(kType);
+            return;
+        }
         m_busy = false;
         if (!ok) {
             m_refs = std::move(m_beforeWrite);
@@ -336,6 +345,7 @@ void SavedMessagesController::write()
         || m_client->currentUserId() != m_userId)
         return;
     m_busy = true;
+    m_staleRetried = false;
     m_fetchingForWrite = m_pendingReads == 0;
     m_error.clear();
     emitChanged();

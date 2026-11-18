@@ -71,10 +71,11 @@ Q_SIGNALS:
 
 private:
     void onRead(const QString &type, bool present, const QVariantMap &content);
-    void onWritten(const QString &type, bool ok);
+    void onWritten(const QString &type, bool ok, const QString &category = {});
+    void writeInvites(bool block, bool retry);
     void onEmojiUsed(const QString &emoji);
     void flushEmoji();
-    void writeMedia(const AccountPrefs::MediaPreview &next);
+    void writeMedia(const AccountPrefs::MediaPreview &next, bool retry = false);
     void reset();
 
     MatrixClient *m_client = nullptr;
@@ -103,6 +104,12 @@ private:
     QVariantMap m_inviteStableContent;
     QVariantMap m_inviteUnstableContent;
     int m_invitePending = 0;
+    bool m_inviteRetryPending = false;
+    bool m_inviteRetried = false;
+    bool m_inviteDesiredBlock = false;
+    bool m_mediaRetryPending = false;
+    bool m_mediaRetried = false;
+    AccountPrefs::MediaPreview m_mediaDesired;
     bool m_inviteWriteFailed = false;
     bool m_inviteReadFailed = false;
     QVariantMap m_mediaInFlight;

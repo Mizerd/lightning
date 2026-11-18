@@ -272,6 +272,45 @@ private Q_SLOTS:
         QVERIFY(!saved.error().isEmpty());
     }
 
+    void aWriteRefusedAfterAnInferredAbsenceRereadsOnceAndWritesTheMergedList()
+    {
+        SavedFakeClient client;
+        SavedMessagesController saved;
+        saved.setClient(&client);
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
+        saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$mine"), {});
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
+        QCOMPARE(saved.count(), 1);
+        const int readsBefore = client.reads;
+        Q_EMIT client.accountPrefWritten(client.lastType, false,
+                                          QStringLiteral("stale_absence"));
+        QVERIFY(saved.busy());
+        QCOMPARE(client.reads, readsBefore + 1);
+        client.lastWrite.clear();
+        const QVariantMap theirs{
+            { QStringLiteral("room_id"), QStringLiteral("!room:example.org") },
+            { QStringLiteral("event_id"), QStringLiteral("$theirs") },
+            { QStringLiteral("thread_root_id"), QString() },
+            { QStringLiteral("saved_at_ms"), 5 },
+        };
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            { { QStringLiteral("version"), 1 },
+              { QStringLiteral("entries"), QVariantList{ theirs } } });
+        QCOMPARE(client.lastWrite.value(QStringLiteral("entries")).toList().size(), 2);
+        Q_EMIT client.accountPrefWritten(client.lastType, true, {});
+        QVERIFY(!saved.busy());
+        QCOMPARE(saved.count(), 2);
+
+        // a second refusal in the same action is surfaced, not retried again
+        saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$more"), {});
+        Q_EMIT client.accountPrefRead(client.lastType, true, client.lastWrite);
+        Q_EMIT client.accountPrefWritten(client.lastType, false, QStringLiteral("stale_absence"));
+        Q_EMIT client.accountPrefRead(client.lastType, true, client.lastWrite);
+        Q_EMIT client.accountPrefWritten(client.lastType, false, QStringLiteral("stale_absence"));
+        QVERIFY(!saved.busy());
+        QVERIFY(!saved.error().isEmpty());
+    }
+
     void redactionWinsOverAnInFlightResolution()
     {
         SavedFakeClient client;

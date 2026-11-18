@@ -95,6 +95,8 @@ private:
     QString m_userId;
     QVector<Ref> m_refs;
     QVector<Ref> m_beforeWrite;
+    QVector<Ref> m_desiredBeforeMerge;
+    bool m_staleRetried = false;
     Ref m_undo;
     bool m_undoValid = false;
     bool m_loaded = false;

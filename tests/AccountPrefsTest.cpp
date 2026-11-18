@@ -468,6 +468,28 @@ private Q_SLOTS:
         QVERIFY(!c.writeFailed());
     }
 
+    void aWriteRefusedAfterAnInferredAbsenceIsRecomposedFromTheServerCopyOnce()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        const QString type = QStringLiteral("m.media_preview_config");
+        Q_EMIT client.accountPrefRead(type, false, {});
+        c.setMediaPreviews(QStringLiteral("off"));
+        QCOMPARE(client.writes.size(), 1);
+        Q_EMIT client.accountPrefWritten(type, false, QStringLiteral("stale_absence"));
+        QCOMPARE(client.writes.size(), 1);
+        Q_EMIT client.accountPrefRead(type, true, { { "org.other_client.flag", 7 } });
+        QCOMPARE(client.writes.size(), 2);
+        QCOMPARE(client.writes.at(1).second.value("org.other_client.flag").toInt(), 7);
+        QCOMPARE(client.writes.at(1).second.value("media_previews").toString(),
+                 QStringLiteral("off"));
+        Q_EMIT client.accountPrefWritten(type, false, QStringLiteral("stale_absence"));
+        Q_EMIT client.accountPrefRead(type, true, { { "org.other_client.flag", 7 } });
+        QCOMPARE(client.writes.size(), 2);
+        QVERIFY(c.writeFailed());
+    }
+
     void aWriteBeforeTheAccountsCopyWasReadIsRefused()
     {
         FakePrefsClient client;

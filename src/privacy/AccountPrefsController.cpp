@@ -39,8 +39,8 @@ void AccountPrefsController::setClient(MatrixClient *client)
             m_client->readAccountPref(type);
     });
     connect(m_client, &MatrixClient::accountPrefWritten, this,
-            [this](const QString &type, bool ok, const QString &) {
-        onWritten(type, ok);
+            [this](const QString &type, bool ok, const QString &category) {
+        onWritten(type, ok, category);
     });
     connect(m_client, &MatrixClient::accountPrefReadFailed, this,
             [this](const QString &type, const QString &) {
@@ -166,6 +166,11 @@ bool AccountPrefsController::invitesBlocked() const
 
 void AccountPrefsController::setInvitesBlocked(bool block)
 {
+    writeInvites(block, false);
+}
+
+void AccountPrefsController::writeInvites(bool block, bool retry)
+{
     if (!m_client || invitePolicyState() != QLatin1String("ready")
         || m_invitePending > 0)
         return;
@@ -174,6 +179,9 @@ void AccountPrefsController::setInvitesBlocked(bool block)
         m_inviteUnstableContent, block);
     if (writes.isEmpty())
         return;
+    m_inviteDesiredBlock = block;
+    if (!retry)
+        m_inviteRetried = false;
     m_inviteWriteFailed = false;
     m_invitePending = int(writes.size());
     for (const AccountDataWrite &w : writes)
@@ -244,12 +252,15 @@ void AccountPrefsController::setInviteAvatars(bool on)
     writeMedia(next);
 }
 
-void AccountPrefsController::writeMedia(const MediaPreview &next)
+void AccountPrefsController::writeMedia(const MediaPreview &next, bool retry)
 {
     // Never compose a write before the account's own copy was read: it would
     // be built from nothing and drop the fields this build does not own.
     if (!m_client || !m_mediaKnown)
         return;
+    m_mediaDesired = next;
+    if (!retry)
+        m_mediaRetried = false;
     m_media = next;
     m_writeFailed = false;
     m_mediaInFlight = composeMediaPreview(m_mediaContent, next.mediaPreviews,
@@ -267,6 +278,11 @@ void AccountPrefsController::onRead(const QString &type, bool present,
         || type == QLatin1String(kInvitePermissionUnstableType)) {
         applyInviteRead(type, present ? content : QVariantMap());
         Q_EMIT changed();
+        if (m_inviteRetryPending && m_invitePending == 0 && m_inviteStableRead
+            && m_inviteUnstableRead) {
+            m_inviteRetryPending = false;
+            writeInvites(m_inviteDesiredBlock, true);
+        }
         return;
     }
     if (type == QLatin1String(kMediaPreviewType)) {
@@ -290,6 +306,10 @@ void AccountPrefsController::onRead(const QString &type, bool present,
         m_mediaKnown = true;
         m_writeFailed = false;
         Q_EMIT changed();
+        if (m_mediaRetryPending) {
+            m_mediaRetryPending = false;
+            writeMedia(m_mediaDesired, true);
+        }
         return;
     }
     if (type == QLatin1String(kRecentEmojiType)) {
@@ -328,7 +348,8 @@ void AccountPrefsController::onRead(const QString &type, bool present,
     }
 }
 
-void AccountPrefsController::onWritten(const QString &type, bool ok)
+void AccountPrefsController::onWritten(const QString &type, bool ok,
+                                       const QString &category)
 {
     if (type == QLatin1String(kRecentEmojiType)) {
         if (ok) {
@@ -355,6 +376,10 @@ void AccountPrefsController::onWritten(const QString &type, bool ok)
             m_inviteHeldMisses.remove(type);
         } else {
             m_inviteWriteFailed = true;
+            if (category == QLatin1String("stale_absence") && !m_inviteRetried) {
+                m_inviteRetried = true;
+                m_inviteRetryPending = true;
+            }
         }
         if (m_client)
             m_client->readAccountPref(type);
@@ -373,6 +398,10 @@ void AccountPrefsController::onWritten(const QString &type, bool ok)
     } else {
         m_media = m_mediaConfirmed;
         m_writeFailed = true;
+        if (category == QLatin1String("stale_absence") && !m_mediaRetried) {
+            m_mediaRetried = true;
+            m_mediaRetryPending = true;
+        }
     }
     m_mediaInFlight.clear();
     if (m_client)
