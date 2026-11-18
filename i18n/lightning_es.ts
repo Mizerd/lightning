@@ -1013,7 +1013,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7313"/>
+        <location filename="../src/app/AppController.cpp" line="+7320"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -22419,12 +22419,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+823"/>
         <location line="+971"/>
         <location line="+11"/>
-        <location line="+8289"/>
+        <location line="+8301"/>
         <source>About</source>
         <translation>Acerca de</translation>
     </message>
     <message>
-        <location line="-10095"/>
+        <location line="-10107"/>
         <source>about version license</source>
         <translation>acerca de versión licencia</translation>
     </message>
@@ -26643,7 +26643,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Reconstruye la conversación de la sala abierta a partir del SDK. Es seguro en cualquier momento.</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+23"/>
+        <source>Updates are handled by your distribution&apos;s package manager.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
         <source>Lightning logo</source>
         <translation>Logotipo de Lightning</translation>
     </message>
@@ -26668,7 +26673,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Licencia: GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location line="-10630"/>
+        <location line="-10642"/>
         <location line="+3793"/>
         <source>Disable cursor blinking</source>
         <translation>Desactivar el parpadeo del cursor</translation>

@@ -1014,7 +1014,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6350"/>
+        <location filename="../src/app/AppController.cpp" line="+6357"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -23108,12 +23108,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+823"/>
         <location line="+971"/>
         <location line="+11"/>
-        <location line="+8289"/>
+        <location line="+8301"/>
         <source>About</source>
         <translation>Über</translation>
     </message>
     <message>
-        <location line="-10095"/>
+        <location line="-10107"/>
         <source>about version license</source>
         <translation>über version lizenz</translation>
     </message>
@@ -26643,7 +26643,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Baut die Zeitleiste des geöffneten Raums aus dem SDK neu auf. Jederzeit unbedenklich.</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+23"/>
+        <source>Updates are handled by your distribution&apos;s package manager.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
         <source>Lightning logo</source>
         <translation>Lightning-Logo</translation>
     </message>
@@ -26668,7 +26673,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Lizenz: GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location line="-10630"/>
+        <location line="-10642"/>
         <location line="+3793"/>
         <source>Disable cursor blinking</source>
         <translation>Blinken des Textcursors deaktivieren</translation>

@@ -1023,7 +1023,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7313"/>
+        <location filename="../src/app/AppController.cpp" line="+7320"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -22536,12 +22536,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+823"/>
         <location line="+971"/>
         <location line="+11"/>
-        <location line="+8289"/>
+        <location line="+8301"/>
         <source>About</source>
         <translation>Apie</translation>
     </message>
     <message>
-        <location line="-10095"/>
+        <location line="-10107"/>
         <source>about version license</source>
         <translation>apie versijos licenciją</translation>
     </message>
@@ -26741,7 +26741,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Iš naujo sukuria atidaryto kambario laiko juostą iš SDK. Tai saugu atlikti bet kada.</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+23"/>
+        <source>Updates are handled by your distribution&apos;s package manager.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
         <source>Lightning logo</source>
         <translation>Lightning logotipas</translation>
     </message>
@@ -26766,7 +26771,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Licencija: GPL-3.0 arba naujesnė</translation>
     </message>
     <message>
-        <location line="-10630"/>
+        <location line="-10642"/>
         <location line="+3793"/>
         <source>Disable cursor blinking</source>
         <translation>Išjungti teksto žymeklio mirksėjimą</translation>

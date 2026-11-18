@@ -1013,7 +1013,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7313"/>
+        <location filename="../src/app/AppController.cpp" line="+7320"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -22419,12 +22419,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+823"/>
         <location line="+971"/>
         <location line="+11"/>
-        <location line="+8289"/>
+        <location line="+8301"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-10095"/>
+        <location line="-10107"/>
         <source>about version license</source>
         <translation>à propos version licence</translation>
     </message>
@@ -26643,7 +26643,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Reconstruit la conversation du salon ouvert à partir du SDK. Sans risque à tout moment.</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+23"/>
+        <source>Updates are handled by your distribution&apos;s package manager.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
         <source>Lightning logo</source>
         <translation>Logo Lightning</translation>
     </message>
@@ -26668,7 +26673,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Licence : GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location line="-10630"/>
+        <location line="-10642"/>
         <location line="+3793"/>
         <source>Disable cursor blinking</source>
         <translation>Désactiver le clignotement du curseur</translation>

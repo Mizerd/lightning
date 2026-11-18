@@ -1003,7 +1003,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7313"/>
+        <location filename="../src/app/AppController.cpp" line="+7320"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -22331,12 +22331,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+823"/>
         <location line="+971"/>
         <location line="+11"/>
-        <location line="+8289"/>
+        <location line="+8301"/>
         <source>About</source>
         <translation>Tentang</translation>
     </message>
     <message>
-        <location line="-10095"/>
+        <location line="-10107"/>
         <source>about version license</source>
         <translation>tentang versi lisensi</translation>
     </message>
@@ -26545,7 +26545,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Membangun ulang linimasa ruang yang terbuka dari SDK. Aman kapan saja.</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+23"/>
+        <source>Updates are handled by your distribution&apos;s package manager.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
         <source>Lightning logo</source>
         <translation>Logo Lightning</translation>
     </message>
@@ -26570,7 +26575,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Lisensi: GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location line="-10630"/>
+        <location line="-10642"/>
         <location line="+3793"/>
         <source>Disable cursor blinking</source>
         <translation>Nonaktifkan kedipan kursor</translation>
