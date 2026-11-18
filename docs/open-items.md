@@ -1,5 +1,37 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-11-18 — KNOWN LIMIT (GitHub #51): a return deeper than ~160 messages lands on the latest, by design
+
+A probe reported "previous position never restores" (4/4, virtual wheel,
+150-850 messages up). **Not a defect and not a kit artifact**: the save ran
+every time and the restore engaged every time. `restoreScrollAnchor` walks
+back in 20-event pages and gives up at `kMaxNavigationBatches` (8): 7 page
+requests, then `restoreLatestRequested` plus the 3 s notice "Your earlier
+place is too far back to restore." (`a9e63811`). The probe read
+`reset-settled stick=1`, which is logged at the reset BEFORE any restore, and
+missed the notice; no log line names the give-up.
+
+Measured 2026-11-18, `d23240ee` build, headless sway with virtual pointer and
+keyboard, 1000-message room on loopback Continuwuity,
+`LIGHTNING_SCROLL_TRACE=1`, leave to another room and back:
+
+| Input | Depth (msgs from newest) | Result | Room open -> `tag=landed` |
+|---|---|---|---|
+| wheel, 8 notches | ~100-135 | pixel-exact | 470 ms (5 pages) |
+| PageUp x4 | ~130-167 | pixel-exact | 600 ms (7 pages) |
+| scroll-bar drag | ~20-55 | pixel-exact | 200 ms (1 page) |
+| wheel, 10 more notches | ~220-255 | latest + notice | gave up at 400 ms |
+| PageUp x7 more | ~360-400 | latest + notice | gave up at 400 ms |
+| scroll bar held at the top | ~1000 | latest + notice | gave up at 410 ms |
+
+Each restore page cost ~48 ms here; on a real server it is one `/messages`
+round trip, so a near-cap return costs up to 7-8 RTTs, the likeliest form of
+#51's "jump back" latency. An event-context jump costs one `/context` (220-250
+ms locally, independent of depth). Follow-up, not done: restore beyond the cap
+through the event-context view, as Element Web does (`/context` on the saved
+event); that needs the view to land on a pixel offset without the highlight
+and to save the reader's place from it.
+
 ## 2026-11-17 — ACCEPTED FOLLOW-UP: the account list's "needs sign-in" badge trusts a remembered token (GitHub #83)
 
 `SettingsManager::hasAccessTokenFor` remembers that a token was found, so the badge does not re-read the keyring on every refresh. A token deleted outside the app keeps the badge on "present" until restart; account switch and removal still read the keyring for real.
