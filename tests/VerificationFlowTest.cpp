@@ -851,6 +851,8 @@ private Q_SLOTS:
 
         sdk("verified");
         snapshot(true, false);
+        QCOMPARE(app.sessionTrustState(), QStringLiteral("Not verified"));
+        snapshot(true, true);
         QCOMPARE(app.sessionTrustState(), QStringLiteral("Verified"));
 
         sdk("unverified");

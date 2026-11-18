@@ -1316,8 +1316,10 @@ session, the SDK's `is_verified()` for every other device.
 
 **Own session:** the label follows the subscribed `verification_state()`
 (`AppController::sessionTrustStateFor`): each change re-reads the snapshot,
-`Unknown` reads "Unknown" rather than "Cross-signing unavailable", and the
-snapshot only says whether an own identity exists. NOT TESTED live.
+`Unknown` reads "Unknown" rather than "Cross-signing unavailable", and
+"Verified" needs both the SDK state and the snapshot's `deviceCrossSigned`.
+Before the first `verification_state` arrives, `deviceCrossSigned` alone
+decides. NOT TESTED live.
 
 ## 2026-09-20 — OPEN DECISION: what an unrecognised notification-preview mode should resolve to
 
