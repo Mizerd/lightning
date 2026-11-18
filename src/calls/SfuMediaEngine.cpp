@@ -2588,18 +2588,14 @@ void SfuMediaEngine::retakeEchoProbe(quint64 generation)
     GstElement *bin = m_publishedBins.value(m_micCid, nullptr);
     if (!bin)
         return;
-    // With no other playback left, dropping is enough: the next remote audio
-    // engages afresh instead of reading "echo already on".
-    const QString did = echoProbeLive()
-        ? calls::noise::retakeEchoProbe(bin, [this, generation] {
-              marshal(this, [this, generation] {
-                  if (m_active && generation == m_generation.load()
-                      && echoProbeLive())
-                      giveUpEchoCancellation(QStringLiteral(
-                          "no free playback probe"));
-              });
-          })
-        : calls::noise::dropEchoCancel(bin);
+    // A refused retake leaves echo off, so the next remote audio engages
+    // afresh; the free probe may also sit in another SFU connection's engine.
+    const QString did = calls::noise::retakeEchoProbe(bin, [this, generation] {
+        marshal(this, [this, generation] {
+            if (m_active && generation == m_generation.load() && echoProbeLive())
+                giveUpEchoCancellation(QStringLiteral("no free playback probe"));
+        });
+    });
     qCInfo(lcSfuMedia) << "echo cancellation after a playback left:" << did;
 }
 
