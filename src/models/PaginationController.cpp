@@ -839,13 +839,12 @@ void PaginationController::continueNavigation(bool hitStart)
     }
     const int budget = m_navigationPurpose == NavigationPurpose::Reply
         ? m_jumpBatchBudget : kMaxNavigationBatches;
-    ++m_navigationBatches;
-    if (!hitStart && m_navigationPurpose == NavigationPurpose::Restore
-        && !m_restoreIsSelection
-        && m_navigationBatches == kRestoreWalkBeforeContext
-        && restoreThroughContext())
-        return;
-    if (hitStart || m_navigationBatches >= budget) {
+    if (hitStart || ++m_navigationBatches >= budget) {
+        // Walked pages come from the local event cache; /context only for
+        // what they cannot reach.
+        if (!hitStart && m_navigationPurpose == NavigationPurpose::Restore
+            && !m_restoreIsSelection && restoreThroughContext())
+            return;
         failNavigation(!hitStart);
         return;
     }

@@ -279,7 +279,6 @@ private:
 
     static constexpr int kMaxNoProgressStrikes = 12;
     static constexpr int kMaxNavigationBatches = 8;
-    static constexpr int kRestoreWalkBeforeContext = 2;
     static constexpr int kMaxJumpBatches = 12;
     int m_jumpBatchBudget = kMaxJumpBatches;
     static constexpr int kMaxScrollAnchors = 64;

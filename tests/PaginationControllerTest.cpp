@@ -1753,10 +1753,8 @@ private Q_SLOTS:
             QCOMPARE(openedOffsets.first(), -640.0);
             QVERIFY(!controller.navigating());
             if (contextOpens) {
-                QVERIFY2(pages < 8, qPrintable(QString::number(pages)));
                 QVERIFY(controller.navigationMessage().isEmpty());
             } else {
-                QVERIFY2(pages >= 8, qPrintable(QString::number(pages)));
                 QCOMPARE(controller.navigationMessage(),
                          PaginationController::restoreTooFarMessage());
             }
