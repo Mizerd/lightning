@@ -147,7 +147,8 @@ a `rust-version` at or below the CI toolchain (1.93) or none at all.
 4. In `rust/`: `cargo update -p deep_filter` (network), check every new crate's
    `rust-version` against the CI toolchain, then `scripts/update-cargo-sources.sh`
    so the Flathub `cargo-sources.json` matches the lock.
-5. Re-check the model licence question upstream (issues #697/#700/#709/#712)
-   and update the section above and `docs/third-party-notices.md`.
+5. Confirm upstream's README still grants MIT OR Apache-2.0 to the model
+   weights, and update the section above and `docs/third-party-notices.md` if
+   it changed.
 6. Run `rust/src/denoise.rs`'s tests and `deepfilter-suppressor-test`; the
    latency assertion (1440) and frame size (480) change only with the model.
