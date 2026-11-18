@@ -4131,6 +4131,18 @@ fn item_event_id(item: &Arc<TimelineItem>) -> Option<String> {
     item.as_event().and_then(|event| event.event_id()).map(|id| id.to_string())
 }
 
+/// A wedged echo rebuilt from the send-queue store keeps only the error's text,
+/// ruma's "[403 / M_FORBIDDEN] …".
+fn send_refused_with_403(error: &matrix_sdk::Error) -> bool {
+    match error {
+        matrix_sdk::Error::SendQueueWedgeError(wedge) => matches!(
+            wedge.as_ref(),
+            matrix_sdk::QueueWedgeError::GenericApiError { msg } if msg.contains("[403 /")
+        ),
+        _ => crate::roomaction::failure_reason(error).starts_with("http_403_"),
+    }
+}
+
 /// A send refused with 403 in a room the server no longer lists as joined is
 /// "room_gone"; the probe runs only when such a row is present. Every emitter of
 /// event rows must pass them through here so `send_forbidden` never reaches C++.
@@ -4673,9 +4685,7 @@ fn event_item_to_json(
                 out["send_state"] = "failed".into();
                 out["send_error"] =
                     if *is_recoverable { "network" } else { "rejected" }.into();
-                if !*is_recoverable
-                    && crate::roomaction::failure_reason(error).starts_with("http_403_")
-                {
+                if !*is_recoverable && send_refused_with_403(error) {
                     out["send_forbidden"] = true.into();
                 }
             }
@@ -6666,8 +6676,21 @@ mod tests {
         still_undecryptable, SDK_KEY_RECOVERY_GRACE,
         redaction_error_category, redaction_finished_payload,
     };
+
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+    #[test]
+    fn a_restored_wedged_echo_still_reads_as_a_403() {
+        let wedged = |msg: &str| matrix_sdk::Error::SendQueueWedgeError(Box::new(
+            matrix_sdk::QueueWedgeError::GenericApiError { msg: msg.to_owned() },
+        ));
+        assert!(super::send_refused_with_403(&wedged(
+            "the server returned an error: [403 / M_FORBIDDEN] You are not in this room"
+        )));
+        assert!(!super::send_refused_with_403(&wedged("[429 / M_LIMIT_EXCEEDED] slow down")));
+        assert!(!super::send_refused_with_403(&wedged("[4030 / M_UNKNOWN]")));
+    }
 
     #[test]
     fn a_failed_redaction_is_reported_as_a_category_never_as_text() {
