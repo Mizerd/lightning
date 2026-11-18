@@ -1,0 +1,7 @@
+execute_process(COMMAND ${READELF} -lW ${BIN} OUTPUT_VARIABLE out RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0 OR NOT out MATCHES "GNU_STACK[^\n]*")
+    message(FATAL_ERROR "no GNU_STACK header in ${BIN}")
+endif()
+if(CMAKE_MATCH_0 MATCHES "RWE")
+    message(FATAL_ERROR "executable stack: ${CMAKE_MATCH_0}")
+endif()

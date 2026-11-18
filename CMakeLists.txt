@@ -7,6 +7,15 @@ project(lightning
 
 include(CTest)
 
+# tract-linalg's hand-written asm objects (via deep_filter) lack .note.GNU-stack
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    include(CheckLinkerFlag)
+    check_linker_flag(CXX "LINKER:-z,noexecstack" LIGHTNING_LD_NOEXECSTACK)
+    if(LIGHTNING_LD_NOEXECSTACK)
+        add_link_options("LINKER:-z,noexecstack")
+    endif()
+endif()
+
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
 set(APP_VERSION_LABEL "0.10.6")
 
@@ -1802,6 +1811,15 @@ endif()
 # (Lightning.exe, Lightning.app). The persistent settings/store identity is a
 # separate literal in src/main.cpp and must not follow this name.
 qt_add_executable(lightning-matrix ${APP_MAIN_SOURCES})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LIGHTNING_LD_NOEXECSTACK)
+    find_program(LIGHTNING_READELF readelf)
+    if(LIGHTNING_READELF)
+        add_test(NAME no-executable-stack
+            COMMAND ${CMAKE_COMMAND} -DREADELF=${LIGHTNING_READELF}
+                    -DBIN=$<TARGET_FILE:lightning-matrix>
+                    -P ${CMAKE_SOURCE_DIR}/cmake/CheckNoExecStack.cmake)
+    endif()
+endif()
 lightning_configure_qml_app(lightning-matrix)
 if(LIGHTNING_TEST_LOOPBACK_FOCI)
     target_compile_definitions(lightning-matrix PRIVATE LIGHTNING_TEST_LOOPBACK_FOCI=1)
