@@ -1201,6 +1201,31 @@ mod tests {
         assert_eq!(status.current_room, "!c:x");
     }
 
+    fn walk_with_utd(control: &Control, during: impl FnOnce(&Control)) {
+        assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
+        let epoch = control.epoch();
+        control.note_utd_sessions("!e2e:x", Some(["s".to_owned()].into_iter().collect()));
+        during(control);
+        control.commit_room(
+            epoch,
+            "!e2e:x",
+            RoomResult::Done { written: 1, undecryptable: 1 },
+            Duration::ZERO,
+        );
+        control.finish(Ending::Finished);
+    }
+
+    #[test]
+    fn a_key_that_lands_during_the_walk_keeps_the_room_walkable() {
+        let control = Control::new(Path::new(""));
+        walk_with_utd(&control, |c| c.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "s".to_owned()))));
+        assert_eq!(
+            control.begin(false, || rooms(&[("!e2e:x", 1)])),
+            Begin::Started,
+            "a key that arrived mid-walk was lost and the room parked for ever"
+        );
+    }
+
     #[test]
     fn only_a_key_for_a_missing_session_wakes_a_room() {
         let control = Control::new(Path::new(""));
