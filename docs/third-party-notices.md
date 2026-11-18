@@ -125,7 +125,7 @@ microphone. Full provenance, file hashes and every local change:
 | Code licence | **MIT OR Apache-2.0**, copyright 2021 Hendrik Schröter. Texts: `third_party/deepfilternet/LICENSE-MIT`, `LICENSE-APACHE` |
 | What ships | `libDF/src/lib.rs` and `libDF/src/tract.rs` (modified: per-frame logging removed, adapted to tract 0.21.14 and ndarray 0.16) compiled into `lightning-matrix`; no Python, PyTorch or other DeepFilterNet component |
 | Model | **DeepFilterNet3** (`models/DeepFilterNet3_onnx.tar.gz`, 7,983,136 bytes, sha256 `c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616`), unmodified, embedded in the binary; never downloaded |
-| Model licence | **Not explicitly stated by upstream.** The repository's MIT/Apache-2.0 grant names "all code"; `models/` has no licence file; four upstream issues asking (#697, #700, #709, #712) are unanswered. Lightning redistributes the weights under the repository's MIT OR Apache-2.0 terms on the strength of the author's own distribution of the same weights inside his MIT/Apache-2.0-labelled release binaries — a reading, not an explicit grant. A build with `-DLIGHTNING_ENABLE_DEEPFILTERNET=OFF` contains neither the model nor the code. |
+| Model licence | **MIT OR Apache-2.0**, explicitly: upstream commit `7b14b895` (2026-11-06) extended the README's grant to "all code and model weights in this repository". A build with `-DLIGHTNING_ENABLE_DEEPFILTERNET=OFF` contains neither the model nor the code. |
 
 The crates.io packages this adds to the Rust bridge (all pinned in
 [`rust/Cargo.lock`](../rust/Cargo.lock), none of them DeepFilterNet itself):

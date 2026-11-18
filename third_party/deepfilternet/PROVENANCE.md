@@ -68,38 +68,14 @@ either MIT … or Apache-2.0"; `libDF/Cargo.toml` declares `MIT/Apache-2.0`;
 copyright "2021 Hendrik Schröter". Lightning (GPL-3.0-or-later) may include
 either.
 
-**Model weights: NOT explicitly licensed by upstream. Read this before
-shipping.**
-
-- The README's grant names "all code in this repository". The `models/`
-  directory carries no licence file, and GitHub reports the repository's
-  licence as `NOASSERTION`.
-- Upstream has been asked and has not answered: issues #697 (2026-07-15),
-  #700 (2026-08-12), #709 (2026-09-01) and #712 (2026-09-21) all ask whether
-  the MIT/Apache-2.0 grant covers the released checkpoints; all four are open
-  with no maintainer reply (one reporter wrote that two e-mails to the author
-  went unanswered). Upstream's last commit is 2024-10-17.
-- The author's own conduct supports the permissive reading: he distributes
-  these weights embedded in his own release binaries (`deep-filter-0.5.6-*`,
-  `libdeep_filter_ladspa-0.5.6-*`, assets of the v0.5.6 GitHub release), built
-  from crates whose manifests declare `MIT/Apache-2.0`, and libDF's
-  `default-model` feature compiles this very tarball into the MIT/Apache crate.
-  Third parties republish the weights as MIT or Apache-2.0 (for example
-  `Intel/deepfilternet-openvino` on Hugging Face, `license: mit`); those are
-  their readings, not a grant.
-- No more clearly licensed artifact exists: every published copy derives from
-  the same checkpoint, and no crates.io release of `deep_filter` contains a
-  model (crates.io stops at 0.2.5, 2022).
-
-Lightning's position, pending the maintainer's decision: the weights are
-redistributed under the repository's MIT OR Apache-2.0 terms, with the
-copyright notice and both licence texts shipped beside them, on the strength
-of the author's own MIT/Apache-labelled distribution of the same bytes. This is
-a reading, not an explicit grant, and it is recorded as such in
-`docs/third-party-notices.md`. If it is ever rejected, the remedy is to build
-with `-DLIGHTNING_ENABLE_DEEPFILTERNET=OFF` (cargo feature `deepfilternet`
-off): the mode then reports itself unavailable and nothing of the model is in
-the binary. No download mechanism exists or may be added in its place.
+**Model weights: MIT OR Apache-2.0**, the same terms as the code. Upstream
+commit `7b14b895fe7fc42cab72b4a4c1e49c982bd6404b` (2026-11-06, "Update license
+section to include model weights") changed the README's grant from "All code in
+this repository" to "All code and model weights in this repository are
+dual-licensed under either" MIT or Apache-2.0. That covers the vendored
+`DeepFilterNet3_onnx.tar.gz`, whose bytes are unchanged. Before it, the weights
+had no explicit grant and Lightning shipped them on a reading of the author's
+own MIT/Apache-labelled distribution; that reading is no longer needed.
 
 ## Local modifications
 
