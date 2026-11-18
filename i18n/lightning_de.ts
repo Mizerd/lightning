@@ -597,12 +597,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+47"/>
-        <location line="+285"/>
+        <location line="+293"/>
         <source>Activity</source>
         <translation>Aktivität</translation>
     </message>
     <message numerus="yes">
-        <location line="-275"/>
+        <location line="-283"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n neu</numerusform>
@@ -707,12 +707,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+1"/>
-        <location line="+445"/>
+        <location line="+453"/>
         <source>Following</source>
         <translation>Nachfolgend</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-452"/>
         <source>All known</source>
         <translation>Alles bekannt</translation>
     </message>
@@ -747,7 +747,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Older activity is not available from this server.</source>
         <translation>Ältere Aktivität ist von diesem Server nicht verfügbar.</translation>
     </message>
@@ -807,12 +807,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Noch nichts da. Erwähnungen, Antworten und Reaktionen auf dich erscheinen hier, sobald sie eintreffen.</translation>
     </message>
     <message>
-        <location line="-74"/>
+        <location line="-82"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+253"/>
+        <location line="+261"/>
         <location line="+83"/>
         <location line="+33"/>
         <source>Encrypted message</source>
@@ -1096,12 +1096,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <location line="+1"/>
         <location line="+44"/>
         <location line="+4251"/>
-        <location line="+818"/>
+        <location line="+821"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5110"/>
+        <location line="-5113"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1406,14 +1406,14 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+531"/>
-        <location line="+809"/>
-        <location line="+723"/>
+        <location line="+812"/>
+        <location line="+747"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Entfernen nicht abgeschlossen: Die Daten des Kontos sind noch in Gebrauch. Es wurde nichts gelöscht.</translation>
     </message>
     <message>
-        <location line="-1350"/>
+        <location line="-1377"/>
         <source>This backend cannot change your display name.</source>
         <translation>Dieses Backend kann deinen Anzeigenamen nicht ändern.</translation>
     </message>
@@ -1445,12 +1445,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+40"/>
-        <location line="+575"/>
+        <location line="+578"/>
         <source>That account is not signed in on this device.</source>
         <translation>Dieses Konto ist auf diesem Gerät nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>Die Anmeldung dieses Kontos ist abgelaufen. Melde dich erneut an.</translation>
     </message>
@@ -1465,23 +1465,23 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Ein Kontowechsel ist gerade nicht möglich. Falls eine Abmeldung läuft, versuche es gleich noch einmal.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Could not activate the selected account.</source>
         <translation>Das ausgewählte Konto konnte nicht aktiviert werden.</translation>
     </message>
     <message>
         <location line="+238"/>
-        <location line="+706"/>
+        <location line="+730"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Dieses Konto kann nicht entfernt werden, solange der System-Schlüsselbund nicht gelesen werden kann: Seine gespeicherte Anmeldung liegt dort und würde zurückbleiben. Entsperre oder starte den Schlüsselbund und versuche es erneut.</translation>
     </message>
     <message>
-        <location line="-477"/>
+        <location line="-501"/>
         <source>Up to %1 accounts can keep running. Turn one off first.</source>
         <translation>Bis zu %1 Konten können weiterlaufen. Schalte zuerst eines aus.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+266"/>
         <source>That account is being removed from this device.</source>
         <translation>Dieses Konto wird von diesem Gerät entfernt.</translation>
     </message>
@@ -1497,7 +1497,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Dieses Konto wird noch geschlossen. Versuche es gleich noch einmal.</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+194"/>
         <source>The account was removed from this device, but signing it out on the server did not finish. It may still be listed among your sessions on other devices.</source>
         <translation>Das Konto wurde von diesem Gerät entfernt, aber die Abmeldung auf dem Server wurde nicht abgeschlossen. Es wird möglicherweise noch in deinen Sitzungen auf anderen Geräten aufgeführt.</translation>
     </message>
@@ -20178,7 +20178,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die Ereigniswarteschlange des Rust-SDK ist übergelaufen.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -33944,6 +33944,35 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+13"/>
         <source>Confirm</source>
         <translation>Bestätigen</translation>
+    </message>
+</context>
+<context>
+    <name>UnifiedInboxSection</name>
+    <message>
+        <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
+        <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Open Labs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+17"/>
+        <source>From your other accounts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted message</source>
+        <translation type="unfinished">Verschlüsselte Nachricht</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>%1 account, %2: %3</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

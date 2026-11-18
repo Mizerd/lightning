@@ -590,12 +590,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+47"/>
-        <location line="+285"/>
+        <location line="+293"/>
         <source>Activity</source>
         <translation>কার্যকলাপ</translation>
     </message>
     <message numerus="yes">
-        <location line="-275"/>
+        <location line="-283"/>
         <source>%n new</source>
         <translation>
             <numerusform>%nটি নতুন</numerusform>
@@ -700,12 +700,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+1"/>
-        <location line="+445"/>
+        <location line="+453"/>
         <source>Following</source>
         <translation>অনুসরণ করছে</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-452"/>
         <source>All known</source>
         <translation>সব পরিচিত</translation>
     </message>
@@ -730,7 +730,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Older activity is not available from this server.</source>
         <translation>এই সার্ভার থেকে পুরোনো কার্যকলাপ পাওয়া যাচ্ছে না।</translation>
     </message>
@@ -785,12 +785,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>এখানে এখনও কিছু নেই। আপনাকে করা উল্লেখ, উত্তর ও প্রতিক্রিয়া আসামাত্র এখানে দেখা যাবে।</translation>
     </message>
     <message>
-        <location line="-74"/>
+        <location line="-82"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+287"/>
+        <location line="+295"/>
         <source>Threads activity</source>
         <translation>থ্রেড কার্যকলাপ</translation>
     </message>
@@ -833,7 +833,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>উল্লেখ</translation>
     </message>
     <message>
-        <location line="-656"/>
+        <location line="-664"/>
         <source>encrypted message</source>
         <translation>এনক্রিপ্টেড বার্তা</translation>
     </message>
@@ -848,7 +848,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>কীওয়ার্ড সেটিংস খুলুন</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+100"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>কোনো কীওয়ার্ড সেট করা নেই। সেটিংসের বিজ্ঞপ্তি অংশে কিছু যোগ করুন।</translation>
     </message>
@@ -1185,12 +1185,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+1"/>
         <location line="+44"/>
         <location line="+4251"/>
-        <location line="+818"/>
+        <location line="+821"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-5110"/>
+        <location line="-5113"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -1531,14 +1531,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+531"/>
-        <location line="+809"/>
-        <location line="+723"/>
+        <location line="+812"/>
+        <location line="+747"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>অপসারণ সম্পন্ন হয়নি: অ্যাকাউন্টের ডেটা এখনও ব্যবহৃত হচ্ছে। কিছুই মোছা হয়নি।</translation>
     </message>
     <message>
-        <location line="-1350"/>
+        <location line="-1377"/>
         <source>This backend cannot change your display name.</source>
         <translation>এই ব্যাকএন্ড আপনার প্রদর্শিত নাম বদলাতে পারে না।</translation>
     </message>
@@ -1565,12 +1565,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+148"/>
-        <location line="+575"/>
+        <location line="+578"/>
         <source>That account is not signed in on this device.</source>
         <translation>ওই অ্যাকাউন্টটি এই ডিভাইসে সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>ওই অ্যাকাউন্টের সাইন-ইনের মেয়াদ শেষ হয়েছে। আবার সাইন ইন করুন।</translation>
     </message>
@@ -1580,18 +1580,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আপনার সিস্টেম কীরিং আর ওই অ্যাকাউন্টের সংরক্ষিত সাইন-ইন ফেরত দিচ্ছে না। কিছুই মোছা হয়নি: এই ডিভাইসে চালিয়ে যেতে আবার সাইন ইন করুন।</translation>
     </message>
     <message>
-        <location line="+312"/>
-        <location line="+706"/>
+        <location line="+315"/>
+        <location line="+730"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>সিস্টেম কীরিং পড়া না গেলে এই অ্যাকাউন্ট সরানো যাবে না: এর সংরক্ষিত সাইন-ইন সেখানে আছে এবং পেছনে থেকে যাবে। কীরিং আনলক করুন বা চালু করুন, তারপর আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-477"/>
+        <location line="-501"/>
         <source>Up to %1 accounts can keep running. Turn one off first.</source>
         <translation>সর্বোচ্চ %1 টি অ্যাকাউন্ট চালু রাখা যায়। আগে একটি বন্ধ করুন।</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+266"/>
         <source>That account is being removed from this device.</source>
         <translation>এই অ্যাকাউন্টটি এই ডিভাইস থেকে সরানো হচ্ছে।</translation>
     </message>
@@ -1607,7 +1607,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>ওই অ্যাকাউন্টটি এখনও বন্ধ হচ্ছে। একটু পরে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+194"/>
         <source>The account was removed from this device, but signing it out on the server did not finish. It may still be listed among your sessions on other devices.</source>
         <translation>অ্যাকাউন্টটি এই ডিভাইস থেকে সরানো হয়েছে, কিন্তু সার্ভারে সাইন আউট সম্পন্ন হয়নি। অন্য ডিভাইসে আপনার সেশনের তালিকায় এটি এখনও থাকতে পারে।</translation>
     </message>
@@ -1623,7 +1623,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2157"/>
+        <location filename="../src/app/AppController.cpp" line="-2184"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -1636,7 +1636,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>এই মুহূর্তে অ্যাকাউন্ট পাল্টানো যাচ্ছে না। যদি সাইন আউট চলমান থাকে, একটু পরে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Could not activate the selected account.</source>
         <translation>নির্বাচিত অ্যাকাউন্টটি সক্রিয় করা যায়নি।</translation>
     </message>
@@ -20169,7 +20169,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK ইভেন্ট সারি উপচে পড়েছে।</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -33935,6 +33935,35 @@ Note: importing keys does not verify this session.</source>
         <location line="+13"/>
         <source>Confirm</source>
         <translation>নিশ্চিত করুন</translation>
+    </message>
+</context>
+<context>
+    <name>UnifiedInboxSection</name>
+    <message>
+        <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
+        <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Open Labs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+17"/>
+        <source>From your other accounts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted message</source>
+        <translation type="unfinished">এনক্রিপ্টেড বার্তা</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>%1 account, %2: %3</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

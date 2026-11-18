@@ -599,12 +599,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+47"/>
-        <location line="+285"/>
+        <location line="+293"/>
         <source>Activity</source>
         <translation>Активность</translation>
     </message>
     <message numerus="yes">
-        <location line="-275"/>
+        <location line="-283"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n новое</numerusform>
@@ -712,12 +712,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+1"/>
-        <location line="+445"/>
+        <location line="+453"/>
         <source>Following</source>
         <translation>Подписка</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-452"/>
         <source>All known</source>
         <translation>Все известно</translation>
     </message>
@@ -742,7 +742,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Older activity is not available from this server.</source>
         <translation>Более ранняя активность недоступна на этом сервере.</translation>
     </message>
@@ -797,12 +797,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Пока пусто. Упоминания, ответы и реакции на вас появятся здесь по мере поступления.</translation>
     </message>
     <message>
-        <location line="-74"/>
+        <location line="-82"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+287"/>
+        <location line="+295"/>
         <source>Threads activity</source>
         <translation>Активность обсуждений</translation>
     </message>
@@ -845,7 +845,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Упоминание</translation>
     </message>
     <message>
-        <location line="-656"/>
+        <location line="-664"/>
         <source>encrypted message</source>
         <translation>зашифрованное сообщение</translation>
     </message>
@@ -860,7 +860,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Открыть настройки ключевых слов</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+100"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>Ключевые слова не заданы. Добавьте их в разделе «Настройки» → «Уведомления».</translation>
     </message>
@@ -1198,12 +1198,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+1"/>
         <location line="+44"/>
         <location line="+4251"/>
-        <location line="+818"/>
+        <location line="+821"/>
         <source>Not connected</source>
         <translation>Нет подключения</translation>
     </message>
     <message>
-        <location line="-5110"/>
+        <location line="-5113"/>
         <source>Connecting…</source>
         <translation>Подключение…</translation>
     </message>
@@ -1544,14 +1544,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+531"/>
-        <location line="+809"/>
-        <location line="+723"/>
+        <location line="+812"/>
+        <location line="+747"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Удаление не завершено: данные учётной записи всё ещё используются. Ничего не удалено.</translation>
     </message>
     <message>
-        <location line="-1350"/>
+        <location line="-1377"/>
         <source>This backend cannot change your display name.</source>
         <translation>Этот бэкенд не может изменить ваше отображаемое имя.</translation>
     </message>
@@ -1578,12 +1578,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+148"/>
-        <location line="+575"/>
+        <location line="+578"/>
         <source>That account is not signed in on this device.</source>
         <translation>Вход в эту учётную запись на этом устройстве не выполнен.</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>Срок действия входа в эту учётную запись истёк. Войдите снова.</translation>
     </message>
@@ -1593,18 +1593,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Системная связка ключей больше не возвращает сохранённый вход для этой учётной записи. Ничего не удалено: войдите в неё снова, чтобы продолжить на этом устройстве.</translation>
     </message>
     <message>
-        <location line="+312"/>
-        <location line="+706"/>
+        <location line="+315"/>
+        <location line="+730"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Эту учётную запись нельзя удалить, пока системная связка ключей недоступна для чтения: её сохранённый вход останется там. Разблокируйте связку ключей или запустите её и повторите попытку.</translation>
     </message>
     <message>
-        <location line="-477"/>
+        <location line="-501"/>
         <source>Up to %1 accounts can keep running. Turn one off first.</source>
         <translation>Одновременно могут работать не более %1 учётных записей. Сначала отключите одну из них.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+266"/>
         <source>That account is being removed from this device.</source>
         <translation>Эта учётная запись удаляется с этого устройства.</translation>
     </message>
@@ -1620,7 +1620,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Эта учётная запись ещё закрывается. Повторите попытку через мгновение.</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+194"/>
         <source>The account was removed from this device, but signing it out on the server did not finish. It may still be listed among your sessions on other devices.</source>
         <translation>Учётная запись удалена с этого устройства, но выход из неё на сервере не завершён. Она может всё ещё отображаться в списке ваших сеансов на других устройствах.</translation>
     </message>
@@ -1636,7 +1636,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2157"/>
+        <location filename="../src/app/AppController.cpp" line="-2184"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -1649,7 +1649,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Сейчас не удаётся переключить учётную запись. Если выполняется выход, повторите попытку через мгновение.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Could not activate the selected account.</source>
         <translation>Не удалось активировать выбранную учётную запись.</translation>
     </message>
@@ -20255,7 +20255,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Очередь событий Rust SDK переполнена.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -34103,6 +34103,35 @@ Note: importing keys does not verify this session.</source>
         <location line="+13"/>
         <source>Confirm</source>
         <translation>Подтвердить</translation>
+    </message>
+</context>
+<context>
+    <name>UnifiedInboxSection</name>
+    <message>
+        <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
+        <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Open Labs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+17"/>
+        <source>From your other accounts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted message</source>
+        <translation type="unfinished">Зашифрованное сообщение</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>%1 account, %2: %3</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

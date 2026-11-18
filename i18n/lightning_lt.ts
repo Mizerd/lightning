@@ -599,12 +599,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+47"/>
-        <location line="+285"/>
+        <location line="+293"/>
         <source>Activity</source>
         <translation>Veikla</translation>
     </message>
     <message numerus="yes">
-        <location line="-275"/>
+        <location line="-283"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n nauja</numerusform>
@@ -712,12 +712,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+1"/>
-        <location line="+445"/>
+        <location line="+453"/>
         <source>Following</source>
         <translation>Toliau</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-452"/>
         <source>All known</source>
         <translation>Visi žinomi</translation>
     </message>
@@ -742,7 +742,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Older activity is not available from this server.</source>
         <translation>Šiame serveryje ankstesnė veikla nepasiekiama.</translation>
     </message>
@@ -797,12 +797,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Kol kas nieko nėra. Paminėjimai, atsakymai ir reakcijos į jus bus rodomi čia, kai tik atsiras.</translation>
     </message>
     <message>
-        <location line="-74"/>
+        <location line="-82"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+287"/>
+        <location line="+295"/>
         <source>Threads activity</source>
         <translation>Gijų veikla</translation>
     </message>
@@ -845,7 +845,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Paminėjimas</translation>
     </message>
     <message>
-        <location line="-656"/>
+        <location line="-664"/>
         <source>encrypted message</source>
         <translation>šifruota žinutė</translation>
     </message>
@@ -860,7 +860,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Atidaryti raktažodžių nustatymus</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+100"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>Raktažodžių nenustatyta. Pridėkite jų nustatymų skiltyje „Pranešimai“.</translation>
     </message>
@@ -1198,12 +1198,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <location line="+1"/>
         <location line="+44"/>
         <location line="+4251"/>
-        <location line="+818"/>
+        <location line="+821"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-5110"/>
+        <location line="-5113"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -1544,14 +1544,14 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+531"/>
-        <location line="+809"/>
-        <location line="+723"/>
+        <location line="+812"/>
+        <location line="+747"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Šalinimas nebaigtas: paskyros duomenys vis dar naudojami. Nieko neištrinta.</translation>
     </message>
     <message>
-        <location line="-1350"/>
+        <location line="-1377"/>
         <source>This backend cannot change your display name.</source>
         <translation>Ši posistemė negali pakeisti rodomo vardo.</translation>
     </message>
@@ -1578,12 +1578,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+148"/>
-        <location line="+575"/>
+        <location line="+578"/>
         <source>That account is not signed in on this device.</source>
         <translation>Prie tos paskyros šiame įrenginyje neprisijungta.</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>Tos paskyros prisijungimo galiojimo laikas baigėsi. Prisijunkite prie jo dar kartą.</translation>
     </message>
@@ -1593,18 +1593,18 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Sistemos raktų saugykla nebegrąžina tos paskyros įrašyto prisijungimo. Nieko neištrinta: prisijunkite prie jos dar kartą, kad galėtumėte tęsti šiame įrenginyje.</translation>
     </message>
     <message>
-        <location line="+312"/>
-        <location line="+706"/>
+        <location line="+315"/>
+        <location line="+730"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Šios paskyros pašalinti negalima, kol sistemos raktų saugyklos neįmanoma nuskaityti: joje yra paskyros įrašytas prisijungimas ir jis liktų. Atrakinkite raktų saugyklą arba ją paleiskite ir bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-477"/>
+        <location line="-501"/>
         <source>Up to %1 accounts can keep running. Turn one off first.</source>
         <translation>Gali veikti ne daugiau kaip %1 paskyrų. Pirmiausia išjunkite vieną.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+266"/>
         <source>That account is being removed from this device.</source>
         <translation>Ta paskyra šalinama iš šio įrenginio.</translation>
     </message>
@@ -1620,7 +1620,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Ta paskyra dar užsidaro. Bandykite dar kartą po akimirkos.</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+194"/>
         <source>The account was removed from this device, but signing it out on the server did not finish. It may still be listed among your sessions on other devices.</source>
         <translation>Paskyra pašalinta iš šio įrenginio, tačiau atsijungimas serveryje nebuvo užbaigtas. Ji vis dar gali būti rodoma tarp jūsų seansų kituose įrenginiuose.</translation>
     </message>
@@ -1636,7 +1636,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2157"/>
+        <location filename="../src/app/AppController.cpp" line="-2184"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -1649,7 +1649,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Šiuo metu nepavyko perjungti paskyrų. Jei vyksta atsijungimas, po kurio laiko bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Could not activate the selected account.</source>
         <translation>Nepavyko suaktyvinti pasirinktos paskyros.</translation>
     </message>
@@ -20255,7 +20255,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Rust SDK įvykių eilė perpildyta.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -34103,6 +34103,35 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+13"/>
         <source>Confirm</source>
         <translation>Patvirtinti</translation>
+    </message>
+</context>
+<context>
+    <name>UnifiedInboxSection</name>
+    <message>
+        <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
+        <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Open Labs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+17"/>
+        <source>From your other accounts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted message</source>
+        <translation type="unfinished">Šifruota žinutė</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>%1 account, %2: %3</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

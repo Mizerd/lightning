@@ -585,12 +585,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+47"/>
-        <location line="+285"/>
+        <location line="+293"/>
         <source>Activity</source>
         <translation>Aktivitas</translation>
     </message>
     <message numerus="yes">
-        <location line="-275"/>
+        <location line="-283"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n baru</numerusform>
@@ -692,12 +692,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+1"/>
-        <location line="+445"/>
+        <location line="+453"/>
         <source>Following</source>
         <translation>Mengikuti</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-452"/>
         <source>All known</source>
         <translation>Semua diketahui</translation>
     </message>
@@ -722,7 +722,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Older activity is not available from this server.</source>
         <translation>Aktivitas lama tidak tersedia dari server ini.</translation>
     </message>
@@ -777,12 +777,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Belum ada apa-apa di sini. Sebutan, balasan, dan reaksi untuk Anda akan muncul saat tiba.</translation>
     </message>
     <message>
-        <location line="-74"/>
+        <location line="-82"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+287"/>
+        <location line="+295"/>
         <source>Threads activity</source>
         <translation>Aktivitas utas</translation>
     </message>
@@ -825,7 +825,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Sebutkan</translation>
     </message>
     <message>
-        <location line="-656"/>
+        <location line="-664"/>
         <source>encrypted message</source>
         <translation>pesan terenkripsi</translation>
     </message>
@@ -840,7 +840,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Buka pengaturan kata kunci</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+100"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>Belum ada kata kunci. Tambahkan di Pengaturan, di bawah Notifikasi.</translation>
     </message>
@@ -1176,12 +1176,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <location line="+1"/>
         <location line="+44"/>
         <location line="+4251"/>
-        <location line="+818"/>
+        <location line="+821"/>
         <source>Not connected</source>
         <translation>Tidak terhubung</translation>
     </message>
     <message>
-        <location line="-5110"/>
+        <location line="-5113"/>
         <source>Connecting…</source>
         <translation>Menghubungkan…</translation>
     </message>
@@ -1522,14 +1522,14 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+531"/>
-        <location line="+809"/>
-        <location line="+723"/>
+        <location line="+812"/>
+        <location line="+747"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Penghapusan tidak selesai: data akun masih digunakan. Tidak ada yang dihapus.</translation>
     </message>
     <message>
-        <location line="-1350"/>
+        <location line="-1377"/>
         <source>This backend cannot change your display name.</source>
         <translation>Backend ini tidak dapat mengubah nama tampilan Anda.</translation>
     </message>
@@ -1556,12 +1556,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+148"/>
-        <location line="+575"/>
+        <location line="+578"/>
         <source>That account is not signed in on this device.</source>
         <translation>Akun itu belum masuk di perangkat ini.</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>Sesi masuk akun itu telah kedaluwarsa. Masuk lagi.</translation>
     </message>
@@ -1571,18 +1571,18 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Gantungan kunci sistem Anda tidak lagi mengembalikan sesi masuk tersimpan untuk akun itu. Tidak ada yang dihapus: masuk lagi untuk melanjutkan di perangkat ini.</translation>
     </message>
     <message>
-        <location line="+312"/>
-        <location line="+706"/>
+        <location line="+315"/>
+        <location line="+730"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Akun ini tidak dapat dihapus selama gantungan kunci sistem tidak dapat dibaca: sesi masuk tersimpannya masih ada dan akan tertinggal. Buka kunci gantungan kunci, atau jalankan, lalu coba lagi.</translation>
     </message>
     <message>
-        <location line="-477"/>
+        <location line="-501"/>
         <source>Up to %1 accounts can keep running. Turn one off first.</source>
         <translation>Maksimal %1 akun dapat tetap berjalan. Matikan salah satu terlebih dahulu.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+266"/>
         <source>That account is being removed from this device.</source>
         <translation>Akun itu sedang dihapus dari perangkat ini.</translation>
     </message>
@@ -1598,7 +1598,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Akun itu masih ditutup. Coba lagi sebentar lagi.</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+194"/>
         <source>The account was removed from this device, but signing it out on the server did not finish. It may still be listed among your sessions on other devices.</source>
         <translation>Akun telah dihapus dari perangkat ini, tetapi proses keluar di server belum selesai. Akun ini mungkin masih tercantum di sesi Anda pada perangkat lain.</translation>
     </message>
@@ -1614,7 +1614,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2157"/>
+        <location filename="../src/app/AppController.cpp" line="-2184"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -1627,7 +1627,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Tidak dapat berganti akun sekarang. Jika proses keluar sedang berjalan, coba lagi sebentar.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Could not activate the selected account.</source>
         <translation>Tidak dapat mengaktifkan akun yang dipilih.</translation>
     </message>
@@ -20101,7 +20101,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Antrean peristiwa Rust SDK meluap.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -33785,6 +33785,35 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <location line="+13"/>
         <source>Confirm</source>
         <translation>Konfirmasi</translation>
+    </message>
+</context>
+<context>
+    <name>UnifiedInboxSection</name>
+    <message>
+        <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
+        <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Open Labs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+17"/>
+        <source>From your other accounts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted message</source>
+        <translation type="unfinished">Pesan terenkripsi</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>%1 account, %2: %3</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

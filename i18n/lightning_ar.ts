@@ -618,12 +618,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+47"/>
-        <location line="+285"/>
+        <location line="+293"/>
         <source>Activity</source>
         <translation>النشاط</translation>
     </message>
     <message numerus="yes">
-        <location line="-275"/>
+        <location line="-283"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n جديد</numerusform>
@@ -740,12 +740,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+1"/>
-        <location line="+445"/>
+        <location line="+453"/>
         <source>Following</source>
         <translation>يتبع</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-452"/>
         <source>All known</source>
         <translation>الكل معروف</translation>
     </message>
@@ -770,7 +770,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Older activity is not available from this server.</source>
         <translation>النشاط الأقدم غير متاح من هذا الخادوم.</translation>
     </message>
@@ -825,12 +825,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>لا شيء هنا بعد. ستظهر هنا الإشارات والردود والتفاعلات الموجّهة إليك فور وصولها.</translation>
     </message>
     <message>
-        <location line="-74"/>
+        <location line="-82"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+287"/>
+        <location line="+295"/>
         <source>Threads activity</source>
         <translation>نشاط الخيوط</translation>
     </message>
@@ -873,7 +873,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>ذكر</translation>
     </message>
     <message>
-        <location line="-656"/>
+        <location line="-664"/>
         <source>encrypted message</source>
         <translation>رسالة معمّاة</translation>
     </message>
@@ -888,7 +888,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>فتح إعدادات الكلمات المفتاحية</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+100"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>لم تُحدَّد كلمات مفتاحية. أضف بعضها في الإعدادات ضمن الإشعارات.</translation>
     </message>
@@ -1229,12 +1229,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+1"/>
         <location line="+44"/>
         <location line="+4251"/>
-        <location line="+818"/>
+        <location line="+821"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-5110"/>
+        <location line="-5113"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1575,14 +1575,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+531"/>
-        <location line="+809"/>
-        <location line="+723"/>
+        <location line="+812"/>
+        <location line="+747"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>لم تكتمل الإزالة: بيانات الحساب ما زالت قيد الاستخدام. لم يُحذف شيء.</translation>
     </message>
     <message>
-        <location line="-1350"/>
+        <location line="-1377"/>
         <source>This backend cannot change your display name.</source>
         <translation>هذه الخلفية لا يمكنها تغيير اسمك الظاهر.</translation>
     </message>
@@ -1609,12 +1609,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+148"/>
-        <location line="+575"/>
+        <location line="+578"/>
         <source>That account is not signed in on this device.</source>
         <translation>هذا الحساب غير مسجّل الدخول على هذا الجهاز.</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>انتهت صلاحية تسجيل دخول ذلك الحساب. سجّل الدخول إليه مجددًا.</translation>
     </message>
@@ -1624,18 +1624,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>لم تعد حلقة مفاتيح نظامك تُعيد تسجيل الدخول المحفوظ لذلك الحساب. لم يُحذف شيء: سجّل الدخول إليه مجددًا للمتابعة على هذا الجهاز.</translation>
     </message>
     <message>
-        <location line="+312"/>
-        <location line="+706"/>
+        <location line="+315"/>
+        <location line="+730"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>لا يمكن إزالة هذا الحساب ما دامت حلقة مفاتيح النظام غير قابلة للقراءة: تسجيل دخوله المحفوظ فيها وسيبقى خلفها. افتح قفل حلقة المفاتيح أو شغّلها وحاول مجددًا.</translation>
     </message>
     <message>
-        <location line="-477"/>
+        <location line="-501"/>
         <source>Up to %1 accounts can keep running. Turn one off first.</source>
         <translation>يمكن إبقاء %1 حسابات قيد التشغيل كحد أقصى. أوقف أحدها أولًا.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+266"/>
         <source>That account is being removed from this device.</source>
         <translation>يجري حذف هذا الحساب من هذا الجهاز.</translation>
     </message>
@@ -1651,7 +1651,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>ما زال هذا الحساب قيد الإغلاق. حاول مرة أخرى بعد قليل.</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+194"/>
         <source>The account was removed from this device, but signing it out on the server did not finish. It may still be listed among your sessions on other devices.</source>
         <translation>حُذف الحساب من هذا الجهاز، لكن تسجيل خروجه على الخادم لم يكتمل. قد يظل مدرجًا ضمن جلساتك على الأجهزة الأخرى.</translation>
     </message>
@@ -1667,7 +1667,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2157"/>
+        <location filename="../src/app/AppController.cpp" line="-2184"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -1680,7 +1680,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>تعذّر تبديل الحسابات الآن. إن كان هناك تسجيل خروج جارٍ، أعد المحاولة بعد لحظة.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Could not activate the selected account.</source>
         <translation>تعذّر تفعيل الحساب المحدد.</translation>
     </message>
@@ -20477,7 +20477,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>فاض طابور أحداث Rust SDK.</translation>
     </message>
     <message>
-        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+475"/>
+        <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
@@ -34571,6 +34571,35 @@ Note: importing keys does not verify this session.</source>
         <location line="+13"/>
         <source>Confirm</source>
         <translation>تأكيد</translation>
+    </message>
+</context>
+<context>
+    <name>UnifiedInboxSection</name>
+    <message>
+        <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
+        <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Open Labs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+17"/>
+        <source>From your other accounts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted message</source>
+        <translation type="unfinished">رسالة معمّاة</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>%1 account, %2: %3</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
