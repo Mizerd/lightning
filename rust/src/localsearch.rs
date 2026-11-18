@@ -746,13 +746,16 @@ impl PageGate for StopOnly<'_> {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct DeepOutcome {
     pub pages: u16,
     pub reached_start: bool,
     pub written: usize,
     pub undecryptable: usize,
     pub interrupted: bool,
+    /// Megolm sessions behind `undecryptable`; `None` once more than
+    /// `MAX_TRACKED_UTD_SESSIONS` were seen, i.e. any room key may help.
+    pub utd_sessions: Option<std::collections::BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -848,6 +851,18 @@ fn write_locked(
 
 const MAX_TRACKED_UNDECRYPTABLE: usize = 10_000;
 
+/// Events paged or synced into a room nobody has open stay in its in-memory
+/// chunk for the whole session; matrix-sdk shrinks it back only when its LAST
+/// subscriber drops. Returns how many events the chunk held.
+async fn shrink_guard(
+    room_cache: &matrix_sdk::event_cache::RoomEventCache,
+) -> (usize, Option<matrix_sdk::event_cache::RoomEventCacheSubscriber>) {
+    match room_cache.subscribe().await {
+        Ok((events, subscriber)) => (events.len(), Some(subscriber)),
+        Err(_) => (0, None),
+    }
+}
+
 pub(crate) async fn deep_index_room_gated<G: PageGate>(
     room: &Room,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -859,9 +874,10 @@ pub(crate) async fn deep_index_room_gated<G: PageGate>(
         .event_cache()
         .await
         .map_err(|e| DeepError::plain(format!("no event cache for the room: {e}")))?;
+    let (_, _shrink_on_drop) = shrink_guard(&room_cache).await;
     let room_id = room.room_id().as_str();
 
-    let mut outcome = DeepOutcome::default();
+    let mut outcome = DeepOutcome { utd_sessions: Some(Default::default()), ..Default::default() };
     let mut undecryptable: HashSet<String> = HashSet::new();
     if let Ok(batch) = collect_from(room, &room_cache).await {
         let Some(written) = write_locked(index, generation, room_id, &batch) else {
@@ -869,7 +885,7 @@ pub(crate) async fn deep_index_room_gated<G: PageGate>(
             return Ok(outcome);
         };
         outcome.written += written;
-        note_undecryptable(&mut undecryptable, &batch);
+        note_undecryptable(&mut undecryptable, &mut outcome.utd_sessions, &batch);
     }
 
     let pagination = room_cache.pagination();
@@ -895,7 +911,7 @@ pub(crate) async fn deep_index_room_gated<G: PageGate>(
                 break;
             };
             outcome.written += written;
-            note_undecryptable(&mut undecryptable, &batch);
+            note_undecryptable(&mut undecryptable, &mut outcome.utd_sessions, &batch);
         }
         outcome.undecryptable = undecryptable.len();
         gate.on_page(&outcome);
@@ -908,12 +924,23 @@ pub(crate) async fn deep_index_room_gated<G: PageGate>(
     Ok(outcome)
 }
 
-fn note_undecryptable(seen: &mut HashSet<String>, batch: &RoomBatch) {
-    for id in &batch.undecryptable {
-        if seen.len() >= MAX_TRACKED_UNDECRYPTABLE {
-            return;
+pub(crate) const MAX_TRACKED_UTD_SESSIONS: usize = 64;
+
+fn note_undecryptable(
+    seen: &mut HashSet<String>,
+    sessions: &mut Option<std::collections::BTreeSet<String>>,
+    batch: &RoomBatch,
+) {
+    for (id, session) in &batch.undecryptable {
+        if let Some(set) = sessions.as_mut() {
+            set.insert(session.clone());
+            if session.is_empty() || set.len() > MAX_TRACKED_UTD_SESSIONS {
+                *sessions = None;
+            }
         }
-        seen.insert(id.clone());
+        if seen.len() < MAX_TRACKED_UNDECRYPTABLE {
+            seen.insert(id.clone());
+        }
     }
 }
 
@@ -987,9 +1014,10 @@ pub(crate) async fn sweep(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
     stop: &std::sync::atomic::AtomicBool,
-) -> (usize, usize) {
+) -> (usize, usize, usize) {
     let mut rooms_done = 0usize;
     let mut written = 0usize;
+    let mut held = 0usize;
     let generation = current_generation(index);
     let mut joined = client.joined_rooms();
     joined.sort_by(|a, b| a.room_id().cmp(b.room_id()));
@@ -1018,13 +1046,13 @@ pub(crate) async fn sweep(
             break;
         }
         rooms_done += 1;
-        match sweep_room(&room, index, generation, stop, &mut budget).await {
+        match sweep_room(&room, index, generation, stop, &mut budget, &mut held).await {
             Some(n) => written += n,
             None => break,
         }
     }
     set_sweep_cursor(&account, start.wrapping_add(moved));
-    (rooms_done, written)
+    (rooms_done, written, held)
 }
 
 /// Index what the event cache holds for one room. When an already-indexed
@@ -1038,11 +1066,14 @@ async fn sweep_room(
     generation: u64,
     stop: &std::sync::atomic::AtomicBool,
     budget: &mut u16,
+    held: &mut usize,
 ) -> Option<usize> {
     let room_id = room.room_id().as_str();
     let Ok((room_cache, _drop_handles)) = room.event_cache().await else {
         return Some(0);
     };
+    let (in_memory, _shrink_on_drop) = shrink_guard(&room_cache).await;
+    *held += in_memory;
     let Ok(batch) = collect_from(room, &room_cache).await else {
         return Some(0);
     };
@@ -1095,7 +1126,8 @@ pub(crate) struct RoomBatch {
     ordinary: Vec<Indexable>,
     edits: Vec<Indexable>,
     names: std::collections::HashMap<String, String>,
-    undecryptable: Vec<String>,
+    /// (event id, megolm session id)
+    undecryptable: Vec<(String, String)>,
     /// Redacted here: targets of redaction events, and events already redacted.
     redactions: Vec<String>,
 }
@@ -1145,7 +1177,12 @@ async fn batch_from(room: &Room, raws: impl Iterator<Item = serde_json::Value>) 
         }
         if is_undecryptable(&raw) {
             if let Some(id) = raw.get("event_id").and_then(|v| v.as_str()) {
-                undecryptable.push(id.to_owned());
+                let session = raw
+                    .get("content")
+                    .and_then(|c| c.get("session_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                undecryptable.push((id.to_owned(), session.to_owned()));
             }
             continue;
         }
@@ -2100,12 +2137,24 @@ mod tests {
             ordinary: Vec::new(),
             edits: Vec::new(),
             names: std::collections::HashMap::new(),
-            undecryptable: vec!["$u".to_owned(), "$v".to_owned()],
+            undecryptable: vec![("$u".to_owned(), "s1".to_owned()), ("$v".to_owned(), "s2".to_owned())],
             redactions: vec![],
         };
-        note_undecryptable(&mut seen, &batch);
-        note_undecryptable(&mut seen, &batch);
+        let mut sessions = Some(Default::default());
+        note_undecryptable(&mut seen, &mut sessions, &batch);
+        note_undecryptable(&mut seen, &mut sessions, &batch);
         assert_eq!(seen.len(), 2);
+        assert_eq!(sessions.unwrap().into_iter().collect::<Vec<_>>(), ["s1", "s2"]);
+
+        let many = RoomBatch {
+            undecryptable: (0..=MAX_TRACKED_UTD_SESSIONS)
+                .map(|i| (format!("$e{i}"), format!("s{i}")))
+                .collect(),
+            ..batch
+        };
+        let mut sessions = Some(Default::default());
+        note_undecryptable(&mut seen, &mut sessions, &many);
+        assert_eq!(sessions, None, "past the cap any key must be allowed to wake the room");
     }
 
     #[test]

@@ -251,3 +251,75 @@ fn the_gap_queue_is_first_in_first_out_with_the_newest_token() {
     assert_eq!(queue.pop(), Some(("!a:x".into(), "a1".into(), 1)));
     assert_eq!(queue.pop(), None);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deep_walk_releases_the_history_it_paged_into_memory() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
+    sync(&client, vec![message("$live", "the newest line", 1_000_000)], "1", Some("p0")).await;
+
+    for page in 0..3u64 {
+        let chunk: Vec<Raw<matrix_sdk::ruma::events::AnyTimelineEvent>> = (0..100u64)
+            .map(|i| {
+                let ts = 900_000 - page * 1000 - i;
+                serde_json::from_value(message(&format!("$p{page}e{i}"), "old history", ts)).unwrap()
+            })
+            .collect();
+        let template = RoomMessagesResponseTemplate::default().events(chunk);
+        let template = if page < 2 { template.end_token(format!("p{}", page + 1)) } else { template };
+        server.mock_room_messages().match_from(&format!("p{page}")).ok(template).mount().await;
+    }
+
+    let room = client.get_room(room_id!("!dm:localhost")).unwrap();
+    let stop = AtomicBool::new(false);
+    let outcome = deep_index_room_gated(&room, &index, &StopOnly(&stop), DEEP_MAX_PAGES).await.unwrap();
+    assert!(outcome.reached_start);
+    assert!(indexed(&index, "$p2e99"));
+
+    let (room_cache, _handles) = room.event_cache().await.unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let held = room_cache.events().await.unwrap().len();
+        if held < 100 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{held} paged events still held in memory after the walk"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sweep_releases_what_sync_piled_up_in_a_room_nobody_opened() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let index = Arc::new(Mutex::new(Some(SearchIndex::open_in_memory().unwrap())));
+    for batch in 0..4u64 {
+        let events = (0..100u64)
+            .map(|i| message(&format!("$s{batch}e{i}"), "busy room line", 10_000 + batch * 100 + i))
+            .collect();
+        sync(&client, events, &batch.to_string(), None).await;
+    }
+    let room = client.get_room(room_id!("!dm:localhost")).unwrap();
+    let (room_cache, _handles) = room.event_cache().await.unwrap();
+    assert_eq!(room_cache.events().await.unwrap().len(), 400);
+
+    sweep_until(&client, &index, "$s3e99").await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let held = room_cache.events().await.unwrap().len();
+        if held < 400 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{held} synced events still held in memory after a sweep"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
