@@ -59,6 +59,7 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         setLoginStage(QStringLiteral("idle"));
         Q_EMIT loginFailed(shown);
         runDeferredDiscovery();
+        requestMissingSsoProviders();
     });
 
     connect(m_client, &MatrixClient::authDiscoveryDetails, this,
@@ -92,9 +93,8 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         m_ssoProviders.clear();
         if (m_serverSso && !m_serverOauth) {
             QMetaObject::invokeMethod(this, [this, homeserver] {
-                if (m_client && m_serverSso && !m_browserLoginInProgress
-                    && homeserver == m_discoveredHomeserver)
-                    m_client->requestSsoProviders(homeserver);
+                if (homeserver == m_discoveredHomeserver)
+                    requestMissingSsoProviders();
             }, Qt::QueuedConnection);
         }
         m_discoveryState = (m_serverPassword || m_serverOauth || m_serverSso)
@@ -583,6 +583,13 @@ void AuthManager::runDeferredDiscovery()
         && m_discoveryState == QLatin1String("done"))
         return;
     discoverAuthMethods(typed);
+}
+
+void AuthManager::requestMissingSsoProviders()
+{
+    if (m_client && m_serverSso && !m_serverOauth && !m_browserLoginInProgress
+        && m_ssoProviders.isEmpty() && m_discoveryState == QLatin1String("done"))
+        m_client->requestSsoProviders(m_discoveredHomeserver);
 }
 
 bool AuthManager::refuseBeforeTheBrowser(const QString &homeserver)
