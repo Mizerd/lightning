@@ -106,6 +106,34 @@ private Q_SLOTS:
         QCOMPARE(capture.messages.size(), loggedBefore + 3);
     }
 
+    void anOpenTheBackendNeverAnswersFailsInsteadOfSpinning()
+    {
+        MockMatrixClient client;
+        client.setEventContextEnabled(true);
+        QVERIFY(login(client));
+        client.setHoldEventContext(true);
+        ContextController context;
+        context.setClient(&client);
+        context.setOpenTimeoutMsForTest(150);
+        QSignalSpy failed(&context, &ContextController::openFailed);
+        const QString target = middleEventId(client);
+        QVERIFY(context.open(kGeneral, target));
+        QCOMPARE(context.state(), ContextController::Opening);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, kSignalTimeoutMs);
+        QCOMPARE(failed.at(0).at(1).toString(), target);
+        QCOMPARE(failed.at(0).at(2).toString(), QStringLiteral("timeout"));
+        QCOMPARE(context.state(), ContextController::Closed);
+        QCOMPARE(client.openEventContextTimelineId(), QString());
+
+        // An answer in time is never abandoned.
+        QVERIFY(context.open(kGeneral, target));
+        client.deliverHeldEventContext();
+        QTRY_COMPARE_WITH_TIMEOUT(context.state(), ContextController::Ready, kSignalTimeoutMs);
+        QTest::qWait(300);
+        QCOMPARE(context.state(), ContextController::Ready);
+        QCOMPARE(failed.count(), 1);
+    }
+
     void aLoadedTargetIsJumpedToInPlaceAndNeverOpensTheView()
     {
         MockMatrixClient client;

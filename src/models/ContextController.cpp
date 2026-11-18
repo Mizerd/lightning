@@ -10,6 +10,18 @@ ContextController::ContextController(QObject *parent)
     : QObject(parent)
     , m_scrollTraceEnabled(qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE"))
 {
+    m_openWatchdog.setSingleShot(true);
+    m_openWatchdog.setInterval(kOpenTimeoutMs);
+    connect(&m_openWatchdog, &QTimer::timeout, this, [this] {
+        if (m_state != Opening)
+            return;
+        qCWarning(lcContext) << "event context abandoned: the backend never answered"
+                             << "timeout_ms=" << m_openWatchdog.interval();
+        const QString room = m_roomId;
+        const QString event = m_eventId;
+        close();
+        Q_EMIT openFailed(room, event, QStringLiteral("timeout"));
+    });
 }
 
 void ContextController::setClient(MatrixClient *client)
@@ -88,6 +100,7 @@ bool ContextController::open(const QString &roomId, const QString &eventId)
     resetEdges();
     m_model.setRoomId(timelineId());
     setState(Opening);
+    m_openWatchdog.start();
     m_client->openEventContext(roomId, eventId);
     return true;
 }
@@ -137,6 +150,8 @@ void ContextController::resetEdges()
 
 void ContextController::setState(State state, const QString &failureCategory)
 {
+    if (state != Opening)
+        m_openWatchdog.stop();
     if (m_state == state && m_failureCategory == failureCategory)
         return;
     m_state = state;
