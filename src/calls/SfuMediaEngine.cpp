@@ -2580,6 +2580,29 @@ void SfuMediaEngine::engageEchoCancellation()
            });
 }
 
+void SfuMediaEngine::retakeEchoProbe(quint64 generation)
+{
+    if (!m_active || generation != m_generation.load() || m_echoGivenUp
+        || m_micCid.isEmpty() || microphoneStarting())
+        return;
+    GstElement *bin = m_publishedBins.value(m_micCid, nullptr);
+    if (!bin)
+        return;
+    // With no other playback left, dropping is enough: the next remote audio
+    // engages afresh instead of reading "echo already on".
+    const QString did = echoProbeLive()
+        ? calls::noise::retakeEchoProbe(bin, [this, generation] {
+              marshal(this, [this, generation] {
+                  if (m_active && generation == m_generation.load()
+                      && echoProbeLive())
+                      giveUpEchoCancellation(QStringLiteral(
+                          "no free playback probe"));
+              });
+          })
+        : calls::noise::dropEchoCancel(bin);
+    qCInfo(lcSfuMedia) << "echo cancellation after a playback left:" << did;
+}
+
 void SfuMediaEngine::giveUpEchoCancellation(const QString &why)
 {
     if (m_echoGivenUp)
@@ -6636,6 +6659,8 @@ struct PublishTeardown {
 struct ReceiveTeardown {
     GstElement *pipeline = nullptr;
     std::shared_ptr<std::atomic<int>> outstanding;
+    SfuMediaEngine *engine = nullptr;
+    quint64 generation = 0;
 };
 
 void receiveTeardownFree(gpointer data)
@@ -6656,6 +6681,11 @@ void receiveTeardownAsync(GstElement *bin, gpointer data)
     auto *ctx = static_cast<ReceiveTeardown *>(data);
     gst_bin_remove(GST_BIN(ctx->pipeline), bin);
     gst_element_set_state(bin, GST_STATE_NULL);
+    if (ctx->engine) {
+        marshal(ctx->engine, [engine = ctx->engine, generation = ctx->generation] {
+            engine->retakeEchoProbe(generation);
+        });
+    }
 }
 
 GstPadProbeReturn dropRetiredPadProbe(GstPad *, GstPadProbeInfo *, gpointer)
@@ -9506,6 +9536,11 @@ void SfuMediaEngine::teardownReceiveBin(const ReceiveBin &entry,
     }
     auto *ctx = new ReceiveTeardown{
         GST_ELEMENT(gst_object_ref(pipeline)), m_pendingTeardowns};
+    if (GstElement *probe = gst_bin_get_by_name(GST_BIN(entry.bin), kEchoProbeName)) {
+        gst_object_unref(probe);
+        ctx->engine = this;
+        ctx->generation = m_generation.load();
+    }
     m_pendingTeardowns->fetch_add(1);
     gst_element_call_async(entry.bin, receiveTeardownAsync, ctx,
                            receiveTeardownFree);

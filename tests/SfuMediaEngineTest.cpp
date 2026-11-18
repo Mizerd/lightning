@@ -6613,6 +6613,79 @@ true,2147483,
         QVERIFY(!errored);
     }
 
+    void theEchoProbeOfAPlaybackThatLeftIsReleased()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !calls::noise::webrtcDspAvailable()
+            || !SfuMediaEngine::echoProbeElementAvailable())
+            QSKIP("webrtcdsp / webrtcechoprobe not available");
+        const QString chain = QStringLiteral(
+            "audiotestsrc is-live=true ! audioconvert "
+            "! audio/x-raw,format=S16LE,rate=48000,channels=1 "
+            "! webrtcdsp name=%1 echo-cancel=false noise-suppression=true "
+            "gain-control=false ! audioconvert ! fakesink sync=false ")
+            .arg(QLatin1String(calls::noise::kDspName));
+        GstElement *pipeline = gst_parse_launch(chain.toUtf8().constData(), nullptr);
+        QVERIFY(pipeline);
+        const auto playback = [] {
+            return gst_parse_bin_from_description(
+                ("audiotestsrc is-live=true ! audioconvert "
+                 + SfuMediaEngine::echoProbeStage(true, true)
+                 + QStringLiteral("! fakesink sync=false"))
+                    .toUtf8().constData(),
+                FALSE, nullptr);
+        };
+        const auto dspEcho = [&] {
+            GstElement *dsp = gst_bin_get_by_name(GST_BIN(pipeline),
+                                                  calls::noise::kDspName);
+            gboolean on = FALSE;
+            if (dsp) {
+                g_object_get(dsp, "echo-cancel", &on, nullptr);
+                gst_object_unref(dsp);
+            }
+            return on == TRUE;
+        };
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        QVERIFY(gst_element_get_state(pipeline, nullptr, nullptr, 3 * GST_SECOND)
+                != GST_STATE_CHANGE_FAILURE);
+        GstElement *left = playback();
+        QVERIFY(left);
+        gst_bin_add(GST_BIN(pipeline), left);
+        gst_element_sync_state_with_parent(left);
+        QCOMPARE(calls::noise::engageEchoCancel(pipeline),
+                 QStringLiteral("echo engaged"));
+        QTRY_VERIFY(dspEcho());
+
+        GstElement *leftProbe = gst_bin_get_by_name(
+            GST_BIN(left), SfuMediaEngine::kEchoProbeName);
+        QVERIFY(leftProbe);
+        bool finalized = false;
+        g_object_weak_ref(G_OBJECT(leftProbe),
+                          [](gpointer data, GObject *) {
+                              *static_cast<bool *>(data) = true;
+                          },
+                          &finalized);
+        gst_object_unref(leftProbe);
+        GstElement *stays = playback();
+        gst_bin_add(GST_BIN(pipeline), stays);
+        gst_element_sync_state_with_parent(stays);
+        gst_object_ref(left);
+        gst_bin_remove(GST_BIN(pipeline), left);
+        gst_element_set_state(left, GST_STATE_NULL);
+        gst_object_unref(left);
+        QTest::qWait(100);
+        QVERIFY2(!finalized, "the dsp no longer holds the probe it took, so "
+                             "this case proves nothing");
+
+        QCOMPARE(calls::noise::retakeEchoProbe(pipeline),
+                 QStringLiteral("echo probe retaken"));
+        QTRY_VERIFY2(finalized, "the dsp still cancels against the probe of a "
+                                "playback that left");
+        QTRY_VERIFY(dspEcho());
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+    }
+
     void echoEngageTheProbeRefusesLeavesTheMicrophoneRunning_data()
     {
         QTest::addColumn<bool>("heldByAnotherDsp");

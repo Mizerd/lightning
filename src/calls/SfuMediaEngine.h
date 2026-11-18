@@ -656,6 +656,8 @@ public:
     /// exists. webrtcdsp cancels against ONE probe, so only the first
     /// participant it finds is cancelled.
     void engageEchoCancellation();
+    /// GUI thread: a receive bin carrying a probe is gone, and the dsp may hold it.
+    void retakeEchoProbe(quint64 generation);
     void handleMicDspError(const QString &cid, const QString &reason);
     void handleMicDspErrorForTest(const QString &cid, const QString &reason)
     { handleMicDspError(cid, reason); }

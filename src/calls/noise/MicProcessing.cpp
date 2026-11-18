@@ -422,6 +422,37 @@ true,true,
     return did;
 }
 
+QString retakeEchoProbe(GstElement *root, EchoRefused refused)
+{
+    if (!root || !GST_IS_BIN(root))
+        return QStringLiteral("no chain");
+    GstElement *dsp = gst_bin_get_by_name(GST_BIN(root), kDspName);
+    if (!dsp)
+        return QStringLiteral("no dsp");
+    gboolean on = FALSE;
+    g_object_get(dsp, "echo-cancel", &on, nullptr);
+    if (!on) {
+        gst_object_unref(dsp);
+        return QStringLiteral("echo off, nothing to retake");
+    }
+    // The drop stops the old dsp first, which releases (and so finalizes) a
+    // probe whose bin is gone; only then can the engage pick a live one.
+    const bool dropped = scheduleDspSwap(dsp, dspSuppresses(dsp), true, false);
+    gst_object_unref(dsp);
+    if (!dropped)
+        return QStringLiteral("dsp unlinked, left alone");
+    // An idle pad runs the drop at once, so the engage must hang off whichever
+    // dsp is current now.
+    dsp = gst_bin_get_by_name(GST_BIN(root), kDspName);
+    const bool engaged = dsp
+        && scheduleDspSwap(dsp, dspSuppresses(dsp), true, true, true,
+                           std::move(refused));
+    if (dsp)
+        gst_object_unref(dsp);
+    return engaged ? QStringLiteral("echo probe retaken")
+                   : QStringLiteral("echo dropped, engage not scheduled");
+}
+
 QString dropEchoCancel(GstElement *root)
 {
     if (!root || !GST_IS_BIN(root))
