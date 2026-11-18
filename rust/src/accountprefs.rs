@@ -139,7 +139,7 @@ pub(crate) fn read(bridge: &RustClient, event_type: String) -> Result<(), String
         let fetched = if reads_from_server(event_type) {
             match tokio::time::timeout(
                 REQUEST_TIMEOUT,
-                crate::optprobe::read_global(&client, event_type, None),
+                crate::optprobe::read_global(&client, event_type, None, false),
             )
             .await
             {

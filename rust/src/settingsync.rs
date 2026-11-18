@@ -101,8 +101,8 @@ pub(crate) fn read(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let blob = crate::optprobe::read_global(&client, BLOB_TYPE, Some(bounded())).await;
-        let switch = crate::optprobe::read_global(&client, SWITCH_TYPE, Some(bounded()))
+        let blob = crate::optprobe::read_global(&client, BLOB_TYPE, Some(bounded()), false).await;
+        let switch = crate::optprobe::read_global(&client, SWITCH_TYPE, Some(bounded()), false)
             .await
             .map(|raw| raw.map(|raw| switch_on(&raw)).unwrap_or(false));
         if !timelines.lifecycle_current(lifecycle) {

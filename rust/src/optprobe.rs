@@ -84,6 +84,7 @@ pub(crate) async fn read_optional<S, Q, QF>(
     event_type: &str,
     settled: bool,
     fresh: bool,
+    trust_store: bool,
     store: S,
     ask: Q,
 ) -> Result<Option<Value>, String>
@@ -92,17 +93,18 @@ where
     Q: FnOnce() -> QF,
     QF: Future<Output = Result<Option<Value>, String>>,
 {
-    if !fresh {
-        if let Some(value) = store.await {
+    let stored = if fresh { None } else { store.await };
+    if trust_store {
+        if let Some(value) = stored {
             absent.forget(account, event_type);
             return Ok(Some(value));
         }
-        if settled || absent.is_absent(account, event_type, Instant::now()) {
-            return Ok(None);
-        }
+    }
+    if !fresh && stored.is_none() && (settled || absent.is_absent(account, event_type, Instant::now())) {
+        return Ok(None);
     }
     pace().await;
-    if !fresh && absent.is_absent(account, event_type, Instant::now()) {
+    if !fresh && stored.is_none() && absent.is_absent(account, event_type, Instant::now()) {
         return Ok(None);
     }
     let answer = ask().await?;
@@ -115,11 +117,14 @@ where
 }
 
 /// Own global account data, `Ok(None)` when it does not exist. `config`
-/// `None` keeps the SDK's default request settings.
+/// `None` keeps the SDK's default request settings. `trust_store` false keeps
+/// a server read authoritative where the store may lag: the store then only
+/// proves absence, never answers.
 pub(crate) async fn read_global(
     client: &Client,
     event_type: &str,
     config: Option<RequestConfig>,
+    trust_store: bool,
 ) -> Result<Option<Value>, String> {
     let account = account_key(client);
     let fresh = with(&FRESH, |f| f.contains(&(account.clone(), event_type.to_owned())));
@@ -130,6 +135,7 @@ pub(crate) async fn read_global(
         event_type,
         is_settled(client),
         fresh,
+        trust_store,
         async {
             let raw = client.account().account_data_raw(ty.clone()).await.ok().flatten()?;
             serde_json::from_str::<Value>(raw.json().get()).ok()
@@ -194,7 +200,7 @@ mod tests {
         server: Option<Value>,
         asked: &AtomicUsize,
     ) -> Option<Value> {
-        read_optional(absent, "@a:b", "t", settled, fresh, async { stored }, || async {
+        read_optional(absent, "@a:b", "t", settled, fresh, true, async { stored }, || async {
             asked.fetch_add(1, Ordering::SeqCst);
             Ok(server)
         })
@@ -243,6 +249,29 @@ mod tests {
         let got = read(&absent, true, true, Some(serde_json::json!({"old": 1})), Some(v.clone()), &asked).await;
         assert_eq!(got, Some(v));
         assert_eq!(asked.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_store_that_may_lag_never_answers_but_does_prove_absence() {
+        let absent = AbsentAnswers::new();
+        let asked = AtomicUsize::new(0);
+        let stored = Some(serde_json::json!({"old": 1}));
+        let got = read_optional(&absent, "@a:b", "t", true, false, false, async { stored }, || async {
+            asked.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, None, "the server's 404 wins over the lagging copy");
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        let got = read_optional(&absent, "@a:b", "u", true, false, false, async { None }, || async {
+            asked.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(serde_json::json!({})))
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, None);
+        assert_eq!(asked.load(Ordering::SeqCst), 1, "settled and not in the store: no request");
     }
 
     #[tokio::test]

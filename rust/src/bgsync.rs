@@ -319,7 +319,7 @@ const ROOM_AD_KEY: &str = "ad:org.lightning_matrix.room.background";
 async fn read_scope(client: &Client, scope: &str) -> Result<Option<Entry>, String> {
     let raw = if scope.is_empty() || scope == SETTINGS_TYPE {
         let ty = if scope == SETTINGS_TYPE { SETTINGS_TYPE } else { GLOBAL_TYPE };
-        crate::optprobe::read_global(client, ty, Some(bounded())).await?
+        crate::optprobe::read_global(client, ty, Some(bounded()), false).await?
     } else if crate::optprobe::state_known_absent(client, scope, ROOM_AD_KEY) {
         None
     } else {
@@ -334,7 +334,7 @@ async fn read_scope(client: &Client, scope: &str) -> Result<Option<Entry>, Strin
 }
 
 async fn read_switch_cached(client: &Client) -> Result<bool, String> {
-    Ok(crate::optprobe::read_global(client, SETTINGS_TYPE, Some(bounded()))
+    Ok(crate::optprobe::read_global(client, SETTINGS_TYPE, Some(bounded()), false)
         .await?
         .map(|raw| switch_on(&raw))
         .unwrap_or(true))
