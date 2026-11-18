@@ -1011,12 +1011,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7286"/>
+        <location filename="../src/app/AppController.cpp" line="+7288"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4854"/>
+        <location line="-4856"/>
         <source>Joined %1</source>
         <translation>Joined %1</translation>
     </message>
@@ -1194,13 +1194,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4228"/>
+        <location line="+4230"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5086"/>
+        <location line="-5088"/>
         <source>Connecting…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1261,29 +1261,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3026"/>
+        <location line="+3028"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3032"/>
+        <location line="-3034"/>
         <source>A room-key import is already in progress.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4024"/>
+        <location line="+4026"/>
         <source>Not signed in.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4022"/>
+        <location line="-4024"/>
         <source>Room-key import failed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2230"/>
+        <location line="+2232"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1298,7 +1298,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4732"/>
+        <location line="-4734"/>
         <location line="+2691"/>
         <source>Lightning</source>
         <translation type="unfinished"></translation>
@@ -1390,14 +1390,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1810"/>
+        <location line="+1812"/>
         <location line="+41"/>
         <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1763"/>
+        <location line="-1765"/>
         <source>Choose a local image file.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1446,7 +1446,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+219"/>
         <location line="+48"/>
         <source>No room is open.</source>
         <translation type="unfinished"></translation>
@@ -19262,7 +19262,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+197"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+202"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation type="unfinished"></translation>
@@ -32194,7 +32194,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1218"/>
+        <location line="+1232"/>
         <source>Jump to the newest reply</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32207,7 +32207,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1580"/>
+        <location line="-1594"/>
         <source>This room has been replaced.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32310,13 +32310,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-90"/>
         <location line="+92"/>
-        <location line="+314"/>
+        <location line="+328"/>
         <location line="+72"/>
         <source>Replies</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-476"/>
+        <location line="-490"/>
         <source>Unread</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32361,7 +32361,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+74"/>
         <source>Loading the original message…</source>
         <translation type="unfinished"></translation>
     </message>
