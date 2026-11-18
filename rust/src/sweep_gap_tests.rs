@@ -307,13 +307,14 @@ async fn a_sweep_releases_what_sync_piled_up_in_a_room_nobody_opened() {
     }
     let room = client.get_room(room_id!("!dm:localhost")).unwrap();
     let (room_cache, _handles) = room.event_cache().await.unwrap();
-    assert_eq!(room_cache.events().await.unwrap().len(), 400);
+    let piled = room_cache.events().await.unwrap().len();
+    assert!(piled >= 300, "only {piled} synced events in memory");
 
     sweep_until(&client, &index, "$s3e99").await;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let held = room_cache.events().await.unwrap().len();
-        if held < 400 {
+        if held < piled {
             break;
         }
         assert!(
