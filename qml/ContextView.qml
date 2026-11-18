@@ -168,6 +168,9 @@ Rectangle {
     property string traceLast: ""
     Connections {
         target: app.eventContext.model
+        function onRowsAboutToBeInserted(parent, first, last) {
+            view.noteAnchor()
+        }
         function onRowsInserted(parent, first, last) {
             if (list.lastSeenRow >= first)
                 list.lastSeenRow += last - first + 1
