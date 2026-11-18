@@ -1311,6 +1311,43 @@ private Q_SLOTS:
         QCOMPARE(fake->archiveCalls, QStringList{loud});
     }
 
+    void anArchivedRoomReturnsForAnUnreadFromWhileTheAppWasClosed()
+    {
+        QSettings().remove(QStringLiteral("archivedUnreadMarks"));
+        auto run = [](const std::function<void(SpaceFakeClient *)> &setup, bool muteAll,
+                      QStringList *calls) {
+            auto *fake = new SpaceFakeClient;
+            RoomListModel model;
+            model.setNotificationModeSource([muteAll](const QString &) {
+                return muteAll ? roomunread::kModeMute : roomunread::kModeAllMessages;
+            });
+            model.setClient(fake);
+            setup(fake);
+            fake->announce();
+            QCoreApplication::processEvents();
+            *calls = fake->archiveCalls;
+            delete fake;
+        };
+        auto archived = [](SpaceFakeClient *f, int unread) {
+            RoomInfo r = joinedRoom(QStringLiteral("!a:example.org"));
+            r.isArchived = true;
+            r.unreadCount = unread;
+            f->roomList << r;
+        };
+        QStringList calls;
+        run([&](SpaceFakeClient *f) { archived(f, 0); }, false, &calls);
+        QVERIFY(calls.isEmpty());
+        run([&](SpaceFakeClient *f) { archived(f, 2); }, true, &calls);
+        QVERIFY2(calls.isEmpty(), "muted stays archived");
+        QSettings().setValue(QStringLiteral("archivedUnreadMarks/") + kAliceId,
+                             QVariantMap{ { QStringLiteral("!a:example.org"), QStringLiteral("0,0") } });
+        run([&](SpaceFakeClient *f) { archived(f, 2); }, false, &calls);
+        QCOMPARE(calls, QStringList{ QStringLiteral("!a:example.org") });
+        QSettings().remove(QStringLiteral("archivedUnreadMarks"));
+        run([&](SpaceFakeClient *f) { archived(f, 2); }, false, &calls);
+        QVERIFY2(calls.isEmpty(), "no persisted mark is a baseline");
+    }
+
 private:
     QTemporaryDir m_configHome;
     QTemporaryDir m_dataHome;

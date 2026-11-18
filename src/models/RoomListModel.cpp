@@ -1,4 +1,5 @@
 #include "models/RoomListModel.h"
+#include <QSettings>
 
 #include "matrix/RoomUnreadRule.h"
 
@@ -103,6 +104,8 @@ void RoomListModel::setClient(MatrixClient *client)
             m_pendingMarkRead.clear();
             m_unreadBaseline.clear();
             m_unarchiveRequested.clear();
+            m_archivedMarks.clear();
+            m_archivedMarksLoaded = false;
         });
         // Only a mark-as-read WE asked for announces itself: the event carries
         // the room alone (not the event it landed on), and the same event also
@@ -118,6 +121,8 @@ void RoomListModel::setClient(MatrixClient *client)
     m_pendingMarkRead.clear();
     m_unreadBaseline.clear();
     m_unarchiveRequested.clear();
+    m_archivedMarks.clear();
+    m_archivedMarksLoaded = false;
     Q_EMIT roomFavouritesSupportedChanged();
     refresh();
 }
@@ -1100,6 +1105,22 @@ void RoomListModel::updateUnreadTotals()
     Q_EMIT unreadTotalsChanged();
 }
 
+bool RoomListModel::marksReady() const
+{
+    return m_client && m_client->initialSyncDone()
+           && m_client->connectionState() == MatrixClient::Syncing;
+}
+
+void RoomListModel::storeArchivedMark(const QString &roomId, int unread, int highlight)
+{
+    const QString value = QStringLiteral("%1,%2").arg(unread).arg(highlight);
+    if (m_archivedMarks.value(roomId).toString() == value)
+        return;
+    m_archivedMarks.insert(roomId, value);
+    QSettings().setValue(QStringLiteral("archivedUnreadMarks/") + m_client->currentUserId(),
+                         m_archivedMarks);
+}
+
 void RoomListModel::unarchiveOnNewUnread(const RoomInfo &room, bool counts)
 {
     const auto prev = m_unreadBaseline.value(room.id, UnreadBaseline{});
@@ -1107,16 +1128,35 @@ void RoomListModel::unarchiveOnNewUnread(const RoomInfo &room, bool counts)
     m_unreadBaseline.insert(room.id, { counts, room.unreadCount, room.highlightCount });
     if (!room.isArchived) {
         m_unarchiveRequested.remove(room.id);
+        if (marksReady() && m_archivedMarksLoaded && m_archivedMarks.contains(room.id)) {
+            m_archivedMarks.remove(room.id);
+            QSettings().setValue(QStringLiteral("archivedUnreadMarks/")
+                                     + m_client->currentUserId(), m_archivedMarks);
+        }
         return;
     }
-    // A room first seen already unread (initial sync, or archived while unread)
-    // is a baseline, not news.
-    if (!known || !counts || !m_client || !m_client->initialSyncDone()
-        || m_client->connectionState() != MatrixClient::Syncing
-        || m_unarchiveRequested.contains(room.id))
+    if (!marksReady())
         return;
-    const bool fresh = room.unreadCount > prev.unread || room.highlightCount > prev.highlight
-                       || (!prev.counts && !room.markedUnread);
+    if (!m_archivedMarksLoaded) {
+        m_archivedMarks = QSettings().value(QStringLiteral("archivedUnreadMarks/")
+                                                + m_client->currentUserId()).toMap();
+        m_archivedMarksLoaded = true;
+    }
+    // The mark survives restarts, so a message that arrived while the app was
+    // closed shows as a rise over it. A room with no mark (archived on another
+    // device) is a baseline: its unreads cannot be told from older ones.
+    const QString mark = m_archivedMarks.value(room.id).toString();
+    UnreadBaseline from = prev;
+    bool haveFrom = known;
+    if (!mark.isEmpty()) {
+        const QStringList parts = mark.split(QLatin1Char(','));
+        from = { false, parts.value(0).toInt(), parts.value(1).toInt() };
+        haveFrom = true;
+    }
+    const bool fresh = haveFrom && counts && !m_unarchiveRequested.contains(room.id)
+                       && (room.unreadCount > from.unread || room.highlightCount > from.highlight
+                           || (known && !prev.counts && !room.markedUnread));
+    storeArchivedMark(room.id, room.unreadCount, room.highlightCount);
     if (!fresh)
         return;
     m_unarchiveRequested.insert(room.id);

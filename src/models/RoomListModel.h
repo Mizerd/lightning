@@ -195,6 +195,10 @@ private:
     struct UnreadBaseline { bool counts = false; int unread = 0; int highlight = 0; };
     QHash<QString, UnreadBaseline> m_unreadBaseline;
     QSet<QString> m_unarchiveRequested;
+    bool marksReady() const;
+    void storeArchivedMark(const QString &roomId, int unread, int highlight);
+    QVariantMap m_archivedMarks;
+    bool m_archivedMarksLoaded = false;
     int notificationModeOf(const QString &roomId) const;
     int shownUnread(const RoomInfo &room) const;
     std::function<int(const QString &)> m_modeOf;
