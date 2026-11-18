@@ -335,7 +335,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>账号</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+145"/>
         <source>Encryption ready. Open Security and Recovery.</source>
         <translation>加密已就绪。请打开“安全与恢复”。</translation>
     </message>
@@ -1003,7 +1003,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7291"/>
+        <location filename="../src/app/AppController.cpp" line="+7286"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -1123,7 +1123,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>来电</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5653"/>
+        <location filename="../src/app/AppController.cpp" line="-5648"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>因账号已变更，退出登录已取消。未重置任何内容。</translation>
     </message>
@@ -1175,13 +1175,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4233"/>
+        <location line="+4228"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location line="-5091"/>
+        <location line="-5086"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
@@ -1226,7 +1226,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1 想要验证一个会话。打开 Lightning 进行处理。</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+257"/>
+        <location filename="../src/app/AppController.cpp" line="+252"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>导入的房间密钥已应用到当前打开的时间线。</translation>
     </message>
@@ -1279,13 +1279,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>请使用真实日期，格式为 YYYY-MM-DD，且“从”不能晚于“到”。</translation>
     </message>
     <message>
-        <location line="-4737"/>
-        <location line="+2696"/>
+        <location line="-4732"/>
+        <location line="+2691"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2690"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>这是一条测试通知。如果你能看到它，说明桌面通知可以正常工作。</translation>
     </message>
@@ -1310,7 +1310,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+857"/>
+        <location line="+852"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>该通知属于另一个账号，因此未发送。请切换回该账号后重试。</translation>
     </message>
@@ -2506,7 +2506,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallController</name>
     <message>
-        <location filename="../src/calls/CallController.cpp" line="+1360"/>
+        <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
         <translation type="unfinished">由于连接丢失，通话结束。</translation>
     </message>
@@ -12995,13 +12995,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+906"/>
+        <location line="+917"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-2001"/>
+        <location line="-2012"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
@@ -13090,12 +13090,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 • 正在发送…</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+13"/>
         <source>%1 • failed</source>
         <translation>%1 • 发送失败</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+29"/>
         <source>edited — show edit history</source>
         <translation>已编辑 — 查看编辑历史</translation>
     </message>
@@ -13247,12 +13247,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>在消息列中回复</translation>
     </message>
     <message>
-        <location line="-2013"/>
+        <location line="-2024"/>
         <source>Original message removed</source>
         <translation>原始消息已删除</translation>
     </message>
     <message>
-        <location line="+2023"/>
+        <location line="+606"/>
+        <source>%1 • not sent: you&apos;re no longer in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
+        <translation type="unfinished">你已不在此房间中。它可能已在服务器上被删除。请使用“离开房间”将其从列表中移除。</translation>
+    </message>
+    <message>
+        <location line="+1412"/>
         <source>Open in room</source>
         <translation>在房间中打开</translation>
     </message>
@@ -13450,7 +13460,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-3623"/>
+        <location line="-3634"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13484,22 +13494,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3591"/>
+        <location line="+3602"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5076"/>
+        <location line="-5087"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4140"/>
+        <location line="+4151"/>
         <source>Image</source>
         <translation>图片</translation>
     </message>
     <message>
-        <location line="-4699"/>
+        <location line="-4710"/>
         <source>Attachment</source>
         <translation>附件</translation>
     </message>
@@ -13558,12 +13568,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 • 未发送：服务器拒绝了该消息</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
         <source>(edited)</source>
         <translation>（已编辑）</translation>
     </message>
     <message>
-        <location line="+1571"/>
+        <location line="+1579"/>
         <source>Add :%1: to my emoji</source>
         <translation>将 :%1: 添加到我的表情</translation>
     </message>
@@ -13700,12 +13710,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>回复对象</translation>
     </message>
     <message>
-        <location line="-1915"/>
+        <location line="-1926"/>
         <source>Show preview</source>
         <translation>显示预览</translation>
     </message>
     <message>
-        <location line="+1773"/>
+        <location line="+1784"/>
         <source>Remove edits?</source>
         <translation>移除编辑？</translation>
     </message>
@@ -13827,10 +13837,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-5487"/>
+        <location line="-5498"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4138"/>
+        <location line="+4149"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13843,9 +13853,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-5868"/>
+        <location line="-5879"/>
         <location line="+564"/>
-        <location line="+4241"/>
+        <location line="+4252"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -19908,8 +19918,8 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4579"/>
-        <location line="+92"/>
+        <location line="+4563"/>
+        <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
         <location line="+32"/>
@@ -19917,15 +19927,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>未登录。</translation>
     </message>
     <message>
-        <location line="-4958"/>
+        <location line="-4919"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4765"/>
+        <location line="+4726"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
     </message>
     <message>
-        <location line="-4960"/>
+        <location line="-4921"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20071,17 +20081,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法打开房间时间线。</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <source>Reload timeline failed: %1</source>
-        <translation>重新加载时间线失败：%1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Matrix Rust SDK error.</source>
-        <translation>Matrix Rust SDK 错误。</translation>
-    </message>
-    <message>
-        <location line="+54"/>
+        <location line="+103"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -20123,12 +20123,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法开始恢复：此会话未登录。</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Reload timeline: not signed in.</source>
-        <translation>重新加载时间线：未登录。</translation>
-    </message>
-    <message>
-        <location line="+134"/>
+        <location line="+119"/>
         <source>No file selected.</source>
         <translation>未选择文件。</translation>
     </message>

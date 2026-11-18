@@ -348,7 +348,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>الحسابات</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+145"/>
         <source>Encryption ready. Open Security and Recovery.</source>
         <translation>التعمية جاهزة. افتح الأمان والاستعادة.</translation>
     </message>
@@ -1051,7 +1051,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7291"/>
+        <location filename="../src/app/AppController.cpp" line="+7286"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -1176,7 +1176,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5653"/>
+        <location filename="../src/app/AppController.cpp" line="-5648"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>أُلغي تسجيل الخروج لأن الحساب تغيّر. لم يُعَد ضبط أي شيء.</translation>
     </message>
@@ -1228,13 +1228,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4233"/>
+        <location line="+4228"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-5091"/>
+        <location line="-5086"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1279,7 +1279,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>يريد %1 التحقّق من جلسة. افتح Lightning لمراجعته.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+257"/>
+        <location filename="../src/app/AppController.cpp" line="+252"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>طُبّقت مفاتيح الغرفة المستوردة على المحادثة المفتوحة.</translation>
     </message>
@@ -1332,13 +1332,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>استخدم تواريخ حقيقية بصيغة YYYY-MM-DD، على ألا يكون «من» بعد «إلى».</translation>
     </message>
     <message>
-        <location line="-4737"/>
-        <location line="+2696"/>
+        <location line="-4732"/>
+        <location line="+2691"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2690"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>هذا إشعار تجريبي. إن استطعت قراءته فإشعارات سطح المكتب تعمل.</translation>
     </message>
@@ -1363,7 +1363,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+857"/>
+        <location line="+852"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>كان ذلك الإشعار لحساب آخر، فلم يُرسَل شيء. عُد إلى ذلك الحساب وحاول مجددًا.</translation>
     </message>
@@ -2609,7 +2609,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallController</name>
     <message>
-        <location filename="../src/calls/CallController.cpp" line="+1360"/>
+        <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
         <translation type="unfinished">انتهت المكالمة بسبب فقدان الاتصال.</translation>
     </message>
@@ -13221,13 +13221,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+906"/>
+        <location line="+917"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>رد</translation>
     </message>
     <message>
-        <location line="-2001"/>
+        <location line="-2012"/>
         <source>(original message not loaded)</source>
         <translation>(الرسالة الأصلية غير محمّلة)</translation>
     </message>
@@ -13321,12 +13321,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 • جارٍ الإرسال…</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+13"/>
         <source>%1 • failed</source>
         <translation>%1 • فشل</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+29"/>
         <source>edited — show edit history</source>
         <translation>عُدّلت — إظهار سجلّ التعديلات</translation>
     </message>
@@ -13478,12 +13478,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>الرد في خيط</translation>
     </message>
     <message>
-        <location line="-2013"/>
+        <location line="-2024"/>
         <source>Original message removed</source>
         <translation>تمت إزالة الرسالة الأصلية</translation>
     </message>
     <message>
-        <location line="+2023"/>
+        <location line="+606"/>
+        <source>%1 • not sent: you&apos;re no longer in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
+        <translation type="unfinished">لم تعد في هذه الغرفة. ربما حُذفت على الخادم. استخدم «مغادرة الغرفة» لإزالتها من قائمتك.</translation>
+    </message>
+    <message>
+        <location line="+1412"/>
         <source>Open in room</source>
         <translation>فتح في الغرفة</translation>
     </message>
@@ -13681,7 +13691,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تحرير</translation>
     </message>
     <message>
-        <location line="-3623"/>
+        <location line="-3634"/>
         <source>%1 B</source>
         <translation>%1 ب</translation>
     </message>
@@ -13715,22 +13725,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3591"/>
+        <location line="+3602"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5076"/>
+        <location line="-5087"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4140"/>
+        <location line="+4151"/>
         <source>Image</source>
         <translation>صورة</translation>
     </message>
     <message>
-        <location line="-4699"/>
+        <location line="-4710"/>
         <source>Attachment</source>
         <translation>مرفق</translation>
     </message>
@@ -13799,12 +13809,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 • لم تُرسل: رفضها الخادوم</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
         <source>(edited)</source>
         <translation>(معدّلة)</translation>
     </message>
     <message>
-        <location line="+1571"/>
+        <location line="+1579"/>
         <source>Add :%1: to my emoji</source>
         <translation>إضافة :%1: إلى رموزي التعبيرية</translation>
     </message>
@@ -13946,12 +13956,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>هدف الرد</translation>
     </message>
     <message>
-        <location line="-1915"/>
+        <location line="-1926"/>
         <source>Show preview</source>
         <translation>إظهار المعاينة</translation>
     </message>
     <message>
-        <location line="+1773"/>
+        <location line="+1784"/>
         <source>Remove edits?</source>
         <translation>إزالة التعديلات؟</translation>
     </message>
@@ -14073,10 +14083,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل تحميل الملصق — انقر لإعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-5487"/>
+        <location line="-5498"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4138"/>
+        <location line="+4149"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -14089,9 +14099,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>فيديو</translation>
     </message>
     <message>
-        <location line="-5868"/>
+        <location line="-5879"/>
         <location line="+564"/>
-        <location line="+4241"/>
+        <location line="+4252"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -20284,8 +20294,8 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4579"/>
-        <location line="+92"/>
+        <location line="+4563"/>
+        <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
         <location line="+32"/>
@@ -20293,15 +20303,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-4958"/>
+        <location line="-4919"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4765"/>
+        <location line="+4726"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-4960"/>
+        <location line="-4921"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20447,17 +20457,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تعذّر فتح محادثة الغرفة.</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <source>Reload timeline failed: %1</source>
-        <translation>فشلت إعادة تحميل المحادثة: %1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Matrix Rust SDK error.</source>
-        <translation>خطأ في Matrix Rust SDK.</translation>
-    </message>
-    <message>
-        <location line="+54"/>
+        <location line="+103"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
@@ -20499,12 +20499,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تعذّر بدء الاستعادة: هذه الجلسة غير مسجّلة الدخول.</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Reload timeline: not signed in.</source>
-        <translation>إعادة تحميل المحادثة: لم تسجّل الدخول.</translation>
-    </message>
-    <message>
-        <location line="+134"/>
+        <location line="+119"/>
         <source>No file selected.</source>
         <translation>لم يُحدد ملف.</translation>
     </message>

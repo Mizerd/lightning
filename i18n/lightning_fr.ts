@@ -338,7 +338,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Comptes</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+145"/>
         <source>Encryption ready. Open Security and Recovery.</source>
         <translation>Chiffrement prêt. Ouvrez Sécurité et récupération.</translation>
     </message>
@@ -1013,7 +1013,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7291"/>
+        <location filename="../src/app/AppController.cpp" line="+7286"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1134,7 +1134,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5653"/>
+        <location filename="../src/app/AppController.cpp" line="-5648"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1186,13 +1186,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4233"/>
+        <location line="+4228"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation>Non connecté</translation>
     </message>
     <message>
-        <location line="-5091"/>
+        <location line="-5086"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
     </message>
@@ -1237,7 +1237,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>%1 souhaite vérifier une session. Ouvrez Lightning pour l&apos;examiner.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+257"/>
+        <location filename="../src/app/AppController.cpp" line="+252"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Clés de salon importées appliquées à la conversation ouverte.</translation>
     </message>
@@ -1290,13 +1290,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-4737"/>
-        <location line="+2696"/>
+        <location line="-4732"/>
+        <location line="+2691"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2690"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ceci est une notification de test. Si vous pouvez la lire, les notifications du bureau fonctionnent.</translation>
     </message>
@@ -1321,7 +1321,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+857"/>
+        <location line="+852"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Cette notification concernait un autre compte, elle n&apos;a donc pas été envoyée. Revenez sur ce compte et réessayez.</translation>
     </message>
@@ -2527,7 +2527,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>CallController</name>
     <message>
-        <location filename="../src/calls/CallController.cpp" line="+1360"/>
+        <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
         <translation type="unfinished">L&apos;appel a pris fin car la connexion a été perdue.</translation>
     </message>
@@ -13042,13 +13042,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+91"/>
-        <location line="+906"/>
+        <location line="+917"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>Répondre</translation>
     </message>
     <message>
-        <location line="-2001"/>
+        <location line="-2012"/>
         <source>(original message not loaded)</source>
         <translation>(message d&apos;origine non chargé)</translation>
     </message>
@@ -13138,12 +13138,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>%1 • envoi…</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+13"/>
         <source>%1 • failed</source>
         <translation>%1 • échec</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+29"/>
         <source>edited — show edit history</source>
         <translation>modifié — afficher l&apos;historique des modifications</translation>
     </message>
@@ -13295,12 +13295,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Répondre dans un fil</translation>
     </message>
     <message>
-        <location line="-2013"/>
+        <location line="-2024"/>
         <source>Original message removed</source>
         <translation>Message d&apos;origine supprimé</translation>
     </message>
     <message>
-        <location line="+2023"/>
+        <location line="+606"/>
+        <source>%1 • not sent: you&apos;re no longer in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
+        <translation type="unfinished">Vous ne faites plus partie de ce salon. Il a peut-être été supprimé sur le serveur. Utilisez « Quitter le salon » pour le retirer de votre liste.</translation>
+    </message>
+    <message>
+        <location line="+1412"/>
         <source>Open in room</source>
         <translation>Ouvrir dans le salon</translation>
     </message>
@@ -13498,7 +13508,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-3623"/>
+        <location line="-3634"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -13532,22 +13542,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3591"/>
+        <location line="+3602"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5076"/>
+        <location line="-5087"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4140"/>
+        <location line="+4151"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-4699"/>
+        <location line="-4710"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
@@ -13608,12 +13618,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>%1 • non envoyé : le serveur l&apos;a refusé</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
         <source>(edited)</source>
         <translation>(modifié)</translation>
     </message>
     <message>
-        <location line="+1571"/>
+        <location line="+1579"/>
         <source>Add :%1: to my emoji</source>
         <translation>Ajouter :%1: à mes emoji</translation>
     </message>
@@ -13751,12 +13761,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cible de la réponse</translation>
     </message>
     <message>
-        <location line="-1915"/>
+        <location line="-1926"/>
         <source>Show preview</source>
         <translation>Afficher l&apos;aperçu</translation>
     </message>
     <message>
-        <location line="+1773"/>
+        <location line="+1784"/>
         <source>Remove edits?</source>
         <translation>Supprimer les modifications ?</translation>
     </message>
@@ -13878,10 +13888,10 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-5487"/>
+        <location line="-5498"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4138"/>
+        <location line="+4149"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13894,9 +13904,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-5868"/>
+        <location line="-5879"/>
         <location line="+564"/>
-        <location line="+4241"/>
+        <location line="+4252"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -19985,8 +19995,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4579"/>
-        <location line="+92"/>
+        <location line="+4563"/>
+        <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
         <location line="+32"/>
@@ -19994,15 +20004,15 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4958"/>
+        <location line="-4919"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4765"/>
+        <location line="+4726"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
     </message>
     <message>
-        <location line="-4960"/>
+        <location line="-4921"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20148,17 +20158,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>La conversation du salon n&apos;a pas pu être ouverte.</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <source>Reload timeline failed: %1</source>
-        <translation>Échec du rechargement de la conversation : %1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Matrix Rust SDK error.</source>
-        <translation>Erreur du Matrix Rust SDK.</translation>
-    </message>
-    <message>
-        <location line="+54"/>
+        <location line="+103"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
@@ -20200,12 +20200,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>La récupération n&apos;a pas pu démarrer : cette session n&apos;est pas connectée.</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Reload timeline: not signed in.</source>
-        <translation>Rechargement de la conversation : non connecté.</translation>
-    </message>
-    <message>
-        <location line="+134"/>
+        <location line="+119"/>
         <source>No file selected.</source>
         <translation>Aucun fichier sélectionné.</translation>
     </message>

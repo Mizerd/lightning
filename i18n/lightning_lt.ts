@@ -341,7 +341,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Paskyros</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+145"/>
         <source>Encryption ready. Open Security and Recovery.</source>
         <translation>Šifravimas paruoštas. Atidarykite Saugumas ir atkūrimas.</translation>
     </message>
@@ -1023,7 +1023,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7291"/>
+        <location filename="../src/app/AppController.cpp" line="+7286"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1145,7 +1145,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Įeinantis skambutis</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5653"/>
+        <location filename="../src/app/AppController.cpp" line="-5648"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Atsijungimas atšauktas, nes paskyra pasikeitė. Nieko iš naujo nenustatyta.</translation>
     </message>
@@ -1197,13 +1197,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4233"/>
+        <location line="+4228"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-5091"/>
+        <location line="-5086"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -1248,7 +1248,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>%1 nori patvirtinti seansą. Atidarykite „Lightning“, kad peržiūrėtumėte.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+257"/>
+        <location filename="../src/app/AppController.cpp" line="+252"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Importuoti kambario raktai pritaikyti atvirai laiko juostai.</translation>
     </message>
@@ -1301,13 +1301,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Naudokite tikras datas formatu YYYY-MM-DD, kai „Nuo“ nėra vėlesnė už „Iki“.</translation>
     </message>
     <message>
-        <location line="-4737"/>
-        <location line="+2696"/>
+        <location line="-4732"/>
+        <location line="+2691"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2690"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Tai bandomasis pranešimas. Jei jį matote, darbalaukio pranešimai veikia.</translation>
     </message>
@@ -1332,7 +1332,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+857"/>
+        <location line="+852"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Tas pranešimas buvo skirtas kitai paskyrai, todėl nieko neišsiųsta. Grįžkite į tą paskyrą ir bandykite dar kartą.</translation>
     </message>
@@ -2548,7 +2548,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>CallController</name>
     <message>
-        <location filename="../src/calls/CallController.cpp" line="+1360"/>
+        <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
         <translation type="unfinished">Skambutis nutrūko, nes nutrūko ryšys.</translation>
     </message>
@@ -13089,13 +13089,13 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+906"/>
+        <location line="+917"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-2001"/>
+        <location line="-2012"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
@@ -13186,12 +13186,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>%1 • siunčiama…</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+13"/>
         <source>%1 • failed</source>
         <translation>%1 • nepavyko</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+29"/>
         <source>edited — show edit history</source>
         <translation>redaguota – rodyti redagavimo istoriją</translation>
     </message>
@@ -13425,7 +13425,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="-3623"/>
+        <location line="-3634"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13459,22 +13459,22 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3591"/>
+        <location line="+3602"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5076"/>
+        <location line="-5087"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4140"/>
+        <location line="+4151"/>
         <source>Image</source>
         <translation>Paveikslėlis</translation>
     </message>
     <message>
-        <location line="-4699"/>
+        <location line="-4710"/>
         <source>Attachment</source>
         <translation>Priedas</translation>
     </message>
@@ -13537,12 +13537,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>%1 • neišsiųsta: serveris ją atmetė</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
         <source>(edited)</source>
         <translation>(redaguota)</translation>
     </message>
     <message>
-        <location line="+722"/>
+        <location line="+730"/>
         <source>Sent</source>
         <translation>Išsiųsta</translation>
     </message>
@@ -13619,7 +13619,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Ištrinti</translation>
     </message>
     <message>
-        <location line="-2547"/>
+        <location line="-2558"/>
         <source>Open this thread</source>
         <translation>Atverti šią giją</translation>
     </message>
@@ -13629,7 +13629,17 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Pradinis pranešimas pašalintas</translation>
     </message>
     <message>
-        <location line="+1722"/>
+        <location line="+606"/>
+        <source>%1 • not sent: you&apos;re no longer in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
+        <translation type="unfinished">Nebepriklausote šiam kambariui. Jis galėjo būti ištrintas serveryje. Naudokite „Palikite kambarį“, kad pašalintumėte jį iš savo sąrašo.</translation>
+    </message>
+    <message>
+        <location line="+1111"/>
         <source>Delete message?</source>
         <translation>Ištrinti žinutę?</translation>
     </message>
@@ -13924,10 +13934,10 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Bandyti dar kartą</translation>
     </message>
     <message>
-        <location line="-6183"/>
+        <location line="-6194"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4138"/>
+        <location line="+4149"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13940,9 +13950,9 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>vaizdo įrašą</translation>
     </message>
     <message>
-        <location line="-5868"/>
+        <location line="-5879"/>
         <location line="+564"/>
-        <location line="+4241"/>
+        <location line="+4252"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -20062,8 +20072,8 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4579"/>
-        <location line="+92"/>
+        <location line="+4563"/>
+        <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
         <location line="+32"/>
@@ -20071,15 +20081,15 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-4958"/>
+        <location line="-4919"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4765"/>
+        <location line="+4726"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-4960"/>
+        <location line="-4921"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20225,17 +20235,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nepavyko atidaryti kambario laiko juostos.</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <source>Reload timeline failed: %1</source>
-        <translation>Nepavyko iš naujo įkelti laiko juostos: %1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Matrix Rust SDK error.</source>
-        <translation>Matrix Rust SDK klaida.</translation>
-    </message>
-    <message>
-        <location line="+54"/>
+        <location line="+103"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
@@ -20277,12 +20277,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Atkūrimo pradėti nepavyko: šis seansas neprisijungęs.</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Reload timeline: not signed in.</source>
-        <translation>Iš naujo įkelti laiko juostą: neprisijungta.</translation>
-    </message>
-    <message>
-        <location line="+134"/>
+        <location line="+119"/>
         <source>No file selected.</source>
         <translation>Nepasirinktas joks failas.</translation>
     </message>

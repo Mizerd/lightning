@@ -338,7 +338,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Konten</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+137"/>
         <source>Encrypted</source>
         <translation>Verschlüsselt</translation>
     </message>
@@ -1014,7 +1014,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6329"/>
+        <location filename="../src/app/AppController.cpp" line="+6324"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+453"/>
@@ -1022,13 +1022,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6777"/>
-        <location line="+2696"/>
+        <location filename="../src/app/AppController.cpp" line="-6772"/>
+        <location line="+2691"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2690"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
@@ -1095,13 +1095,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4233"/>
+        <location line="+4228"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5091"/>
+        <location line="-5086"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1141,7 +1141,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Verifizierungsanfrage</translation>
     </message>
     <message>
-        <location line="+257"/>
+        <location line="+252"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Importierte Raumschlüssel wurden auf den geöffneten Verlauf angewendet.</translation>
     </message>
@@ -2527,7 +2527,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>CallController</name>
     <message>
-        <location filename="../src/calls/CallController.cpp" line="+1360"/>
+        <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
         <translation type="unfinished">Der Anruf wurde beendet, weil die Verbindung verloren ging.</translation>
     </message>
@@ -13018,14 +13018,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-571"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4138"/>
+        <location line="+4149"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-5855"/>
+        <location line="-5866"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -13038,24 +13038,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3591"/>
+        <location line="+3602"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5076"/>
+        <location line="-5087"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4140"/>
+        <location line="+4151"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-4700"/>
+        <location line="-4711"/>
         <location line="+564"/>
-        <location line="+4241"/>
+        <location line="+4252"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -13063,7 +13063,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-6096"/>
+        <location line="-6107"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -13168,13 +13168,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+906"/>
+        <location line="+917"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>Antworten</translation>
     </message>
     <message>
-        <location line="-2003"/>
+        <location line="-2014"/>
         <source>Original message removed</source>
         <translation>Ursprüngliche Nachricht entfernt</translation>
     </message>
@@ -13273,6 +13273,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>%1 • nicht gesendet: der Server hat es abgelehnt</translation>
     </message>
     <message>
+        <location line="+3"/>
+        <source>%1 • not sent: you&apos;re no longer in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+2"/>
         <source>%1 • failed</source>
         <translation>%1 • fehlgeschlagen</translation>
@@ -13283,7 +13288,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>(bearbeitet)</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+12"/>
+        <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
+        <translation type="unfinished">Du bist nicht mehr in diesem Raum. Er wurde möglicherweise auf dem Server gelöscht. Verwende „Raum verlassen“, um ihn aus deiner Liste zu entfernen.</translation>
+    </message>
+    <message>
+        <location line="+15"/>
         <source>edited — show edit history</source>
         <translation>bearbeitet – Bearbeitungsverlauf anzeigen</translation>
     </message>
@@ -13613,12 +13623,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2547"/>
+        <location line="-2558"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
     <message>
-        <location line="+1889"/>
+        <location line="+1900"/>
         <source>Delete message?</source>
         <translation>Nachricht löschen?</translation>
     </message>
@@ -20015,8 +20025,8 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4579"/>
-        <location line="+92"/>
+        <location line="+4563"/>
+        <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
         <location line="+32"/>
@@ -20024,15 +20034,15 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4958"/>
+        <location line="-4919"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4765"/>
+        <location line="+4726"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
     </message>
     <message>
-        <location line="-4960"/>
+        <location line="-4921"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20148,17 +20158,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Der Raumverlauf konnte nicht geöffnet werden.</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <source>Reload timeline failed: %1</source>
-        <translation>Neuladen des Verlaufs fehlgeschlagen: %1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Matrix Rust SDK error.</source>
-        <translation>Matrix-Rust-SDK-Fehler.</translation>
-    </message>
-    <message>
-        <location line="+54"/>
+        <location line="+103"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -20200,12 +20200,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die Wiederherstellung konnte nicht gestartet werden: Diese Sitzung ist nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Reload timeline: not signed in.</source>
-        <translation>Verlauf neu laden: nicht angemeldet.</translation>
-    </message>
-    <message>
-        <location line="+134"/>
+        <location line="+119"/>
         <source>No file selected.</source>
         <translation>Keine Datei ausgewählt.</translation>
     </message>

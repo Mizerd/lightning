@@ -336,7 +336,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>অ্যাকাউন্ট</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+145"/>
         <source>Encryption ready. Open Security and Recovery.</source>
         <translation>এনক্রিপশন প্রস্তুত। নিরাপত্তা ও পুনরুদ্ধার খুলুন।</translation>
     </message>
@@ -1011,7 +1011,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7291"/>
+        <location filename="../src/app/AppController.cpp" line="+7286"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -1132,7 +1132,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আগত কল</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5653"/>
+        <location filename="../src/app/AppController.cpp" line="-5648"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>অ্যাকাউন্ট বদলে যাওয়ায় সাইন আউট বাতিল হয়েছে। কিছুই রিসেট হয়নি।</translation>
     </message>
@@ -1184,13 +1184,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4233"/>
+        <location line="+4228"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-5091"/>
+        <location line="-5086"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -1235,7 +1235,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1 একটি সেশন যাচাই করতে চান। পর্যালোচনার জন্য Lightning খুলুন।</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+257"/>
+        <location filename="../src/app/AppController.cpp" line="+252"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>আমদানি করা রুম কী খোলা টাইমলাইনে প্রয়োগ করা হয়েছে।</translation>
     </message>
@@ -1288,13 +1288,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD ফরম্যাটে প্রকৃত তারিখ দিন; “শুরু” তারিখ “শেষ” তারিখের পরে হতে পারবে না।</translation>
     </message>
     <message>
-        <location line="-4737"/>
-        <location line="+2696"/>
+        <location line="-4732"/>
+        <location line="+2691"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2690"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>এটি একটি পরীক্ষামূলক বিজ্ঞপ্তি। এটি পড়তে পারলে ডেস্কটপ বিজ্ঞপ্তি কাজ করছে।</translation>
     </message>
@@ -1319,7 +1319,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+857"/>
+        <location line="+852"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>ওই বিজ্ঞপ্তিটি অন্য একটি অ্যাকাউন্টের ছিল, তাই কিছু পাঠানো হয়নি। ওই অ্যাকাউন্টে ফিরে গিয়ে আবার চেষ্টা করুন।</translation>
     </message>
@@ -2525,7 +2525,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallController</name>
     <message>
-        <location filename="../src/calls/CallController.cpp" line="+1360"/>
+        <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
         <translation type="unfinished">সংযোগ বিচ্ছিন্ন হওয়ার কারণে কলটি শেষ হয়েছে৷</translation>
     </message>
@@ -13033,13 +13033,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+906"/>
+        <location line="+917"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-2001"/>
+        <location line="-2012"/>
         <source>(original message not loaded)</source>
         <translation>(মূল বার্তা লোড হয়নি)</translation>
     </message>
@@ -13129,12 +13129,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 • পাঠানো হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+13"/>
         <source>%1 • failed</source>
         <translation>%1 • ব্যর্থ</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+29"/>
         <source>edited — show edit history</source>
         <translation>সম্পাদিত — সম্পাদনার ইতিহাস দেখুন</translation>
     </message>
@@ -13286,12 +13286,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>থ্রেডে উত্তর দিন</translation>
     </message>
     <message>
-        <location line="-2013"/>
+        <location line="-2024"/>
         <source>Original message removed</source>
         <translation>মূল বার্তা সরানো হয়েছে</translation>
     </message>
     <message>
-        <location line="+2023"/>
+        <location line="+606"/>
+        <source>%1 • not sent: you&apos;re no longer in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
+        <translation type="unfinished">আপনি আর এই রুমে নেই। এটি সার্ভারে মুছে ফেলা হয়ে থাকতে পারে। আপনার তালিকা থেকে সরাতে “রুম ছাড়ুন” ব্যবহার করুন।</translation>
+    </message>
+    <message>
+        <location line="+1412"/>
         <source>Open in room</source>
         <translation>রুমে খুলুন</translation>
     </message>
@@ -13489,7 +13499,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-3623"/>
+        <location line="-3634"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13523,22 +13533,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3591"/>
+        <location line="+3602"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5076"/>
+        <location line="-5087"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4140"/>
+        <location line="+4151"/>
         <source>Image</source>
         <translation>ছবি</translation>
     </message>
     <message>
-        <location line="-4699"/>
+        <location line="-4710"/>
         <source>Attachment</source>
         <translation>সংযুক্তি</translation>
     </message>
@@ -13599,12 +13609,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 • পাঠানো হয়নি: সার্ভার প্রত্যাখ্যান করেছে</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
         <source>(edited)</source>
         <translation>(সম্পাদিত)</translation>
     </message>
     <message>
-        <location line="+1571"/>
+        <location line="+1579"/>
         <source>Add :%1: to my emoji</source>
         <translation>আমার ইমোজিতে :%1: যোগ করুন</translation>
     </message>
@@ -13742,12 +13752,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>উত্তরের লক্ষ্য</translation>
     </message>
     <message>
-        <location line="-1915"/>
+        <location line="-1926"/>
         <source>Show preview</source>
         <translation>প্রাকদর্শন দেখান</translation>
     </message>
     <message>
-        <location line="+1773"/>
+        <location line="+1784"/>
         <source>Remove edits?</source>
         <translation>সম্পাদনা সরাবেন?</translation>
     </message>
@@ -13869,10 +13879,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="-5487"/>
+        <location line="-5498"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4138"/>
+        <location line="+4149"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13885,9 +13895,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-5868"/>
+        <location line="-5879"/>
         <location line="+564"/>
-        <location line="+4241"/>
+        <location line="+4252"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -19976,8 +19986,8 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4579"/>
-        <location line="+92"/>
+        <location line="+4563"/>
+        <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
         <location line="+32"/>
@@ -19985,15 +19995,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4958"/>
+        <location line="-4919"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4765"/>
+        <location line="+4726"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-4960"/>
+        <location line="-4921"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20139,17 +20149,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুমের টাইমলাইন খোলা যায়নি।</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <source>Reload timeline failed: %1</source>
-        <translation>টাইমলাইন আবার লোড করা ব্যর্থ: %1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Matrix Rust SDK error.</source>
-        <translation>Matrix Rust SDK ত্রুটি।</translation>
-    </message>
-    <message>
-        <location line="+54"/>
+        <location line="+103"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
@@ -20191,12 +20191,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পুনরুদ্ধার শুরু করা যায়নি: এই সেশনে সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Reload timeline: not signed in.</source>
-        <translation>টাইমলাইন আবার লোড: সাইন ইন করা নেই।</translation>
-    </message>
-    <message>
-        <location line="+134"/>
+        <location line="+119"/>
         <source>No file selected.</source>
         <translation>কোনো ফাইল নির্বাচিত হয়নি।</translation>
     </message>

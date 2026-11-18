@@ -338,7 +338,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Cuentas</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+145"/>
         <source>Encryption ready. Open Security and Recovery.</source>
         <translation>Cifrado listo. Abre Seguridad y recuperación.</translation>
     </message>
@@ -1013,7 +1013,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7291"/>
+        <location filename="../src/app/AppController.cpp" line="+7286"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1134,7 +1134,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Llamada entrante</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5653"/>
+        <location filename="../src/app/AppController.cpp" line="-5648"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>El cierre de sesión se canceló porque la cuenta cambió. No se restableció nada.</translation>
     </message>
@@ -1186,13 +1186,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4233"/>
+        <location line="+4228"/>
         <location line="+817"/>
         <source>Not connected</source>
         <translation>Sin conexión</translation>
     </message>
     <message>
-        <location line="-5091"/>
+        <location line="-5086"/>
         <source>Connecting…</source>
         <translation>Conectando…</translation>
     </message>
@@ -1237,7 +1237,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>%1 quiere verificar una sesión. Abre Lightning para revisarla.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+257"/>
+        <location filename="../src/app/AppController.cpp" line="+252"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Las claves de sala importadas se han aplicado a la conversación abierta.</translation>
     </message>
@@ -1290,13 +1290,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Usa fechas reales en formato YYYY-MM-DD, con «Desde» no posterior a «Hasta».</translation>
     </message>
     <message>
-        <location line="-4737"/>
-        <location line="+2696"/>
+        <location line="-4732"/>
+        <location line="+2691"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2690"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Esta es una notificación de prueba. Si puedes leerla, las notificaciones de escritorio funcionan.</translation>
     </message>
@@ -1321,7 +1321,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+857"/>
+        <location line="+852"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Esa notificación era de otra cuenta, así que no se envió nada. Vuelve a esa cuenta e inténtalo de nuevo.</translation>
     </message>
@@ -2527,7 +2527,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>CallController</name>
     <message>
-        <location filename="../src/calls/CallController.cpp" line="+1360"/>
+        <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
         <translation type="unfinished">La llamada terminó porque se perdió la conexión.</translation>
     </message>
@@ -13042,13 +13042,13 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+91"/>
-        <location line="+906"/>
+        <location line="+917"/>
         <location line="+1110"/>
         <source>Reply</source>
         <translation>Responder</translation>
     </message>
     <message>
-        <location line="-2001"/>
+        <location line="-2012"/>
         <source>(original message not loaded)</source>
         <translation>(el mensaje original no está cargado)</translation>
     </message>
@@ -13138,12 +13138,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>%1 • enviando…</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+13"/>
         <source>%1 • failed</source>
         <translation>%1 • error</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+29"/>
         <source>edited — show edit history</source>
         <translation>editado: mostrar el historial de ediciones</translation>
     </message>
@@ -13295,12 +13295,22 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Responder en el hilo</translation>
     </message>
     <message>
-        <location line="-2013"/>
+        <location line="-2024"/>
         <source>Original message removed</source>
         <translation>Mensaje original eliminado</translation>
     </message>
     <message>
-        <location line="+2023"/>
+        <location line="+606"/>
+        <source>%1 • not sent: you&apos;re no longer in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
+        <translation type="unfinished">Ya no estás en esta sala. Puede que se haya eliminado en el servidor. Usa «Salir de la sala» para quitarla de tu lista.</translation>
+    </message>
+    <message>
+        <location line="+1412"/>
         <source>Open in room</source>
         <translation>Abrir en la sala</translation>
     </message>
@@ -13498,7 +13508,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Editar</translation>
     </message>
     <message>
-        <location line="-3623"/>
+        <location line="-3634"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13532,22 +13542,22 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3591"/>
+        <location line="+3602"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5076"/>
+        <location line="-5087"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4140"/>
+        <location line="+4151"/>
         <source>Image</source>
         <translation>Imagen</translation>
     </message>
     <message>
-        <location line="-4699"/>
+        <location line="-4710"/>
         <source>Attachment</source>
         <translation>Adjunto</translation>
     </message>
@@ -13608,12 +13618,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>%1 • no enviado: el servidor lo rechazó</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
         <source>(edited)</source>
         <translation>(editado)</translation>
     </message>
     <message>
-        <location line="+1571"/>
+        <location line="+1579"/>
         <source>Add :%1: to my emoji</source>
         <translation>Añadir :%1: a mis emojis</translation>
     </message>
@@ -13751,12 +13761,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Mensaje respondido</translation>
     </message>
     <message>
-        <location line="-1915"/>
+        <location line="-1926"/>
         <source>Show preview</source>
         <translation>Mostrar vista previa</translation>
     </message>
     <message>
-        <location line="+1773"/>
+        <location line="+1784"/>
         <source>Remove edits?</source>
         <translation>¿Quitar las ediciones?</translation>
     </message>
@@ -13878,10 +13888,10 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se pudo cargar la pegatina — haz clic para reintentar</translation>
     </message>
     <message>
-        <location line="-5487"/>
+        <location line="-5498"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4138"/>
+        <location line="+4149"/>
         <location line="+1058"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13894,9 +13904,9 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>vídeo</translation>
     </message>
     <message>
-        <location line="-5868"/>
+        <location line="-5879"/>
         <location line="+564"/>
-        <location line="+4241"/>
+        <location line="+4252"/>
         <location line="+1261"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -19985,8 +19995,8 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4579"/>
-        <location line="+92"/>
+        <location line="+4563"/>
+        <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
         <location line="+32"/>
@@ -19994,15 +20004,15 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-4958"/>
+        <location line="-4919"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4765"/>
+        <location line="+4726"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-4960"/>
+        <location line="-4921"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20148,17 +20158,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se pudo abrir la cronología de la sala.</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <source>Reload timeline failed: %1</source>
-        <translation>No se pudo recargar la cronología: %1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Matrix Rust SDK error.</source>
-        <translation>Error del SDK de Rust de Matrix.</translation>
-    </message>
-    <message>
-        <location line="+54"/>
+        <location line="+103"/>
         <source>Room-key import failed.</source>
         <translation>No se pudieron importar las claves de la sala.</translation>
     </message>
@@ -20200,12 +20200,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se pudo iniciar la recuperación: esta sesión no ha iniciado sesión.</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Reload timeline: not signed in.</source>
-        <translation>Recargar la cronología: no has iniciado sesión.</translation>
-    </message>
-    <message>
-        <location line="+134"/>
+        <location line="+119"/>
         <source>No file selected.</source>
         <translation>No se ha seleccionado ningún archivo.</translation>
     </message>
