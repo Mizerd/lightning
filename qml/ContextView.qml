@@ -116,7 +116,12 @@ Rectangle {
         view.anchorId = app.eventContext.model.stableIdAt(row)
         view.anchorScreenY = item.y - list.contentY
     }
-    // Inserts and late row heights (regrouping, media) above the anchor move it.
+    // An insert can regroup rows above the anchor, changing their height a
+    // moment later; only that window re-anchors on a height change.
+    Timer {
+        id: insertSettleTimer
+        interval: 300
+    }
     function scheduleAnchorFix() {
         if (view.anchorId === "" || view.anchorFixPending
                 || !view.targetPositioned)
@@ -184,6 +189,7 @@ Rectangle {
                 list.lastSeenRow += last - first + 1
             ++view.tracePrepends
             view.tracePrependedRows += last - first + 1
+            insertSettleTimer.restart()
             view.scheduleAnchorFix()
         }
     }
@@ -365,7 +371,10 @@ Rectangle {
                     onWheel: (event) => view.loadTowards(
                         -(event.pixelDelta.y || event.angleDelta.y))
                 }
-                onContentHeightChanged: view.scheduleAnchorFix()
+                onContentHeightChanged: {
+                    if (insertSettleTimer.running)
+                        view.scheduleAnchorFix()
+                }
                 property real lastContentY: 0
                 property int lastSeenRow: -1
                 onContentYChanged: {
