@@ -75,7 +75,9 @@ ItemDelegate {
     readonly property bool showsPill:
         (root.highlightCount > 0 || root.unreadCount > 0
          || root.hasUnread || root.isInvite || root.threadOnly) && !root.muted
-    readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
+    // showsPill above already flags mentions/counts, so bold can mark any
+    // activity instead of repeating that same notification-gated signal.
+    readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.rawUnread || root.unreadCount > 0 || root.highlightCount > 0)
 
     height: Math.max(AppTheme.channelRowMinHeight,
                     2 * AppTheme.scaled(AppTheme.textBody))
