@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QHash>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -92,6 +93,21 @@ private:
 
     QTcpServer m_server;
     QHash<QTcpSocket *, QByteArray> m_buffers;
+};
+
+class MarkerWatchingSecrets : public InMemorySecretStore
+{
+public:
+    bool storeSecret(const QString &, const QString &, const QString &) override
+    {
+        ++writes;
+        markerSeen = markerSeen || QSettings().contains(markerKey);
+        return false;
+    }
+
+    QString markerKey;
+    int writes = 0;
+    bool markerSeen = false;
 };
 }
 
@@ -212,6 +228,35 @@ private Q_SLOTS:
         QVERIFY(!failed.isEmpty());
         QCOMPARE(settings.accountRecord(kai).value(QStringLiteral("deviceId")).toString(),
                  QStringLiteral("OLDDEVICE"));
+        QTRY_COMPARE_WITH_TIMEOUT(homeserver.logouts, 1, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(!client.m_revokeHandle, 10000);
+    }
+
+    void aBrowserSignInMarksItsStoreUnfinishedBeforeTheKeyringIsAsked()
+    {
+        DiscoveryHomeserver homeserver;
+        const quint16 port = homeserver.listen();
+        QVERIFY(port != 0);
+        const QString hs = QStringLiteral("http://127.0.0.1:%1").arg(port);
+        const QString mira = QStringLiteral("@mira:example.org");
+        matrix::app_data::AccountIdentity identity;
+        QVERIFY(matrix::app_data::resolveAccountIdentity(hs, mira, &identity));
+
+        MarkerWatchingSecrets secrets;
+        secrets.markerKey = QStringLiteral("pendingSignIn/") + identity.slug
+            + QStringLiteral("/storePath");
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        RustSdkMatrixClient client(&settings);
+        QVERIFY(client.ensureOAuthBootstrapHandle(hs));
+        client.m_ssoHomeserver = hs;
+        QSignalSpy failed(&client, &MatrixClient::loginFailed);
+        client.completeSsoLogin(mira, QStringLiteral("NEWDEVICE"),
+                                QStringLiteral("new-access"), QString());
+        QVERIFY(!failed.isEmpty());
+        QVERIFY(secrets.writes > 0);
+        QVERIFY2(secrets.markerSeen,
+                 "the store existed with no record and no pending sign-in marker");
         QTRY_COMPARE_WITH_TIMEOUT(homeserver.logouts, 1, 30000);
         QTRY_VERIFY_WITH_TIMEOUT(!client.m_revokeHandle, 10000);
     }
