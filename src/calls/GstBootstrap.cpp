@@ -22,13 +22,19 @@ namespace {
 QString g_bundledPath;
 QString g_scannerPath;
 
+QString packageRootFromEnvironment()
+{
+    return packageRoot(QFile::decodeName(qgetenv("APPDIR")),
+                       QFile::decodeName(qgetenv("SNAP")));
+}
+
 QString appImageBundle()
 {
-    const QByteArray appDir = qgetenv("APPDIR");
+    const QString appDir = packageRootFromEnvironment();
     if (appDir.isEmpty())
         return {};
     const QString named = appImageBundledPluginPath(
-        QFile::decodeName(appDir),
+        appDir,
         QFile::decodeName(qgetenv("GST_PLUGIN_SYSTEM_PATH_1_0")),
         QFile::decodeName(qgetenv("GST_PLUGIN_PATH_1_0")));
     if (named.isEmpty() || !QFileInfo(named).isDir())
@@ -38,11 +44,11 @@ QString appImageBundle()
 
 QString appImageScanner()
 {
-    const QByteArray appDir = qgetenv("APPDIR");
+    const QString appDir = packageRootFromEnvironment();
     if (appDir.isEmpty())
         return {};
     const QString named = appImageBundledScannerPath(
-        QFile::decodeName(appDir),
+        appDir,
         QFile::decodeName(qgetenv("GST_PLUGIN_SCANNER_1_0")),
         QFile::decodeName(qgetenv("GST_PLUGIN_SCANNER")));
     if (named.isEmpty())
@@ -189,6 +195,11 @@ QString scannerPathBesideExecutable(const QString &applicationDirPath)
 QString bundledScannerPath()
 {
     return g_scannerPath;
+}
+
+QString packageRoot(const QString &appDir, const QString &snap)
+{
+    return appDir.isEmpty() ? snap : appDir;
 }
 
 QString appImageBundledPluginPath(const QString &appDir,

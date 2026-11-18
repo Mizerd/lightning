@@ -28,6 +28,24 @@ private slots:
                  bundle);
     }
 
+    void theSnapsOwnGstreamerIsReportedAsBundled()
+    {
+        const QString snap = QStringLiteral("/snap/lightning-matrix/42");
+        const QString bundle = snap + QStringLiteral("/usr/lib/gstreamer-1.0");
+        const QString root = lightning::gst::packageRoot(QString{}, snap);
+
+        QCOMPARE(lightning::gst::appImageBundledPluginPath(root, bundle, bundle),
+                 bundle);
+        QCOMPARE(lightning::gst::appImageBundledScannerPath(
+                     root,
+                     snap + QStringLiteral("/usr/libexec/gstreamer-1.0/gst-plugin-scanner"),
+                     QString{}),
+                 snap + QStringLiteral("/usr/libexec/gstreamer-1.0/gst-plugin-scanner"));
+        QCOMPARE(lightning::gst::packageRoot(QStringLiteral("/tmp/.mount_x"), snap),
+                 QStringLiteral("/tmp/.mount_x"));
+        QVERIFY(lightning::gst::packageRoot(QString{}, QString{}).isEmpty());
+    }
+
     void aBundleTheHookNeverPointedAtIsNotReportedAsBundled()
     {
         const QString appDir = QStringLiteral("/tmp/appimage_extracted_abc");

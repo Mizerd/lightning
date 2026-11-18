@@ -24,6 +24,10 @@ bool applyBundledScannerPath(const QString &applicationDirPath);
 
 QString bundledScannerPath();
 
+// The AppImage exports APPDIR and the snap launcher SNAP; both bundles share
+// the usr/lib/gstreamer-1.0 and usr/libexec layout.
+QString packageRoot(const QString &appDir, const QString &snap);
+
 QString appImageBundledPluginPath(const QString &appDir,
                                   const QString &systemPath,
                                   const QString &pluginPath);
