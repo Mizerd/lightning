@@ -919,14 +919,20 @@ private Q_SLOTS:
         const int end = src.indexOf(QStringLiteral("\n        });"), start);
         QVERIFY2(end > start, "the handler's end was not found");
         const QString handler = src.mid(start, end - start);
-        QVERIFY2(handler.contains(QStringLiteral("m_sessionTrustState")),
+        QVERIFY2(handler.contains(QStringLiteral("m_sessionTrustState = sessionTrustStateFor(")),
                  "the scanned extent does not contain the label it guards");
-        QVERIFY2(handler.contains(QStringLiteral("Cross-signing unavailable")),
+
+        const int fnStart = src.indexOf(QStringLiteral("QString AppController::sessionTrustStateFor("));
+        QVERIFY2(fnStart > 0, "sessionTrustStateFor was not found");
+        const int fnEnd = src.indexOf(QStringLiteral("\n}\n"), fnStart);
+        QVERIFY2(fnEnd > fnStart, "sessionTrustStateFor's end was not found");
+        const QString chain = src.mid(fnStart, fnEnd - fnStart);
+        QVERIFY2(chain.contains(QStringLiteral("Cross-signing unavailable")),
                  "the scanned extent is missing the chain's FIRST arm");
-        QVERIFY2(handler.contains(QStringLiteral("Not verified")),
+        QVERIFY2(chain.contains(QStringLiteral("Not verified")),
                  "the scanned extent is missing the chain's LAST arm");
 
-        const QString body = withoutComments(handler);
+        const QString body = withoutComments(handler + chain);
         QVERIFY2(body.contains(QStringLiteral("deviceCrossSigned")),
                  "the session trust label must read is_cross_signed_by_owner()");
         QVERIFY2(!body.contains(QStringLiteral("deviceVerified")),
