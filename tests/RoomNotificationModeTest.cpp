@@ -1377,6 +1377,14 @@ private Q_SLOTS:
         QSettings().remove(QStringLiteral("archivedUnreadMarks"));
         run([&](SpaceFakeClient *f) { archived(f, 2); }, false, &calls);
         QVERIFY2(calls.isEmpty(), "no persisted mark is a baseline");
+
+        const QString key = QStringLiteral("archivedUnreadMarks/") + kAliceId;
+        QSettings().setValue(key, QVariantMap{ { QStringLiteral("!gone:example.org"), QStringLiteral("0,0") },
+                                               { QStringLiteral("!a:example.org"), QStringLiteral("2,0") } });
+        run([&](SpaceFakeClient *f) { archived(f, 2); }, false, &calls);
+        const QVariantMap kept = QSettings().value(key).toMap();
+        QVERIFY2(!kept.contains(QStringLiteral("!gone:example.org")), "a room we are not in loses its mark");
+        QVERIFY(kept.contains(QStringLiteral("!a:example.org")));
     }
 
 private:

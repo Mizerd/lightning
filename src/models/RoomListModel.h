@@ -196,6 +196,7 @@ private:
     QHash<QString, UnreadBaseline> m_unreadBaseline;
     QSet<QString> m_unarchiveRequested;
     bool marksReady() const;
+    void pruneArchivedMarks();
     void storeArchivedMark(const QString &roomId, int unread, int highlight);
     QVariantMap m_archivedMarks;
     bool m_archivedMarksLoaded = false;
