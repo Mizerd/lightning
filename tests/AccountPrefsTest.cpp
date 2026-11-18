@@ -485,9 +485,9 @@ private Q_SLOTS:
         QCOMPARE(client.writes.at(1).second.value("media_previews").toString(),
                  QStringLiteral("off"));
         Q_EMIT client.accountPrefWritten(type, false, QStringLiteral("stale_absence"));
+        QVERIFY(c.writeFailed());
         Q_EMIT client.accountPrefRead(type, true, { { "org.other_client.flag", 7 } });
         QCOMPARE(client.writes.size(), 2);
-        QVERIFY(c.writeFailed());
     }
 
     void aWriteBeforeTheAccountsCopyWasReadIsRefused()
