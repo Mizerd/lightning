@@ -19,10 +19,7 @@ ContextController::ContextController(QObject *parent)
             return;
         qCWarning(lcContext) << "event context abandoned: the backend never answered"
                              << "timeout_ms=" << m_openWatchdog.interval();
-        const QString room = m_roomId;
-        const QString event = m_eventId;
-        close();
-        Q_EMIT openFailed(room, event, QStringLiteral("timeout"));
+        failOpen(QStringLiteral("timeout"));
     });
 }
 

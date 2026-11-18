@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QtNumeric>
 #include <QtQmlIntegration/qqmlintegration.h>
 
