@@ -165,6 +165,55 @@ private Q_SLOTS:
         controller.calls()->setMediaBackend(nullptr);
     }
 
+    void theOpenRoomsCallGateMovesWhenItsLaneChanges()
+    {
+        class Engine : public CallMediaBackend
+        {
+        public:
+            using CallMediaBackend::CallMediaBackend;
+            void createOffer(const QString &) override {}
+            void createAnswer(const QString &, const QString &) override {}
+            void setRemoteAnswer(const QString &, const QString &) override {}
+            void addRemoteCandidate(const QString &, const QString &,
+                                    const QString &, int) override {}
+            void setIceServers(const QStringList &, const QString &,
+                               const QString &) override {}
+            void close(const QString &) override {}
+        };
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        QString dm;
+        for (const RoomInfo &room : client->rooms()) {
+            if (!calls::oneToOneDmPeer(room, true).isEmpty()) {
+                dm = room.id;
+                break;
+            }
+        }
+        QVERIFY2(!dm.isEmpty(), "the mock needs an unambiguous 1:1 DM");
+
+        controller.setCurrentRoomId(dm);
+        QCOMPARE(controller.preferredCallLane(dm), QString());
+        Engine engine;
+        controller.calls()->setMediaBackend(&engine);
+        QCOMPARE(controller.preferredCallLane(dm), QStringLiteral("legacy"));
+
+        const int before = controller.callGateRevision();
+        client->setRoomFavourite(dm, true);
+        QTRY_VERIFY2(controller.callGateRevision() > before,
+                     "the open room's lane changed with a room-list update "
+                     "and the call gate did not move, so the call button "
+                     "keeps the answer it had when the room was opened");
+
+        QTest::qWait(50);
+        const int settled = controller.callGateRevision();
+        client->setRoomFavourite(dm, false);
+        QTest::qWait(50);
+        QCOMPARE(controller.callGateRevision(), settled);
+        controller.calls()->setMediaBackend(nullptr);
+    }
+
     void aRoutedAccountIsToldWhyItCannotCall()
     {
         AppController controller(AppController::MockBackend);
