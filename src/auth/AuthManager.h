@@ -151,6 +151,7 @@ private:
     bool refuseWhileAbandonedLoginRuns();
     static QString abandonedWaitText();
     void runDeferredDiscovery();
+    void requestMissingSsoProviders();
     void refuseServerAddress();
     bool refuseBeforeTheBrowser(const QString &homeserver);
     bool refuseWhileKeyringLocked();

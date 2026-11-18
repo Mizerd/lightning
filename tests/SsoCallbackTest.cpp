@@ -526,6 +526,25 @@ private Q_SLOTS:
                                   QStringList{ QStringLiteral("https://second.example") }, 3000);
     }
 
+    void providersSkippedForASignInAreAskedForWhenItEnds()
+    {
+        SsoMock client;
+        AuthManager auth(&client);
+        const QString hs = QStringLiteral("https://hs.example");
+        client.announce(hs, false, false, true);
+        auth.beginSsoLogin(hs, QString());
+        QCoreApplication::processEvents();
+        QVERIFY(client.providerRequests.isEmpty());
+
+        client.endAttemptWithFailure();
+        QCOMPARE(client.providerRequests, QStringList{ hs });
+
+        client.announceProviders(hs, true, { provider(QStringLiteral("gh"),
+                                                      QStringLiteral("GitHub")) });
+        client.endAttemptWithFailure();
+        QCOMPARE(client.providerRequests.size(), 1);
+    }
+
     void providersArriveSeparatelyAndAreScopedToTheServerOnScreen()
     {
         SsoMock client;
