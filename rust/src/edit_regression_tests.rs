@@ -723,34 +723,163 @@ async fn a_threaded_stable_poll_stays_out_of_the_main_timeline() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sent_reply_to_an_unloaded_event_gets_its_quote() {
-    use matrix_sdk::deserialized_responses::TimelineEvent;
-    use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
+async fn a_stable_poll_thread_root_in_the_panel_gets_its_tally_live() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| {
+            b.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: false,
+            })
+        })
+        .build()
+        .await;
     client.event_cache().subscribe().unwrap();
-    sync(&client, vec![message("$newest", "newest", 5000)], "1").await;
-    server.mock_room_state_encryption().plain().mount().await;
-    let mut original = message("$original", "old original", 1000);
-    original["room_id"] = json!(ROOM);
+    let poll = json!({"type":"m.poll.start", "event_id":"$root", "sender":SENDER,
+        "origin_server_ts":1000, "content":{"m.text":[{"body":"Root?"}],
+        "m.poll":{"kind":"m.disclosed", "max_selections":1,
+            "question":{"m.text":[{"body":"Root?"}]},
+            "answers":[{"m.id":"y", "m.text":[{"body":"Yes"}]},
+                       {"m.id":"n", "m.text":[{"body":"No"}]}]}}});
+    sync(&client, vec![poll.clone()], "1").await;
+    let mut fetched = poll;
+    fetched["room_id"] = json!(ROOM);
     server
         .mock_room_event()
         .match_event_id()
-        .ok(TimelineEvent::from_plaintext(Raw::from_json_string(original.to_string()).unwrap()))
+        .ok(matrix_sdk::deserialized_responses::TimelineEvent::from_plaintext(
+            Raw::from_json_string(fetched.to_string()).unwrap()))
         .mount()
         .await;
     server
-        .mock_room_send()
-        .ok(matrix_sdk::ruma::event_id!("$reply"))
+        .mock_room_relations()
+        .match_target_event(matrix_sdk::ruma::EventId::parse("$root").unwrap())
+        .ok(matrix_sdk::test_utils::mocks::RoomRelationsResponseTemplate::default())
+        .mount()
+        .await;
+
+    let events: EventQueue = Arc::new(Mutex::new(VecDeque::new()));
+    let registry = Arc::new(TimelineRegistry::new(Arc::clone(&events)));
+    registry.thread_gen.store(1, Ordering::SeqCst);
+    *registry.active_thread.lock().unwrap() = Some(ActiveThread {
+        room_id: ROOM.to_owned(),
+        root_event_id: "$root".to_owned(),
+        thread_gen: 1,
+        timeline: None,
+        task: None,
+        pagination_busy: Arc::new(AtomicBool::new(false)),
+        reached_start: Arc::new(AtomicBool::new(false)),
+        clear_epoch: Arc::new(AtomicU64::new(0)),
+    });
+    let lifecycle = registry.lifecycle_gen.load(Ordering::SeqCst);
+    let task = tokio::spawn(open_thread_task(
+        Arc::clone(&registry), client.clone(), ROOM.to_owned(), "$root".to_owned(),
+        1, lifecycle, Arc::clone(&events)));
+
+    let poll_row = |v: &serde_json::Value| {
+        let rows = v["items"].as_array().cloned().unwrap_or_else(|| vec![v["item"].clone()]);
+        rows.into_iter().find(|r| r["event_id"] == "$root" && r["msgtype"] == "poll")
+    };
+    next_event(&events, |v| {
+        (v["type"] == "thread_reset" || v["type"] == "thread_diff") && poll_row(v).is_some()
+    }).await;
+
+    let vote = json!({"type":"m.poll.response", "event_id":"$v1", "sender":"@bob:localhost",
+        "origin_server_ts":3000, "content":{"m.selections":["y"],
+        "m.relates_to":{"rel_type":"m.reference", "event_id":"$root"}}});
+    sync(&client, vec![vote], "2").await;
+    next_event(&events, |v| {
+        v["type"] == "thread_diff"
+            && poll_row(v).is_some_and(|r| r["poll_total_voters"] == 1)
+    }).await;
+    task.abort();
+}
+
+async fn sync_without_cache_wait(client: &Client, events: Vec<serde_json::Value>, pos: &str) {
+    let mut response = v5::Response::new(pos.to_owned());
+    let mut room = v5::response::Room::default();
+    room.timeline = events
+        .into_iter()
+        .map(|v| Raw::from_json_string(v.to_string()).unwrap())
+        .collect();
+    response.rooms.insert(room_id!("!edits:localhost").to_owned(), room);
+    client
+        .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+        .await
+        .unwrap();
+}
+
+async fn edit_after_build(rounds: u32, original_cached_first: bool) -> Result<(), String> {
+    for round in 0..rounds {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        client.event_cache().subscribe().unwrap();
+        sync_without_cache_wait(&client, vec![message("$old", "old", 1000)], "1").await;
+        if original_cached_first {
+            cached(&client, &["$old".to_owned()]).await;
+        }
+        let timeline = build(&client).await;
+        sync_without_cache_wait(&client, vec![edit("$edit", "$old", "new", 2000)], "2").await;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let body = row(&timeline, "$old").await["body"].clone();
+            if body == "new" {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(format!("round {round}: the edit never arrived, row body {body}"));
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+    Ok(())
+}
+
+/// An edit synced right after a timeline is built reaches it when the
+/// original was already in the event cache.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_edit_synced_after_the_timeline_is_built_reaches_it() {
+    edit_after_build(40, true).await.unwrap();
+}
+
+/// Measurement, not a gate: with the original still in flight to the event
+/// cache when the timeline is built, the edit has been seen not to arrive.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "documents an SDK window: see docs/open-items.md"]
+async fn an_edit_is_lost_when_the_timeline_is_built_before_the_cache_has_the_original() {
+    edit_after_build(40, false).await.unwrap();
+}
+
+async fn quote_row_of_unloaded_image(spoiler: bool, id: &str) -> serde_json::Value {
+    use matrix_sdk::deserialized_responses::TimelineEvent;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let mut reply = message("$reply", "a reply", 6000);
+    reply["content"]["m.relates_to"] = json!({"m.in_reply_to":{"event_id":id}});
+    sync(&client, vec![reply], "1").await;
+    server.mock_room_state_encryption().plain().mount().await;
+    let mut image = json!({"type":"m.room.message", "event_id":id, "sender":SENDER,
+        "origin_server_ts":1000, "room_id":ROOM, "content":{"msgtype":"m.image",
+        "body":"cat.png", "url":"mxc://localhost/cat", "info":{"mimetype":"image/png",
+        "w":10, "h":10, "size":10}}});
+    if spoiler {
+        image["content"][crate::spoiler::UNSTABLE_SPOILER] = json!(true);
+    }
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(TimelineEvent::from_plaintext(Raw::from_json_string(image.to_string()).unwrap()))
         .mount()
         .await;
 
     let timeline = Arc::new(build(&client).await);
-    let (_, mut stream) = timeline.subscribe().await;
+    let (items, mut stream) = timeline.subscribe().await;
+    let fetched = Arc::new(Mutex::new(HashSet::new()));
+    fetch_missing_reply_details(&timeline, items.iter(), &fetched);
     {
         let timeline = Arc::clone(&timeline);
         tokio::spawn(async move {
-            let fetched = Arc::new(Mutex::new(HashSet::new()));
             while let Some(diffs) = stream.next().await {
                 for diff in diffs {
                     fetch_missing_reply_details(&timeline, diff_items(&diff).iter(), &fetched);
@@ -758,34 +887,20 @@ async fn a_sent_reply_to_an_unloaded_event_gets_its_quote() {
             }
         });
     }
-    timeline
-        .send_reply(
-            RoomMessageEventContentWithoutRelation::text_plain("a reply"),
-            matrix_sdk::ruma::owned_event_id!("$original"),
-        )
-        .await
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while row(&timeline, "$reply").await.is_null() {
-        if Instant::now() >= deadline {
-            let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
-            let rows: Vec<_> = timeline
-                .items()
-                .await
-                .iter()
-                .map(|item| item_to_json(item, ROOM, "@me:localhost", &registry))
-                .collect();
-            panic!("the reply was never sent: {rows:?}");
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    wait_field(&timeline, "$reply", "reply_to_kind", "image").await;
+    let mut rows = [row(&timeline, "$reply").await];
+    let room = client.get_room(room_id!("!edits:localhost")).unwrap();
+    annotate_room_gone_rows(&room, &mut rows).await;
+    let [reply_row] = rows;
+    reply_row
+}
 
-    let mut remote = message("$reply", "a reply", 6000);
-    remote["sender"] = json!(client.user_id().unwrap().as_str());
-    remote["content"]["m.relates_to"] = json!({"m.in_reply_to":{"event_id":"$original"}});
-    sync(&client, vec![remote], "2").await;
-    wait_field(&timeline, "$reply", "reply_to_preview", "old original").await;
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quote_of_an_unloaded_spoiler_image_has_no_thumbnail() {
+    let quote = quote_row_of_unloaded_image(true, "$spoiled").await;
+    assert!(quote.get("reply_to_media_key").is_none(), "spoiler thumbnail leaked: {quote}");
+    let control = quote_row_of_unloaded_image(false, "$plainimage").await;
+    assert!(control.get("reply_to_media_key").is_some(), "control lost its thumbnail: {control}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

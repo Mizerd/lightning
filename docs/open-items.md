@@ -46,9 +46,6 @@ own engine. NOT TESTED: no second SFU was available.
 
 ## 2026-11-07 — ACCEPTED FOLLOW-UPS from the spoiler-media review (GitHub #69)
 
-- A reply quote hides the spoiler's thumbnail only when the replied-to event
-  is LOADED; a quote of an unloaded spoiler still shows its thumbnail
-  (`EmbeddedEvent` carries no raw JSON to read the marker from).
 - Not honoured yet: gallery items, audio, stickers. Caption edits cannot drop
   the marker today because Lightning edits text messages only
   (`TimelineModel::canEditEvent`); a future media-caption edit must carry it in
@@ -61,9 +58,7 @@ own engine. NOT TESTED: no second SFU was available.
 
 - **Stable polls render** (`rust/src/stablepoll.rs`); the receipt no longer
   skips a stable `m.poll.start`. See `docs/feature-contracts.md`, Stable polls.
-  Votes and ends are still SENT in the unstable namespace. A thread panel
-  shows the tally the main timeline last computed and does not refresh it
-  live.
+  Votes and ends are still SENT in the unstable namespace.
 - **Auto mark-read pass**: a mark-read re-sends only its own room
   (`room_refreshed`) and the controller checks the next room by id, so the
   controller is linear; each `roomsChanged` model refresh is still O(rooms). A
@@ -81,7 +76,10 @@ ACCEPTED FOLLOW-UPS from the §18 review of `followups`:
 
 - L6: the https-only test asks for plain http directly; no test drives a real
   https -> http redirect hop (needs a local TLS server).
-- Threaded stable polls stay unrendered everywhere, the thread panel included.
+- Threaded stable polls stay unrendered everywhere, the thread panel included:
+  matrix-sdk-ui 0.18 reads a thread root only from unstable poll content, so a
+  thread-focused timeline never adds one (measured: the row is absent from the
+  thread timeline however the filter is set). Needs an SDK change.
 
 ## 2026-11-02 — OPEN after the echo-cancellation fix
 
@@ -948,9 +946,7 @@ Everything below was found or left open by that round's live testing and its
   admin's other devices, members offline during the delete, and a delete that
   outlives the 600 s follow window keep a Joined room that no sync will ever
   mention again.
-- `let _ =` swallows the store error of that write; the "complete" call site
-  has no unit test (a pure predicate would pin it); a 240 px list cap shows a
-  2 px sliver of an eighth row.
+- A 240 px list cap shows a 2 px sliver of an eighth row.
 
 ### Packaging
 

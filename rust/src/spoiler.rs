@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value};
 use std::{collections::VecDeque, sync::Mutex};
 
 const LOCAL_SPOILERS_KEPT: usize = 256;
-static LOCAL_SPOILERS: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
+static LOCAL_SPOILERS: Mutex<VecDeque<(String, String)>> = Mutex::new(VecDeque::new());
 
 fn content_source_uri(content: &Value) -> Option<&str> {
     content
@@ -36,19 +36,43 @@ fn content_source_uri(content: &Value) -> Option<&str> {
 /// so the uploaded source is remembered to mark the echo until the remote
 /// event arrives.
 pub(crate) fn remember_local_spoiler(content: &Value) {
-    if spoiler_of(content).is_none() {
-        return;
-    }
+    let Some(reason) = spoiler_of(content) else { return };
     if let (Some(uri), Ok(mut kept)) = (content_source_uri(content), LOCAL_SPOILERS.lock()) {
         if kept.len() >= LOCAL_SPOILERS_KEPT {
             kept.pop_front();
         }
-        kept.push_back(uri.to_owned());
+        kept.push_back((uri.to_owned(), reason));
     }
 }
 
-pub(crate) fn is_local_spoiler(uri: &str) -> bool {
-    LOCAL_SPOILERS.lock().is_ok_and(|kept| kept.iter().any(|k| k == uri))
+/// The reason (possibly empty) remembered for a local echo's source.
+pub(crate) fn local_spoiler(uri: &str) -> Option<String> {
+    LOCAL_SPOILERS.lock().ok()?.iter().find(|(k, _)| k == uri).map(|(_, r)| r.clone())
+}
+
+const REPLIED_SPOILERS_KEPT: usize = 512;
+static REPLIED_SPOILERS: Mutex<VecDeque<(String, bool)>> = Mutex::new(VecDeque::new());
+
+/// Whether a quoted event is a spoiler, once `learn_replied_spoiler` has read it.
+pub(crate) fn replied_is_spoiler(event_id: &str) -> bool {
+    REPLIED_SPOILERS.lock().is_ok_and(|kept| kept.iter().any(|(k, hidden)| k == event_id && *hidden))
+}
+
+/// `EmbeddedEvent` carries no raw JSON, so a quote of an event the timeline
+/// has not loaded reads the marker from the event itself.
+pub(crate) async fn learn_replied_spoiler(room: &Room, event_id: &matrix_sdk::ruma::EventId) {
+    if REPLIED_SPOILERS.lock().is_ok_and(|kept| kept.iter().any(|(k, _)| k == event_id.as_str())) {
+        return;
+    }
+    let Ok(event) = room.load_or_fetch_event(event_id, None).await else { return };
+    let json = event.raw().deserialize_as::<Value>().ok();
+    let spoiler = event_spoiler(json.as_ref(), None).is_some();
+    if let Ok(mut kept) = REPLIED_SPOILERS.lock() {
+        if kept.len() >= REPLIED_SPOILERS_KEPT {
+            kept.pop_front();
+        }
+        kept.push_back((event_id.to_string(), spoiler));
+    }
 }
 
 pub(crate) const UNSTABLE_SPOILER: &str = "page.codeberg.everypizza.msc4193.spoiler";
@@ -406,12 +430,17 @@ mod tests {
     fn a_queued_spoilers_source_is_remembered_for_its_local_echo() {
         let uri = "mxc://example.org/local-echo-spoiler";
         remember_local_spoiler(&json!({ "url": uri }));
-        assert!(!is_local_spoiler(uri));
+        assert!(local_spoiler(uri).is_none());
         remember_local_spoiler(&json!({ "url": uri, UNSTABLE_SPOILER: true }));
-        assert!(is_local_spoiler(uri));
+        assert_eq!(local_spoiler(uri).as_deref(), Some(""));
         let enc = "mxc://example.org/local-echo-encrypted";
         remember_local_spoiler(&json!({ "file": { "url": enc }, STABLE_SPOILER: {} }));
-        assert!(is_local_spoiler(enc));
+        assert_eq!(local_spoiler(enc).as_deref(), Some(""));
+        let reasoned = "mxc://example.org/local-echo-reasoned";
+        remember_local_spoiler(
+            &json!({ "url": reasoned, UNSTABLE_SPOILER: true, UNSTABLE_SPOILER_REASON: "plot" }),
+        );
+        assert_eq!(local_spoiler(reasoned).as_deref(), Some("plot"));
     }
 
     #[test]
