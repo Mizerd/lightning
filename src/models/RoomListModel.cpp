@@ -1095,6 +1095,7 @@ void RoomListModel::updateUnreadTotals()
                 ++highlight;
         }
     }
+    pruneArchivedMarks();
     if (unread == m_unreadRoomCount && highlight == m_highlightRoomCount
         && archived == m_archivedCount && archivedUnread == m_archivedUnreadCount)
         return;
@@ -1119,6 +1120,28 @@ void RoomListModel::storeArchivedMark(const QString &roomId, int unread, int hig
     m_archivedMarks.insert(roomId, value);
     QSettings().setValue(QStringLiteral("archivedUnreadMarks/") + m_client->currentUserId(),
                          m_archivedMarks);
+}
+
+void RoomListModel::pruneArchivedMarks()
+{
+    if (!m_archivedMarksLoaded || !marksReady() || m_archivedMarks.isEmpty())
+        return;
+    QSet<QString> joined;
+    for (const RoomInfo &room : m_client->rooms())
+        if (room.membership == RoomInfo::Joined)
+            joined.insert(room.id);
+    bool changed = false;
+    for (auto it = m_archivedMarks.begin(); it != m_archivedMarks.end();) {
+        if (joined.contains(it.key())) {
+            ++it;
+        } else {
+            it = m_archivedMarks.erase(it);
+            changed = true;
+        }
+    }
+    if (changed)
+        QSettings().setValue(QStringLiteral("archivedUnreadMarks/") + m_client->currentUserId(),
+                             m_archivedMarks);
 }
 
 void RoomListModel::unarchiveOnNewUnread(const RoomInfo &room, bool counts)
