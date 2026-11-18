@@ -1011,7 +1011,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7288"/>
+        <location filename="../src/app/AppController.cpp" line="+7310"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -1132,7 +1132,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আগত কল</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5650"/>
+        <location filename="../src/app/AppController.cpp" line="-5672"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>অ্যাকাউন্ট বদলে যাওয়ায় সাইন আউট বাতিল হয়েছে। কিছুই রিসেট হয়নি।</translation>
     </message>
@@ -1184,13 +1184,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4230"/>
-        <location line="+817"/>
+        <location line="+4251"/>
+        <location line="+818"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-5088"/>
+        <location line="-5110"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -1215,7 +1215,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>অফলাইন — আবার চেষ্টা করা হচ্ছে</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+120"/>
         <source>The server refused to rename this session.</source>
         <translation>সার্ভার এই সেশনের নাম বদলাতে অস্বীকার করেছে।</translation>
     </message>
@@ -1235,7 +1235,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1 একটি সেশন যাচাই করতে চান। পর্যালোচনার জন্য Lightning খুলুন।</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+252"/>
+        <location filename="../src/app/AppController.cpp" line="+250"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>আমদানি করা রুম কী খোলা টাইমলাইনে প্রয়োগ করা হয়েছে।</translation>
     </message>
@@ -1251,29 +1251,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3028"/>
+        <location line="+3047"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning নির্বাচিত ফাইলটি পড়তে পারেনি।</translation>
     </message>
     <message>
-        <location line="-3034"/>
+        <location line="-3053"/>
         <source>A room-key import is already in progress.</source>
         <translation>একটি রুম-কী আমদানি ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4026"/>
+        <location line="+4046"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4024"/>
+        <location line="-4044"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="+2232"/>
+        <location line="+2251"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>১ থেকে ২০০০ MB-এর মধ্যে আকারের সীমা দিন।</translation>
     </message>
@@ -1288,13 +1288,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD ফরম্যাটে প্রকৃত তারিখ দিন; “শুরু” তারিখ “শেষ” তারিখের পরে হতে পারবে না।</translation>
     </message>
     <message>
-        <location line="-4734"/>
-        <location line="+2691"/>
+        <location line="-4755"/>
+        <location line="+2693"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2690"/>
+        <location line="-2692"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>এটি একটি পরীক্ষামূলক বিজ্ঞপ্তি। এটি পড়তে পারলে ডেস্কটপ বিজ্ঞপ্তি কাজ করছে।</translation>
     </message>
@@ -1319,7 +1319,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+852"/>
+        <location line="+854"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>ওই বিজ্ঞপ্তিটি অন্য একটি অ্যাকাউন্টের ছিল, তাই কিছু পাঠানো হয়নি। ওই অ্যাকাউন্টে ফিরে গিয়ে আবার চেষ্টা করুন।</translation>
     </message>
@@ -1359,7 +1359,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+149"/>
         <source>Modern room list</source>
         <translation>আধুনিক রুম তালিকা</translation>
     </message>
@@ -1531,7 +1531,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+531"/>
-        <location line="+808"/>
+        <location line="+809"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
@@ -1623,10 +1623,10 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location filename="../src/app/AppController.cpp" line="-2157"/>
         <location line="+25"/>
         <location line="+562"/>
-        <location line="+453"/>
+        <location line="+454"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning এখন এই ডিভাইসের সংরক্ষিত সাইন-ইন পড়তে পারছে না — সিস্টেম কীরিং লক করা বা অনুপলব্ধ। এটি আনলক করে আবার চেষ্টা করুন।</translation>
     </message>
@@ -2093,7 +2093,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>এই বিল্ডটি একক সাইন-অন করতে পারে না।</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+52"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>Lightning এই ডিভাইসে এই সার্ভারের অ্যাকাউন্ট রাখতে পারে না, তাই আপনার ব্রাউজার খোলেনি।</translation>
     </message>
@@ -3915,7 +3915,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+93"/>
         <source>%1, invitation</source>
         <translation>%1, আমন্ত্রণ</translation>
     </message>
@@ -17729,7 +17729,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, নিঃশব্দ</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+67"/>
         <source>Yesterday</source>
         <translation>গতকাল</translation>
     </message>
@@ -19781,7 +19781,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+957"/>
+        <location line="+960"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Rust SDK ব্যাকএন্ড হ্যান্ডেল তৈরি ব্যর্থ হয়েছে।</translation>
     </message>
@@ -19792,21 +19792,21 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই অ্যাকাউন্টের স্থানীয় সংরক্ষণ নাম এই ডিভাইসে ইতিমধ্যেই সংরক্ষিত অন্য একটি অ্যাকাউন্টের সঙ্গে সংঘর্ষ করছে। এটি দিয়ে সাইন ইন করতে চাইলে আগে ওই অ্যাকাউন্টটি সরান।</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>এই অ্যাকাউন্টের একটি অব্যবহারযোগ্য স্থানীয় সংরক্ষণ সরিয়ে রাখা যায়নি। ফাইল সিস্টেমের অনুমতি দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-1079"/>
+        <location line="-1081"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+933"/>
+        <location line="+935"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Rust SDK ব্যাকএন্ড চালু করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-1176"/>
+        <location line="-1178"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>একটি হোমসার্ভার আবশ্যক।</translation>
@@ -19930,7 +19930,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই ডিভাইসে সংরক্ষিত, বড় ও ছোট হাতের অক্ষরে আলাদা কিন্তু একই নামের আরেকটি অ্যাকাউন্ট এই অ্যাকাউন্টের স্টোরেজ ব্যবহার করছে। এটি দিয়ে সাইন ইন করতে চাইলে আগে ওই অ্যাকাউন্ট সরান।</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+72"/>
         <source>You signed in, but Lightning could not open this account&apos;s storage on this device. Nothing was saved here.</source>
         <translation>আপনি সাইন ইন করেছেন, কিন্তু Lightning এই ডিভাইসে এই অ্যাকাউন্টের স্টোরেজ খুলতে পারেনি। এখানে কিছুই সংরক্ষিত হয়নি।</translation>
     </message>
@@ -20109,7 +20109,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভোটের কাজ সম্পন্ন করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-6518"/>
+        <location line="-6523"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>এই অ্যাকাউন্টের ডেটা এখনও একটি ব্যাকগ্রাউন্ড সেশনে ব্যবহৃত হচ্ছে। একটু অপেক্ষা করে আবার চেষ্টা করুন।</translation>
     </message>
@@ -20124,7 +20124,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই অ্যাকাউন্টের নেটওয়ার্ক রুট প্রয়োগ করা যায়নি, তাই Lightning এটি সরাসরি সংযুক্ত করবে না। সেটিংসে প্রক্সি পরীক্ষা করুন।</translation>
     </message>
     <message>
-        <location line="+590"/>
+        <location line="+593"/>
         <source>Enter your username.</source>
         <translation>আপনার ব্যবহারকারীর নাম দিন।</translation>
     </message>
@@ -20139,7 +20139,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার পাসওয়ার্ড দিন।</translation>
     </message>
     <message>
-        <location line="+5652"/>
+        <location line="+5654"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>বার্তাটি পাঠানো যায়নি। বার্তার “আবার চেষ্টা করুন” ক্রিয়া থেকে আবার চেষ্টা করতে পারেন।</translation>
     </message>

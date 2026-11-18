@@ -1023,7 +1023,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7288"/>
+        <location filename="../src/app/AppController.cpp" line="+7310"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1145,7 +1145,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Įeinantis skambutis</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5650"/>
+        <location filename="../src/app/AppController.cpp" line="-5672"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Atsijungimas atšauktas, nes paskyra pasikeitė. Nieko iš naujo nenustatyta.</translation>
     </message>
@@ -1197,13 +1197,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4230"/>
-        <location line="+817"/>
+        <location line="+4251"/>
+        <location line="+818"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-5088"/>
+        <location line="-5110"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -1228,7 +1228,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Neprisijungus – bandoma dar kartą</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+120"/>
         <source>The server refused to rename this session.</source>
         <translation>Serveris atsisakė pervadinti šį seansą.</translation>
     </message>
@@ -1248,7 +1248,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>%1 nori patvirtinti seansą. Atidarykite „Lightning“, kad peržiūrėtumėte.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+252"/>
+        <location filename="../src/app/AppController.cpp" line="+250"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Importuoti kambario raktai pritaikyti atvirai laiko juostai.</translation>
     </message>
@@ -1264,29 +1264,29 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3028"/>
+        <location line="+3047"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-3034"/>
+        <location line="-3053"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4026"/>
+        <location line="+4046"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-4024"/>
+        <location line="-4044"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
     <message>
-        <location line="+2232"/>
+        <location line="+2251"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Įveskite dydžio ribą nuo 1 iki 2000 MB.</translation>
     </message>
@@ -1301,13 +1301,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Naudokite tikras datas formatu YYYY-MM-DD, kai „Nuo“ nėra vėlesnė už „Iki“.</translation>
     </message>
     <message>
-        <location line="-4734"/>
-        <location line="+2691"/>
+        <location line="-4755"/>
+        <location line="+2693"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2690"/>
+        <location line="-2692"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Tai bandomasis pranešimas. Jei jį matote, darbalaukio pranešimai veikia.</translation>
     </message>
@@ -1332,7 +1332,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+852"/>
+        <location line="+854"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Tas pranešimas buvo skirtas kitai paskyrai, todėl nieko neišsiųsta. Grįžkite į tą paskyrą ir bandykite dar kartą.</translation>
     </message>
@@ -1372,7 +1372,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+149"/>
         <source>Modern room list</source>
         <translation>Šiuolaikinių kambarių sąrašas</translation>
     </message>
@@ -1544,7 +1544,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+531"/>
-        <location line="+808"/>
+        <location line="+809"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
@@ -1636,10 +1636,10 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location filename="../src/app/AppController.cpp" line="-2157"/>
         <location line="+25"/>
         <location line="+562"/>
-        <location line="+453"/>
+        <location line="+454"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>„Lightning“ šiuo metu negali nuskaityti šio įrenginio įrašytų prisijungimų – sistemos raktų saugykla užrakinta arba nepasiekiama. Atrakinkite ją ir bandykite dar kartą.</translation>
     </message>
@@ -2106,7 +2106,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Ši versija negali atlikti vieno prisijungimo.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+52"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>„Lightning“ negali išlaikyti šio serverio paskyros šiame įrenginyje, todėl neatidarė naršyklės.</translation>
     </message>
@@ -3940,7 +3940,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+93"/>
         <source>%1, invitation</source>
         <translation>%1, kvietimas</translation>
     </message>
@@ -17802,7 +17802,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>%1, nutildytas</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+67"/>
         <source>Yesterday</source>
         <translation>vakar</translation>
     </message>
@@ -19867,7 +19867,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+957"/>
+        <location line="+960"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Nepavyko sukurti Rust SDK posistemės objekto.</translation>
     </message>
@@ -19878,21 +19878,21 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Šios paskyros vietinės saugyklos pavadinimas susiduria su kita paskyra, jau išsaugota šiame įrenginyje. Pirmiausia pašalinkite tą paskyrą, jei norite prisijungti naudodami šią paskyrą.</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>Netinkamos vietinės šios paskyros saugyklos nepavyko perkelti. Patikrinkite failų sistemos leidimus ir bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-1079"/>
+        <location line="-1081"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+933"/>
+        <location line="+935"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Nepavyko inicijuoti Rust SDK posistemės.</translation>
     </message>
     <message>
-        <location line="-1176"/>
+        <location line="-1178"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>Reikalingas namų serveris.</translation>
@@ -20016,7 +20016,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Kita šiame įrenginyje įrašyta paskyra su tuo pačiu pavadinimu, bet kitomis didžiosiomis ir mažosiomis raidėmis, naudoja šios paskyros saugyklą. Jei norite prisijungti su šia, pirmiausia pašalinkite tą paskyrą.</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+72"/>
         <source>You signed in, but Lightning could not open this account&apos;s storage on this device. Nothing was saved here.</source>
         <translation>Prisijungėte, bet „Lightning“ nepavyko atidaryti šios paskyros saugyklos šiame įrenginyje. Čia nieko neįrašyta.</translation>
     </message>
@@ -20195,7 +20195,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nepavyko atlikti apklausos veiksmo.</translation>
     </message>
     <message>
-        <location line="-6518"/>
+        <location line="-6523"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Šios paskyros duomenis vis dar naudoja fonu veikiantis seansas. Palaukite akimirką ir bandykite dar kartą.</translation>
     </message>
@@ -20210,7 +20210,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Šios paskyros tinklo maršruto nepavyko pritaikyti, todėl Lightning jos neprijungs tiesiogiai. Patikrinkite tarpinį serverį nustatymuose.</translation>
     </message>
     <message>
-        <location line="+590"/>
+        <location line="+593"/>
         <source>Enter your username.</source>
         <translation>Įveskite naudotojo vardą.</translation>
     </message>
@@ -20225,7 +20225,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įveskite slaptažodį.</translation>
     </message>
     <message>
-        <location line="+5652"/>
+        <location line="+5654"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Nepavyko išsiųsti žinutės. Galite bandyti dar kartą naudodami žinutės veiksmą Bandyti iš naujo.</translation>
     </message>

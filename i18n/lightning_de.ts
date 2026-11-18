@@ -1014,21 +1014,21 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6326"/>
+        <location filename="../src/app/AppController.cpp" line="+6347"/>
         <location line="+25"/>
         <location line="+562"/>
-        <location line="+453"/>
+        <location line="+454"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6774"/>
-        <location line="+2691"/>
+        <location filename="../src/app/AppController.cpp" line="-6796"/>
+        <location line="+2693"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2690"/>
+        <location line="-2692"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
@@ -1095,13 +1095,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4230"/>
-        <location line="+817"/>
+        <location line="+4251"/>
+        <location line="+818"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5088"/>
+        <location line="-5110"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1126,7 +1126,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Offline – neuer Versuch folgt</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+120"/>
         <source>The server refused to rename this session.</source>
         <translation>Der Server hat das Umbenennen dieser Sitzung abgelehnt.</translation>
     </message>
@@ -1141,7 +1141,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Verifizierungsanfrage</translation>
     </message>
     <message>
-        <location line="+252"/>
+        <location line="+250"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Importierte Raumschlüssel wurden auf den geöffneten Verlauf angewendet.</translation>
     </message>
@@ -1157,24 +1157,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3028"/>
+        <location line="+3047"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning konnte die ausgewählte Datei nicht lesen.</translation>
     </message>
     <message>
-        <location line="-3034"/>
+        <location line="-3053"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ein Raumschlüssel-Import läuft bereits.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4026"/>
+        <location line="+4046"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4024"/>
+        <location line="-4044"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1219,7 +1219,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+149"/>
         <source>Modern room list</source>
         <translation>Moderne Raumliste</translation>
     </message>
@@ -1406,7 +1406,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+531"/>
-        <location line="+808"/>
+        <location line="+809"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
@@ -2095,7 +2095,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Diese Version kann kein Single Sign-on durchführen.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+52"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>Lightning kann auf diesem Gerät kein Konto für diesen Server behalten, daher wurde dein Browser nicht geöffnet.</translation>
     </message>
@@ -3917,7 +3917,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+93"/>
         <source>%1, invitation</source>
         <translation>%1, Einladung</translation>
     </message>
@@ -17738,7 +17738,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>%1, stummgeschaltet</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+67"/>
         <source>Yesterday</source>
         <translation>Gestern</translation>
     </message>
@@ -19845,17 +19845,17 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+957"/>
+        <location line="+960"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Das Rust-SDK-Backend-Handle konnte nicht erstellt werden.</translation>
     </message>
     <message>
-        <location line="-918"/>
+        <location line="-921"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
         <translation>Die Netzwerkroute dieses Kontos konnte nicht angewendet werden, daher verbindet Lightning es nicht direkt. Prüfe den Proxy in den Einstellungen.</translation>
     </message>
     <message>
-        <location line="+588"/>
+        <location line="+591"/>
         <source>Enter a server, for example matrix.org.</source>
         <translation>Gib einen Server ein, zum Beispiel matrix.org.</translation>
     </message>
@@ -19889,13 +19889,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-830"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+933"/>
+        <location line="+935"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Das Rust-SDK-Backend konnte nicht initialisiert werden.</translation>
     </message>
     <message>
-        <location line="-1176"/>
+        <location line="-1178"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>Ein Homeserver ist erforderlich.</translation>
@@ -19964,7 +19964,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Ein anderes auf diesem Gerät gespeichertes Konto mit demselben Namen in anderer Groß- und Kleinschreibung verwendet den Speicher dieses Kontos. Entferne zuerst jenes Konto, wenn du dich mit diesem anmelden möchtest.</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+72"/>
         <source>You signed in, but Lightning could not open this account&apos;s storage on this device. Nothing was saved here.</source>
         <translation>Du hast dich angemeldet, aber Lightning konnte den Speicher dieses Kontos auf diesem Gerät nicht öffnen. Hier wurde nichts gespeichert.</translation>
     </message>

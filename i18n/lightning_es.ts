@@ -1013,7 +1013,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7288"/>
+        <location filename="../src/app/AppController.cpp" line="+7310"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1134,7 +1134,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Llamada entrante</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5650"/>
+        <location filename="../src/app/AppController.cpp" line="-5672"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>El cierre de sesión se canceló porque la cuenta cambió. No se restableció nada.</translation>
     </message>
@@ -1186,13 +1186,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4230"/>
-        <location line="+817"/>
+        <location line="+4251"/>
+        <location line="+818"/>
         <source>Not connected</source>
         <translation>Sin conexión</translation>
     </message>
     <message>
-        <location line="-5088"/>
+        <location line="-5110"/>
         <source>Connecting…</source>
         <translation>Conectando…</translation>
     </message>
@@ -1217,7 +1217,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Sin conexión: reintentando</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+120"/>
         <source>The server refused to rename this session.</source>
         <translation>El servidor rechazó renombrar esta sesión.</translation>
     </message>
@@ -1237,7 +1237,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>%1 quiere verificar una sesión. Abre Lightning para revisarla.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+252"/>
+        <location filename="../src/app/AppController.cpp" line="+250"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Las claves de sala importadas se han aplicado a la conversación abierta.</translation>
     </message>
@@ -1253,29 +1253,29 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3028"/>
+        <location line="+3047"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning no pudo leer el archivo seleccionado.</translation>
     </message>
     <message>
-        <location line="-3034"/>
+        <location line="-3053"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ya hay una importación de claves de sala en curso.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4026"/>
+        <location line="+4046"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-4024"/>
+        <location line="-4044"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
     <message>
-        <location line="+2232"/>
+        <location line="+2251"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Introduce un límite de tamaño de 1 a 2000 MB.</translation>
     </message>
@@ -1290,13 +1290,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Usa fechas reales en formato YYYY-MM-DD, con «Desde» no posterior a «Hasta».</translation>
     </message>
     <message>
-        <location line="-4734"/>
-        <location line="+2691"/>
+        <location line="-4755"/>
+        <location line="+2693"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2690"/>
+        <location line="-2692"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Esta es una notificación de prueba. Si puedes leerla, las notificaciones de escritorio funcionan.</translation>
     </message>
@@ -1321,7 +1321,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+852"/>
+        <location line="+854"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Esa notificación era de otra cuenta, así que no se envió nada. Vuelve a esa cuenta e inténtalo de nuevo.</translation>
     </message>
@@ -1361,7 +1361,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+149"/>
         <source>Modern room list</source>
         <translation>Lista de salas moderna</translation>
     </message>
@@ -1533,7 +1533,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+531"/>
-        <location line="+808"/>
+        <location line="+809"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
@@ -1625,10 +1625,10 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location filename="../src/app/AppController.cpp" line="-2157"/>
         <location line="+25"/>
         <location line="+562"/>
-        <location line="+453"/>
+        <location line="+454"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning no puede leer ahora los inicios de sesión guardados de este dispositivo: el llavero del sistema está bloqueado o no disponible. Desbloquéalo e inténtalo de nuevo.</translation>
     </message>
@@ -2095,7 +2095,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Esta compilación no puede realizar el inicio de sesión único.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+52"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>Lightning no puede mantener una cuenta para este servidor en este dispositivo, así que no abrió tu navegador.</translation>
     </message>
@@ -3917,7 +3917,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+93"/>
         <source>%1, invitation</source>
         <translation>%1, invitación</translation>
     </message>
@@ -17738,7 +17738,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>%1, silenciada</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+67"/>
         <source>Yesterday</source>
         <translation>Ayer</translation>
     </message>
@@ -19790,7 +19790,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+957"/>
+        <location line="+960"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>No se pudo crear el manejador del backend del SDK de Rust.</translation>
     </message>
@@ -19801,21 +19801,21 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>El nombre de almacenamiento local de esta cuenta coincide con el de otra cuenta ya guardada en este dispositivo. Elimina esa cuenta antes de iniciar sesión con esta.</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>No se pudo apartar un almacén local inutilizable de esta cuenta. Comprueba los permisos del sistema de archivos y vuelve a intentarlo.</translation>
     </message>
     <message>
-        <location line="-1079"/>
+        <location line="-1081"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+933"/>
+        <location line="+935"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>No se pudo inicializar el backend del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="-1176"/>
+        <location line="-1178"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>Hace falta un servidor doméstico.</translation>
@@ -19939,7 +19939,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Otra cuenta guardada en este dispositivo, con el mismo nombre pero con mayúsculas y minúsculas distintas, usa el almacenamiento de esta cuenta. Elimina primero esa cuenta si quieres iniciar sesión con esta.</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+72"/>
         <source>You signed in, but Lightning could not open this account&apos;s storage on this device. Nothing was saved here.</source>
         <translation>Has iniciado sesión, pero Lightning no pudo abrir el almacenamiento de esta cuenta en este dispositivo. No se guardó nada aquí.</translation>
     </message>
@@ -20118,7 +20118,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se pudo completar la acción de la encuesta.</translation>
     </message>
     <message>
-        <location line="-6518"/>
+        <location line="-6523"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Los datos de esta cuenta siguen en uso por una sesión en segundo plano. Espera un momento e inténtalo de nuevo.</translation>
     </message>
@@ -20133,7 +20133,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se pudo aplicar la ruta de red de esta cuenta, así que Lightning no la conectará directamente. Revisa el proxy en Ajustes.</translation>
     </message>
     <message>
-        <location line="+590"/>
+        <location line="+593"/>
         <source>Enter your username.</source>
         <translation>Introduce tu nombre de usuario.</translation>
     </message>
@@ -20148,7 +20148,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Introduce tu contraseña.</translation>
     </message>
     <message>
-        <location line="+5652"/>
+        <location line="+5654"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>No se pudo enviar el mensaje. Puedes volver a intentarlo con la acción Reintentar del mensaje.</translation>
     </message>

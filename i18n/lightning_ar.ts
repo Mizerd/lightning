@@ -1051,7 +1051,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7288"/>
+        <location filename="../src/app/AppController.cpp" line="+7310"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -1176,7 +1176,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5650"/>
+        <location filename="../src/app/AppController.cpp" line="-5672"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>أُلغي تسجيل الخروج لأن الحساب تغيّر. لم يُعَد ضبط أي شيء.</translation>
     </message>
@@ -1228,13 +1228,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4230"/>
-        <location line="+817"/>
+        <location line="+4251"/>
+        <location line="+818"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-5088"/>
+        <location line="-5110"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1259,7 +1259,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>غير متصل — إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+120"/>
         <source>The server refused to rename this session.</source>
         <translation>رفض الخادوم إعادة تسمية هذه الجلسة.</translation>
     </message>
@@ -1279,7 +1279,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>يريد %1 التحقّق من جلسة. افتح Lightning لمراجعته.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+252"/>
+        <location filename="../src/app/AppController.cpp" line="+250"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>طُبّقت مفاتيح الغرفة المستوردة على المحادثة المفتوحة.</translation>
     </message>
@@ -1295,29 +1295,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3028"/>
+        <location line="+3047"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-3034"/>
+        <location line="-3053"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4026"/>
+        <location line="+4046"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-4024"/>
+        <location line="-4044"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
     <message>
-        <location line="+2232"/>
+        <location line="+2251"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>أدخل حدًّا للحجم من 1 إلى 2000 ميغابايت.</translation>
     </message>
@@ -1332,13 +1332,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>استخدم تواريخ حقيقية بصيغة YYYY-MM-DD، على ألا يكون «من» بعد «إلى».</translation>
     </message>
     <message>
-        <location line="-4734"/>
-        <location line="+2691"/>
+        <location line="-4755"/>
+        <location line="+2693"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2690"/>
+        <location line="-2692"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>هذا إشعار تجريبي. إن استطعت قراءته فإشعارات سطح المكتب تعمل.</translation>
     </message>
@@ -1363,7 +1363,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+852"/>
+        <location line="+854"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>كان ذلك الإشعار لحساب آخر، فلم يُرسَل شيء. عُد إلى ذلك الحساب وحاول مجددًا.</translation>
     </message>
@@ -1403,7 +1403,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+149"/>
         <source>Modern room list</source>
         <translation>قائمة غرف حديثة</translation>
     </message>
@@ -1575,7 +1575,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+531"/>
-        <location line="+808"/>
+        <location line="+809"/>
         <location line="+723"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
@@ -1667,10 +1667,10 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="-2156"/>
+        <location filename="../src/app/AppController.cpp" line="-2157"/>
         <location line="+25"/>
         <location line="+562"/>
-        <location line="+453"/>
+        <location line="+454"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>لا يستطيع Lightning قراءة تسجيلات الدخول المحفوظة على هذا الجهاز الآن — حلقة مفاتيح النظام مقفلة أو غير متاحة. افتح قفلها وحاول مجددًا.</translation>
     </message>
@@ -2137,7 +2137,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>لا يمكن لهذا الإصدار إجراء تسجيل الدخول الأحادي.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+52"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
         <translation>لا يستطيع Lightning الاحتفاظ بحساب لهذا الخادوم على هذا الجهاز، لذا لم يفتح متصفحك.</translation>
     </message>
@@ -4007,7 +4007,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+89"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+93"/>
         <source>%1, invitation</source>
         <translation>%1، دعوة</translation>
     </message>
@@ -17985,7 +17985,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1، مكتومة</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+67"/>
         <source>Yesterday</source>
         <translation>أمس</translation>
     </message>
@@ -20089,7 +20089,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+957"/>
+        <location line="+960"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>فشل إنشاء مقبض خلفية Rust SDK.</translation>
     </message>
@@ -20100,21 +20100,21 @@ Signing out and signing in again is the only fix.</source>
         <translation>اسم التخزين المحلي لهذا الحساب يتعارض مع حساب آخر محفوظ على هذا الجهاز. أزل ذلك الحساب أولًا إن أردت تسجيل الدخول بهذا.</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>تعذّر تنحية مخزن محلي غير صالح لهذا الحساب. تحقّق من أذونات نظام الملفات وأعد المحاولة.</translation>
     </message>
     <message>
-        <location line="-1079"/>
+        <location line="-1081"/>
         <location line="+147"/>
         <location line="+152"/>
-        <location line="+933"/>
+        <location line="+935"/>
         <location line="+83"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>تعذّرت تهيئة خلفية Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1176"/>
+        <location line="-1178"/>
         <location line="+153"/>
         <source>A homeserver is required.</source>
         <translation>الخادوم المنزلي مطلوب.</translation>
@@ -20238,7 +20238,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>حساب آخر محفوظ على هذا الجهاز، بالاسم نفسه مع اختلاف حالة الأحرف، يستخدم تخزين هذا الحساب. أزل ذلك الحساب أولًا إن أردت تسجيل الدخول بهذا.</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+72"/>
         <source>You signed in, but Lightning could not open this account&apos;s storage on this device. Nothing was saved here.</source>
         <translation>سجّلت الدخول، لكن تعذّر على Lightning فتح تخزين هذا الحساب على هذا الجهاز. لم يُحفظ شيء هنا.</translation>
     </message>
@@ -20417,7 +20417,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تعذّر إكمال إجراء الاستطلاع.</translation>
     </message>
     <message>
-        <location line="-6518"/>
+        <location line="-6523"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>بيانات هذا الحساب ما زالت قيد الاستخدام من جلسة في الخلفية. انتظر قليلًا ثم حاول مرة أخرى.</translation>
     </message>
@@ -20432,7 +20432,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تعذّر تطبيق مسار الشبكة لهذا الحساب، لذا لن يوصله Lightning مباشرةً. تحقّق من الوكيل في الإعدادات.</translation>
     </message>
     <message>
-        <location line="+590"/>
+        <location line="+593"/>
         <source>Enter your username.</source>
         <translation>أدخل اسم المستخدم.</translation>
     </message>
@@ -20447,7 +20447,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>أدخل كلمة المرور.</translation>
     </message>
     <message>
-        <location line="+5652"/>
+        <location line="+5654"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>تعذّر إرسال الرسالة. يمكنك إعادة المحاولة من إجراء «إعادة المحاولة» الخاص بالرسالة.</translation>
     </message>
