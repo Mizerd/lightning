@@ -1070,6 +1070,10 @@ check("--call-media-status" in configure_src,
       "configure-build.sh probes the staged binary for the engine")
 check("call media engine built in: yes" in configure_src,
       "configure-build.sh fails the build when the engine was configured out")
+check("grep -qx 'X11 window sharing: not built (no xcb headers)'" in configure_src,
+      "configure-build.sh fails the build when X11 window sharing was configured out")
+check('"not built (no xcb headers)"' in _read("..", "src", "calls", "WindowCaptureSrc.cpp"),
+      "the X11 window sharing status the build rejects is the one the binary prints")
 
 # The Flatpak does not use configure-build.sh, so its manifest repeats the guard.
 flatpak_manifest = _read("packaging", "flatpak",

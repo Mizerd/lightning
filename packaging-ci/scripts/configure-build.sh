@@ -201,3 +201,10 @@ printf '%s\n' "$call_media_status" | grep -qx 'call media engine built in: yes' 
  If SOURCE_REF is pinned to a commit older than 2026-08-26 it has no\
  --call-media-status at all and no engine to assert; that is a source too old\
  to publish a calling client from, not a check to remove."
+# CI has no X11 session, so "available" cannot be asserted; only the build.
+if printf '%s\n' "$call_media_status" | grep -qx 'X11 window sharing: not built (no xcb headers)'; then
+    die "the staged binary has NO X11 window sharing: CMake found no xcb/xcb.h,\
+ so single-window share on X11 desktops without a ScreenCast portal is compiled\
+ out. Install the xcb development headers in this build job (Debian/Ubuntu:\
+ libxcb1-dev; Fedora/openSUSE: libxcb-devel)."
+fi
