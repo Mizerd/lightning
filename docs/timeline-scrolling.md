@@ -671,7 +671,7 @@ event-focused timeline, not the main pane. Measured on the rig (llvmpipe, seeded
 3198-event room, 900 px pane): frame intervals were NOT the cause, p50 10-16 ms
 in the context view against 15-18 ms in the live timeline, so the focused
 timeline, the row window, the anchors and the highlight are not it (the row
-window and the anchors do not run in this view at all). The cause was distance:
+window and the main pane's anchors do not run in this view). The cause was distance:
 Qt's default wheel step moved 22-38 px a notch against the timeline's 286, and
 the view held one 19-row page behind a Load button.
 
@@ -681,6 +681,16 @@ margins, because a `ListView`'s origin moves. A written `contentY` can settle in
 estimated height holding no rows (seen after fast up/down through new pages,
 not reproduced in a standalone harness, mechanism unproven), so the view returns
 to the last row it showed.
+
+**The view holds its centre row across any insert (2026-11-18, #51).** The Rust
+timeline lands an older page below the date divider (`eventsInsertedAt`, index
+1), so the `olderPrepended` pin never fired on that backend and a reader at the
+top was carried ~300 messages back while wheeling (trace: `prepends=0`). The
+anchor is taken in `rowsAboutToBeInserted`, re-applied after the insert and on
+height changes in the 300 ms after it (regrouping), and a wheel glide is moved
+by the same amount rather than stopped. A saved-position restore uses the same
+anchor at the saved offset while pages fill in around it. Trace: `inserts`,
+`anchorFixes`, `context-restore-filled wantY= gotY=`.
 
 ## A start at our own join is checked with the server once (2026-11-05)
 
