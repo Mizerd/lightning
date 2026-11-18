@@ -2971,10 +2971,12 @@ true, ringSeconds, acceptOffered,
 
         // Cross-signing snapshot and room-key import lifecycle.
         //
-        // The label must read `deviceCrossSigned`, not Device::is_verified():
-        // matrix-sdk marks our own device locally trusted when it creates it,
-        // so is_verified() is always true here and would also suppress the
-        // verify-this-session prompt (sessionVerificationNeeded()).
+        // The label reads `deviceCrossSigned` (the fallback before the first
+        // verification_state, and required for Verified after it), never
+        // Device::is_verified(): matrix-sdk marks our own device locally
+        // trusted when it creates it, so is_verified() is always true here and
+        // would also suppress the verify-this-session prompt
+        // (sessionVerificationNeeded()).
         connect(rust, &RustSdkMatrixClient::ownDeviceStatusUpdated,
                 this, [this](const QString &deviceId,
                              bool ownIdentityAvailable,
@@ -4232,10 +4234,12 @@ QString AppController::sessionTrustStateFor(const QString &sdkVerificationState,
                                            bool ownIdentityAvailable,
                                            bool deviceCrossSigned)
 {
-    // matrix-sdk's own answer (`verification_state()`) wins once it has one;
-    // the snapshot only says whether an identity exists at all.
+    // Verified needs the SDK's `verification_state()` and the snapshot's
+    // deviceCrossSigned to agree; before the first state arrives the snapshot
+    // alone decides.
     if (sdkVerificationState == QLatin1String("verified"))
-        return QStringLiteral("Verified");
+        return deviceCrossSigned ? QStringLiteral("Verified")
+                                 : QStringLiteral("Not verified");
     if (sdkVerificationState == QLatin1String("unknown"))
         return QStringLiteral("Unknown");
     if (!ownIdentityAvailable)
