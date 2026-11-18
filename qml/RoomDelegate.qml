@@ -53,6 +53,9 @@ Item {
     readonly property bool isUnread: model.hasUnread || model.markedUnread
     readonly property bool canMarkRead: model.rawUnread === true
         || isUnread || model.unreadCount > 0 || model.highlightCount > 0
+    // hasCountBadge below already flags mentions/counts, so bold can mark
+    // any activity instead of repeating that same notification-gated signal.
+    readonly property bool hasActivity: model.rawUnread === true
 
     readonly property string roomId: model.roomId || ""
     property int notificationMode: 0
@@ -203,10 +206,10 @@ Item {
                     text: model.name
                     textFormat: Text.PlainText
                     color: selected ? AppTheme.roomSelectedName
-                         : (root.isUnread && !root.muted) ? AppTheme.roomNameUnread
+                         : (root.hasActivity && !root.muted) ? AppTheme.roomNameUnread
                                                           : AppTheme.roomName
                     font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-                    font.weight: (root.isUnread && !root.muted)
+                    font.weight: (root.hasActivity && !root.muted)
                                  ? AppTheme.weightBold : AppTheme.weightMedium
                     elide: Label.ElideRight
                     // Explicit, not the implicit default: an implicit left follows
@@ -281,10 +284,10 @@ Item {
                              && text.length > 0
                     text: root.activityLabel(model.lastActivity)
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                    font.weight: (root.isUnread && !root.muted)
+                    font.weight: (root.hasActivity && !root.muted)
                                  ? AppTheme.weightStrong : AppTheme.weightBody
                     color: selected ? AppTheme.selectedText
-                         : (root.isUnread && !root.muted)
+                         : (root.hasActivity && !root.muted)
                            ? AppTheme.textSecondary : AppTheme.textMuted
                 }
             }
