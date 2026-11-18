@@ -1271,12 +1271,12 @@ impl AbsentAnswers {
     }
 }
 
-fn absent_answers() -> &'static AbsentAnswers {
+pub(crate) fn absent_answers() -> &'static AbsentAnswers {
     static ABSENT: once_cell::sync::Lazy<AbsentAnswers> = once_cell::sync::Lazy::new(AbsentAnswers::new);
     &ABSENT
 }
 
-fn account_key(client: &matrix_sdk::Client) -> String {
+pub(crate) fn account_key(client: &matrix_sdk::Client) -> String {
     client.user_id().map(|u| u.to_string()).unwrap_or_default()
 }
 
@@ -1316,7 +1316,7 @@ where
 }
 
 fn forget_own_write(client: &matrix_sdk::Client, event_type: &str) {
-    absent_answers().forget(&account_key(client), event_type);
+    crate::optprobe::note_write(client, event_type);
 }
 
 fn server_answer<E>(
@@ -1376,6 +1376,22 @@ where
     }
 }
 
+async fn ask_account_data(
+    client: &matrix_sdk::Client,
+    event_type: &str,
+    ty: &GlobalAccountDataEventType,
+) -> ServerAnswer {
+    if crate::optprobe::proves_absent(client, event_type) {
+        return ServerAnswer::Absent;
+    }
+    crate::optprobe::state_pace().await;
+    let answer = server_answer(client.account().fetch_account_data(ty.clone()).await);
+    if !matches!(answer, ServerAnswer::Failed) {
+        crate::optprobe::served(client, event_type);
+    }
+    answer
+}
+
 async fn read_global_account_data_typed(
     client: &matrix_sdk::Client,
     event_type: &str,
@@ -1393,7 +1409,7 @@ async fn read_global_account_data_typed(
                 _ => None,
             }
         },
-        || async { server_answer(client.account().fetch_account_data(ty.clone()).await) },
+        || async { ask_account_data(client, event_type, &ty).await },
     )
     .await
 }
@@ -1413,7 +1429,7 @@ async fn read_global_account_data(
                 _ => None,
             }
         },
-        || async { server_answer(client.account().fetch_account_data(ty.clone()).await) },
+        || async { ask_account_data(client, event_type, &ty).await },
     )
     .await
 }

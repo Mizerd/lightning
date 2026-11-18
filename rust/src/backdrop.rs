@@ -278,34 +278,38 @@ pub(crate) fn fetch_room_background(
             StateEventType::from(ROOM_BACKGROUND_EVENT),
             String::new(),
         );
-        let parsed = match client.send(request).with_request_config(config).await {
-            Ok(response) => serde_json::from_str::<Value>(response.event_or_content.get())
-                .map(|v| parse_content(&v))
-                .unwrap_or(Parsed::None),
-            Err(err) => {
-                let text = err.to_string().to_ascii_lowercase();
-                if text.contains("m_not_found") || text.contains("404") {
-                    Parsed::None
-                } else {
-                    let stored = room
-                        .get_state_event(StateEventType::from(ROOM_BACKGROUND_EVENT), "")
-                        .await
-                        .ok()
-                        .flatten();
-                    match stored {
-                        Some(raw) => {
-                            let json = match &raw {
-                                RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
-                                RawAnySyncOrStrippedState::Stripped(ev) => {
-                                    ev.json().get().to_owned()
-                                }
-                            };
-                            serde_json::from_str::<Value>(&json)
-                                .map(|v| parse_content(&v))
-                                .unwrap_or(Parsed::None)
-                        }
-                        None => Parsed::None,
+        let stored = room
+            .get_state_event(StateEventType::from(ROOM_BACKGROUND_EVENT), "")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|raw| {
+                let json = match &raw {
+                    RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
+                    RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
+                };
+                serde_json::from_str::<Value>(&json).ok().map(|v| parse_content(&v))
+            });
+        let room_key = room.room_id().to_string();
+        let parsed = if let Some(parsed) = stored {
+            parsed
+        } else if crate::optprobe::state_known_absent(&client, &room_key, ROOM_BACKGROUND_EVENT) {
+            Parsed::None
+        } else {
+            crate::optprobe::state_pace().await;
+            match client.send(request).with_request_config(config).await {
+                Ok(response) => {
+                    crate::optprobe::state_forget(&client, &room_key, ROOM_BACKGROUND_EVENT);
+                    serde_json::from_str::<Value>(response.event_or_content.get())
+                        .map(|v| parse_content(&v))
+                        .unwrap_or(Parsed::None)
+                }
+                Err(err) => {
+                    let text = err.to_string().to_ascii_lowercase();
+                    if text.contains("m_not_found") || text.contains("404") {
+                        crate::optprobe::state_mark_absent(&client, &room_key, ROOM_BACKGROUND_EVENT);
                     }
+                    Parsed::None
                 }
             }
         };
@@ -374,6 +378,7 @@ pub(crate) fn set_room_background(
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
+    crate::optprobe::state_forget(&client, &room_id, ROOM_BACKGROUND_EVENT);
     bridge.spawn_room_action(async move {
         let result: Result<Value, WriteError> = async {
             let failed = |stage: &'static str, err: String| {

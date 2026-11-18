@@ -385,6 +385,10 @@ pub(crate) fn fetch_room_banner(
                     break;
                 }
             }
+            let room_key = room.room_id().to_string();
+            if crate::optprobe::state_known_absent(&client, &room_key, event_type) {
+                continue;
+            }
             let config = RequestConfig::new()
                 .disable_retry()
                 .timeout(BANNER_REQUEST_TIMEOUT);
@@ -393,11 +397,18 @@ pub(crate) fn fetch_room_banner(
                 StateEventType::from(event_type),
                 String::new(),
             );
-            if let Ok(response) = client.send(request).with_request_config(config).await {
-                if let Some(url) = banner_url_from_json(response.event_or_content.get()) {
-                    banner = url;
-                    break;
+            crate::optprobe::state_pace().await;
+            match client.send(request).with_request_config(config).await {
+                Ok(response) => {
+                    if let Some(url) = banner_url_from_json(response.event_or_content.get()) {
+                        banner = url;
+                        break;
+                    }
                 }
+                Err(err) if err.as_client_api_error().is_some_and(|e| e.status_code.as_u16() == 404) => {
+                    crate::optprobe::state_mark_absent(&client, &room_key, event_type);
+                }
+                Err(_) => {}
             }
         }
 
@@ -450,6 +461,9 @@ pub(crate) fn set_room_banner(
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
+    for event_type in [ROOM_BANNER_EVENT, ROOM_BANNER_EVENT_LEGACY] {
+        crate::optprobe::state_forget(&client, &room_id, event_type);
+    }
     bridge.spawn_room_action(async move {
         let result = async {
             let mxc = if clearing {

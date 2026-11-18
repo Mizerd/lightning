@@ -314,8 +314,30 @@ async fn read_server(client: &Client, scope: &str) -> Result<Option<Value>, Stri
     }
 }
 
+const ROOM_AD_KEY: &str = "ad:org.lightning_matrix.room.background";
+
 async fn read_scope(client: &Client, scope: &str) -> Result<Option<Entry>, String> {
-    Ok(read_server(client, scope).await?.map(|raw| parse_scope(scope, &raw)))
+    let raw = if scope.is_empty() || scope == SETTINGS_TYPE {
+        let ty = if scope == SETTINGS_TYPE { SETTINGS_TYPE } else { GLOBAL_TYPE };
+        crate::optprobe::read_global(client, ty, Some(bounded())).await?
+    } else if crate::optprobe::state_known_absent(client, scope, ROOM_AD_KEY) {
+        None
+    } else {
+        crate::optprobe::state_pace().await;
+        let raw = read_server(client, scope).await?;
+        if raw.is_none() {
+            crate::optprobe::state_mark_absent(client, scope, ROOM_AD_KEY);
+        }
+        raw
+    };
+    Ok(raw.map(|raw| parse_scope(scope, &raw)))
+}
+
+async fn read_switch_cached(client: &Client) -> Result<bool, String> {
+    Ok(crate::optprobe::read_global(client, SETTINGS_TYPE, Some(bounded()))
+        .await?
+        .map(|raw| switch_on(&raw))
+        .unwrap_or(true))
 }
 
 fn wanted_picture(entry: Option<Entry>, expected: &str) -> Option<Present> {
@@ -439,7 +461,7 @@ pub(crate) fn read(bridge: &RustClient, op_id: u64, scope: String) -> Result<(),
         let ((entries, failed), enabled) =
             entries_then_shared_switch(&switch_cache, lifecycle, read_entries, || async {
                 count();
-                read_switch_server(&client).await
+                read_switch_cached(&client).await
             })
             .await;
         if !timelines.lifecycle_current(lifecycle) {
@@ -656,6 +678,7 @@ async fn put_global(client: &Client, event_type: &str, content: &Value) -> Resul
     if !is_canonical_json_safe(content) {
         return Err("invalid_content".to_owned());
     }
+    crate::optprobe::note_write(client, event_type);
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let raw = Raw::new(content).map_err(|_| "invalid_content".to_owned())?.cast_unchecked();
     let request = set_global_account_data::v3::Request::new_raw(
@@ -680,6 +703,7 @@ async fn put_scope(client: &Client, scope: &str, content: Value) -> Result<(), S
     }
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let room_id = matrix_sdk::ruma::RoomId::parse(scope).map_err(|_| "invalid".to_owned())?;
+    crate::optprobe::state_forget(client, scope, ROOM_AD_KEY);
     let raw = Raw::new(&content).map_err(|_| "invalid_content".to_owned())?.cast_unchecked();
     let request = set_room_account_data::v3::Request::new_raw(
         own,

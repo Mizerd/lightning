@@ -90,6 +90,8 @@ fn from_another_room(event_room: Option<&RoomId>, room: &RoomId) -> bool {
     event_room.is_some_and(|r| r != room)
 }
 
+const PINNED_KEY: &str = "m.room.pinned_events";
+
 pub(crate) fn fetch_pinned(
     bridge: &RustClient,
     room_id: String,
@@ -110,7 +112,9 @@ pub(crate) fn fetch_pinned(
         let ids: Vec<OwnedEventId> = match room.pinned_event_ids() {
             Some(ids) => ids,
             None if !allow_remote => Vec::new(),
+            None if crate::optprobe::state_known_absent(&client, &room_id, PINNED_KEY) => Vec::new(),
             None => {
+                crate::optprobe::state_pace().await;
                 let loaded = tokio::time::timeout(
                     PINNED_REQUEST_TIMEOUT,
                     room.load_pinned_events(),
@@ -118,7 +122,10 @@ pub(crate) fn fetch_pinned(
                 .await;
                 match loaded {
                     Ok(Ok(Some(ids))) => ids,
-                    Ok(Ok(None)) => Vec::new(),
+                    Ok(Ok(None)) => {
+                        crate::optprobe::state_mark_absent(&client, &room_id, PINNED_KEY);
+                        Vec::new()
+                    }
                     other => {
                         let category = match other {
                             Ok(Err(err)) => {
@@ -246,6 +253,7 @@ pub(crate) fn set_pinned(
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
+    crate::optprobe::state_forget(&client, &room_id, PINNED_KEY);
     bridge.spawn_room_action(async move {
         let result = if pin {
             room.pin_event(&target).await

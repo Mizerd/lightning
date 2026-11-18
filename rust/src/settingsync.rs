@@ -60,6 +60,7 @@ async fn put(client: &Client, event_type: &str, content: &Value) -> Result<(), S
     if !is_canonical_json_safe(content) {
         return Err("invalid_content".to_owned());
     }
+    crate::optprobe::note_write(client, event_type);
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let raw = Raw::new(content).map_err(|_| "invalid_content".to_owned())?.cast_unchecked();
     let request = set_global_account_data::v3::Request::new_raw(
@@ -100,8 +101,10 @@ pub(crate) fn read(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let blob = read_server(&client, BLOB_TYPE).await;
-        let switch = read_switch(&client).await;
+        let blob = crate::optprobe::read_global(&client, BLOB_TYPE, Some(bounded())).await;
+        let switch = crate::optprobe::read_global(&client, SWITCH_TYPE, Some(bounded()))
+            .await
+            .map(|raw| raw.map(|raw| switch_on(&raw)).unwrap_or(false));
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }

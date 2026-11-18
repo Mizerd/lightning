@@ -139,20 +139,21 @@ pub(crate) fn read(bridge: &RustClient, event_type: String) -> Result<(), String
         let fetched = if reads_from_server(event_type) {
             match tokio::time::timeout(
                 REQUEST_TIMEOUT,
-                account.fetch_account_data(GlobalAccountDataEventType::from(event_type)),
+                crate::optprobe::read_global(&client, event_type, None),
             )
             .await
             {
-                Ok(Ok(raw)) => Ok(raw),
-                Ok(Err(err)) => Err(classify_write_error(&err.to_string()).0),
-                Err(_) => Err("timeout"),
+                Ok(Ok(content)) => Ok(content),
+                Ok(Err(category)) => Err(category),
+                Err(_) => Err("timeout".to_owned()),
             }
         } else {
             Ok(account
                 .account_data_raw(GlobalAccountDataEventType::from(event_type))
                 .await
                 .ok()
-                .flatten())
+                .flatten()
+                .and_then(|r| serde_json::from_str::<Value>(r.json().get()).ok()))
         };
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -160,8 +161,8 @@ pub(crate) fn read(bridge: &RustClient, event_type: String) -> Result<(), String
         let mut payload = match fetched {
             // A malformed saved list must never masquerade as absent: a
             // subsequent write would replace it with an empty baseline.
-            Ok(raw) => fetched_payload(event_type, raw.as_ref().map(|r| r.json().get())),
-            Err(category) => failed_payload(event_type, category),
+            Ok(content) => fetched_payload(event_type, content.map(|c| c.to_string()).as_deref()),
+            Err(category) => failed_payload(event_type, &category),
         };
         payload["lifecycle"] = json!(lifecycle);
         enqueue(&events, payload);
@@ -201,6 +202,7 @@ pub(crate) fn write(
 }
 
 async fn put(client: &Client, event_type: &str, content: &Value) -> Result<(), String> {
+    crate::optprobe::note_write(client, event_type);
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let raw = Raw::new(content).map_err(|_| "invalid_content".to_owned())?.cast_unchecked();
     let request = set_global_account_data::v3::Request::new_raw(

@@ -107,6 +107,7 @@ mod namecolor;
 mod widgets;
 mod oauth;
 mod pagewalk;
+mod optprobe;
 mod pinned;
 mod search;
 mod sso;
@@ -12127,6 +12128,7 @@ async fn run_modern_sync(
     let entries_publication = EntriesPublication(entries_slot);
 
     let first_response = Arc::new(AtomicBool::new(true));
+    optprobe::unsettle(&client);
     let watchdog_events = Arc::clone(&events);
     let watchdog_first = Arc::clone(&first_response);
     let watchdog = async move {
@@ -12393,6 +12395,7 @@ async fn run_modern_sync(
                             first_sync = false;
                             arm_preview_scan(&mut scan_due, last_backfill_scan);
                             first_response.store(false, Ordering::SeqCst);
+                            optprobe::settle(&client);
                             enqueue(&events, json!({ "type": "initial_sync_done" }));
                         }
                     }
@@ -12813,6 +12816,7 @@ async fn run_classic_sync_with(
     let mut jitter = background.as_ref().map(|_| labs::Jitter::seeded(0xc1a5));
 
     let first_response = Arc::new(AtomicBool::new(true));
+    optprobe::unsettle(&client);
     let progress = SyncProgress::new();
     let failure_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let session_gone = Arc::new(AtomicBool::new(false));
@@ -13009,6 +13013,7 @@ async fn run_classic_sync_with(
                 }
                 enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
                 if first_response.swap(false, Ordering::SeqCst) {
+                    optprobe::settle(&client);
                     enqueue(&events, json!({ "type": "initial_sync_done" }));
                 }
                 progress.touch();
