@@ -8010,15 +8010,16 @@ endif()
 
 endif()
 
+if(LIGHTNING_ENABLE_UPDATER)
+install(TARGETS lightning-matrix lightning-updater
+    BUNDLE  DESTINATION .
+    RUNTIME DESTINATION bin
+)
+else()
 install(TARGETS lightning-matrix
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION bin
 )
-if(LIGHTNING_ENABLE_UPDATER)
-    install(TARGETS lightning-updater
-        BUNDLE  DESTINATION .
-        RUNTIME DESTINATION bin
-    )
 endif()
 
 # Desktop integration: launcher entry + hicolor application icons. The icon

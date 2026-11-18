@@ -10852,7 +10852,10 @@ Item {
                         visible: root.section === "updates" && !app.updateManager
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                        color: AppTheme.stormTextMuted
+                        color: AppTheme.stormTextSecondary
+                        font.pixelSize: AppTheme.settingsOptionSize
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         text: qsTr("Updates are handled by your distribution's package manager.")
                     }
 
