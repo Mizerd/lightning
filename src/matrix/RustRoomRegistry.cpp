@@ -81,7 +81,8 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.isFavourite = obj.value(QStringLiteral("is_favourite")).toBool(false);
     room.lowPriority = obj.value(QStringLiteral("is_low_priority")).toBool(false);
     room.isArchived = obj.value(QStringLiteral("is_archived")).toBool(false);
-    room.nameResolved = obj.value(QStringLiteral("name_resolved")).toBool(true);
+    room.nameResolved =
+        obj.value(QStringLiteral("name_resolved")).toBool(room.nameResolved);
     room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
     room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
     room.directUserIds.clear();
