@@ -1013,7 +1013,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7310"/>
+        <location filename="../src/app/AppController.cpp" line="+7313"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -1134,7 +1134,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आने वाली कॉल</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5672"/>
+        <location filename="../src/app/AppController.cpp" line="-5675"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>खाता बदलने के कारण साइन-आउट रद्द कर दिया गया। कुछ भी रीसेट नहीं हुआ।</translation>
     </message>
@@ -1154,7 +1154,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1 में आपसे एक वॉइस कॉल छूट गई</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+676"/>
+        <location filename="../src/app/AppController.cpp" line="+679"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>रूम बन गया, लेकिन उसे स्पेस में जोड़ा नहीं जा सका।</translation>
     </message>
@@ -1290,13 +1290,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD प्रारूप में वास्तविक तिथियाँ दें, जहाँ “से” तिथि “तक” तिथि के बाद की न हो।</translation>
     </message>
     <message>
-        <location line="-4755"/>
-        <location line="+2693"/>
+        <location line="-4758"/>
+        <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2692"/>
+        <location line="-2695"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>यह एक टेस्ट सूचना है। यदि आप इसे पढ़ पा रहे हैं, तो डेस्कटॉप सूचनाएँ काम कर रही हैं।</translation>
     </message>
@@ -1311,7 +1311,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>कॉल शुरू हुई</translation>
     </message>
     <message>
-        <location line="+938"/>
+        <location line="+941"/>
         <source>Joined the space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4684,24 +4684,24 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+201"/>
+        <location filename="../qml/ContextView.qml" line="+322"/>
         <source>Viewing an older message</source>
         <translation>पुराना संदेश देख रहे हैं</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+227"/>
+        <location line="+236"/>
         <source>Jump to latest</source>
         <translation>नवीनतम पर जाएँ</translation>
     </message>
     <message>
-        <location line="-220"/>
+        <location line="-229"/>
         <location line="+1"/>
         <source>Dismiss</source>
         <translation type="unfinished">खारिज करें</translation>
     </message>
     <message>
-        <location line="+188"/>
+        <location line="+197"/>
         <location line="+28"/>
         <source>Could not load. Try again</source>
         <translation>लोड नहीं हो सका। फिर कोशिश करें</translation>
@@ -20249,25 +20249,25 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SavedMessagesController</name>
     <message>
-        <location filename="../src/app/SavedMessagesController.cpp" line="+200"/>
+        <location filename="../src/app/SavedMessagesController.cpp" line="+201"/>
         <source>Saved messages could not be loaded. Retry.</source>
         <translation>सहेजे गए संदेश लोड नहीं किए जा सके। पुनः प्रयास करें.</translation>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Saved messages could not be updated. Retry.</source>
         <translation>सहेजे गए संदेशों को अद्यतन नहीं किया जा सका। पुनः प्रयास करें.</translation>
     </message>
     <message>
-        <location line="-71"/>
-        <location line="+133"/>
+        <location line="-80"/>
+        <location line="+142"/>
         <source>Saved messages data is unavailable.</source>
         <translation>सहेजे गए संदेशों का डेटा उपलब्ध नहीं है।</translation>
     </message>
     <message>
-        <location line="-101"/>
-        <location line="+205"/>
+        <location line="-109"/>
+        <location line="+214"/>
         <location line="+15"/>
         <source>Saved messages are full. Remove an older item first.</source>
         <translation>सहेजे गए संदेश भरे हुए हैं। पहले कोई पुरानी वस्तु हटाएँ।</translation>
@@ -32856,12 +32856,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5289"/>
+        <location line="+5290"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5288"/>
+        <location filename="../qml/TimelinePane.qml" line="-5289"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -32963,12 +32963,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3763"/>
+        <location line="+3764"/>
         <source>Room information</source>
         <translation>कक्ष जानकारी</translation>
     </message>
     <message>
-        <location line="-3752"/>
+        <location line="-3753"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>रूम की और कार्रवाइयाँ</translation>
@@ -33214,7 +33214,7 @@ Note: importing keys does not verify this session.</source>
         <translation>खोज पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="+2656"/>
+        <location line="+2657"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33596,8 +33596,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6572"/>
-        <location line="+6749"/>
+        <location filename="../qml/TimelinePane.qml" line="-6573"/>
+        <location line="+6750"/>
         <source>Room</source>
         <translation>कक्ष</translation>
     </message>
@@ -33672,13 +33672,13 @@ Note: importing keys does not verify this session.</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5876"/>
+        <location line="-5877"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
     </message>
     <message>
-        <location line="+5108"/>
+        <location line="+5109"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33754,7 +33754,7 @@ Note: importing keys does not verify this session.</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-5324"/>
+        <location line="-5325"/>
         <source>Join space</source>
         <translation>स्पेस में शामिल हों</translation>
     </message>

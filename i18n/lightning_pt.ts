@@ -1013,7 +1013,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7310"/>
+        <location filename="../src/app/AppController.cpp" line="+7313"/>
         <source>Room invitation</source>
         <translation>Convite para a sala</translation>
     </message>
@@ -1134,7 +1134,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Chamada recebida</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5672"/>
+        <location filename="../src/app/AppController.cpp" line="-5675"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>O fim da sessão foi cancelado porque a conta mudou. Nada foi reposto.</translation>
     </message>
@@ -1154,7 +1154,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Perdeu uma chamada de voz em %1</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+676"/>
+        <location filename="../src/app/AppController.cpp" line="+679"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>A sala foi criada, mas não foi possível adicioná-la ao espaço.</translation>
     </message>
@@ -1290,13 +1290,13 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Use datas reais no formato YYYY-MM-DD, com «De» não posterior a «Até».</translation>
     </message>
     <message>
-        <location line="-4755"/>
-        <location line="+2693"/>
+        <location line="-4758"/>
+        <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2692"/>
+        <location line="-2695"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Esta é uma notificação de teste. Se a conseguir ler, as notificações do ambiente de trabalho funcionam.</translation>
     </message>
@@ -1311,7 +1311,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Chamada iniciada</translation>
     </message>
     <message>
-        <location line="+938"/>
+        <location line="+941"/>
         <source>Joined the space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4684,24 +4684,24 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+201"/>
+        <location filename="../qml/ContextView.qml" line="+322"/>
         <source>Viewing an older message</source>
         <translation>A ver uma mensagem mais antiga</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+227"/>
+        <location line="+236"/>
         <source>Jump to latest</source>
         <translation>Ir para a mais recente</translation>
     </message>
     <message>
-        <location line="-220"/>
+        <location line="-229"/>
         <location line="+1"/>
         <source>Dismiss</source>
         <translation type="unfinished">Dispensar</translation>
     </message>
     <message>
-        <location line="+188"/>
+        <location line="+197"/>
         <location line="+28"/>
         <source>Could not load. Try again</source>
         <translation>Não foi possível carregar. Tente novamente</translation>
@@ -20249,25 +20249,25 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>SavedMessagesController</name>
     <message>
-        <location filename="../src/app/SavedMessagesController.cpp" line="+200"/>
+        <location filename="../src/app/SavedMessagesController.cpp" line="+201"/>
         <source>Saved messages could not be loaded. Retry.</source>
         <translation>As mensagens guardadas não puderam ser carregadas. Tente novamente.</translation>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Saved messages could not be updated. Retry.</source>
         <translation>As mensagens guardadas não puderam ser atualizadas. Tente novamente.</translation>
     </message>
     <message>
-        <location line="-71"/>
-        <location line="+133"/>
+        <location line="-80"/>
+        <location line="+142"/>
         <source>Saved messages data is unavailable.</source>
         <translation>Os dados das mensagens guardadas não estão disponíveis.</translation>
     </message>
     <message>
-        <location line="-101"/>
-        <location line="+205"/>
+        <location line="-109"/>
+        <location line="+214"/>
         <location line="+15"/>
         <source>Saved messages are full. Remove an older item first.</source>
         <translation>As mensagens guardadas estão cheias. Remova primeiro um item mais antigo.</translation>
@@ -32856,12 +32856,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5289"/>
+        <location line="+5290"/>
         <source>Space</source>
         <translation>Espaço</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5288"/>
+        <location filename="../qml/TimelinePane.qml" line="-5289"/>
         <source>Home</source>
         <translation>Início</translation>
     </message>
@@ -32963,12 +32963,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3763"/>
+        <location line="+3764"/>
         <source>Room information</source>
         <translation>Informações da sala</translation>
     </message>
     <message>
-        <location line="-3752"/>
+        <location line="-3753"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Mais ações da sala</translation>
@@ -33214,7 +33214,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Não foi possível concluir a procura.</translation>
     </message>
     <message>
-        <location line="+2656"/>
+        <location line="+2657"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33596,8 +33596,8 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6572"/>
-        <location line="+6749"/>
+        <location filename="../qml/TimelinePane.qml" line="-6573"/>
+        <location line="+6750"/>
         <source>Room</source>
         <translation>Sala</translation>
     </message>
@@ -33672,13 +33672,13 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5876"/>
+        <location line="-5877"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
     <message>
-        <location line="+5108"/>
+        <location line="+5109"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33754,7 +33754,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Largue ficheiros para os anexar</translation>
     </message>
     <message>
-        <location line="-5324"/>
+        <location line="-5325"/>
         <source>Join space</source>
         <translation>Entrar no espaço</translation>
     </message>

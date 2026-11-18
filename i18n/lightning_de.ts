@@ -1014,7 +1014,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6347"/>
+        <location filename="../src/app/AppController.cpp" line="+6350"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -1022,13 +1022,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6796"/>
-        <location line="+2693"/>
+        <location filename="../src/app/AppController.cpp" line="-6799"/>
+        <location line="+2696"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2692"/>
+        <location line="-2695"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
@@ -1053,7 +1053,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Verpasster Anruf</translation>
     </message>
     <message>
-        <location line="+676"/>
+        <location line="+679"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Der Raum wurde erstellt, aber das Hinzufügen zum Space ist fehlgeschlagen.</translation>
     </message>
@@ -4684,24 +4684,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+201"/>
+        <location filename="../qml/ContextView.qml" line="+322"/>
         <source>Viewing an older message</source>
         <translation>Du siehst eine ältere Nachricht</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+227"/>
+        <location line="+236"/>
         <source>Jump to latest</source>
         <translation>Zur neuesten springen</translation>
     </message>
     <message>
-        <location line="-220"/>
+        <location line="-229"/>
         <location line="+1"/>
         <source>Dismiss</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+188"/>
+        <location line="+197"/>
         <location line="+28"/>
         <source>Could not load. Try again</source>
         <translation>Konnte nicht geladen werden. Erneut versuchen</translation>
@@ -20249,25 +20249,25 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>SavedMessagesController</name>
     <message>
-        <location filename="../src/app/SavedMessagesController.cpp" line="+200"/>
+        <location filename="../src/app/SavedMessagesController.cpp" line="+201"/>
         <source>Saved messages could not be loaded. Retry.</source>
         <translation>Gespeicherte Nachrichten konnten nicht geladen werden. Wiederholen.</translation>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+15"/>
+        <location line="+23"/>
         <source>Saved messages could not be updated. Retry.</source>
         <translation>Gespeicherte Nachrichten konnten nicht aktualisiert werden. Wiederholen.</translation>
     </message>
     <message>
-        <location line="-71"/>
-        <location line="+133"/>
+        <location line="-80"/>
+        <location line="+142"/>
         <source>Saved messages data is unavailable.</source>
         <translation>Gespeicherte Nachrichtendaten sind nicht verfügbar.</translation>
     </message>
     <message>
-        <location line="-101"/>
-        <location line="+205"/>
+        <location line="-109"/>
+        <location line="+214"/>
         <location line="+15"/>
         <source>Saved messages are full. Remove an older item first.</source>
         <translation>Die gespeicherten Nachrichten sind voll. Entfernen Sie zuerst ein älteres Element.</translation>
@@ -32850,7 +32850,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+6945"/>
+        <location filename="../qml/TimelinePane.qml" line="+6946"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -32894,8 +32894,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5769"/>
-        <location line="+5289"/>
+        <location filename="../qml/TimelinePane.qml" line="-5770"/>
+        <location line="+5290"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32919,8 +32919,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="+141"/>
-        <location filename="../qml/TimelinePane.qml" line="-6112"/>
-        <location line="+6749"/>
+        <location filename="../qml/TimelinePane.qml" line="-6113"/>
+        <location line="+6750"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -32974,7 +32974,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6353"/>
+        <location filename="../qml/TimelinePane.qml" line="-6354"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -33100,12 +33100,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3763"/>
+        <location line="+3764"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-3752"/>
+        <location line="-3753"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -33351,7 +33351,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Suche konnte nicht abgeschlossen werden.</translation>
     </message>
     <message>
-        <location line="+2656"/>
+        <location line="+2657"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33754,7 +33754,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5324"/>
+        <location line="-5325"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>
