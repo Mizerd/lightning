@@ -1186,6 +1186,8 @@ private:
     QString keyringBackendForStore(const QString &userId) const;
     std::pair<QString, QString> m_keyringBackendBeingCleared;
     enum class LegacyAdoption { Adopted, CopyFailed, NotAdoptable, Unreadable };
+    mutable QMutex m_legacyCopyRefusedMutex;
+    mutable QSet<QString> m_legacyCopyRefused;
     LegacyAdoption adoptLegacyKeyringSession(
         const QString &userId, QHash<QString, QString> *legacyOut) const;
     QString readAccountSecret(const QString &userId, const char *key) const;
