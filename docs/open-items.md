@@ -519,10 +519,12 @@ client must carry a `since`.
 `/joined_rooms`; `0` is not a Synapse stream token, so a confirmation there is
 expected to fail closed with 400 — read from Synapse's token parser, not
 measured), other Conduit-family servers and Dendrite (`since=0` behaviour
-unmeasured), and the GUI. Upstream report to Continuwuity not filed. Accepted
-follow-up: `room_membership_lost` (like `stale_invites_retired`) carries no
-account or lifecycle stamp, so an event drained after an account switch could
-close a room of the same id in the new account.
+unmeasured), and the GUI. Upstream report to Continuwuity not filed.
+`room_membership_lost` and `stale_invites_retired` carry no account stamp and
+need none (checked 2026-11-18): the queue is per handle, a handle is never
+reused across accounts (`ensureRustHandleForStorePath`, `adoptLiveSession`),
+the drain gates on the handle generation, and a Labs background session drops
+both (`UiOnly`).
 
 ## 2026-10-16 — FIXED (openperm follow-up): the break-it round's posting and moderation gates no longer need `app.roomInfo` to be on the open room
 
@@ -898,8 +900,6 @@ Everything below was found or left open by that round's live testing and its
 
 ### Browser sign-in
 
-- Named SSO providers are lost if a browser sign-in starts within the
-  providers round trip (cosmetic; the generic button still works).
 - ~~`adoptBrowserSession` saves the account record before the restore; a failed
   restore then blocks the next browser sign-in as ExistingStoreNeedsRestore
   (D6).~~ FIXED 2026-09-29 after a live report (darkcoffee, .deb: "logged in, so
@@ -909,9 +909,9 @@ Everything below was found or left open by that round's live testing and its
   saved account is moved aside and the sign-in goes on; every other refusal
   carries the account to a card with a way out; a removal that could not
   finish offers "Try again". NOT live-validated against a real failing
-  restore. Still open: a device the server issued is not revoked when Phase B
-  refuses, and a crash mid-restore leaves record and store (the card is the
-  way out).
+  restore. Still open: a crash mid-restore leaves record and store (the card
+  is the way out). A Phase B refusal revokes the issued device since
+  `83aa66f0` (`revokeRefusedSignIn`).
 - ~~darkcoffee's Firefox + matrix.org failure is UNEXPLAINED~~ EXPLAINED
   2026-09-29 by the reporter: the server was typed without `https://`
   (`sk.community`). Discovery accepted the bare name, the browser sign-in
@@ -1076,9 +1076,9 @@ What remains open:
   the new build's adopted copy keeps a rotated-away refresh token and the
   session is lost at its next refresh; a session a new build signed in is
   invisible to an older build (downgrade = sign in again).
-- A copy the keyring refuses is retried on every read (about five synchronous
-  D-Bus calls and a warning each time) and the shared item is read through
-  meanwhile. Bounded only by the next successful write.
+- A copy the keyring refuses is not retried by the same process; the shared
+  item is read through until this install's own items are written (the next
+  sign-in or token rotation) or the next launch retries the copy.
 - Search semantics were measured on gnome-keyring 50 and read in KWallet 6.26's
   `ksecretd` (subset match, as the design needs); KWallet NOT TESTED live,
   KeePassXC not checked. Windows (every installed build shares one data root)
@@ -1314,11 +1314,10 @@ identity". The correction is byte-for-byte what upstream does.
 rollup read one `trusted` flag computed in Rust: `crossSigned` for this
 session, the SDK's `is_verified()` for every other device.
 
-**Still open:** the session's own verification state is still recomputed by
-`refreshOwnDeviceStatus()`. `verification_state()` is subscribed
-(`rust/src/lib.rs`, `964a2734`) but only feeds the crypto bootstrap model, not
-that state, and its `Unknown` arm is still approximated with
-`own_identity_available`.
+**Own session:** the label follows the subscribed `verification_state()`
+(`AppController::sessionTrustStateFor`): each change re-reads the snapshot,
+`Unknown` reads "Unknown" rather than "Cross-signing unavailable", and the
+snapshot only says whether an own identity exists. NOT TESTED live.
 
 ## 2026-09-20 — OPEN DECISION: what an unrecognised notification-preview mode should resolve to
 
@@ -4041,9 +4040,9 @@ STILL UNPROVEN, not reported broken:
 
 **Accepted follow-ups, none blocking:** decide whether a client-side
 sanity ceiling should apply when the server advertises no upload limit
-(deliberately absent — see §7); `setVoiceRecorderForTest` would be
-better taking a `unique_ptr`; `voice_info` computes `info.size` from the
-stat size rather than the uploaded bytes; `FakeRecorder` is a PARTIAL
+(deliberately absent — see §7); the room voice path's `info.size` is the
+stat size (the SDK reads the file itself; the thread path uses the bytes it
+uploads); `FakeRecorder` is a PARTIAL
 double (`stop()`/`durationMs()` are not virtual, so anyone needing
 `stop() → ready()` must extend the seam consciously).
 
