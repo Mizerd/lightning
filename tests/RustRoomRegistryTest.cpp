@@ -461,6 +461,19 @@ private Q_SLOTS:
         QVERIFY(!map.value(roomId(0)).isArchived);
     }
 
+    void aPayloadWithoutTheResolvedFlagKeepsAnUnresolvedName()
+    {
+        RoomInfo previous;
+        previous.nameResolved = false;
+        const RoomInfo room =
+            matrix::rust_rooms::roomInfoFromJson(roomJson(roomId(0)), previous);
+        QVERIFY(!room.nameResolved);
+
+        QJsonObject resolved = roomJson(roomId(0));
+        resolved.insert(QStringLiteral("name_resolved"), true);
+        QVERIFY(matrix::rust_rooms::roomInfoFromJson(resolved, previous).nameResolved);
+    }
+
     void theActiveMemberCountReachesTheRoom()
     {
         QHash<QString, RoomInfo> map;
