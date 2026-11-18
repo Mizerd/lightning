@@ -2712,9 +2712,13 @@ true, ringSeconds, acceptOffered,
             m_cryptoHealth->applySnapshot(snapshot, m_cryptoQueryGeneration);
         });
         connect(rust, &RustSdkMatrixClient::cryptoBootstrapEvent,
-                this, [this](const QString &kind, const QString &state,
-                             quint64 count, quint64 inconclusive) {
+                this, [this, rust](const QString &kind, const QString &state,
+                                   quint64 count, quint64 inconclusive) {
             m_cryptoBootstrap->applyEvent(kind, state, count, inconclusive);
+            if (kind == QLatin1String("verification_state")) {
+                m_ownVerificationState = state;
+                rust->refreshOwnDeviceStatus();
+            }
         });
         connect(rust, &MatrixClient::loginSucceeded, this,
                 [this](const QString &) { m_cryptoBootstrap->reset(); });
@@ -2814,6 +2818,7 @@ true, ringSeconds, acceptOffered,
             clearVerificationQr();
             Q_EMIT verificationStateChanged();
             m_sessionTrustState = QStringLiteral("Unknown");
+            m_ownVerificationState.clear();
             m_sessionDeviceId.clear();
             m_ownIdentityAvailable = false;
             m_crossSigningAvailable = false;
@@ -2982,15 +2987,10 @@ true, ringSeconds, acceptOffered,
             m_ownIdentityAvailable = ownIdentityAvailable;
             m_crossSigningAvailable = hasMaster || hasSelf || hasUser
                                       || ownIdentityAvailable;
-            if (!ownIdentityAvailable) {
-                m_sessionTrustState = QStringLiteral("Cross-signing unavailable");
-            } else if (deviceCrossSigned) {
-                m_sessionTrustState = QStringLiteral("Verified");
-                if (m_settings)
-                    m_settings->setVerificationWarningDismissed(false);
-            } else {
-                m_sessionTrustState = QStringLiteral("Not verified");
-            }
+            m_sessionTrustState = sessionTrustStateFor(
+                m_ownVerificationState, ownIdentityAvailable, deviceCrossSigned);
+            if (m_sessionTrustState == QLatin1String("Verified") && m_settings)
+                m_settings->setVerificationWarningDismissed(false);
             Q_EMIT securityStateChanged();
             Q_EMIT rustDeviceIdChanged();
         });
@@ -3687,10 +3687,10 @@ bool AppController::startVoiceRecording(const QString &owner)
     return true;
 }
 
-void AppController::setVoiceRecorderForTest(VoiceRecorder *recorder)
+void AppController::setVoiceRecorderForTest(std::unique_ptr<VoiceRecorder> recorder)
 {
     m_voiceOwner.clear();
-    m_voiceRecorder.reset(recorder);
+    m_voiceRecorder = std::move(recorder);
     Q_EMIT voiceOwnerChanged();
 }
 
@@ -4226,6 +4226,23 @@ QString AppController::verificationRoleAtStart(bool isSelf) const
     if (m_sessionTrustState == QLatin1String("Verified"))
         return QStringLiteral("other_session");
     return {};
+}
+
+QString AppController::sessionTrustStateFor(const QString &sdkVerificationState,
+                                           bool ownIdentityAvailable,
+                                           bool deviceCrossSigned)
+{
+    // matrix-sdk's own answer (`verification_state()`) wins once it has one;
+    // the snapshot only says whether an identity exists at all.
+    if (sdkVerificationState == QLatin1String("verified"))
+        return QStringLiteral("Verified");
+    if (sdkVerificationState == QLatin1String("unknown"))
+        return QStringLiteral("Unknown");
+    if (!ownIdentityAvailable)
+        return QStringLiteral("Cross-signing unavailable");
+    if (sdkVerificationState == QLatin1String("unverified") || !deviceCrossSigned)
+        return QStringLiteral("Not verified");
+    return QStringLiteral("Verified");
 }
 
 QString AppController::verificationCancelReasonFor(const QString &message)
@@ -7037,6 +7054,7 @@ void AppController::clearCrossAccountCaches()
     clearVerificationQr();
     Q_EMIT verificationStateChanged();
     m_sessionTrustState = QStringLiteral("Unknown");
+    m_ownVerificationState.clear();
     m_sessionDeviceId.clear();
     m_ownIdentityAvailable = false;
     m_crossSigningAvailable = false;

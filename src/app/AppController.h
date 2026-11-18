@@ -692,7 +692,7 @@ public:
     QString voiceOwner() const { return m_voiceOwner; }
     Q_INVOKABLE bool startVoiceRecording(const QString &owner);
     Q_INVOKABLE bool voiceRecordingBusy() const;
-    void setVoiceRecorderForTest(VoiceRecorder *recorder);
+    void setVoiceRecorderForTest(std::unique_ptr<VoiceRecorder> recorder);
     Q_INVOKABLE void endVoiceRecording();
     Q_INVOKABLE void cancelVoiceRecording();
     // Delete a finalized recording the user chose not to send. Only deletes
@@ -900,6 +900,9 @@ public:
     QString verificationRole() const { return m_verificationRole; }
     QString verificationCancelReason() const { return m_verificationCancelReason; }
     static QString verificationCancelReasonFor(const QString &message);
+    static QString sessionTrustStateFor(const QString &sdkVerificationState,
+                                        bool ownIdentityAvailable,
+                                        bool deviceCrossSigned);
     QVariantList verificationEmojis() const { return m_verificationEmojis; }
     QVariantList verificationDecimals() const { return m_verificationDecimals; }
     bool verificationQrAvailable() const { return !m_verificationQrToken.isEmpty(); }
@@ -1470,6 +1473,7 @@ private:
     QTimer m_ownDeviceKeyTimer;
 
     QString m_sessionTrustState = QStringLiteral("Unknown");
+    QString m_ownVerificationState;
     QString m_sessionDeviceId;
     bool    m_ownIdentityAvailable = false;
     bool    m_crossSigningAvailable = false;

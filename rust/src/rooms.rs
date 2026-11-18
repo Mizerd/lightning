@@ -5101,7 +5101,6 @@ pub(crate) fn send_thread_voice_path(
     if duration_ms == 0 {
         return Err("voice duration is unknown".to_owned());
     }
-    let info = Some(voice_info(duration_ms, metadata.len(), &waveform));
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
     };
@@ -5110,6 +5109,7 @@ pub(crate) fn send_thread_voice_path(
     if bytes.is_empty() {
         return Err("voice file is empty".to_owned());
     }
+    let info = Some(voice_info(duration_ms, bytes.len() as u64, &waveform));
     let filename = std::path::Path::new(&path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

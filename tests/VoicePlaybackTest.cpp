@@ -800,8 +800,9 @@ private Q_SLOTS:
         AppController app(AppController::MockBackend);
         auto *vp = app.voicePlayback();
         installSources(vp);
-        auto *rec = new FakeRecorder;
-        app.setVoiceRecorderForTest(rec);
+        auto owned = std::make_unique<FakeRecorder>();
+        auto *rec = owned.get();
+        app.setVoiceRecorderForTest(std::move(owned));
 
         vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("Alice")));
