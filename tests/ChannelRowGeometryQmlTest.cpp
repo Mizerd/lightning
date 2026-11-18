@@ -753,6 +753,65 @@ private Q_SLOTS:
                             "nameless channel row");
     }
 
+    // Medium (500) and Regular (400) render identically in most fonts;
+    // unread must reach a weight that actually looks bold.
+    void unreadChannelNameIsBoldNotJustMedium()
+    {
+        struct Case { const char *label; bool unread; int weight; };
+        const Case cases[] = {
+            { "read", false, int(QFont::Normal) },
+            { "unread", true, int(QFont::Bold) },
+        };
+        for (const auto &c : cases) {
+            Harness h;
+            QVERIFY2(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "general"
+            hasUnread: %1
+        })").arg(c.unread ? QStringLiteral("true") : QStringLiteral("false"))),
+                     c.label);
+            QQuickItem *row = h.item();
+            QVERIFY2(row, c.label);
+            auto *loader = row->findChild<QQuickItem *>(
+                QStringLiteral("channelNameLoader"));
+            QVERIFY2(loader, c.label);
+            auto *nameItem = loader->property("item").value<QQuickItem *>();
+            QVERIFY2(nameItem, c.label);
+            QCOMPARE(int(nameItem->property("font").value<QFont>().weight()),
+                     c.weight);
+        }
+    }
+
+    // A Mentions-only room must still bold for a plain message: the
+    // notification gate that hides hasUnread must not also hide
+    // readsUnread. The badge reads hasUnread directly and is unaffected.
+    void unreadChannelNameSurvivesAGatedHasUnreadSignal()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "general"
+            hasUnread: false
+            rawUnread: true
+        })")));
+        QQuickItem *row = h.item();
+        QVERIFY(row);
+        // Confirms hasUnread really is off, or the test proves nothing.
+        QVERIFY(!row->property("hasUnread").toBool());
+        QVERIFY(row->property("readsUnread").toBool());
+        auto *loader = row->findChild<QQuickItem *>(
+            QStringLiteral("channelNameLoader"));
+        QVERIFY(loader);
+        auto *nameItem = loader->property("item").value<QQuickItem *>();
+        QVERIFY(nameItem);
+        QCOMPARE(int(nameItem->property("font").value<QFont>().weight()),
+                 int(QFont::Bold));
+    }
+
     void aChannelRowIsClickableAcrossItsHeight()
     {
         Harness h;
