@@ -66,6 +66,7 @@ public:
         bool preferredMissing = false;
     };
     Selection cameraSelection() const;
+    bool backendStartedForTest() const { return m_devices != nullptr; }
     Selection microphoneSelection() const;
     Selection speakerSelection() const;
 

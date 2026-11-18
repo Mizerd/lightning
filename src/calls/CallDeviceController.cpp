@@ -260,9 +260,11 @@ QString describe(const ListT &devices, const QString &id)
 
 CallDeviceController::Selection CallDeviceController::cameraSelection() const
 {
-    ensureBackend();
-    if (!m_settings)
+    // No preference means the system default: answer without waking the
+    // Qt Multimedia backend, which every launch would otherwise pay for.
+    if (!m_settings || m_settings->preferredCameraId().isEmpty())
         return {};
+    ensureBackend();
     QList<lightning::calls::PresentCamera> present;
     for (const QCameraDevice &device : QMediaDevices::videoInputs())
         present.append({QString::fromUtf8(device.id()), device.description()});
@@ -275,6 +277,8 @@ CallDeviceController::Selection CallDeviceController::cameraSelection() const
 
 CallDeviceController::Selection CallDeviceController::microphoneSelection() const
 {
+    if (!m_settings || m_settings->preferredMicrophoneId().isEmpty())
+        return {};
     ensureBackend();
     const QString id = activeMicrophoneId();
     return {id, describe(QMediaDevices::audioInputs(), id)};
@@ -282,6 +286,8 @@ CallDeviceController::Selection CallDeviceController::microphoneSelection() cons
 
 CallDeviceController::Selection CallDeviceController::speakerSelection() const
 {
+    if (!m_settings || m_settings->preferredSpeakerId().isEmpty())
+        return {};
     ensureBackend();
     const QString id = activeSpeakerId();
     return {id, describe(QMediaDevices::audioOutputs(), id)};

@@ -25,6 +25,23 @@ private Q_SLOTS:
             QStringLiteral("call-device-controller-test"));
     }
 
+    void noPreferenceAnswersWithoutWakingQtMultimedia()
+    {
+        SettingsManager settings;
+        settings.setPreferredCameraId(QString());
+        settings.setPreferredMicrophoneId(QString());
+        settings.setPreferredSpeakerId(QString());
+        CallDeviceController devices;
+        devices.setSettings(&settings);
+
+        QVERIFY(devices.cameraSelection().id.isEmpty());
+        QVERIFY(devices.microphoneSelection().id.isEmpty());
+        QVERIFY(devices.speakerSelection().id.isEmpty());
+        QVERIFY2(!devices.backendStartedForTest(),
+                 "the launch-time device hand-off to the SFU engine started "
+                 "Qt Multimedia with no device preference stored");
+    }
+
     void aChosenCameraThatIsNotConnectedIsReportedMissing()
     {
         SettingsManager settings;
