@@ -1162,6 +1162,22 @@ mod tests {
     }
 
     #[test]
+    fn stopping_and_starting_again_does_not_requeue_rooms_already_walked() {
+        let control = Control::new(Path::new(""));
+        let joined = || rooms(&[("!a:x", 9), ("!b:x", 8), ("!c:x", 7), ("!d:x", 6)]);
+        assert_eq!(control.begin(false, joined), Begin::Started);
+        let epoch = control.epoch();
+        let utd = RoomResult::Done { written: 3, undecryptable: 2 };
+        control.commit_room(epoch, "!a:x", utd, Duration::ZERO);
+        control.commit_room(epoch, "!b:x", utd, Duration::ZERO);
+        control.finish(Ending::Cancelled);
+        assert_eq!(control.begin(false, joined), Begin::Started);
+        let status = control.status(None);
+        assert_eq!(status.total, 2, "Stop then start queued rooms the stopped run had walked");
+        assert_eq!(status.current_room, "!c:x");
+    }
+
+    #[test]
     fn a_restart_resumes_from_the_persisted_position() {
         let store = Store::new("resume");
         {
