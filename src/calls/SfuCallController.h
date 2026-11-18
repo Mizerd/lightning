@@ -578,9 +578,6 @@ private Q_SLOTS:
                                const QString &delayedCategory);
     void onSfuState(const QString &state, const QString &category);
     void onSfuConnectionEvent(const QVariantMap &event);
-#ifdef HAVE_LIGHTNING_WEBRTC
-    void onSubscriberResumed(int id, SfuMediaEngine *engine);
-#endif
     void updateSubscriberParticipants(int id, const QVariantList &rows,
                                       bool replace);
     void logRemoteSubscription(int id, const QString &sid,
@@ -618,6 +615,9 @@ private Q_SLOTS:
     void onHomeserverReachable();
 
 private:
+#ifdef HAVE_LIGHTNING_WEBRTC
+    void onSubscriberResumed(int id, SfuMediaEngine *engine);
+#endif
     bool populateLinuxDisplaySources();
     static QVariantList
     windowShareRows(const QList<lightning::wincap::WindowInfo> &windows);
