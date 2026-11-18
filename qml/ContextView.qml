@@ -116,6 +116,14 @@ Rectangle {
         view.anchorId = app.eventContext.model.stableIdAt(row)
         view.anchorScreenY = item.y - list.contentY
     }
+    // Inserts and late row heights (regrouping, media) above the anchor move it.
+    function scheduleAnchorFix() {
+        if (view.anchorId === "" || view.anchorFixPending
+                || !view.targetPositioned)
+            return
+        view.anchorFixPending = true
+        Qt.callLater(view.restoreAnchor)
+    }
     function restoreAnchor() {
         view.anchorFixPending = false
         var row = view.anchorId !== ""
@@ -176,10 +184,7 @@ Rectangle {
                 list.lastSeenRow += last - first + 1
             ++view.tracePrepends
             view.tracePrependedRows += last - first + 1
-            if (view.anchorId === "" || view.anchorFixPending)
-                return
-            view.anchorFixPending = true
-            Qt.callLater(view.restoreAnchor)
+            view.scheduleAnchorFix()
         }
     }
     Connections {
@@ -360,6 +365,7 @@ Rectangle {
                     onWheel: (event) => view.loadTowards(
                         -(event.pixelDelta.y || event.angleDelta.y))
                 }
+                onContentHeightChanged: view.scheduleAnchorFix()
                 property real lastContentY: 0
                 property int lastSeenRow: -1
                 onContentYChanged: {
