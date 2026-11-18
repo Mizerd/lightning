@@ -2137,12 +2137,19 @@ above. The event cache this index duplicates is unchanged.)
   a room encrypted later is eligible on the next user-started run. Unknown
   encryption state is excluded until the SDK confirms encryption.
   Undecryptable history is never indexed; a room that still holds any is not
-  recorded as done, so the next run revisits it — by then matrix-sdk's
-  redecryptor has rewritten whatever keys arrived for, in the event-cache
-  store the walk re-reads. "Finished" means every eligible room was walked to
-  that bound or its start, not that all history is searchable: failed rooms
-  and
-  rooms with undecryptable history are reported and revisited next run. A
+  recorded as done, and no run (background or user-started) walks it again
+  until a room key arrives for one of the megolm sessions the walk was missing
+  (up to 64 recorded per room; past that, or in an older record, any key for
+  the room) — by then matrix-sdk's redecryptor has rewritten what that key
+  opens, in the event-cache store the walk re-reads. A key for new live
+  traffic does not re-queue a room (#98: active rooms were re-walked every
+  session, and Stop then start re-queued every such room). "Finished" means
+  every eligible room was walked to that bound or its start, not that all
+  history is searchable: failed rooms are revisited next run. Every walk and
+  sweep holds an event-cache subscription while it reads and drops it after,
+  because matrix-sdk shrinks a room's in-memory chunk only when its last
+  subscriber drops: without it each walked room kept up to 5,000 events, and
+  each unopened busy room everything sync appended, for the session. A
   "Clear index" wins over any writer in flight — every writer (this pass,
   "Index this room", the sweep) captures the index generation before its
   first await and writes only while it matches, under the mutex `clear`
@@ -2161,11 +2168,10 @@ above. The event cache this index duplicates is unchanged.)
   off, when this account answered "no" to the sign-in offer, or after "Clear
   index" in the same lifecycle; turning the setting off pauses an active pass
   so the next sync does not resume it. With it on the one-time sign-in offer is
-  not shown. A room walked with undecryptable history is not `complete`; the
-  background start skips it until a room key for it arrives (the SDK's
-  room-keys stream, which backup imports feed too), while a user-started run
-  revisits it as before. Rooms whose walk failed are revisited at the same
-  bounds. The record gains
+  not shown. A room walked with undecryptable history is not `complete`; every
+  start skips it until a key for a session it was missing arrives (the SDK's
+  room-keys stream, which backup imports feed too). Rooms whose walk failed
+  are revisited at the same bounds. The record gains
   `finished_ms` (wall clock of the last run that left nothing to walk; reset by
   "Clear index"; no message content), shown in the empty search state.
 * **Empty local search** (the global search dialog and the room search panel)
