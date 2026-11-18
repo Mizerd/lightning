@@ -4,7 +4,10 @@
 #include "matrix/MatrixClient.h"
 #include "profile/UserProfileResolver.h"
 
+#include <QLoggingCategory>
 #include <QRegularExpression>
+
+Q_LOGGING_CATEGORY(lcIndexAll, "lightning.search.indexall")
 
 namespace {
 constexpr int kDebounceMs = 400;
@@ -398,6 +401,16 @@ void MessageSearchController::onIndexAllProgress(quint64 opId,
     if (state.isEmpty())
         return;
     const bool wasActive = indexAllActive();
+    if (state != m_indexAllState)
+        qCInfo(lcIndexAll) << "index-all state=" << state
+                           << "position=" << status.value(QStringLiteral("position")).toInt()
+                           << "total=" << status.value(QStringLiteral("total")).toInt()
+                           << "complete_rooms="
+                           << status.value(QStringLiteral("completeRooms")).toInt()
+                           << "undecryptable_rooms="
+                           << status.value(QStringLiteral("undecryptableRooms")).toInt()
+                           << "failed_rooms="
+                           << status.value(QStringLiteral("failedRooms")).toInt();
     m_indexAllState = state;
     m_indexAllTotal = status.value(QStringLiteral("total")).toInt();
     m_indexAllPosition = status.value(QStringLiteral("position")).toInt();

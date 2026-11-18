@@ -1,5 +1,5 @@
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -58,6 +58,10 @@ pub(crate) struct Progress {
     /// background start skips them, a user-started run does not.
     #[serde(default)]
     pub utd_rooms: BTreeSet<String>,
+    /// The megolm sessions a `utd_rooms` room was missing. A room absent here
+    /// (an older record, or too many sessions) wakes on any key for it.
+    #[serde(default)]
+    pub utd_sessions: BTreeMap<String, BTreeSet<String>>,
 }
 
 fn now_ms() -> u64 {
@@ -196,6 +200,7 @@ struct Inner {
     in_room_written: u64,
     retry_in_ms: u64,
     held_reported: bool,
+    walked_utd_sessions: Option<(String, Option<BTreeSet<String>>)>,
 }
 
 /// The per-account control block. One per bridge, i.e. per store directory,
@@ -355,14 +360,12 @@ impl Control {
             if resume_only {
                 return Begin::NothingPending;
             }
-            let joined = if background {
-                joined
-                    .into_iter()
-                    .filter(|(id, _, _)| !progress.utd_rooms.contains(id))
-                    .collect()
-            } else {
-                joined
-            };
+            // A user run skips them too: re-walking history whose keys never
+            // arrived finds nothing new, and made every Stop and start re-queue them.
+            let joined = joined
+                .into_iter()
+                .filter(|(id, _, _)| !progress.utd_rooms.contains(id))
+                .collect();
             let (queue, skipped) = plan_queue(joined, &progress.complete);
             progress.reset_run();
             progress.queue = queue;
@@ -426,13 +429,22 @@ impl Control {
         }
     }
 
-    /// Room keys arrived for these rooms: a background start may revisit them.
-    pub(crate) fn keys_arrived(&self, room_ids: impl Iterator<Item = String>) {
+    /// Room keys (room id, session id) arrived: a room missing one of them
+    /// may be walked again. Live traffic brings new sessions to every active
+    /// room, and those must not re-queue its whole history.
+    pub(crate) fn keys_arrived(&self, keys: impl Iterator<Item = (String, String)>) {
         let mut inner = self.lock();
         let progress = self.loaded(&mut inner);
         let mut changed = false;
-        for id in room_ids {
-            changed |= progress.utd_rooms.remove(&id);
+        for (room, session) in keys {
+            let wanted = progress
+                .utd_sessions
+                .get(&room)
+                .is_none_or(|missing| missing.contains(&session));
+            if wanted && progress.utd_rooms.remove(&room) {
+                progress.utd_sessions.remove(&room);
+                changed = true;
+            }
         }
         if changed {
             let snapshot = progress.clone();
@@ -508,6 +520,10 @@ impl Control {
         }
     }
 
+    pub(crate) fn note_utd_sessions(&self, room_id: &str, sessions: Option<BTreeSet<String>>) {
+        self.lock().walked_utd_sessions = Some((room_id.to_owned(), sessions));
+    }
+
     fn set_in_room_written(&self, written: u64) {
         self.lock().in_room_written = written;
     }
@@ -527,6 +543,7 @@ impl Control {
         let mut inner = self.lock();
         inner.in_room_written = 0;
         inner.retry_in_ms = 0;
+        let walked = inner.walked_utd_sessions.take();
         if inner.epoch != epoch {
             return;
         }
@@ -545,10 +562,17 @@ impl Control {
                 progress.written = progress.written.saturating_add(written as u64);
                 progress.undecryptable =
                     progress.undecryptable.saturating_add(undecryptable as u64);
+                progress.utd_sessions.remove(room_id);
                 if undecryptable > 0 {
                     progress.undecryptable_rooms += 1;
                     if progress.utd_rooms.len() < MAX_COMPLETE {
                         progress.utd_rooms.insert(room_id.to_owned());
+                        if let Some((_, Some(sessions))) = walked
+                            .filter(|(room, sessions)| room == room_id
+                                && sessions.as_ref().is_some_and(|s| !s.is_empty()))
+                        {
+                            progress.utd_sessions.insert(room_id.to_owned(), sessions);
+                        }
                     }
                 } else {
                     progress.utd_rooms.remove(room_id);
@@ -1123,7 +1147,7 @@ mod tests {
             Begin::NothingToDo,
             "a background start re-walked a room no key had arrived for"
         );
-        control.keys_arrived(std::iter::once("!e2e:x".to_owned()));
+        control.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "s".to_owned())));
         assert_eq!(control.begin_background(|| rooms(&[("!e2e:x", 1)])), Begin::Started);
         control.finish(Ending::Cancelled);
         assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
@@ -1156,9 +1180,48 @@ mod tests {
         control.finish(Ending::Finished);
         assert_eq!(
             control.begin(false, || rooms(&[("!e2e:x", 1)])),
-            Begin::Started
+            Begin::NothingToDo,
+            "a user run re-walked history no key had arrived for"
         );
-        assert_eq!(control.status(None).current_room, "!e2e:x");
+    }
+
+    #[test]
+    fn stopping_and_starting_again_does_not_requeue_rooms_already_walked() {
+        let control = Control::new(Path::new(""));
+        let joined = || rooms(&[("!a:x", 9), ("!b:x", 8), ("!c:x", 7), ("!d:x", 6)]);
+        assert_eq!(control.begin(false, joined), Begin::Started);
+        let epoch = control.epoch();
+        let utd = RoomResult::Done { written: 3, undecryptable: 2 };
+        control.commit_room(epoch, "!a:x", utd, Duration::ZERO);
+        control.commit_room(epoch, "!b:x", utd, Duration::ZERO);
+        control.finish(Ending::Cancelled);
+        assert_eq!(control.begin(false, joined), Begin::Started);
+        let status = control.status(None);
+        assert_eq!(status.total, 2, "Stop then start queued rooms the stopped run had walked");
+        assert_eq!(status.current_room, "!c:x");
+    }
+
+    #[test]
+    fn only_a_key_for_a_missing_session_wakes_a_room() {
+        let control = Control::new(Path::new(""));
+        assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
+        let epoch = control.epoch();
+        control.note_utd_sessions("!e2e:x", Some(["old".to_owned()].into_iter().collect()));
+        control.commit_room(
+            epoch,
+            "!e2e:x",
+            RoomResult::Done { written: 1, undecryptable: 1 },
+            Duration::ZERO,
+        );
+        control.finish(Ending::Finished);
+        control.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "live".to_owned())));
+        assert_eq!(
+            control.begin_background(|| rooms(&[("!e2e:x", 1)])),
+            Begin::NothingToDo,
+            "a key for new live traffic re-queued the room's whole history"
+        );
+        control.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "old".to_owned())));
+        assert_eq!(control.begin_background(|| rooms(&[("!e2e:x", 1)])), Begin::Started);
     }
 
     #[test]

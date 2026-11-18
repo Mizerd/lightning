@@ -12699,6 +12699,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                            << event.value(QStringLiteral("outcome")).toString()
                            << "written="
                            << event.value(QStringLiteral("written")).toInt();
+        } else {
+            qCInfo(lcRust) << "search index sweep rooms="
+                           << event.value(QStringLiteral("rooms")).toInt()
+                           << "written="
+                           << event.value(QStringLiteral("written")).toInt()
+                           << "held_events="
+                           << event.value(QStringLiteral("held")).toInt()
+                           << "ms="
+                           << event.value(QStringLiteral("elapsed_ms")).toInt();
         }
         Q_EMIT searchIndexSwept(
             opId(), event.value(QStringLiteral("rooms")).toInt(),

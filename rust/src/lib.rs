@@ -8193,13 +8193,15 @@ pub unsafe extern "C" fn mx_rust_search_index_sweep(
         let stop = Arc::clone(&bridge.index_shutdown);
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
-            let (rooms, written) = localsearch::sweep(&client, &index, &stop).await;
+            let started = std::time::Instant::now();
+            let (rooms, written, held) = localsearch::sweep(&client, &index, &stop).await;
             let stats = index.lock().ok()
                 .and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
                 .unwrap_or_default();
             enqueue(&events, json!({
                 "type": "search_index_swept", "op_id": op_id,
-                "rooms": rooms, "written": written,
+                "rooms": rooms, "written": written, "held": held,
+                "elapsed_ms": started.elapsed().as_millis() as u64,
                 "messages": stats.messages, "indexed_rooms": stats.rooms,
             }));
         });
@@ -8365,10 +8367,13 @@ async fn index_all_walk(
         Ok(outcome) if outcome.interrupted => indexall::RoomResult::Interrupted {
             written: outcome.written,
         },
-        Ok(outcome) => indexall::RoomResult::Done {
-            written: outcome.written,
-            undecryptable: outcome.undecryptable,
-        },
+        Ok(outcome) => {
+            gate.control.note_utd_sessions(room_id, outcome.utd_sessions);
+            indexall::RoomResult::Done {
+                written: outcome.written,
+                undecryptable: outcome.undecryptable,
+            }
+        }
         Err(error) => indexall::RoomResult::Failed {
             rate_limited: error.rate_limited,
             retry_after_ms: error.retry_after_ms,
@@ -11874,7 +11879,9 @@ async fn watch_room_keys_for_index_all(client: Client, index_all: Arc<indexall::
     let mut stream = std::pin::pin!(stream);
     while let Some(update) = stream.next().await {
         if let Ok(keys) = update {
-            index_all.keys_arrived(keys.iter().map(|k| k.room_id.to_string()));
+            index_all.keys_arrived(
+                keys.iter().map(|k| (k.room_id.to_string(), k.session_id.clone())),
+            );
         }
     }
 }
