@@ -42,6 +42,18 @@ QStringList bundled()
              QStringLiteral("JetBrains Mono") };
 }
 
+bool listHas(const QStringList &list, const QString &family)
+{
+    const QString needle = family.trimmed();
+    if (needle.isEmpty())
+        return false;
+    for (const QString &entry : list) {
+        if (entry.compare(needle, Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
 bool isOwnImportName(const QString &name)
 {
     if (name.size() != 64 + 4)
@@ -128,6 +140,15 @@ bool FontManager::isUsableUiFace(const QString &family)
     return true;
 }
 
+bool FontManager::isUsableMonospaceFace(const QString &family)
+{
+    // Fixed pitch AND able to draw Latin text; isFixedPitch() alone admits
+    // emoji faces. The costly Latin probe runs last, only for families that
+    // already claim fixed pitch.
+    return !family.startsWith(QLatin1Char('.')) && QFontDatabase::isFixedPitch(family)
+        && !isNonTextFace(family) && facesLatinText(family);
+}
+
 bool FontManager::facesLatinText(const QString &family)
 {
     QFont probe(family);
@@ -145,11 +166,18 @@ bool FontManager::facesLatinText(const QString &family)
 
 void FontManager::refreshFamilyCache()
 {
-    m_familyCache.clear();
-    const QStringList installed = QFontDatabase::families();
-    m_familyCache.reserve(installed.size());
-    for (const QString &family : installed)
-        m_familyCache.append(family.toLower());
+    m_familyCache = QFontDatabase::families();
+    m_familyListsBuilt = false;
+    m_uiFamilies.clear();
+    m_monoFamilies.clear();
+}
+
+void FontManager::ensureFamilyLists() const
+{
+    if (m_familyListsBuilt)
+        return;
+    m_familyListsBuilt = true;
+    const QStringList &installed = m_familyCache;
 
     m_uiFamilies.clear();
     QSet<QString> seen;
@@ -176,12 +204,7 @@ void FontManager::refreshFamilyCache()
             seen.insert(family.toLower());
             m_uiFamilies.append(family);
         }
-        // Fixed pitch AND able to draw Latin text; isFixedPitch() alone
-        // admits emoji faces. The costly Latin probe runs last, only for
-        // families that already claim fixed pitch.
-        if (!monoSeen.contains(family.toLower())
-            && QFontDatabase::isFixedPitch(family) && !isNonTextFace(family)
-            && facesLatinText(family)) {
+        if (!monoSeen.contains(family.toLower()) && isUsableMonospaceFace(family)) {
             monoSeen.insert(family.toLower());
             m_monoFamilies.append(family);
         }
@@ -190,10 +213,56 @@ void FontManager::refreshFamilyCache()
         m_monoFamilies.append(defaultMonospaceFamily());
 }
 
+bool FontManager::isOfferedUiFamily(const QString &family) const
+{
+    const QString needle = family.trimmed();
+    if (needle.isEmpty())
+        return false;
+    if (m_familyListsBuilt)
+        return listHas(m_uiFamilies, needle);
+    if (hasFamily(needle) && listHas(bundled(), needle))
+        return true;
+    for (const QString &installed : m_familyCache) {
+        if (installed.compare(needle, Qt::CaseInsensitive) == 0
+            && isUsableUiFace(installed))
+            return true;
+    }
+    // The default is offered even when missing if no bundled face loaded.
+    if (needle.compare(defaultUiFamily(), Qt::CaseInsensitive) == 0) {
+        ensureFamilyLists();
+        return listHas(m_uiFamilies, needle);
+    }
+    return false;
+}
+
+bool FontManager::isOfferedMonospaceFamily(const QString &family) const
+{
+    const QString needle = family.trimmed();
+    if (needle.isEmpty())
+        return false;
+    if (m_familyListsBuilt)
+        return listHas(m_monoFamilies, needle);
+    const bool isDefault =
+        needle.compare(defaultMonospaceFamily(), Qt::CaseInsensitive) == 0;
+    if (isDefault && hasFamily(needle))
+        return true;
+    for (const QString &installed : m_familyCache) {
+        if (installed.compare(needle, Qt::CaseInsensitive) == 0
+            && isUsableMonospaceFace(installed))
+            return true;
+    }
+    // The default is offered even when missing if no face qualified.
+    if (isDefault) {
+        ensureFamilyLists();
+        return listHas(m_monoFamilies, needle);
+    }
+    return false;
+}
+
 bool FontManager::hasFamily(const QString &family) const
 {
-    const QString needle = family.trimmed().toLower();
-    return !needle.isEmpty() && m_familyCache.contains(needle);
+    const QString needle = family.trimmed();
+    return !needle.isEmpty() && m_familyCache.contains(needle, Qt::CaseInsensitive);
 }
 
 QStringList FontManager::bundledFamilies() const
@@ -208,9 +277,17 @@ QStringList FontManager::bundledFamilies() const
     return out;
 }
 
-QStringList FontManager::uiFamilies() const { return m_uiFamilies; }
+QStringList FontManager::uiFamilies() const
+{
+    ensureFamilyLists();
+    return m_uiFamilies;
+}
 
-QStringList FontManager::monospaceFamilies() const { return m_monoFamilies; }
+QStringList FontManager::monospaceFamilies() const
+{
+    ensureFamilyLists();
+    return m_monoFamilies;
+}
 
 QString FontManager::storedUiFamily() const
 {
@@ -222,34 +299,20 @@ QString FontManager::storedMonospaceFamily() const
     return m_settings ? m_settings->monoFont() : defaultMonospaceFamily();
 }
 
-namespace {
-bool listHas(const QStringList &list, const QString &family)
-{
-    const QString needle = family.trimmed();
-    if (needle.isEmpty())
-        return false;
-    for (const QString &entry : list) {
-        if (entry.compare(needle, Qt::CaseInsensitive) == 0)
-            return true;
-    }
-    return false;
-}
-}
-
 bool FontManager::uiFamilyAvailable() const
 {
-    return listHas(m_uiFamilies, storedUiFamily());
+    return isOfferedUiFamily(storedUiFamily());
 }
 
 bool FontManager::monospaceFamilyAvailable() const
 {
-    return listHas(m_monoFamilies, storedMonospaceFamily());
+    return isOfferedMonospaceFamily(storedMonospaceFamily());
 }
 
 QString FontManager::uiFamilyUnavailableReason() const
 {
     const QString stored = storedUiFamily();
-    if (listHas(m_uiFamilies, stored))
+    if (isOfferedUiFamily(stored))
         return {};
     return hasFamily(stored) ? QStringLiteral("unusable")
                              : QStringLiteral("missing");
@@ -258,7 +321,7 @@ QString FontManager::uiFamilyUnavailableReason() const
 QString FontManager::monospaceFamilyUnavailableReason() const
 {
     const QString stored = storedMonospaceFamily();
-    if (listHas(m_monoFamilies, stored))
+    if (isOfferedMonospaceFamily(stored))
         return {};
     return hasFamily(stored) ? QStringLiteral("unusable")
                              : QStringLiteral("missing");
@@ -267,13 +330,13 @@ QString FontManager::monospaceFamilyUnavailableReason() const
 QString FontManager::uiFamily() const
 {
     const QString stored = storedUiFamily();
-    return listHas(m_uiFamilies, stored) ? stored : defaultUiFamily();
+    return isOfferedUiFamily(stored) ? stored : defaultUiFamily();
 }
 
 QString FontManager::monospaceFamily() const
 {
     const QString stored = storedMonospaceFamily();
-    return listHas(m_monoFamilies, stored) ? stored : defaultMonospaceFamily();
+    return isOfferedMonospaceFamily(stored) ? stored : defaultMonospaceFamily();
 }
 
 void FontManager::setUiFamily(const QString &family)

@@ -279,6 +279,36 @@ private Q_SLOTS:
             QVERIFY(!f.startsWith(QLatin1Char('.')));
     }
 
+    void theStoredChoiceAgreesWithThePickerListsForEveryInstalledFamily()
+    {
+        SettingsManager settings;
+        const QString storedUi = settings.uiFont();
+        const QString storedMono = settings.monoFont();
+        const FontManager reference(&settings);
+        const QStringList ui = reference.uiFamilies();
+        const QStringList mono = reference.monospaceFamilies();
+        // Never reads its lists, so every answer comes from the per-family check.
+        const FontManager fonts(&settings);
+        int checked = 0;
+        for (const QString &family : QFontDatabase::families()) {
+            if (SettingsManager::acceptableFontFamily(family).isEmpty()
+                || family.compare(QStringLiteral("Manrope"), Qt::CaseInsensitive) == 0
+                || family.compare(QStringLiteral("JetBrains Mono"), Qt::CaseInsensitive) == 0)
+                continue;
+            settings.setUiFont(family);
+            settings.setMonoFont(family);
+            QVERIFY2(fonts.uiFamilyAvailable() == ui.contains(family, Qt::CaseInsensitive),
+                     qPrintable(family));
+            QVERIFY2(fonts.monospaceFamilyAvailable()
+                         == mono.contains(family, Qt::CaseInsensitive),
+                     qPrintable(family));
+            ++checked;
+        }
+        settings.setUiFont(storedUi);
+        settings.setMonoFont(storedMono);
+        QVERIFY(checked > 0);
+    }
+
     void theUiListOffersNoBitmapOrRotatedFace()
     {
         QVERIFY(!FontManager::isUsableUiFace(QStringLiteral("Noto Fangsong KSS Rotated")));
