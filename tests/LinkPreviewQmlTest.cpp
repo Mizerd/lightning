@@ -302,8 +302,7 @@ private Q_SLOTS:
         const auto areas = card->findChildren<QQuickItem *>();
         int mouseAreas = 0;
         for (auto *item : areas) {
-            if (QLatin1String(item->metaObject()->className())
-                != QLatin1String("QQuickMouseArea"))
+            if (!item->inherits("QQuickMouseArea"))
                 continue;
             ++mouseAreas;
             QVERIFY(!item->property("enabled").toBool());
