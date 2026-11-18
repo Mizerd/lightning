@@ -22,7 +22,10 @@ use serde_json::Value;
 use crate::backdrop::classify_write_error;
 use crate::stickers::{absent_answers, account_key};
 
-const SPACING: Duration = Duration::from_millis(250);
+const SPACING: Duration = Duration::from_millis(400);
+const SETTLE_WAIT: Duration = Duration::from_secs(6);
+
+static SETTLE_EVENT: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 static SETTLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static FRESH: Mutex<Option<HashSet<(String, String)>>> = Mutex::new(None);
@@ -37,6 +40,27 @@ fn with<T: Default, R>(slot: &Mutex<Option<T>>, f: impl FnOnce(&mut T) -> R) -> 
 /// missing from it does not exist (the extension sends all of it initially).
 pub(crate) fn settle(client: &Client) {
     with(&SETTLED, |s| s.insert(account_key(client)));
+    SETTLE_EVENT.notify_waiters();
+}
+
+/// An optional read is never urgent: wait (bounded) for the first sync
+/// response rather than ask for what it is about to deliver.
+pub(crate) async fn await_settled(client: &Client) {
+    wait_until(|| is_settled(client), SETTLE_WAIT).await;
+}
+
+async fn wait_until(done: impl Fn() -> bool, limit: Duration) {
+    let _ = tokio::time::timeout(limit, async {
+        loop {
+            let mut notified = std::pin::pin!(SETTLE_EVENT.notified());
+            notified.as_mut().enable();
+            if done() {
+                return;
+            }
+            notified.await;
+        }
+    })
+    .await;
 }
 
 pub(crate) fn unsettle(client: &Client) {
@@ -128,6 +152,9 @@ pub(crate) async fn read_global(
 ) -> Result<Option<Value>, String> {
     let account = account_key(client);
     let fresh = with(&FRESH, |f| f.contains(&(account.clone(), event_type.to_owned())));
+    if !fresh {
+        await_settled(client).await;
+    }
     let ty = GlobalAccountDataEventType::from(event_type);
     let answer = read_optional(
         absent_answers(),
@@ -272,6 +299,23 @@ mod tests {
         .unwrap();
         assert_eq!(got, None);
         assert_eq!(asked.load(Ordering::SeqCst), 1, "settled and not in the store: no request");
+    }
+
+    #[tokio::test]
+    async fn a_read_waits_for_the_first_sync_response_but_not_for_ever() {
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let setter = std::sync::Arc::clone(&flag);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            setter.store(true, Ordering::SeqCst);
+            SETTLE_EVENT.notify_waiters();
+        });
+        let start = Instant::now();
+        wait_until(|| flag.load(Ordering::SeqCst), Duration::from_secs(5)).await;
+        assert!(flag.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(2));
+        let start = Instant::now();
+        wait_until(|| false, Duration::from_millis(80)).await;
+        assert!(start.elapsed() >= Duration::from_millis(80));
     }
 
     #[tokio::test]

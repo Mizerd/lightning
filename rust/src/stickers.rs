@@ -1381,6 +1381,7 @@ async fn ask_account_data(
     event_type: &str,
     ty: &GlobalAccountDataEventType,
 ) -> ServerAnswer {
+    crate::optprobe::await_settled(client).await;
     if crate::optprobe::proves_absent(client, event_type) {
         return ServerAnswer::Absent;
     }
