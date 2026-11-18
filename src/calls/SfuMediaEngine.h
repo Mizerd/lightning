@@ -284,11 +284,15 @@ public:
         static constexpr int kRaisePercent = 90;
         static constexpr int kClearPercent = 25;
         static constexpr int kMinObserved = 50;
+        // A DTX peer sends ~2.5 frames/s, so clearing on the window alone
+        // could keep the badge ~30 s after its key arrives.
+        static constexpr int kClearRun = 10;
 
         std::array<bool, kWindow> recent{};
         int next = 0;
         int observed = 0;
         int failures = 0;
+        int successRun = 0;
         bool announced = false;
 
         bool note(bool failed, bool *raise);

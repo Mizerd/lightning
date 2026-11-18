@@ -4611,8 +4611,31 @@ true,2147483,
             QVERIFY(p.announced);
         }
 
+        {
+            Policy p;
+            bool raise = false;
+            for (int i = 0; i < Policy::kWindow; ++i)
+                p.note(true, &raise);
+            QVERIFY(p.announced);
+            int clearedAfter = -1;
+            for (int i = 0; i < Policy::kWindow && clearedAfter < 0; ++i) {
+                if (p.note(false, &raise) && !raise)
+                    clearedAfter = i + 1;
+            }
+            QVERIFY2(clearedAfter > 0 && clearedAfter <= Policy::kClearRun,
+                     "a stream whose key arrived needs most of a 100-frame "
+                     "window to clear: ~30 s for a DTX peer at 2.5 frames/s");
+            int moves = 0;
+            for (int i = 0; i < Policy::kMinObserved - 1; ++i) {
+                if (p.note(true, &raise))
+                    ++moves;
+            }
+            QCOMPARE(moves, 0);
+        }
+
         QVERIFY(Policy::kClearPercent < Policy::kRaisePercent);
         QVERIFY(Policy::kMinObserved <= Policy::kWindow);
+        QVERIFY(Policy::kClearRun < Policy::kWindow);
     }
 
     void everyLiveQueueIsBoundedAndLeaky()

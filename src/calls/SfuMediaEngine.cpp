@@ -5462,6 +5462,14 @@ bool SfuMediaEngine::BlockedRunPolicy::note(bool failed, bool *raise)
     if (failed)
         ++failures;
     next = (next + 1) % kWindow;
+    successRun = failed ? 0 : successRun + 1;
+
+    if (announced && successRun >= kClearRun) {
+        *this = BlockedRunPolicy{};
+        if (raise)
+            *raise = false;
+        return true;
+    }
 
     const int percent = failurePercent();
     if (percent < 0)
