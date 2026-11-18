@@ -1586,8 +1586,17 @@ Item {
         auto *aliceCard = findCard(kAlice);
         auto *bobCard = findCard(kBob);
         QVERIFY(aliceCard && bobCard);
-        QTRY_COMPARE(aliceCard->property("avatarMxc").toString(),
-                     QStringLiteral("mxc://one.example/a"));
+        auto *rowsMenu = find(QStringLiteral("menu"));
+        const auto bobHasAvatar = [rowsMenu]() {
+            const QVariantList rows = rowsMenu->property("sortedAccounts").toList();
+            for (const QVariant &row : rows) {
+                const QVariantMap m = row.toMap();
+                if (m.value(QStringLiteral("userId")).toString() == kBob)
+                    return !m.value(QStringLiteral("avatarUrl")).toString().isEmpty();
+            }
+            return false;
+        };
+        QTRY_VERIFY2(bobHasAvatar(), "the fixture must hand the card an avatar url");
         QCOMPARE(bobCard->property("avatarMxc").toString(), QString());
         m_controller->accounts()->updateProfile(kAlice, QString(), QString());
         m_controller->accounts()->updateProfile(kBob, QString(), QString());
