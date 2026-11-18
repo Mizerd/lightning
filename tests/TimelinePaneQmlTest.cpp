@@ -12114,7 +12114,7 @@ false);
                            &PaginationController::targetLocated);
         controller.pagination()->restoreScrollAnchor(roomId);
         QCOMPARE(located.count(), 1);
-        QCOMPARE(controller.timeline()->stableIdAt(
+        QCOMPARE(controller.timeline()->eventIdAt(
                      located.first().at(0).toInt()), topId);
         QVERIFY(qAbs(located.first().at(1).toReal() - topOffset) < 1.0);
     }
