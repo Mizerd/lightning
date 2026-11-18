@@ -824,6 +824,47 @@ private Q_SLOTS:
         QCOMPARE(reason(QString()), QString());
     }
 
+    void theSessionTrustLabelFollowsTheSdksVerificationState()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Session trust exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        const QString dev = QStringLiteral("DEV");
+        const auto snapshot = [&](bool identity, bool crossSigned) {
+            Q_EMIT rust->ownDeviceStatusUpdated(dev, identity, false, crossSigned,
+                                                identity, identity, identity);
+        };
+        const auto sdk = [&](const char *state) {
+            Q_EMIT rust->cryptoBootstrapEvent(QStringLiteral("verification_state"),
+                                              QString::fromLatin1(state), 0, 0);
+        };
+
+        snapshot(false, false);
+        QCOMPARE(app.sessionTrustState(), QStringLiteral("Cross-signing unavailable"));
+
+        sdk("unknown");
+        snapshot(false, false);
+        QCOMPARE(app.sessionTrustState(), QStringLiteral("Unknown"));
+
+        sdk("verified");
+        snapshot(true, false);
+        QCOMPARE(app.sessionTrustState(), QStringLiteral("Verified"));
+
+        sdk("unverified");
+        snapshot(true, true);
+        QCOMPARE(app.sessionTrustState(), QStringLiteral("Not verified"));
+        snapshot(false, false);
+        QCOMPARE(app.sessionTrustState(), QStringLiteral("Cross-signing unavailable"));
+
+        Q_EMIT rust->loggedOut();
+        snapshot(true, true);
+        QCOMPARE(app.sessionTrustState(), QStringLiteral("Verified"));
+#endif
+    }
+
     void aMismatchAndTheVerifiedSideReachTheCard()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

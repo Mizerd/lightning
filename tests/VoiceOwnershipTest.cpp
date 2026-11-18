@@ -64,8 +64,9 @@ private Q_SLOTS:
     void ownershipIsTakenOnlyAfterASuccessfulStart()
     {
         AppController app(AppController::MockBackend);
-        auto *rec = new FakeRecorder;
-        app.setVoiceRecorderForTest(rec);
+        auto owned = std::make_unique<FakeRecorder>();
+        auto *rec = owned.get();
+        app.setVoiceRecorderForTest(std::move(owned));
         QCOMPARE(app.voiceOwner(), QString{});
 
         QVERIFY(app.startVoiceRecording(QStringLiteral("room")));
@@ -76,9 +77,10 @@ private Q_SLOTS:
     void afailedStartLeavesNoOwner()
     {
         AppController app(AppController::MockBackend);
-        auto *rec = new FakeRecorder;
+        auto owned = std::make_unique<FakeRecorder>();
+        auto *rec = owned.get();
         rec->deviceAvailable = false;
-        app.setVoiceRecorderForTest(rec);
+        app.setVoiceRecorderForTest(std::move(owned));
 
         QVERIFY(!app.startVoiceRecording(QStringLiteral("room")));
         QCOMPARE(app.voiceOwner(), QString{});
@@ -88,8 +90,9 @@ private Q_SLOTS:
     void asecondComposerCannotStealALiveRecording()
     {
         AppController app(AppController::MockBackend);
-        auto *rec = new FakeRecorder;
-        app.setVoiceRecorderForTest(rec);
+        auto owned = std::make_unique<FakeRecorder>();
+        auto *rec = owned.get();
+        app.setVoiceRecorderForTest(std::move(owned));
 
         QVERIFY(app.startVoiceRecording(QStringLiteral("room")));
         QCOMPARE(app.voiceOwner(), QStringLiteral("room"));
@@ -104,8 +107,9 @@ private Q_SLOTS:
     void aliveRecordingIsNotStolenWhileFinalizing()
     {
         AppController app(AppController::MockBackend);
-        auto *rec = new FakeRecorder;
-        app.setVoiceRecorderForTest(rec);
+        auto owned = std::make_unique<FakeRecorder>();
+        auto *rec = owned.get();
+        app.setVoiceRecorderForTest(std::move(owned));
 
         QVERIFY(app.startVoiceRecording(QStringLiteral("room")));
         rec->isRecording = false;
@@ -119,8 +123,9 @@ private Q_SLOTS:
     void ownershipMovesOnceTheRecorderIsFree()
     {
         AppController app(AppController::MockBackend);
-        auto *rec = new FakeRecorder;
-        app.setVoiceRecorderForTest(rec);
+        auto owned = std::make_unique<FakeRecorder>();
+        auto *rec = owned.get();
+        app.setVoiceRecorderForTest(std::move(owned));
 
         QVERIFY(app.startVoiceRecording(QStringLiteral("room")));
         app.cancelVoiceRecording();
@@ -134,8 +139,9 @@ private Q_SLOTS:
     void anUnknownOwnerIsRefused()
     {
         AppController app(AppController::MockBackend);
-        auto *rec = new FakeRecorder;
-        app.setVoiceRecorderForTest(rec);
+        auto owned = std::make_unique<FakeRecorder>();
+        auto *rec = owned.get();
+        app.setVoiceRecorderForTest(std::move(owned));
 
         QVERIFY(!app.startVoiceRecording(QStringLiteral("elsewhere")));
         QCOMPARE(app.voiceOwner(), QString{});
