@@ -1180,6 +1180,17 @@ SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
     if (legacyOut)
         *legacyOut = legacy;
 
+    // A keyring that refused the copy is not asked again by this process.
+    const auto refused = [&] {
+        const QMutexLocker lock(&m_legacyCopyRefusedMutex);
+        m_legacyCopyRefused.insert(userId);
+        return LegacyAdoption::CopyFailed;
+    };
+    {
+        const QMutexLocker lock(&m_legacyCopyRefusedMutex);
+        if (m_legacyCopyRefused.contains(userId))
+            return LegacyAdoption::CopyFailed;
+    }
     if (!current || how != QLatin1String(kKeyringItemsAdopted))
         markKeyringItems(slug, kKeyringItemsAdopted);
     for (const QLatin1String &key : keys) {
@@ -1188,7 +1199,7 @@ SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
                 << "keyring: could not copy a sign-in saved before install "
                    "scoping; reading the shared item as before"
                 << "slug=" << slug;
-            return LegacyAdoption::CopyFailed;
+            return refused();
         }
     }
     if (m_secretStore->readSecret(userId, QLatin1String(kSecretAccessToken))
@@ -1197,7 +1208,7 @@ SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
             << "keyring: a copied sign-in did not read back; reading the "
                "shared item as before"
             << "slug=" << slug;
-        return LegacyAdoption::CopyFailed;
+        return refused();
     }
     noteKeyringBackend(userId);
     qCInfo(lcSettings)

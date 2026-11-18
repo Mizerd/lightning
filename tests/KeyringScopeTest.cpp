@@ -149,6 +149,7 @@ public:
     bool storeSecret(const QString &userId, const QString &key,
                      const QString &value) override
     {
+        ++storeCalls;
         if (m_keyring->locked || failStores || key == failKey) {
             m_error = QStringLiteral("simulated store failure");
             return false;
@@ -193,6 +194,7 @@ public:
     QString backendKind() const override { return kind; }
 
     bool failStores = false;
+    int storeCalls = 0;
     QString kind;
     QString failKey;
 
@@ -347,6 +349,7 @@ private Q_SLOTS:
 
     void aCopyThatCannotBeWrittenStillReadsTheSharedItem();
     void aCopyInterruptedPartWayKeepsReadingOneWholeSession();
+    void aRefusedCopyIsNotRetriedOnEveryRead();
     void anOlderBuildSigningInAgainIsNeverHandedTheStaleToken();
     void signingOutLeavesASharedItemHoldingAnotherToken();
     void aStoreInsideOneInstallIsNotScoped();
@@ -747,6 +750,33 @@ void KeyringScopeTest::aCopyInterruptedPartWayKeepsReadingOneWholeSession()
                 .isEmpty());
     QCOMPARE(flatpak->accessTokenFor(kUser), QStringLiteral("legacy-access"));
     QCOMPARE(flatpak->refreshTokenFor(kUser), QStringLiteral("legacy-refresh"));
+    QCOMPARE(flatpak->oauthClientIdFor(kUser), QStringLiteral("legacy-client"));
+}
+
+void KeyringScopeTest::aRefusedCopyIsNotRetriedOnEveryRead()
+{
+    FakeKeyring keyring;
+    seedOlderRecord(QStringLiteral("keyring-flatpak"), kUser,
+                    QStringLiteral("FLATPAKDEV"), QStringLiteral("oauth"));
+    olderBuildSignsIn(keyring, kUser, QStringLiteral("legacy-access"),
+                      QStringLiteral("legacy-refresh"),
+                      QStringLiteral("legacy-client"));
+    SharedKeyringStore store(&keyring);
+    store.failStores = true;
+    auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
+    const int afterStart = store.storeCalls;
+    QCOMPARE(afterStart, 1);
+
+    for (int i = 0; i < 3; ++i) {
+        QCOMPARE(flatpak->accessTokenFor(kUser), QStringLiteral("legacy-access"));
+        QCOMPARE(flatpak->refreshTokenFor(kUser), QStringLiteral("legacy-refresh"));
+    }
+    QCOMPARE(store.storeCalls, afterStart);
+
+    store.failStores = false;
+    QVERIFY(flatpak->updateSessionTokens(kUser, QStringLiteral("rotated-access"),
+                                         QStringLiteral("rotated-refresh")));
+    QCOMPARE(flatpak->accessTokenFor(kUser), QStringLiteral("rotated-access"));
     QCOMPARE(flatpak->oauthClientIdFor(kUser), QStringLiteral("legacy-client"));
 }
 
