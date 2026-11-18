@@ -774,6 +774,9 @@ QThreadPool &rustRetirementPool()
         auto *p = new QThreadPool;
         p->setMaxThreadCount(2);
         p->setExpiryTimeout(-1);
+        // The shutdown block_on runs here; same 16 MiB as the Rust session threads
+        // (SESSION_THREAD_STACK_BYTES), where Windows and macOS defaults are 1 MiB / 512 KiB.
+        p->setStackSize(16u * 1024u * 1024u);
         return p;
     }();
     return *pool;
@@ -2410,6 +2413,8 @@ void RustSdkMatrixClient::adoptBrowserSession(
 
     m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
                                        : identity;
+    if (m_freshLoginIdentity.isValid() && m_settings)
+        m_settings->recordPendingSignIn(m_freshLoginIdentity);
     m_freshBrowserRecord = {};
 
     if (!ensureRustHandleForIdentity(identity)) {
