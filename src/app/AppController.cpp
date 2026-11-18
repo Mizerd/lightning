@@ -2832,11 +2832,6 @@ true, ringSeconds, acceptOffered,
             Q_EMIT securityStateChanged();
             Q_EMIT roomKeyImportStateChanged();
         });
-        connect(rust, &RustSdkMatrixClient::roomTimelineReloaded,
-                this, [this](const QString &roomId, int t, int d, int u) {
-            if (roomId == m_currentRoomId)
-                Q_EMIT currentRoomTimelineReloaded(t, d, u);
-        });
         connect(rust, &RustSdkMatrixClient::verificationRequestReceived,
                 this, [this](const QString &flowId, const QString &otherUser,
                              const QString &otherDevice, bool isSelf) {

@@ -6967,22 +6967,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
-    if (type == QLatin1String("reload_timeline_done")) {
-        Q_EMIT roomTimelineReloaded(
-            event.value(QStringLiteral("room_id")).toString(),
-            event.value(QStringLiteral("events")).toInt(0),
-            event.value(QStringLiteral("decrypted")).toInt(0),
-            event.value(QStringLiteral("undecryptable")).toInt(0));
-        return;
-    }
-
-    if (type == QLatin1String("reload_timeline_failed")) {
-        Q_EMIT errorOccurred(tr("Reload timeline failed: %1").arg(
-            event.value(QStringLiteral("message")).toString(
-                tr("Matrix Rust SDK error."))));
-        return;
-    }
-
     if (type == QLatin1String("verification_request_received")) {
         Q_EMIT verificationRequestReceived(
             event.value(QStringLiteral("flow_id")).toString(),

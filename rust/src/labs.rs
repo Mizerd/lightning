@@ -597,8 +597,6 @@ const CLASSES: &[(&str, EventClass)] = {
         ("push_rules_write", UiOnly),
         ("read_marker_advanced", UiOnly),
         ("refused_sign_in_revoked", UiOnly),
-        ("reload_timeline_done", UiOnly),
-        ("reload_timeline_failed", UiOnly),
         ("report_message_result", UiOnly),
         ("room_action_error", UiOnly),
         ("room_tag_confirmed", UiOnly),

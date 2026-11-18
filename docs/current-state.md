@@ -1971,6 +1971,8 @@ Two reported bugs land in one pass:
 never persisted), so after quitting the Rust GUI the timeline was
 empty until new live events arrived. Fix:
 
+- (Removed: `mx_rust_reload_room_timeline`, `RustSdkMatrixClient::reloadRoomTimeline`
+  and `roomTimelineReloaded` had no callers.)
 - New Rust FFI `mx_rust_reload_room_timeline(room_id, limit)`
   calls matrix-sdk 0.18 `Room::messages(MessagesOptions::backward())`
   and re-emits each event through the same `timeline_event`

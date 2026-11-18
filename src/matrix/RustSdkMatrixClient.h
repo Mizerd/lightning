@@ -802,11 +802,6 @@ Q_SIGNALS:
 
     void keyBackupResult(const QString &state, const QString &message);
 
-    void roomTimelineReloaded(const QString &roomId,
-                              int totalEvents,
-                              int decryptedEvents,
-                              int undecryptableEvents);
-
     void verificationRequestReceived(const QString &flowId,
                                      const QString &otherUserId,
                                      const QString &otherDeviceId,
