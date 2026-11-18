@@ -14,6 +14,7 @@
 #include <QtTest/QtTest>
 
 #include <QFile>
+#include <QFont>
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -31,6 +32,7 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
+#include "matrix/MockMatrixClient.h"
 #include "models/RoomListModel.h"
 #include "spaces/SpaceManager.h"
 
@@ -756,6 +758,129 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
                          qPrintable(QStringLiteral("no highlight over the %1")
                                     .arg(QLatin1String(s.what))));
         }
+    }
+
+    // Selection must not borrow the unread signal: a selected, fully-read
+    // row stays Medium weight, and an unselected unread row stays Bold.
+    void boldNameTracksUnreadNotSelection()
+    {
+        Fixture f;
+        f.controller = std::make_unique<AppController>(AppController::MockBackend);
+        auto *mock = f.controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->setScreenshotDemoMode(true);
+        QSignalSpy loginSpy(f.controller->auth(), &AuthManager::loginSucceeded);
+        f.controller->auth()->login(QStringLiteral("https://lightning.example"),
+                                    QStringLiteral("alex"),
+                                    QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(kTimeoutMs));
+        QVERIFY(QTest::qWaitFor([&] { return f.controller->roomList()->rowCount() >= 3; },
+                               kTimeoutMs));
+        f.engine.rootContext()->setContextProperty(QStringLiteral("app"), f.controller.get());
+        QQmlComponent component(&f.engine);
+        component.setData(kPresenter, QUrl(QStringLiteral("qrc:/roomlistboldtest.qml")));
+        QVERIFY2(component.errors().isEmpty(), qPrintable(component.errorString()));
+        f.item.reset(qobject_cast<QQuickItem *>(component.create()));
+        QVERIFY(f.item);
+        f.window.resize(320, 400);
+        f.item->setParentItem(f.window.contentItem());
+        f.window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&f.window));
+        f.window.requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(&f.window));
+
+        // Weekend Plans has no unread of any kind; Design Lounge does
+        // (seedScreenshotDemoData, both in the @alex:lightning.example account).
+        const QString readRoomId = QStringLiteral("!weekend:lightning.example");
+        const QString unreadRoomId = QStringLiteral("!design-lounge:lightning.example");
+        f.controller->setCurrentRoomId(readRoomId);
+
+        QQuickItem *readSelected = nullptr;
+        QQuickItem *unreadRow = nullptr;
+        QVERIFY(QTest::qWaitFor([&] {
+            readSelected = nullptr;
+            unreadRow = nullptr;
+            for (auto *row : rowsOf(f.item.get())) {
+                const QString id = row->property("roomId").toString();
+                if (id == readRoomId)
+                    readSelected = row;
+                else if (id == unreadRoomId)
+                    unreadRow = row;
+            }
+            return readSelected != nullptr && unreadRow != nullptr;
+        }, kTimeoutMs));
+
+        QVERIFY(readSelected->property("selected").toBool());
+        QVERIFY(!readSelected->property("isUnread").toBool());
+        auto *readName = byName(readSelected, QStringLiteral("roomNameLabel"));
+        QVERIFY(readName);
+        QCOMPARE(int(readName->property("font").value<QFont>().weight()),
+                 int(QFont::Medium));
+
+        QVERIFY(!unreadRow->property("selected").toBool());
+        QVERIFY(unreadRow->property("isUnread").toBool());
+        auto *unreadName = byName(unreadRow, QStringLiteral("roomNameLabel"));
+        QVERIFY(unreadName);
+        QCOMPARE(int(unreadName->property("font").value<QFont>().weight()),
+                 int(QFont::Bold));
+    }
+
+    // A Mentions-only room must still bold for a plain message: the
+    // notification gate that hides isUnread must not also hide hasActivity.
+    // The mention badge has its own separate gate and is unaffected.
+    void boldNameSurvivesAMentionsOnlyNotificationMode()
+    {
+        Fixture f;
+        f.controller = std::make_unique<AppController>(AppController::MockBackend);
+        auto *mock = f.controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->setScreenshotDemoMode(true);
+        QSignalSpy loginSpy(f.controller->auth(), &AuthManager::loginSucceeded);
+        f.controller->auth()->login(QStringLiteral("https://lightning.example"),
+                                    QStringLiteral("alex"),
+                                    QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(kTimeoutMs));
+        QVERIFY(QTest::qWaitFor([&] { return f.controller->roomList()->rowCount() >= 3; },
+                               kTimeoutMs));
+
+        const QString roomId = QStringLiteral("!design-lounge:lightning.example");
+        f.controller->setRoomNotificationMode(roomId, 1); // Mentions only
+
+        f.engine.rootContext()->setContextProperty(QStringLiteral("app"), f.controller.get());
+        QQmlComponent component(&f.engine);
+        component.setData(kPresenter, QUrl(QStringLiteral("qrc:/roomlistrawunreadtest.qml")));
+        QVERIFY2(component.errors().isEmpty(), qPrintable(component.errorString()));
+        f.item.reset(qobject_cast<QQuickItem *>(component.create()));
+        QVERIFY(f.item);
+        f.window.resize(320, 400);
+        f.item->setParentItem(f.window.contentItem());
+        f.window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&f.window));
+        f.window.requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(&f.window));
+
+        QQuickItem *row = nullptr;
+        QVERIFY(QTest::qWaitFor([&] {
+            row = nullptr;
+            for (auto *r : rowsOf(f.item.get())) {
+                if (r->property("roomId").toString() == roomId) {
+                    row = r;
+                    break;
+                }
+            }
+            return row != nullptr;
+        }, kTimeoutMs));
+
+        // Confirms the mode really does gate the old signal, or this test
+        // would pass without exercising the fix at all.
+        QVERIFY2(!row->property("isUnread").toBool(),
+                 "Mentions-only mode should have gated the activity-dot signal");
+        QVERIFY(row->property("hasActivity").toBool());
+
+        auto *name = byName(row, QStringLiteral("roomNameLabel"));
+        QVERIFY(name);
+        QCOMPARE(int(name->property("font").value<QFont>().weight()),
+                 int(QFont::Bold));
     }
 
     void compactRowsNavigateWithKeyboard()
