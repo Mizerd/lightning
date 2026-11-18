@@ -242,6 +242,24 @@ that predates the fix was NOT retested and is expected to stay refused.
 - The legacy lane's crossed offers, TURN, and real devices stay as
   `docs/live-validation.md` lists them.
 
+## 2026-11-18 — GitHub #51: jump latency measured, the saved-position restore did not engage
+
+Release build of `d23240ee`, headless Wayland, a 2000-message room on a
+loopback Continuwuity, `LIGHTNING_SCROLL_TRACE=1`. An event-context jump to a
+message 1700, 1000 and 50 messages back (server-search result click) logged
+`context-phase context-model-ready` at 253.8, 253.1 and 221.0 ms
+(`view-swap` 0.2 ms later; 22 items): a fixed cost independent of depth, which
+on a real server is that one `/context` round trip plus this loopback figure.
+Paging back ~850 messages took ~15 pages of 20 events at ~48 ms each. **Not
+reproduced:** leaving a room scrolled up (150-850 messages back, wheel from
+the virtual pointer) and returning logged `reset-settled stick=1` and landed
+on the newest messages in 4 of 4 attempts, with no event-context lines, so the
+default "previous position" restore was not exercised at all and the
+reporter's slow path was not measured. Unknown whether the synthetic wheel
+skips `saveRoomPosition` (the kit has no real touchpad) or the restore is
+broken for deep positions; a real-input capture with the same trace is the
+next step.
+
 ## 2026-10-20 — OPEN (GitHub #30/#48): a plain message Element shows is absent from the room
 
 The report: an `m.text` (no thread, no edit) missing between two rows that
@@ -258,7 +276,15 @@ reporter's cause is NOT established (it needs their `room_list mode=` line).
 Two HYPOTHESES remain open: a quit between the sync position being stored
 and the cache task storing the response, and a server sending
 `limited: false` over a gap. Settings -> About -> "Reset local cache"
-clears an existing hole.
+clears an existing hole. **2026-11-18, local probe (release build of
+`d23240ee`, Continuwuity, `LIGHTNING_TIMELINE_TRACE=1`):** the quit-between-
+sync-position-and-cache-store hypothesis did not reproduce in 7 cycles of
+`kill -9` during a 150-500 message burst into the open room (killed 0.5-7 s
+in; the burst continued while the app was dead and was caught up on restart,
+an offline gap of up to ~500 events): every trace read
+`missing_from_sdk_timeline=0`. The `limited: false` over a gap half needs the
+server to misreport, which Continuwuity does not (a 500-event gap came back as
+a normal limited sync); it stays open and unprobed.
 
 The instrument: `LIGHTNING_TIMELINE_TRACE=1` (`rust/src/missingtrace.rs`).
 About 4 s after a room opens it reads up to 300 events of `/messages` from
@@ -289,9 +315,22 @@ model is constructed and the Rust `labs::ACTIVE` switch is never set.
 `LIGHTNING_LABS_LIVE_ACCOUNTS=0` is a test override that forces Labs off and
 hides the card. Known Phase 1 limit, now user-visible: switching TO an
 account running in the background first closes it there, so it is not
-faster than today (instant switching is Phase 2). Live: **NOT TESTED**
-(background mention, switch, quit while syncing, removal; the design's
-local-homeserver run is still owed).
+faster than today (instant switching is Phase 2). **Local-homeserver run,
+2026-11-18, release build of `d23240ee`, Continuwuity, headless Wayland (PASS
+for the four paths below; not a Synapse, OAuth, or real-desktop run):** with
+Labs on and two accounts pinned, a mention for the pinned background account
+raised a notification attempt (`notification sound own= played`, the headless
+bus has no daemon) and put an `@N` badge on its row in the switcher while a
+third account was in front; switching to the running account took the warm
+path (`switch:warm`, `switch:adopt`, ~170 ms from click to login succeeded);
+SIGTERM with two accounts up, once idle and once during a 120-message burst,
+retired the background host and the foreground store in 17-19 ms
+(`quit:drained`) and the relaunch signed the pinned account back in with no
+warning; removing a running background account released its store, deleted
+its store directory and signed the device out on the server (device count
+2 -> 1). Not covered: desktop notification content and click routing (no
+daemon), a restore in the middle of a cold initial sync, the cap of four
+running, Synapse.
 
 - **Background token rotations follow 24a485c5.** A background account's
   rotation moves its custody generation inside matrix-sdk's refresh; the
@@ -360,9 +399,12 @@ local-homeserver run is still owed).
   (`bgsession::take_cost_measure`, ignored by default): 500 rooms 0.59 ms,
   1000 rooms 1.23 ms, 2000 rooms 2.42 ms, 4000 rooms 5.91 ms; four such
   accounts 10.1 ms. Linear, ~1.5 us per room. A 4000-room account's single
-  take is over the drainer's 4 ms tick budget in a debug build; release is
-  NOT measured. Open: if release is still over budget, the take should
-  rebuild only the dirty rooms.
+  take is over the drainer's 4 ms tick budget in a debug build. **Release,
+  measured 2026-11-18** (`cargo test --release take_cost_measure -- --ignored`,
+  LTO off, two runs, run niced beside a running app): 500 rooms 0.18 ms,
+  1000 rooms 0.39-0.40 ms, 2000 rooms 0.85 ms, 4000 rooms 2.04-2.22 ms; four
+  such accounts 3.5-3.6 ms. Inside the 4 ms tick, so no dirty-room rebuild is
+  needed; a full-LTO build can only be faster. Closed.
 - **Turning Labs off waits, boundedly (§18 round 2, L-c).** A runtime off
   retires every background host and is done only when each has retired: a
   host still restoring is waited for, never left holding its store. Bounds:
@@ -624,6 +666,15 @@ mid-playback (FFmpeg's renderer on a device change). Live checks owed: a
 voice message and a recording started within 3 s of `systemctl --user restart
 pipewire-pulse` (must wait, then play or fail cleanly, never abort), and the
 `qt audio backend choice` line on a nix build.
+**Checked 2026-11-18** (release build of `d23240ee`, Qt 6.11.2, private PipeWire
+1.6.9 graph with the pipewire-pulse socket held): the `qt audio backend choice:
+pulseaudio set-by-lightning=yes` line is logged; a voice recording started 0.6 s
+after `pipewire-pulse` was killed and held down 2 s logged "an audio start waits
+for Qt's PulseAudio connection (at most 8000 ms)", then started when the
+connection returned 2.8 s later, with no abort; a recording started while
+`pipewire-pulse` was SIGSTOPped (a stalled server) left the GUI responsive
+(Settings opened inside 3 s). Still unchecked: stored device ids and the
+QSoundEffect voice race on the PulseAudio backend.
 
 **Measured on the way (2026-10-20, private graph, nix build, Qt's PipeWire
 backend):** after a PipeWire restart Qt's QMediaDevices reported no output
@@ -785,6 +836,23 @@ before the next release; the full checklist is kept in the maintainer's notes.
   muted rooms; sidebar follows the Space order; Room info media "Load more";
   rpm package rename.
 
+**2026-11-18, driven on a private Continuwuity with the headless Wayland kit
+(release build of `d23240ee`):** PASS: the bell clears when its room is opened
+(1 -> none) and when a second device reads it (`m.read`/`m.fully_read` through
+the API, 5 s); `m.fully_read` reaches the server on leaving a room with 47
+unread and equals the room's newest event (read through the API; unread
+badge to none); the room-list sort menu (Activity, A-Z, Space order) reorders,
+and a Space's list follows the Space order. NOT
+TESTED / not possible here: restart persistence of an unread Activity row
+(the server lacks the notifications seed, log `activity seed unsupported by
+this server`, and the reopened last room reads itself), MSC4306 auto-subscribe
+(the server does not advertise MSC4306), "Mark as read" and "Mark space read"
+(the pointer kit has no right click), notification reply, voice playback and
+mini-player, reply with attachment, header click, tray muting (no tray in the
+kit), Room info "Load more", media notification for a closed room, ring and
+card sound under DND, media without a keyring, media fetch 5xx/404 (needs a
+fault proxy).
+
 ## 2026-09-30 — OPEN after the overnight live-test campaign
 
 **Decisions for Rokas.**
@@ -923,8 +991,6 @@ Everything below was found or left open by that round's live testing and its
 - Server-route edge cases: a Content-Disposition filename with a space becomes
   a metadata card; a text-less page with only `og:image` shows as a bare image
   (neither contacts the site).
-- `animatedSource` base64-decodes and hashes every direct WebP link on the GUI
-  thread when a row is created, and a still result is not cached.
 - NOT TESTED live: "Open in browser", over-cap media, the homeserver preview
   route, Windows and macOS.
 - Decision for Rokas: "Show images and videos from links inline" defaults ON
@@ -1418,6 +1484,21 @@ left Syncing and never returned stops presence dead while the app looks
 entirely healthy. Nothing in this defect's evidence distinguishes that from
 a working client.
 
+### 2026-11-18: hypothesis 2 does not reproduce on a loopback outage
+
+Release build of `d23240ee` on a private Continuwuity, `LIGHTNING_PRESENCE_TRACE=1`.
+Steady state: `presence-publish` every 22-23 s. Server killed for 75 s: sync went
+`retrying`/`starting`/`offline` every ~5 s, `presence-round` printed
+`not_syncing` only for the instants `syncing=0`, and publishes kept being
+attempted (attempts 10 -> 12, rejections 3 -> 5); `running` returned 20 s after
+the server and the next publish followed. Server frozen with SIGSTOP for 140 s
+(a hung connection rather than a refused one): the state stayed `running`,
+attempts 14 -> 22 with 5 more rejections counted, publishing never stopped,
+and it resumed on SIGCONT. So neither outage shape makes the publisher stop;
+what remains is a state the maintainer's account reached that a loopback
+outage does not (sleep/resume, a network change, a long `Idle`). Server-side
+presence was not read (the test account's token is in the private keyring).
+
 ### What settles it, and it is cheap now
 
 The instrument landed after the audit: `LIGHTNING_PRESENCE_TRACE=1` makes
@@ -1498,6 +1579,13 @@ reproduce**: the fixture room renders identically on the fixed and the unfixed
 build, because it is small enough that every row's bytes are cached by the
 media band before the viewer is opened. A repro needs a room whose images are
 outside the band — deep history, or a room opened and scrolled past quickly.
+**2026-11-18 (release build of `d23240ee`, headless Wayland, 240-image room, the
+viewer opened on the oldest image with the newest 239 far outside the band):**
+the strip filled with real thumbnails (30 visible), and `End` moved to image
+240 of 240 with its neighbours drawn too; no warnings in the log. That is the
+fixed behaviour on the fixed build; an unfixed build was not run (none
+predates `9fcabb4e` with the remote-build CI file), so the before/after
+comparison is still absent.
 
 **The bubble tap's exclusion for the action bar** (eighth instance of that
 shape in `MessageDelegate.qml`). The bar is a plain `Rectangle` anchored over
@@ -3762,16 +3850,11 @@ The deb is the control and resolves both. On X11 it still works (WM_CLASS is
 TESTED for want of a Wayland guest, but `--desktop-status` classifies it.
 
 **THREE THINGS THE FLATPAK SANDBOX BREAKS THAT THE APPIMAGE DOES NOT:**
-* **Spell checking is absent, and the diagnostic blames the wrong thing.**
-  `--spell-status` says "this machine has no dictionary Lightning can reach",
-  but `/usr/share/hunspell` EXISTS in the sandbox and `libenchant-2*` does
-  not. Lightning resolves `libenchant-2.so.2` at runtime through QLibrary
-  (`SpellBackend.cpp:352`), so this is `no-library`, not `no-dictionary` —
-  and `createPlatformSpellBackend` already returns that distinction
-  (`SpellBackend.h:71-76`) while `main.cpp:1813` prints the dictionary
-  wording for every failure. Two items: the KDE runtime carries no enchant
-  and the manifest does not add it, and the diagnostic misdirects whoever
-  tries to fix it.
+* **Spell checking is absent in the Flatpak.** The KDE runtime carries no
+  enchant (`libenchant-2.so.2`, resolved at runtime through QLibrary in
+  `SpellBackend.cpp`) and the manifest does not add it. The misleading
+  "no dictionary" wording is fixed: `--spell-status` branches on `no-library`
+  (`main.cpp`).
 * **The SNI tray cannot own its bus name.** The Flathub manifest adds
   `org.kde.StatusNotifierWatcher=talk`, but there is no `--own-name`:
   `RequestName org.kde.StatusNotifierItem-99-1` is refused with
@@ -4030,9 +4113,14 @@ STILL UNPROVEN, not reported broken:
 - **GIF-favorite reopen crash** — still only `1502e6b`'s commit message as
   evidence; seven headless scenario families including an ASan build found
   nothing. Needs a real `coredumpctl`/`gdb` backtrace.
-- **The Rust `children` payload against a real homeserver** — that a real
-  `m.space.child` order arrives in the order its admin set. Adjacent to item 2
-  above but not the same claim.
+- **The Rust `children` payload against a real homeserver** — **CHECKED
+  2026-11-18 on Continuwuity (not Synapse):** a space with five children whose
+  `order` values were set out of name and creation order (`a`, `c`, `b`,
+  none, `b`) rendered in the rail as Zeta(a), Mid(b), Beta(b), Alpha(c),
+  Omega(none), and the Space's own room list in "Space order" showed the same
+  sequence (A-Z sorted it differently, so it is not recency). Equal `order`
+  falls back to the child event's age, an absent one goes last. Synapse
+  unchecked.
 - **`app.` dereferences in creation-time bindings of other `Repeater`
   delegates** (`qml/EmojiPicker.qml`, `qml/SettingsScreen.qml` theme cards) —
   structurally exposed to the poisoned-context-lookup defect fixed in
