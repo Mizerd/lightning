@@ -109,6 +109,7 @@ private Q_SLOTS:
     void aCancelledVerificationRequestDropsItsCard();
     void aHostRetiredMidTickShiftsNoOtherHost();
     void aBackgroundEventFeedsTheUnifiedInboxUnderItsOwnAccount();
+    void caughtUpHistoryReachesTheInboxOnlyWhileItsRoomIsUnread();
 
 private:
     std::unique_ptr<BackgroundSessionHost> makeHost(const QString &uid, const QString &label,
@@ -748,6 +749,40 @@ void BackgroundHostTest::aBackgroundEventFeedsTheUnifiedInboxUnderItsOwnAccount(
                                                      QStringLiteral("@carol:example.org")));
     host->drainOnce();
     QCOMPARE(m_inbox->count(), 0);
+}
+
+
+void BackgroundHostTest::caughtUpHistoryReachesTheInboxOnlyWhileItsRoomIsUnread()
+{
+    m_settings->setActiveAccountUserId(kBob);
+    m_activity->setActiveUserId(kBob);
+    auto host = makeHost(kAlice, QStringLiteral("Alice"));
+    m_activity->setLiveState(kAlice, AccountActivityModel::Running);
+    const QString unread = QStringLiteral("!unread:example.org");
+    const QString read = QStringLiteral("!read:example.org");
+    const auto backlog = [](const QString &room, const QString &id) {
+        QJsonObject e = timelineEvent(room, id, QStringLiteral("@carol:example.org"));
+        QJsonObject inner = e.value(QStringLiteral("event")).toObject();
+        inner.insert(QStringLiteral("backlog"), true);
+        e.insert(QStringLiteral("event"), inner);
+        return e;
+    };
+    // Catch-up before the first counts: kept until the counts say otherwise.
+    m_fake->pushEvent(handleOf(*host), backlog(read, QStringLiteral("$early")));
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 1);
+    m_fake->setCounts(handleOf(*host),
+                      QJsonArray{QJsonArray{unread, 1, 0, kHasUnread | kEncryptionKnown},
+                                 QJsonArray{read, 0, 0, kEncryptionKnown}},
+                      0, true);
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 0);
+    m_fake->pushEvent(handleOf(*host), backlog(read, QStringLiteral("$old")));
+    m_fake->pushEvent(handleOf(*host), backlog(unread, QStringLiteral("$missed")));
+    host->drainOnce();
+    QCOMPARE(m_inbox->count(), 1);
+    QCOMPARE(m_inbox->entryAt(0).value(QStringLiteral("eventId")).toString(),
+             QStringLiteral("$missed"));
 }
 
 QTEST_MAIN(BackgroundHostTest)
