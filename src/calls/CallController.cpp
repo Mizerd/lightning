@@ -513,7 +513,8 @@ QString CallController::callerNameIn(const MatrixClient *client,
     if (name.isEmpty() || name == userId) {
         // The DM's members may not be loaded yet; its own name is the peer's.
         const RoomInfo dm = client->roomInfo(roomId);
-        if (dm.isDirect && dm.directUserId == userId && dm.directUserIds.size() <= 1)
+        if (dm.isDirect && dm.nameResolved && dm.directUserId == userId
+            && dm.directUserIds.size() <= 1)
             name = dm.name;
     }
     // Another member showing the same name is someone the card could be

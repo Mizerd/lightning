@@ -23,6 +23,8 @@ struct RoomInfo {
 
     QString id;
     QString name;
+    // false when `name` is the SDK's generated fallback ("Empty Room", the id).
+    bool nameResolved = true;
     QString topic;
     QString avatarUrl;
     QString lastMessagePreview;
@@ -143,6 +145,7 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.isFavourite == b.isFavourite
         && a.lowPriority == b.lowPriority
         && a.isArchived == b.isArchived
+        && a.nameResolved == b.nameResolved
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
         && a.activeMemberCount == b.activeMemberCount

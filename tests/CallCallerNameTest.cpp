@@ -28,10 +28,19 @@ public:
     {
         RoomInfo room;
         room.id = roomId;
-        if (roomId == QLatin1String("!dm2:x")) {
+        if (roomId.startsWith(QLatin1String("!dm2"))) {
             room.isDirect = true;
             room.directUserId = QStringLiteral("@dave:x");
             room.name = QStringLiteral("Dave Real");
+            if (roomId == QLatin1String("!dm2empty:x")) {
+                room.name = QStringLiteral("Empty Room");
+                room.nameResolved = false;
+            } else if (roomId == QLatin1String("!dm2id:x")) {
+                room.name = roomId;
+                room.nameResolved = false;
+            } else if (roomId == QLatin1String("!dm2blank:x")) {
+                room.name.clear();
+            }
             return room;
         }
         const QString prefix = roomId + QLatin1Char('|');
@@ -139,6 +148,10 @@ private Q_SLOTS:
         QCOMPARE(C::callerNameIn(&client, QStringLiteral("!dm2:x"),
                                  QStringLiteral("@eve:x")),
                  QStringLiteral("eve"));
+        for (const char *room : {"!dm2empty:x", "!dm2id:x", "!dm2blank:x"})
+            QCOMPARE(C::callerNameIn(&client, QString::fromLatin1(room),
+                                     QStringLiteral("@dave:x")),
+                     QStringLiteral("dave"));
     }
 
     void anInvisibleCharacterCannotEscapeTheCollisionCheck()

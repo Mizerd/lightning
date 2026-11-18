@@ -995,10 +995,6 @@ Q_SIGNALS:
 
     void timelinesReloadedAfterIgnoreChange(bool room, bool thread);
 
-    void currentRoomTimelineReloaded(int totalEvents,
-                                     int decryptedEvents,
-                                     int undecryptableEvents);
-
     void verificationStateChanged();
     void sessionVerificationWarningChanged();
     void sessionDevicesChanged();

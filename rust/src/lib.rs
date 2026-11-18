@@ -14005,11 +14005,13 @@ async fn room_payload(room: &Room) -> serde_json::Value {
     let invited_at_ms = invites::sent_ms(room).await;
     // matrix-sdk stamps an invite's latest event with first-seen time.
     let own_activity = if invited_at_ms > 0 { invited_at_ms } else { own_activity };
+    let (name, name_resolved) = room_name_parts(room).await;
 
     json!({
         "id": room.room_id().to_string(),
         "membership": membership,
-        "name": room_name(room).await,
+        "name": name,
+        "name_resolved": name_resolved,
         "canonical_alias": room.canonical_alias().map(|alias| alias.to_string()).unwrap_or_default(),
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
@@ -14260,9 +14262,15 @@ async fn watch_latest_event(
 }
 
 async fn room_name(room: &Room) -> String {
+    room_name_parts(room).await.0
+}
+
+/// The name, and whether it is the room's own or its DM peer's, as opposed to
+/// the SDK's generated fallback ("Empty Room", the room id).
+async fn room_name_parts(room: &Room) -> (String, bool) {
     if let Some(name) = room.name() {
         if !name.is_empty() {
-            return name.to_owned();
+            return (name.to_owned(), true);
         }
     }
 
@@ -14273,7 +14281,7 @@ async fn room_name(room: &Room) -> String {
                 if let Ok(Some(member)) = room.get_member_no_sync(user_id).await {
                     if let Some(name) = member.display_name() {
                         if !name.is_empty() {
-                            return name.to_owned();
+                            return (name.to_owned(), true);
                         }
                     }
                 }
@@ -14281,7 +14289,7 @@ async fn room_name(room: &Room) -> String {
         }
     }
 
-    match room.display_name().await {
+    let generated = match room.display_name().await {
         Ok(display_name) => {
             let rendered = display_name.to_string();
             if rendered.is_empty() {
@@ -14291,7 +14299,8 @@ async fn room_name(room: &Room) -> String {
             }
         }
         Err(_) => room.room_id().to_string(),
-    }
+    };
+    (generated, false)
 }
 
 const EVENT_QUEUE_CAP: usize = 4096;
