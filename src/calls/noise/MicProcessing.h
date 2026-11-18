@@ -73,5 +73,8 @@ using EchoRefused = std::function<void()>;
 QString engageEchoCancel(GstElement *binOrPipeline, EchoRefused refused = {});
 
 QString dropEchoCancel(GstElement *binOrPipeline);
+/// Re-acquires the playback probe after the one held may have gone with its
+/// receive bin; webrtcdsp otherwise keeps cancelling against nothing.
+QString retakeEchoProbe(GstElement *binOrPipeline, EchoRefused refused = {});
 
 }
