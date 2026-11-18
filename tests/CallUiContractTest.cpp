@@ -1281,6 +1281,25 @@ ApplicationWindow {
                  "the call-ended handler does not actually drop the flag");
     }
 
+    void theFloatingWindowAnswersTheCallShortcuts()
+    {
+        const QString pip = read(QStringLiteral(QML_DIR "/CallPipWindow.qml"));
+        QVERIFY2(!pip.isEmpty(), "CallPipWindow.qml is gone");
+        const QStringList actions = {
+            QStringLiteral("call.toggleMute"), QStringLiteral("call.toggleDeafen"),
+            QStringLiteral("call.toggleCamera"), QStringLiteral("call.leave"),
+            QStringLiteral("call.toggleScreenShare"),
+            QStringLiteral("call.returnToCall"),
+        };
+        for (const QString &action : actions) {
+            QVERIFY2(pip.contains(QStringLiteral("sequenceFor(\"%1\")").arg(action)),
+                     qPrintable(QStringLiteral(
+                         "the floating call window does not bind %1, and a "
+                         "window-scoped Shortcut in MainScreen never fires "
+                         "while the floating window has focus").arg(action)));
+        }
+    }
+
     void theCallControlsMayShrinkRatherThanOverflow()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));

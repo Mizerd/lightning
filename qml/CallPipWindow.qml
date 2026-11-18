@@ -72,6 +72,80 @@ Window {
         onActivated: root.shareFills = false
     }
 
+    function toggleMute() {
+        if (root.groupLive)
+            app.groupCall.toggleMicrophoneMuted()
+        else
+            app.calls.toggleMicrophoneMuted()
+    }
+    function toggleDeafen() {
+        if (root.groupLive)
+            app.groupCall.toggleDeafened()
+        else
+            app.calls.toggleDeafened()
+    }
+    function leaveCall() {
+        if (root.groupLive)
+            app.groupCall.leave()
+        else
+            app.calls.hangup()
+    }
+
+    // MainScreen's Shortcuts are window-scoped and never see this window's keys.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleMute")]
+        }
+        enabled: root.callLive
+        onActivated: root.toggleMute()
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleDeafen")]
+        }
+        enabled: root.callLive
+        onActivated: root.toggleDeafen()
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleCamera")]
+        }
+        enabled: root.groupLive
+        onActivated: app.groupCall.toggleCamera()
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.leave")]
+        }
+        enabled: root.callLive
+        onActivated: root.leaveCall()
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleScreenShare")]
+        }
+        enabled: root.groupLive
+        onActivated: {
+            if (app.groupCall.screenSharing)
+                app.groupCall.stopScreenShare()
+            else
+                app.groupCall.requestScreenShare()
+        }
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.returnToCall")]
+        }
+        enabled: root.callLive
+        onActivated: root.restoreRequested()
+    }
+
     // No transient parent: several compositors hide or minimise a transient
     // child with its parent, which is exactly when this window is needed.
     transientParent: null
@@ -225,12 +299,7 @@ Window {
                     glyphSize: 17
                     tooltip: root.micMuted ? qsTr("Unmute microphone")
                                            : qsTr("Mute microphone")
-                    onClicked: {
-                        if (root.groupLive)
-                            app.groupCall.toggleMicrophoneMuted()
-                        else
-                            app.calls.toggleMicrophoneMuted()
-                    }
+                    onClicked: root.toggleMute()
                 }
                 CallControlButton {
                     objectName: "pipDeafenButton"
@@ -239,12 +308,7 @@ Window {
                     diameter: 30
                     glyphSize: 17
                     tooltip: root.deafened ? qsTr("Undeafen") : qsTr("Deafen")
-                    onClicked: {
-                        if (root.groupLive)
-                            app.groupCall.toggleDeafened()
-                        else
-                            app.calls.toggleDeafened()
-                    }
+                    onClicked: root.toggleDeafen()
                 }
                 CallControlButton {
                     objectName: "pipShareFillButton"
@@ -275,12 +339,7 @@ Window {
                     diameter: 30
                     glyphSize: 17
                     tooltip: qsTr("Leave the call")
-                    onClicked: {
-                        if (root.groupLive)
-                            app.groupCall.leave()
-                        else
-                            app.calls.hangup()
-                    }
+                    onClicked: root.leaveCall()
                 }
             }
         }
