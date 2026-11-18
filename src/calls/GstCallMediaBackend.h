@@ -168,6 +168,11 @@ private:
         int statsReports = 0;
         quint64 lastInboundAudioPackets = 0;
         quint64 lastOutboundAudioPackets = 0;
+        // webrtcbin's outbound-rtp stats read 0 after a mute and unmute while
+        // audio still flows, so "leaving" is judged by what we hand it.
+        std::shared_ptr<std::atomic<quint64>> rtpHanded =
+            std::make_shared<std::atomic<quint64>>(0);
+        quint64 lastRtpHanded = 0;
     };
 
     bool startSession(const QString &callId, bool offerer,
