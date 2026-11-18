@@ -4,6 +4,8 @@
 
 #include <QLoggingCategory>
 
+#include <cmath>
+
 Q_LOGGING_CATEGORY(lcContext, "lightning.timeline.context")
 
 ContextController::ContextController(QObject *parent)
@@ -256,7 +258,10 @@ void ContextController::onPagination(const QString &roomId,
         if (pages > 0)
             --pages;
     }
-    if (forward && state == QLatin1String("idle") && reachedEdge) {
+    // A restore fills in around the saved place and may reach the live end;
+    // that must not throw the reader to the latest message.
+    if (forward && state == QLatin1String("idle") && reachedEdge
+        && std::isnan(m_restoreOffset)) {
         jumpToLatest();
         return;
     }

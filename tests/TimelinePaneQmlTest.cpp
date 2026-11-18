@@ -12058,6 +12058,8 @@ false);
         QCOMPARE(overlay->property("highlightEventId").toString(), QString());
         QCOMPARE(list->property("navigationHighlightEventId").toString(),
                  QString());
+        QVERIFY2(context->active(),
+                 "filling in around a restore must not jump to the latest");
     }
 
     void readingInTheContextViewSavesThePositionToReturnTo()
@@ -12249,6 +12251,72 @@ false);
                      qPrintable(QStringLiteral("reader moved %1 px")
                                     .arg(offset - readerOffset)));
         }
+    }
+
+    void aPageLandingBelowTheFirstRowLeavesAReaderAtTheTopInPlace()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        const auto events = textFixture(roomId, 120, QStringLiteral("div"),
+                                        QStringLiteral("body"));
+        const QString target = events.at(80).eventId;
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        mock->setEventContextRadius(40);
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, target));
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        QVERIFY(overlay != nullptr);
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+        QTRY_VERIFY(overlay->property("targetPositioned").toBool());
+        QTest::qWait(200);
+        QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
+        QTest::qWait(200);
+        const auto contentY = [&] { return list->property("contentY").toReal(); };
+        int readerRow = -1;
+        QVERIFY(QMetaObject::invokeMethod(list, "indexAt",
+            Q_RETURN_ARG(int, readerRow), Q_ARG(qreal, list->width() / 2),
+            Q_ARG(qreal, contentY() + list->height() / 2)));
+        QVERIFY(readerRow >= 1);
+        const auto itemAt = [&](int row) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, row));
+            return item;
+        };
+        const QString readerId = context->model()->stableIdAt(readerRow);
+        const double readerOffset = itemAt(readerRow)->y() - contentY();
+
+        // The Rust timeline lands an older page below the date divider.
+        const QString contextId = MatrixClient::contextTimelineId(roomId, target);
+        QList<TimelineEvent> page;
+        for (int i = 0; i < 20; ++i) {
+            TimelineEvent e = events.first();
+            e.eventId = QStringLiteral("$older%1").arg(i);
+            e.itemId = QStringLiteral("uid-older%1").arg(i);
+            e.roomId = contextId;
+            page << e;
+        }
+        Q_EMIT mock->eventsInsertedAt(contextId, 1, page);
+        QTest::qWait(300);
+
+        const int row = context->model()->rowForStableId(readerId);
+        QCOMPARE(row, readerRow + 20);
+        QQuickItem *item = itemAt(row);
+        QVERIFY2(item != nullptr, "the reader's row was scrolled out of the view");
+        QVERIFY2(qAbs(item->y() - contentY() - readerOffset) <= 1.0,
+                 qPrintable(QStringLiteral("reader moved %1 px")
+                                .arg(item->y() - contentY() - readerOffset)));
     }
 
     void aContextViewBarStaysDismissedUntilTheNextJump()

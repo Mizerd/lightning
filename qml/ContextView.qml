@@ -55,10 +55,15 @@ Rectangle {
             highlightTimer.restart()
             list.positionViewAtIndex(row, ListView.Center)
         } else {
+            view.anchorId = app.eventContext.model.stableIdAt(row)
+            view.anchorScreenY = list.height + offset
+            view.restoreFillPending = true
             list.positionViewAtIndex(row, ListView.Beginning)
-            var item = list.itemAtIndex(row)
-            if (item)
-                view.scrollListTo(item.y - offset - list.height)
+            view.restoreAnchor()
+        }
+        if (list.itemAtIndex(row)) {
+            view.targetBuilt = true
+            app.eventContext.tracePhase("first-target-row-built")
         }
         view.targetPositioned = true
         view.landingPending = view.targetBuilt
@@ -73,6 +78,9 @@ Rectangle {
                 view.barDismissed = false
                 list.lastSeenRow = -1
                 list.lastContentY = 0
+                view.anchorId = ""
+                view.anchorFixPending = false
+                view.restoreFillPending = false
             }
         }
         function onTargetLocated(row) {
@@ -89,20 +97,68 @@ Rectangle {
             app.eventContext.tracePhase("landed")
         }
     }
-    // An SDK page arrives as one push_front per event, so the first-row check
-    // must be made before the burst and the correction applied once after it.
-    property int prependedRows: 0
-    property bool prependPinsFirstRow: false
-    function settlePrepend() {
-        var rows = view.prependedRows
-        var pin = view.prependPinsFirstRow
-        view.prependedRows = 0
-        view.prependPinsFirstRow = false
-        if (!pin || rows <= 0 || rows >= list.count)
+    // ListView moves the reader when rows land at or above the first visible
+    // row (an SDK page lands below the date divider at row 0), so the row at
+    // the viewport's centre is held at its screen position across inserts.
+    property string anchorId: ""
+    property real anchorScreenY: 0
+    property bool anchorFixPending: false
+    // A restore holds the saved anchor while older and newer pages fill in
+    // around it; reader input ends the hold.
+    property bool restoreFillPending: false
+    function noteAnchor() {
+        if (view.anchorFixPending || view.restoreFillPending)
             return
-        ++view.tracePins
-        contextWheel.stopGlide()
-        list.positionViewAtIndex(rows, ListView.Beginning)
+        var row = list.indexAt(list.width / 2, list.contentY + list.height / 2)
+        var item = row >= 0 ? list.itemAtIndex(row) : null
+        if (!item)
+            return
+        view.anchorId = app.eventContext.model.stableIdAt(row)
+        view.anchorScreenY = item.y - list.contentY
+    }
+    function restoreAnchor() {
+        view.anchorFixPending = false
+        var row = view.anchorId !== ""
+                ? app.eventContext.model.rowForStableId(view.anchorId) : -1
+        if (row >= 0) {
+            list.forceLayout()
+            var item = list.itemAtIndex(row)
+            if (!item) {
+                list.positionViewAtIndex(row, ListView.Beginning)
+                item = list.itemAtIndex(row)
+            }
+            var target = item ? item.y - view.anchorScreenY : list.contentY
+            var top = list.originY - list.topMargin
+            var bottom = list.originY + list.contentHeight + list.bottomMargin
+                         - list.height
+            target = Math.max(top, Math.min(bottom, target))
+            if (Math.abs(target - list.contentY) >= 0.5) {
+                ++view.tracePins
+                if (!view.restoreFillPending)
+                    contextWheel.stopGlide()
+                list.contentY = target
+            }
+        }
+        if (view.restoreFillPending)
+            view.fillAroundRestore()
+    }
+    function fillAroundRestore() {
+        view.loadTowards(-1)
+        view.loadTowards(1)
+        if (app.eventContext.loadingOlder || app.eventContext.loadingNewer)
+            return
+        view.restoreFillPending = false
+        if (app.eventContext.traceEnabled) {
+            var row = app.eventContext.model.rowForStableId(view.anchorId)
+            var item = row >= 0 ? list.itemAtIndex(row) : null
+            console.info("context-restore-filled rows=" + list.count
+                         + " wantY=" + Math.round(view.anchorScreenY)
+                         + " gotY=" + (item ? Math.round(item.y - list.contentY)
+                                             : "none"))
+        }
+    }
+    function readerTookControl() {
+        view.restoreFillPending = false
     }
     property int tracePrepends: 0
     property int tracePrependedRows: 0
@@ -110,19 +166,23 @@ Rectangle {
     property string traceLast: ""
     Connections {
         target: app.eventContext.model
-        function onOlderPrepended(count) {
-            if (list.lastSeenRow >= 0)
-                list.lastSeenRow += count
+        function onRowsInserted(parent, first, last) {
+            if (list.lastSeenRow >= first)
+                list.lastSeenRow += last - first + 1
             ++view.tracePrepends
-            view.tracePrependedRows += count
-            if (view.prependedRows === 0) {
-                // ListView keeps a reader who is past the first row in place;
-                // only one sitting on that row is pushed down by the insert.
-                var first = list.itemAtIndex(count)
-                view.prependPinsFirstRow = !!first && first.y >= list.contentY
-            }
-            view.prependedRows += count
-            Qt.callLater(view.settlePrepend)
+            view.tracePrependedRows += last - first + 1
+            if (view.anchorId === "" || view.anchorFixPending)
+                return
+            view.anchorFixPending = true
+            Qt.callLater(view.restoreAnchor)
+        }
+    }
+    Connections {
+        target: app.eventContext
+        enabled: view.restoreFillPending
+        function onEdgesChanged() {
+            if (!view.anchorFixPending)
+                Qt.callLater(view.restoreAnchor)
         }
     }
     Timer {
@@ -138,9 +198,9 @@ Rectangle {
                     + " contentH=" + Math.round(list.contentHeight)
                     + " moving=" + (list.moving ? 1 : 0)
                     + " gliding=" + (contextWheel.gliding ? 1 : 0)
-                    + " prepends=" + view.tracePrepends
-                    + " prependedRows=" + view.tracePrependedRows
-                    + " firstRowPins=" + view.tracePins
+                    + " inserts=" + view.tracePrepends
+                    + " insertedRows=" + view.tracePrependedRows
+                    + " anchorFixes=" + view.tracePins
                     + " loadingOlder=" + (app.eventContext.loadingOlder ? 1 : 0)
                     + " loadingNewer=" + (app.eventContext.loadingNewer ? 1 : 0)
             if (line !== view.traceLast) {
@@ -179,6 +239,7 @@ Rectangle {
         list.contentY = next
     }
     function runKeyAction(actionId) {
+        view.readerTookControl()
         var page = Math.max(48, list.height - 48)
         switch (actionId) {
         case "timeline.pageUp": view.scrollListTo(list.contentY - page); return true
@@ -299,11 +360,14 @@ Rectangle {
                 onContentYChanged: {
                     var delta = contentY - lastContentY
                     lastContentY = contentY
-                    if (moving || contextWheel.active || contextWheel.gliding)
+                    if (moving || contextWheel.active || contextWheel.gliding) {
+                        view.readerTookControl()
                         view.loadTowards(delta)
+                    }
                     var row = indexAt(width / 2, contentY + height / 2)
                     if (row >= 0)
                         lastSeenRow = row
+                    view.noteAnchor()
                     emptyViewportCheck.restart()
                     savePositionTimer.restart()
                 }
@@ -331,6 +395,7 @@ Rectangle {
                     var bottom = list.originY + list.contentHeight
                                  + list.bottomMargin - list.height
                     function go(y) {
+                        view.readerTookControl()
                         view.scrollListTo(y)
                         event.accepted = true
                     }
