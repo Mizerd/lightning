@@ -992,6 +992,37 @@ private Q_SLOTS:
 #endif
     }
 
+    void mutingASpaceWritesARuleForALegacyDeviceOnlyMutedRoom()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("notifications/room-mode/") + kGammaId,
+                         2);
+        }
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        app.settings()->saveSession(kHomeserver, kAliceId,
+                                    QStringLiteral("ALICEDEV"), QString{});
+        app.settings()->setActiveAccountUserId(kAliceId);
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("initial_sync_done")}});
+        attachSpace(app);
+        QVERIFY(app.settings()->roomNotificationModeDeviceOnly(kGammaId));
+
+        QSignalSpy sent(&app, &AppController::roomNotificationModeSent);
+        app.setSpaceMuted(kSpaceId, true);
+        bool gammaSent = false;
+        for (const auto &args : sent)
+            gammaSent |= args.at(0).toString() == kGammaId
+                         && args.at(1).toInt() == 2;
+        QVERIFY2(gammaSent, "the device-only muted room got no server rule");
+#endif
+    }
+
     void unmutingASpaceRestoresEachRoomsOwnMode()
     {
         {

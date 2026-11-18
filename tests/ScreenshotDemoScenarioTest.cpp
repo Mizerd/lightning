@@ -146,6 +146,23 @@ private Q_SLOTS:
                  QStringLiteral("@alex:lightning.example"));
     }
 
+    void aLayoutScenarioLeavesThatLayoutActiveAfterTheAccountSettles()
+    {
+        AppController app(AppController::MockBackend, true);
+        app.beginScreenshotDemo();
+        QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
+        auto *d = demo(app);
+        QVERIFY(d);
+        for (const auto &c : { std::pair{"channels-home", 1},
+                               std::pair{"classic-home", 0},
+                               std::pair{"channels-people", 1} }) {
+            d->activateScenario(QString::fromLatin1(c.first));
+            QTRY_COMPARE(app.settings()->roomNavigationLayout(), c.second);
+            QTest::qWait(300);
+            QCOMPARE(app.settings()->roomNavigationLayout(), c.second);
+        }
+    }
+
     void chatScenariosNavigateDeterministically()
     {
         AppController app(AppController::MockBackend, true);

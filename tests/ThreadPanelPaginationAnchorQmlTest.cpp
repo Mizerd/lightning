@@ -682,6 +682,18 @@ private Q_SLOTS:
         QCoreApplication::sendEvent(&window, &padWheel);
         QTRY_VERIFY2(scroll->property("contentY").toReal() > 0,
                      "a touchpad scroll does not move a long root");
+
+        scroll->setProperty("contentY", 0.0);
+        QPointingDevice *touch = QTest::createTouchDevice();
+        QPoint at = from;
+        QTest::touchEvent(&window, touch).press(0, at);
+        for (int i = 0; i < 6; ++i) {
+            at.ry() -= 10;
+            QTest::touchEvent(&window, touch).move(0, at);
+        }
+        QTest::touchEvent(&window, touch).release(0, at);
+        QTRY_VERIFY2(scroll->property("contentY").toReal() > 0,
+                     "a touch drag does not scroll a long root");
     }
 
     void draggingTheReplyScrollBarUpStopsFollowingTheNewestReply()

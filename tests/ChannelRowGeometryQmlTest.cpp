@@ -1331,7 +1331,7 @@ true));
         const auto kids = toolbar->childItems();
         QQuickItem *title = nullptr;
         for (QQuickItem *kid : kids)
-            if (kid->metaObject()->className() == QByteArray("QQuickText")
+            if (kid->inherits("QQuickText")
                 || QByteArray(kid->metaObject()->className()).contains("Label")) {
                 title = kid;
                 break;

@@ -854,6 +854,20 @@ Rectangle {
                     interactive: false
                     boundsBehavior: Flickable.StopAtBounds
                     clip: true
+                    DragHandler {
+                        id: rootBodyTouchDrag
+                        target: null
+                        acceptedDevices: PointerDevice.TouchScreen
+                        enabled: rootBodyFlick.contentHeight > rootBodyFlick.height
+                        property real lastY: 0
+                        onActiveChanged: lastY = 0
+                        onTranslationChanged: {
+                            var maxY = rootBodyFlick.contentHeight - rootBodyFlick.height
+                            rootBodyFlick.contentY = Math.max(0, Math.min(
+                                maxY, rootBodyFlick.contentY - (translation.y - lastY)))
+                            lastY = translation.y
+                        }
+                    }
                     WheelHandler {
                         target: null
                         acceptedDevices: PointerDevice.AllDevices

@@ -179,7 +179,7 @@ AppDialog {
             objectName: "roomCloseRooms"
             Layout.fillWidth: true
             readonly property int rowHeight: 34
-            Layout.preferredHeight: Math.min(count * rowHeight, 240)
+            Layout.preferredHeight: Math.min(count, 7) * rowHeight
             visible: count > 0 && root.phase !== "planning"
             clip: true
             model: root.ctl ? root.ctl.rooms : []

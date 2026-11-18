@@ -5129,7 +5129,9 @@ void AppController::setSpaceMuted(const QString &spaceId, bool mute)
                                                 &restored);
         if (mute)
             recordSpaceMutePrior(store, roomId, current);
-        if (mode < 0 || current == mode)
+        const bool needsServerRule = mute
+            && m_settings->roomNotificationModeDeviceOnly(roomId);
+        if (mode < 0 || (current == mode && !needsServerRule))
             continue;
         setRoomNotificationMode(roomId, mode);
     }

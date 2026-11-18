@@ -933,9 +933,10 @@ true) }));
             QVERIFY2(!dialog.isEmpty(), qPrintable(name));
             QVERIFY2(!dialog.contains(QStringLiteral("Math.min(contentHeight")),
                      qPrintable(name));
-            QVERIFY2(dialog.contains(
-                         QStringLiteral("Layout.preferredHeight: Math.min(count * rowHeight, 240)")),
-                     qPrintable(name));
+            const QString cap = name == QLatin1String("RoomCloseDialog.qml")
+                ? QStringLiteral("Layout.preferredHeight: Math.min(count, 7) * rowHeight")
+                : QStringLiteral("Layout.preferredHeight: Math.min(count * rowHeight, 240)");
+            QVERIFY2(dialog.contains(cap), qPrintable(name));
             QVERIFY2(dialog.contains(QStringLiteral("height: roomList.rowHeight")),
                      qPrintable(name));
         }

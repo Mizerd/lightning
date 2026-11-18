@@ -814,8 +814,7 @@ before the next release; the full checklist is kept in the maintainer's notes.
 - The DM row avatar staleness and the Mentions-only numbered badge are fixed
   in `e8b2cdd2` (re-ask every 15-25 min; one unread rule); the badge fix is
   not live-verified.
-- `ScreenSharePicker.qml:462` fails to load its thumbnail (cosmetic); the Qt
-  Quick file dialog sometimes opens at `/` on a fresh profile.
+- A share-picker thumbnail can fail to load (cosmetic; not reproduced).
 - Once each, not reproduced: a 14 s quit after using the tray, and a 6.7 s GUI
   stall inside the sign-out handlers of a local session end (the same step as
   an account switch; the open account-switch freeze?).
@@ -894,13 +893,6 @@ Everything below was found or left open by that round's live testing and its
 
 ### Notifications (#15)
 
-- A user-defined rule reported BEFORE the first sync is recorded as "what the
-  server held" and can become a failed write's base; record user rules only
-  once the account's rules are known.
-- Two quick choices within one round trip can retry-adopt the intermediate
-  choice (older than this round).
-- "Mute space" skips rooms whose effective mode already matches, so a legacy
-  device-only muted room gets no server rule (older idempotence).
 - Still NOT TESTED live: encrypted rooms, Element X interop, the failed-write
   retry paths, legacy keys with several accounts.
 
@@ -946,7 +938,6 @@ Everything below was found or left open by that round's live testing and its
   admin's other devices, members offline during the delete, and a delete that
   outlives the 600 s follow window keep a Joined room that no sync will ever
   mention again.
-- A 240 px list cap shows a 2 px sliver of an eighth row.
 
 ### Packaging
 
@@ -1092,13 +1083,6 @@ What remains open:
   `ksecretd` (subset match, as the design needs); KWallet NOT TESTED live,
   KeePassXC not checked. Windows (every installed build shares one data root)
   and macOS (no Keychain backend) have no collision and are unchanged.
-
-### Test harness
-
-- A QML test helper that matches `metaObject()->className()` EXACTLY misses
-  every item that declares its own property (Qt makes it a generated
-  `QQuickImage_QML_<n>` subclass). One such blind spot let a link-media mutant
-  survive; match with `inherits()`.
 
 ## 2026-09-25 — FIXED: one undecryptable stream silences every participant
 

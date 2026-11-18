@@ -67,7 +67,7 @@ class ComposerFocusShortcutQmlTest : public QObject
     {
         const auto objects = m_window->findChildren<QObject *>();
         for (QObject *object : objects) {
-            if (QByteArray(object->metaObject()->className()) != "QQuickShortcut")
+            if (!object->inherits("QQuickShortcut"))
                 continue;
             const QVariantList seqs = object->property("sequences").toList();
             if (seqs.size() == 1 && seqs.first().toString() == sequence)
