@@ -274,24 +274,6 @@ that predates the fix was NOT retested and is expected to stay refused.
 - The legacy lane's crossed offers, TURN, and real devices stay as
   `docs/live-validation.md` lists them.
 
-## 2026-11-18 — GitHub #51: jump latency measured, the saved-position restore did not engage
-
-Release build of `d23240ee`, headless Wayland, a 2000-message room on a
-loopback Continuwuity, `LIGHTNING_SCROLL_TRACE=1`. An event-context jump to a
-message 1700, 1000 and 50 messages back (server-search result click) logged
-`context-phase context-model-ready` at 253.8, 253.1 and 221.0 ms
-(`view-swap` 0.2 ms later; 22 items): a fixed cost independent of depth, which
-on a real server is that one `/context` round trip plus this loopback figure.
-Paging back ~850 messages took ~15 pages of 20 events at ~48 ms each. **Not
-reproduced:** leaving a room scrolled up (150-850 messages back, wheel from
-the virtual pointer) and returning logged `reset-settled stick=1` and landed
-on the newest messages in 4 of 4 attempts, with no event-context lines, so the
-default "previous position" restore was not exercised at all and the
-reporter's slow path was not measured. Unknown whether the synthetic wheel
-skips `saveRoomPosition` (the kit has no real touchpad) or the restore is
-broken for deep positions; a real-input capture with the same trace is the
-next step.
-
 ## 2026-10-20 — OPEN (GitHub #30/#48): a plain message Element shows is absent from the room
 
 The report: an `m.text` (no thread, no edit) missing between two rows that
