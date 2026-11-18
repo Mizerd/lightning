@@ -89,6 +89,7 @@ public:
     static bool facesLatinText(const QString &family);
     static bool isNonTextFace(const QString &family);
     static bool isUsableUiFace(const QString &family);
+    static bool isUsableMonospaceFace(const QString &family);
     static bool hasFontExtension(const QString &fileName);
 
 Q_SIGNALS:
@@ -107,14 +108,20 @@ private:
 
     static QString importedFontsDir();
     void refreshFamilyCache();
+    // Building the picker lists loads every installed face, so it waits for
+    // the first read; the stored choices are checked singly by the same rules.
+    void ensureFamilyLists() const;
+    bool isOfferedUiFamily(const QString &family) const;
+    bool isOfferedMonospaceFamily(const QString &family) const;
     void setImportError(const QString &category);
     QStringList storedImportFileNames() const;
     void writeImportFileNames(const QStringList &names);
 
     SettingsManager *m_settings = nullptr;
     QList<Imported> m_imported;
-    QStringList m_uiFamilies;
-    QStringList m_monoFamilies;
+    mutable QStringList m_uiFamilies;
+    mutable QStringList m_monoFamilies;
+    mutable bool m_familyListsBuilt = false;
     QStringList m_familyCache;
     QString m_lastImportError;
 };
