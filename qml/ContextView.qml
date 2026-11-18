@@ -120,7 +120,9 @@ Rectangle {
         view.anchorFixPending = false
         var row = view.anchorId !== ""
                 ? app.eventContext.model.rowForStableId(view.anchorId) : -1
-        if (row >= 0) {
+        // Moving contentY makes ListView re-lay out from the new first row,
+        // which can shift the anchor again; a few passes settle it.
+        for (var pass = 0; row >= 0 && pass < 3; ++pass) {
             list.forceLayout()
             var item = list.itemAtIndex(row)
             if (!item) {
@@ -132,12 +134,12 @@ Rectangle {
             var bottom = list.originY + list.contentHeight + list.bottomMargin
                          - list.height
             target = Math.max(top, Math.min(bottom, target))
-            if (Math.abs(target - list.contentY) >= 0.5) {
-                ++view.tracePins
-                if (!view.restoreFillPending)
-                    contextWheel.stopGlide()
-                list.contentY = target
-            }
+            if (Math.abs(target - list.contentY) < 0.5)
+                break
+            ++view.tracePins
+            if (!view.restoreFillPending)
+                contextWheel.stopGlide()
+            list.contentY = target
         }
         if (view.restoreFillPending)
             view.fillAroundRestore()
