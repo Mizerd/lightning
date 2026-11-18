@@ -1711,6 +1711,58 @@ private Q_SLOTS:
                  PaginationController::restoreTooFarMessage());
     }
 
+    void aDeepRestoreOpensTheEventContextAtTheSavedOffset()
+    {
+        for (const bool contextOpens : { true, false }) {
+            FakeClient client;
+            TimelineModel model;
+            model.setClient(&client);
+            model.setRoomId(kRoomA);
+            PaginationController controller;
+            controller.setClient(&client);
+            controller.setTimelineModel(&model);
+            controller.setRoomId(kRoomA);
+            controller.requestViewportFill();
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 5, false);
+
+            QStringList openedIds;
+            QList<qreal> openedOffsets;
+            controller.setContextOpener([&](const QString &id, qreal offset) {
+                openedIds << id;
+                openedOffsets << offset;
+                return contextOpens;
+            });
+            controller.saveScrollAnchor(kRoomA, QStringLiteral("$far-anchor"),
+                                        -640.0, false);
+            QSignalSpy located(&controller,
+                               &PaginationController::targetLocated);
+            QSignalSpy latest(&controller,
+                              &PaginationController::restoreLatestRequested);
+            controller.restoreScrollAnchor(kRoomA);
+            int pages = 0;
+            while (latest.isEmpty() && pages < 40) {
+                client.beginLoading(kRoomA);
+                client.completeBatch(kRoomA, 5, false);
+                ++pages;
+                QTest::qWait(10);
+            }
+            QCOMPARE(latest.count(), 1);
+            QCOMPARE(located.count(), 0);
+            QCOMPARE(openedIds, QStringList{ QStringLiteral("$far-anchor") });
+            QCOMPARE(openedOffsets.first(), -640.0);
+            QVERIFY(!controller.navigating());
+            if (contextOpens) {
+                QVERIFY2(pages < 8, qPrintable(QString::number(pages)));
+                QVERIFY(controller.navigationMessage().isEmpty());
+            } else {
+                QVERIFY2(pages >= 8, qPrintable(QString::number(pages)));
+                QCOMPARE(controller.navigationMessage(),
+                         PaginationController::restoreTooFarMessage());
+            }
+        }
+    }
+
     void aSuccessfulRestoreShowsNoNotice()
     {
         FakeClient client;

@@ -49,9 +49,17 @@ Rectangle {
     function placeTarget(row) {
         if (row < 0 || row >= list.count)
             return
-        view.highlightEventId = app.eventContext.eventId
-        highlightTimer.restart()
-        list.positionViewAtIndex(row, ListView.Center)
+        var offset = app.eventContext.restoreOffset
+        if (isNaN(offset)) {
+            view.highlightEventId = app.eventContext.eventId
+            highlightTimer.restart()
+            list.positionViewAtIndex(row, ListView.Center)
+        } else {
+            list.positionViewAtIndex(row, ListView.Beginning)
+            var item = list.itemAtIndex(row)
+            if (item)
+                view.scrollListTo(item.y - offset - list.height)
+        }
         view.targetPositioned = true
         view.landingPending = view.targetBuilt
     }
@@ -140,6 +148,28 @@ Rectangle {
                 console.info(line)
             }
         }
+    }
+    // Same anchor format as TimelinePane's saveRoomPosition(), so a restore
+    // can land in either view.
+    function saveReadingPosition() {
+        if (app.eventContext.state !== ContextController.Ready
+                || !view.targetPositioned)
+            return
+        var row = Math.max(0, list.indexAt(list.width / 2, list.contentY + 1))
+        var eventId = ""
+        for (; eventId === "" && row < list.count; ++row)
+            eventId = app.eventContext.model.eventIdAt(row)
+        var item = eventId !== "" ? list.itemAtIndex(row - 1) : null
+        if (!item)
+            return
+        app.pagination.saveScrollAnchor(app.eventContext.roomId, eventId,
+                                        item.y - list.contentY - list.height,
+                                        false)
+    }
+    Timer {
+        id: savePositionTimer
+        interval: 250
+        onTriggered: view.saveReadingPosition()
     }
     function scrollListTo(y) {
         var top = list.originY - list.topMargin
@@ -275,6 +305,7 @@ Rectangle {
                     if (row >= 0)
                         lastSeenRow = row
                     emptyViewportCheck.restart()
+                    savePositionTimer.restart()
                 }
                 // Written directly, contentY can land in estimated height that
                 // holds no rows, and ListView does not bring it back.

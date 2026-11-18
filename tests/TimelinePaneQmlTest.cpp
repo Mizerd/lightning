@@ -12012,6 +12012,113 @@ false);
         QTRY_COMPARE(context->state(), ContextController::Closed);
     }
 
+    void aContextRestoreLandsOnTheSavedOffsetAndKeepsSavingThePosition()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        const auto events = textFixture(roomId, 120, QStringLiteral("rst"),
+                                        QStringLiteral("body"));
+        const QString target = events.at(60).eventId;
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        mock->setEventContextRadius(40);
+        auto *context = controller.eventContext();
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        QVERIFY(overlay != nullptr);
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+
+        const qreal savedOffset = -700.0;
+        QVERIFY(context->open(roomId, target, savedOffset));
+        QTRY_VERIFY(overlay->property("targetPositioned").toBool());
+        QTest::qWait(300);
+        const auto itemAt = [&](int row) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, row));
+            return item;
+        };
+        const auto offsetOf = [&](QQuickItem *item) {
+            return item->y() - list->property("contentY").toDouble()
+                - list->height();
+        };
+        QQuickItem *landed = itemAt(context->targetRow());
+        QVERIFY(landed != nullptr);
+        QVERIFY2(qAbs(offsetOf(landed) - savedOffset) < 1.0,
+                 qPrintable(QString::number(offsetOf(landed))));
+        QCOMPARE(overlay->property("highlightEventId").toString(), QString());
+        QCOMPARE(list->property("navigationHighlightEventId").toString(),
+                 QString());
+    }
+
+    void readingInTheContextViewSavesThePositionToReturnTo()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        const auto events = textFixture(roomId, 120, QStringLiteral("sav"),
+                                        QStringLiteral("body"));
+        const QString target = events.at(60).eventId;
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        mock->setEventContextRadius(40);
+        auto *context = controller.eventContext();
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        QVERIFY(overlay != nullptr);
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+        QVERIFY(context->open(roomId, target));
+        QTRY_VERIFY(overlay->property("targetPositioned").toBool());
+        QTest::qWait(300);
+        const auto itemAt = [&](int row) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, row));
+            return item;
+        };
+        const auto offsetOf = [&](QQuickItem *item) {
+            return item->y() - list->property("contentY").toDouble()
+                - list->height();
+        };
+
+        QVERIFY(QMetaObject::invokeMethod(overlay, "scrollListTo",
+            Q_ARG(QVariant, list->property("contentY").toDouble() + 250.0)));
+        QTest::qWait(400);
+        int topRow = -1;
+        QVERIFY(QMetaObject::invokeMethod(list, "indexAt",
+            Q_RETURN_ARG(int, topRow), Q_ARG(qreal, list->width() / 2),
+            Q_ARG(qreal, list->property("contentY").toDouble() + 1)));
+        QVERIFY(topRow >= 0);
+        const QString topId = context->model()->eventIdAt(topRow);
+        QVERIFY(!topId.isEmpty() && topId != target);
+        const qreal topOffset = offsetOf(itemAt(topRow));
+
+        QSignalSpy located(controller.pagination(),
+                           &PaginationController::targetLocated);
+        controller.pagination()->restoreScrollAnchor(roomId);
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(controller.timeline()->stableIdAt(
+                     located.first().at(0).toInt()), topId);
+        QVERIFY(qAbs(located.first().at(1).toReal() - topOffset) < 1.0);
+    }
+
     void composerPagingKeysDriveTheContextView()
     {
         AppController controller(AppController::MockBackend);

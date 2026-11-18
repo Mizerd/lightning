@@ -3471,7 +3471,8 @@ Rectangle {
                 property string roomJoinRule: root.currentRoom.joinRule || ""
                 property var expandedStateGroups: ({})
                 function saveRoomPosition() {
-                    if (app.currentRoomId === "") return
+                    if (app.currentRoomId === "" || app.eventContext.active)
+                        return
                     if (stickToBottom) {
                         app.pagination.saveFollowingLatest(app.currentRoomId)
                         return

@@ -280,7 +280,7 @@ void PaginationController::jumpToEvent(const QString &eventId)
         return;
     if (m_contextOpener) {
         clearNavigation();
-        if (m_contextOpener(eventId))
+        if (m_contextOpener(eventId, qQNaN()))
             return;
     }
     walkToEvent(eventId);
@@ -839,7 +839,13 @@ void PaginationController::continueNavigation(bool hitStart)
     }
     const int budget = m_navigationPurpose == NavigationPurpose::Reply
         ? m_jumpBatchBudget : kMaxNavigationBatches;
-    if (hitStart || ++m_navigationBatches >= budget) {
+    ++m_navigationBatches;
+    if (!hitStart && m_navigationPurpose == NavigationPurpose::Restore
+        && !m_restoreIsSelection
+        && m_navigationBatches == kRestoreWalkBeforeContext
+        && restoreThroughContext())
+        return;
+    if (hitStart || m_navigationBatches >= budget) {
         failNavigation(!hitStart);
         return;
     }
@@ -870,6 +876,30 @@ void PaginationController::locateNavigationTarget(int row)
         Q_EMIT navigationChanged();
     }
     Q_EMIT targetLocated(row, offset, highlight);
+}
+
+bool PaginationController::restoreThroughContext()
+{
+    if (!m_contextOpener)
+        return false;
+    const auto anchor = m_scrollAnchors.constFind(navigationKey(m_roomId));
+    if (anchor == m_scrollAnchors.cend()
+        || anchor->eventId != m_navigationEventId)
+        return false;
+    const QString eventId = m_navigationEventId;
+    const qreal offset = anchor->pixelOffset;
+    const int batches = m_navigationBatches;
+    clearNavigation(false);
+    if (!m_contextOpener(eventId, offset)) {
+        m_navigationPurpose = NavigationPurpose::Restore;
+        m_navigationEventId = eventId;
+        m_navigationBatches = batches;
+        return false;
+    }
+    qCInfo(lcPagination) << "saved position restored through event context"
+                         << "walkedPages=" << batches;
+    Q_EMIT restoreLatestRequested();
+    return true;
 }
 
 void PaginationController::failNavigation(bool tooFar)

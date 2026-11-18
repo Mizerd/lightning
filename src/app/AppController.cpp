@@ -2267,8 +2267,9 @@ true, ringSeconds, acceptOffered,
     m_mediaBridge->setClient(m_client.get());
     m_pagination->setClient(m_client.get());
     m_pagination->setTimelineModel(m_timeline.get());
-    m_pagination->setContextOpener([this](const QString &eventId) {
-        return m_eventContext->open(m_currentRoomId, eventId);
+    m_pagination->setContextOpener([this](const QString &eventId,
+                                          qreal restoreOffset) {
+        return m_eventContext->open(m_currentRoomId, eventId, restoreOffset);
     });
     m_pagination->setContextCloser([this] { m_eventContext->close(); });
     connect(m_eventContext.get(), &ContextController::openFailed, this,

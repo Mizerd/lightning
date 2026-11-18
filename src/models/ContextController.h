@@ -4,7 +4,7 @@
 #include <QElapsedTimer>
 #include <QSet>
 #include <QString>
-#include <QTimer>
+#include <QtNumeric>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include "models/TimelineModel.h"
@@ -32,6 +32,8 @@ class ContextController : public QObject
     Q_PROPERTY(bool canLoadOlder READ canLoadOlder NOTIFY edgesChanged)
     Q_PROPERTY(bool canLoadNewer READ canLoadNewer NOTIFY edgesChanged)
     Q_PROPERTY(bool traceEnabled READ traceEnabled CONSTANT)
+    // NaN for a jump; otherwise the saved position's pixel offset to land on.
+    Q_PROPERTY(qreal restoreOffset READ restoreOffset NOTIFY stateChanged)
 
 public:
     enum State { Closed, Opening, Ready, Failed };
@@ -61,8 +63,10 @@ public:
     bool canLoadOlder() const;
     bool canLoadNewer() const;
     bool traceEnabled() const { return m_scrollTraceEnabled; }
+    qreal restoreOffset() const { return m_restoreOffset; }
 
-    bool open(const QString &roomId, const QString &eventId);
+    bool open(const QString &roomId, const QString &eventId,
+              qreal restoreOffset = qQNaN());
     // Close the view. Safe when closed. Late results from the closed view are
     // ignored by identity and by the backend's generation.
     Q_INVOKABLE void close();
@@ -99,6 +103,7 @@ private:
     QString m_roomId;
     QString m_eventId;
     QString m_failureCategory;
+    qreal m_restoreOffset = qQNaN();
     bool m_loadingOlder = false;
     bool m_loadingNewer = false;
     bool m_reachedStart = false;

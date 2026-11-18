@@ -80,7 +80,8 @@ bool ContextController::canLoadNewer() const
         && m_newerPages < kMaxEdgePages;
 }
 
-bool ContextController::open(const QString &roomId, const QString &eventId)
+bool ContextController::open(const QString &roomId, const QString &eventId,
+                             qreal restoreOffset)
 {
     if (!supported() || roomId.isEmpty() || eventId.isEmpty())
         return false;
@@ -91,6 +92,7 @@ bool ContextController::open(const QString &roomId, const QString &eventId)
         m_client->closeEventContext();
     m_roomId = roomId;
     m_eventId = eventId;
+    m_restoreOffset = restoreOffset;
     m_tracedPhases.clear();
     if (m_scrollTraceEnabled) {
         m_openTimer.start();
@@ -112,6 +114,7 @@ void ContextController::close()
         m_client->closeEventContext();
     m_roomId.clear();
     m_eventId.clear();
+    m_restoreOffset = qQNaN();
     m_openTimer.invalidate();
     m_tracedPhases.clear();
     m_failureCategory.clear();

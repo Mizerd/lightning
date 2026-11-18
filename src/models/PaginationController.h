@@ -123,7 +123,9 @@ public:
     Q_INVOKABLE void requestNearTop(bool userInitiated = false);
     Q_INVOKABLE void retry();
     Q_INVOKABLE void jumpToEvent(const QString &eventId);
-    using ContextOpener = std::function<bool(const QString &eventId)>;
+    // A NaN offset is a jump (highlighted); a number is a saved-position restore.
+    using ContextOpener =
+        std::function<bool(const QString &eventId, qreal restoreOffset)>;
     void setContextOpener(ContextOpener opener)
     { m_contextOpener = std::move(opener); }
     void setContextCloser(std::function<void()> closer)
@@ -214,6 +216,7 @@ private:
     void scheduleAutomaticRetry();
     void continueNavigation(bool reachedStart);
     void failNavigation(bool tooFar = false);
+    bool restoreThroughContext();
     void locateNavigationTarget(int row);
     void clearNavigation(bool clearMessage = true);
 
@@ -276,6 +279,7 @@ private:
 
     static constexpr int kMaxNoProgressStrikes = 12;
     static constexpr int kMaxNavigationBatches = 8;
+    static constexpr int kRestoreWalkBeforeContext = 2;
     static constexpr int kMaxJumpBatches = 12;
     int m_jumpBatchBudget = kMaxJumpBatches;
     static constexpr int kMaxScrollAnchors = 64;
