@@ -3078,7 +3078,7 @@ send queue owes nothing for them: {in_flight:?}"
     );
     let poll_view = StablePollRepaint {
         room: &room, registry: &registry, events: &events, room_id: &room_id,
-        room_gen, lifecycle, own_user: &own_user,
+        room_gen, lifecycle, own_user: &own_user, thread_root: None,
     };
     poll_view.refresh(&mut stable_polls, &polls_seen, &tail).await;
 
@@ -3189,9 +3189,18 @@ struct StablePollRepaint<'a> {
     room_gen: u64,
     lifecycle: u64,
     own_user: &'a str,
+    /// Set for a thread panel, whose rows travel as `thread_diff`.
+    thread_root: Option<&'a str>,
 }
 
 impl StablePollRepaint<'_> {
+    fn current(&self) -> bool {
+        match self.thread_root {
+            Some(_) => self.registry.thread_current(self.room_gen, self.lifecycle),
+            None => self.registry.is_current(self.room_gen, self.lifecycle),
+        }
+    }
+
     async fn refresh(
         &self,
         watch: &mut crate::stablepoll::Watch,
@@ -3203,15 +3212,28 @@ impl StablePollRepaint<'_> {
         }
         watch.subscribe(self.room).await;
         let changed = watch
-            .refresh(self.room, &self.registry.stable_poll_tallies, ids, || {
-                self.registry.is_current(self.room_gen, self.lifecycle)
-            })
+            .refresh(self.room, &self.registry.stable_poll_tallies, ids, || self.current())
             .await;
-        for id in changed {
-            let Some((index, item)) = tail.find_event(&id) else { continue };
+        // The tally map is shared with the main timeline, which may have stored
+        // it first; a thread repaints every poll it was told about.
+        let repaint_ids = if self.thread_root.is_some() { ids } else { &changed };
+        for id in repaint_ids {
+            let Some((index, item)) = tail.find_event(id) else { continue };
             let repaint = VectorDiff::Set { index, value: item };
-            let mut value = diff_to_json(self.room_id, self.room_gen, self.lifecycle, &repaint,
-                                         self.own_user, self.registry);
+            let mut value = match self.thread_root {
+                Some(root) => fill_diff_json(
+                    json!({
+                        "type": "thread_diff",
+                        "room_id": self.room_id,
+                        "thread_root_id": root,
+                        "thread_generation": self.room_gen,
+                        "lifecycle": self.lifecycle,
+                    }),
+                    &repaint, self.own_user, self.registry,
+                ),
+                None => diff_to_json(self.room_id, self.room_gen, self.lifecycle, &repaint,
+                                     self.own_user, self.registry),
+            };
             annotate_room_gone(self.room, &mut value).await;
             enqueue(self.events, value);
         }
@@ -3326,6 +3348,8 @@ async fn open_thread_task(
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
     );
     let mut tail = LiveTail::new(items.clone());
+    let mut stable_polls = crate::stablepoll::Watch::default();
+    let polls_seen = stable_polls.observe(items.iter());
     let has_event_rows = items
         .iter()
         .any(|item| matches!(item.kind(), TimelineItemKind::Event(_)));
@@ -3341,6 +3365,13 @@ async fn open_thread_task(
         }),
     );
 
+    let poll_view = StablePollRepaint {
+        room: &room, registry: &registry, events: &events, room_id: &room_id,
+        room_gen: thread_gen, lifecycle, own_user: &own_user,
+        thread_root: Some(&root_event_id),
+    };
+    poll_view.refresh(&mut stable_polls, &polls_seen, &tail).await;
+
     if !has_event_rows {
         backfill_thread(&registry, &timeline, &events, &room_id, &root_event_id,
                         thread_gen, lifecycle, false);
@@ -3355,6 +3386,12 @@ async fn open_thread_task(
             _ = &mut fetch_members, if !members_fetched => {
                 members_fetched = true;
             }
+            polls = stable_polls.next_update(), if stable_polls.watching() => {
+                if !registry.thread_current(thread_gen, lifecycle) {
+                    break;
+                }
+                poll_view.refresh(&mut stable_polls, &polls, &tail).await;
+            }
             maybe_diffs = stream.next() => {
                 let Some(diffs) = maybe_diffs else { break };
                 if !registry.thread_current(thread_gen, lifecycle) {
@@ -3364,12 +3401,14 @@ async fn open_thread_task(
                 backlog.begin_batch();
                 let mut cleared = false;
                 let mut removed = false;
+                let mut polls_seen = Vec::new();
                 for diff in diffs {
                     cleared |= matches!(diff, VectorDiff::Clear);
                     removed |= matches!(diff, VectorDiff::Remove { .. }
                         | VectorDiff::Truncate { .. } | VectorDiff::PopFront
                         | VectorDiff::PopBack);
                     let changed = diff_items(&diff);
+                    polls_seen.extend(stable_polls.observe(changed.iter()));
                     fetch_missing_reply_details(
                         &timeline, changed.iter(), &reply_details_fetched,
                     );
@@ -3406,6 +3445,9 @@ async fn open_thread_task(
                         |item| crate::push_verdict::item_facts(item),
                     );
                     enqueue(&events, value);
+                }
+                if !polls_seen.is_empty() {
+                    poll_view.refresh(&mut stable_polls, &polls_seen, &tail).await;
                 }
                 // The room's event cache was cleared under us (the own-join
                 // reopen): the thread is empty and its start is unknown again.
@@ -4137,7 +4179,8 @@ fn send_refused_with_403(error: &matrix_sdk::Error) -> bool {
     match error {
         matrix_sdk::Error::SendQueueWedgeError(wedge) => matches!(
             wedge.as_ref(),
-            matrix_sdk::QueueWedgeError::GenericApiError { msg } if msg.contains("[403 /")
+            matrix_sdk::QueueWedgeError::GenericApiError { msg }
+                if msg.strip_prefix("the server returned an error: ").unwrap_or(msg).starts_with("[403 /")
         ),
         _ => crate::roomaction::failure_reason(error).starts_with("http_403_"),
     }
@@ -4164,6 +4207,15 @@ pub(crate) async fn annotate_room_gone_rows(room: &matrix_sdk::Room, rows: &mut 
 }
 
 async fn annotate_room_gone_slots(room: &matrix_sdk::Room, mut slots: Vec<&mut serde_json::Value>) {
+    for slot in slots.iter_mut() {
+        let hidden = slot
+            .get("reply_to_event_id")
+            .and_then(|id| id.as_str())
+            .is_some_and(crate::spoiler::replied_is_spoiler);
+        if let (true, Some(slot)) = (hidden, slot.as_object_mut()) {
+            slot.remove("reply_to_media_key");
+        }
+    }
     slots.retain(|slot| slot.get("send_forbidden").is_some());
     if slots.is_empty() {
         return;
@@ -4330,7 +4382,7 @@ fn fetch_missing_reply_details<'a, I>(
 ) where
     I: IntoIterator<Item = &'a Arc<TimelineItem>>,
 {
-    let mut wanted: Vec<OwnedEventId> = Vec::new();
+    let mut wanted: Vec<(OwnedEventId, OwnedEventId)> = Vec::new();
     for item in items {
         let TimelineItemKind::Event(event) = item.kind() else { continue };
         let TimelineItemContent::MsgLike(msg_like) = event.content() else { continue };
@@ -4356,7 +4408,7 @@ fn fetch_missing_reply_details<'a, I>(
             }
             Err(_) => continue,
         }
-        wanted.push(event_id.to_owned());
+        wanted.push((event_id.to_owned(), reply.event_id.clone()));
         if wanted.len() >= REPLY_DETAIL_FETCH_BURST {
             break;
         }
@@ -4367,7 +4419,9 @@ fn fetch_missing_reply_details<'a, I>(
     let timeline = Arc::clone(timeline);
     let fetched = Arc::clone(fetched);
     tokio::spawn(async move {
-        for event_id in wanted {
+        for (event_id, target_id) in wanted {
+            // Before the fetch: the row it re-emits is annotated from this.
+            crate::spoiler::learn_replied_spoiler(timeline.room(), &target_id).await;
             // The SDK re-emits an event it already holds (a synced copy of a
             // sent reply) with fresh, unfetched details, so release it after
             // Ok. An Err (item gone, unsupported) stays recorded; a network
@@ -5141,8 +5195,15 @@ fn fill_spoiler(
         MediaSource::Plain(uri) => uri.to_string(),
         MediaSource::Encrypted(file) => file.url.to_string(),
     });
-    if event.is_local_echo() && local_uri.is_some_and(|u| crate::spoiler::is_local_spoiler(&u)) {
+    if let Some(reason) = event
+        .is_local_echo()
+        .then(|| local_uri.and_then(|u| crate::spoiler::local_spoiler(&u)))
+        .flatten()
+    {
         out["media_spoiler"] = true.into();
+        if !reason.is_empty() {
+            out["media_spoiler_reason"] = reason.into();
+        }
         return;
     }
     let parse = |raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>| {
@@ -6690,6 +6751,9 @@ mod tests {
         )));
         assert!(!super::send_refused_with_403(&wedged("[429 / M_LIMIT_EXCEEDED] slow down")));
         assert!(!super::send_refused_with_403(&wedged("[4030 / M_UNKNOWN]")));
+        assert!(!super::send_refused_with_403(&wedged(
+            "the server returned an error: [500 / M_UNKNOWN] upstream said [403 / M_FORBIDDEN]"
+        )));
     }
 
     #[test]

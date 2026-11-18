@@ -228,6 +228,16 @@ fn delete_status(body: &str) -> Option<(&'static str, usize, usize)> {
     Some((status, count("kicked_users"), count("failed_to_kick_users")))
 }
 
+/// `Some(true)` once the server finished the delete, `Some(false)` when it
+/// gave up, `None` while it is still working.
+fn delete_outcome(status: &str) -> Option<bool> {
+    match status {
+        "complete" => Some(true),
+        "failed" => Some(false),
+        _ => None,
+    }
+}
+
 fn transport_category(connect: bool) -> &'static str {
     if connect { "network" } else { "unknown" }
 }
@@ -381,21 +391,23 @@ pub(crate) fn admin_delete_room(
                         "status": status,
                     }));
                 }
-                if status == "complete" || status == "failed" {
+                if let Some(deleted) = delete_outcome(status) {
                     if timelines.lifecycle_current(lifecycle) {
-                        if status == "complete" {
+                        if deleted {
                             if let Some(room) = RoomId::parse(&room_id)
                                 .ok()
                                 .and_then(|id| client.get_room(&id))
                             {
-                                let _ = mark_deleted_room_left(&room).await;
+                                if let Err(err) = mark_deleted_room_left(&room).await {
+                                    eprintln!("lightning: admin delete: could not mark the room left: {err}");
+                                }
                             }
                             record_deleted_room(&client, &room_id).await;
                         }
-                        let category = if status == "failed" { "server" } else { "" };
+                        let category = if deleted { "" } else { "server" };
                         enqueue(
                             &events,
-                            result(status, status == "complete", removed, failed, category),
+                            result(status, deleted, removed, failed, category),
                         );
                         crate::enqueue_rooms(&events, &client).await;
                     }
@@ -587,5 +599,13 @@ mod tests {
         assert_eq!(delete_status(r#"{"status":"failed","error":"x"}"#), Some(("failed", 0, 0)));
         assert_eq!(delete_status(r#"{"status":"purging"}"#), None);
         assert_eq!(delete_status("[]"), None);
+    }
+
+    #[test]
+    fn only_complete_and_failed_end_a_delete() {
+        assert_eq!(delete_outcome("complete"), Some(true));
+        assert_eq!(delete_outcome("failed"), Some(false));
+        assert_eq!(delete_outcome("active"), None);
+        assert_eq!(delete_outcome("scheduled"), None);
     }
 }
