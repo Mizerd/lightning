@@ -45,10 +45,7 @@ void ContextController::setClient(MatrixClient *client)
         if (m_state != Opening || roomId != m_roomId || eventId != m_eventId)
             return;
         qCWarning(lcContext) << "event context failed category=" << category;
-        const QString room = m_roomId;
-        const QString event = m_eventId;
-        close();
-        Q_EMIT openFailed(room, event, category);
+        failOpen(category);
     });
     connect(m_client, &MatrixClient::eventContextPagination, this,
             [this](const QString &roomId, const QString &eventId, bool forward,
@@ -95,6 +92,8 @@ bool ContextController::open(const QString &roomId, const QString &eventId,
     m_roomId = roomId;
     m_eventId = eventId;
     m_restoreOffset = restoreOffset;
+    m_restoreFilling = !std::isnan(restoreOffset);
+    m_accountId = m_client->currentUserId();
     m_tracedPhases.clear();
     if (m_scrollTraceEnabled) {
         m_openTimer.start();
@@ -117,6 +116,8 @@ void ContextController::close()
     m_roomId.clear();
     m_eventId.clear();
     m_restoreOffset = qQNaN();
+    m_restoreFilling = false;
+    m_accountId.clear();
     m_openTimer.invalidate();
     m_tracedPhases.clear();
     m_failureCategory.clear();
@@ -186,6 +187,21 @@ void ContextController::tracePhase(const QString &phase)
                                 << (m_openTimer.nsecsElapsed() / 1000000.0);
 }
 
+void ContextController::failOpen(const QString &category,
+                                 const QString &threadRoot)
+{
+    const QString room = m_roomId;
+    const QString event = m_eventId;
+    const bool restoring = !std::isnan(m_restoreOffset);
+    close();
+    if (restoring)
+        Q_EMIT restoreFailed(room, event);
+    else if (!threadRoot.isEmpty())
+        Q_EMIT threadReplyHit(room, threadRoot, event);
+    else
+        Q_EMIT openFailed(room, event, category);
+}
+
 void ContextController::onTimelineReset(const QString &timelineId)
 {
     // Only the requested view's first reset promotes to Ready; composite-id
@@ -195,18 +211,12 @@ void ContextController::onTimelineReset(const QString &timelineId)
     tracePhase(QStringLiteral("context-model-ready"));
     const int row = targetRow();
     if (row < 0) {
-        const QString room = m_roomId;
-        const QString event = m_eventId;
-        close();
-        Q_EMIT openFailed(room, event, QStringLiteral("target_missing"));
+        failOpen(QStringLiteral("target_missing"));
         return;
     }
     const QString root = m_model.events().at(row).threadRootId;
     if (!root.isEmpty() && root != m_eventId) {
-        const QString room = m_roomId;
-        const QString event = m_eventId;
-        close();
-        Q_EMIT threadReplyHit(room, root, event);
+        failOpen(QStringLiteral("thread_reply"), root);
         return;
     }
     setState(Ready);
@@ -261,7 +271,7 @@ void ContextController::onPagination(const QString &roomId,
     // A restore fills in around the saved place and may reach the live end;
     // that must not throw the reader to the latest message.
     if (forward && state == QLatin1String("idle") && reachedEdge
-        && std::isnan(m_restoreOffset)) {
+        && !m_restoreFilling) {
         jumpToLatest();
         return;
     }

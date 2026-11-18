@@ -132,10 +132,14 @@ public:
     { m_contextCloser = std::move(closer); }
     void walkToEvent(const QString &eventId);
     Q_INVOKABLE void revealIfLoaded(const QString &eventId);
+    // accountId, when given, keys the anchor to that account instead of the
+    // current one (a save that fires after an account switch).
     Q_INVOKABLE void saveScrollAnchor(const QString &roomId,
                                       const QString &eventId,
                                       qreal pixelOffset,
-                                      bool followingLatest);
+                                      bool followingLatest,
+                                      const QString &accountId = {});
+    void failContextRestore(const QString &roomId);
     Q_INVOKABLE void restoreScrollAnchor(const QString &roomId);
     Q_INVOKABLE void restoreConversation(const QString &roomId, int mode);
     Q_INVOKABLE bool hasHistoricalReturn(const QString &roomId,

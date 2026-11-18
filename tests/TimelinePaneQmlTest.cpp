@@ -12060,6 +12060,43 @@ false);
                  QString());
         QVERIFY2(context->active(),
                  "filling in around a restore must not jump to the latest");
+
+        QTRY_VERIFY(!overlay->property("restoreFillPending").toBool());
+        QVERIFY(QMetaObject::invokeMethod(overlay, "scrollListTo",
+            Q_ARG(QVariant, list->property("contentY").toDouble() + 100000.0)));
+        QTRY_COMPARE(context->state(), ContextController::Closed);
+    }
+
+    void aRestoreWhoseContextFailsLandsOnTheLatestWithTheNotice()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        const auto events = textFixture(roomId, 60, QStringLiteral("gone"),
+                                        QStringLiteral("body"));
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        auto *pagination = controller.pagination();
+        QSignalSpy latest(pagination,
+                          &PaginationController::restoreLatestRequested);
+        QSignalSpy located(pagination, &PaginationController::targetLocated);
+        QVERIFY(controller.eventContext()->open(
+            roomId, QStringLiteral("$not-in-the-room:mock.local"), -400.0));
+        QTRY_COMPARE(controller.eventContext()->state(),
+                     ContextController::Closed);
+        QTRY_COMPARE(latest.count(), 1);
+        QCOMPARE(pagination->navigationMessage(),
+                 PaginationController::restoreTooFarMessage());
+        QVERIFY(!pagination->navigating());
+        QTest::qWait(200);
+        QCOMPARE(located.count(), 0);
     }
 
     void readingInTheContextViewSavesThePositionToReturnTo()

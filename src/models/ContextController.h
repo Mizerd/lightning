@@ -34,6 +34,7 @@ class ContextController : public QObject
     Q_PROPERTY(bool traceEnabled READ traceEnabled CONSTANT)
     // NaN for a jump; otherwise the saved position's pixel offset to land on.
     Q_PROPERTY(qreal restoreOffset READ restoreOffset NOTIFY stateChanged)
+    Q_PROPERTY(QString accountId READ accountId NOTIFY stateChanged)
 
 public:
     enum State { Closed, Opening, Ready, Failed };
@@ -64,6 +65,7 @@ public:
     bool canLoadNewer() const;
     bool traceEnabled() const { return m_scrollTraceEnabled; }
     qreal restoreOffset() const { return m_restoreOffset; }
+    QString accountId() const { return m_accountId; }
 
     bool open(const QString &roomId, const QString &eventId,
               qreal restoreOffset = qQNaN());
@@ -71,6 +73,9 @@ public:
     // ignored by identity and by the backend's generation.
     Q_INVOKABLE void close();
     Q_INVOKABLE void jumpToLatest();
+    // The restore's fill has settled; reaching the live end closes the view
+    // again, as it does for a jump.
+    Q_INVOKABLE void finishRestoreFill() { m_restoreFilling = false; }
     Q_INVOKABLE void loadOlder();
     Q_INVOKABLE void loadNewer();
     Q_INVOKABLE int targetRow() const;
@@ -88,12 +93,14 @@ Q_SIGNALS:
     void threadReplyHit(const QString &roomId, const QString &threadRootId,
                         const QString &eventId);
     void latestRequested();
+    void restoreFailed(const QString &roomId, const QString &eventId);
 
 private:
     void setState(State state, const QString &failureCategory = QString());
     void resetEdges();
     QString timelineId() const;
     void onTimelineReset(const QString &timelineId);
+    void failOpen(const QString &category, const QString &threadRoot = {});
     void onPagination(const QString &roomId, const QString &eventId,
                       bool forward, const QString &state, bool reachedEdge);
 
@@ -104,6 +111,8 @@ private:
     QString m_eventId;
     QString m_failureCategory;
     qreal m_restoreOffset = qQNaN();
+    bool m_restoreFilling = false;
+    QString m_accountId;
     bool m_loadingOlder = false;
     bool m_loadingNewer = false;
     bool m_reachedStart = false;

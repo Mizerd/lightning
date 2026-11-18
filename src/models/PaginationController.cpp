@@ -327,11 +327,13 @@ void PaginationController::revealIfLoaded(const QString &eventId)
 void PaginationController::saveScrollAnchor(const QString &roomId,
                                             const QString &eventId,
                                             qreal pixelOffset,
-                                            bool followingLatest)
+                                            bool followingLatest,
+                                            const QString &accountId)
 {
     if (roomId.isEmpty())
         return;
-    const QString key = navigationKey(roomId);
+    const QString key = accountId.isEmpty()
+        ? navigationKey(roomId) : accountId + QChar(0x1f) + roomId;
     if (m_scrollAnchors.size() >= kMaxScrollAnchors
         && !m_scrollAnchors.contains(key))
         m_scrollAnchors.erase(m_scrollAnchors.begin());
@@ -899,6 +901,17 @@ bool PaginationController::restoreThroughContext()
                          << "walkedPages=" << batches;
     Q_EMIT restoreLatestRequested();
     return true;
+}
+
+void PaginationController::failContextRestore(const QString &roomId)
+{
+    if (roomId.isEmpty() || roomId != m_roomId)
+        return;
+    qCInfo(lcPagination) << "saved position unreachable through event context";
+    m_navigationMessage = restoreTooFarMessage();
+    m_navigationMessageTimer.start(kNavigationMessageDurationMs);
+    Q_EMIT navigationChanged();
+    Q_EMIT restoreLatestRequested();
 }
 
 void PaginationController::failNavigation(bool tooFar)

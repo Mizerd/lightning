@@ -2278,6 +2278,8 @@ true, ringSeconds, acceptOffered,
         if (roomId == m_currentRoomId && m_pagination)
             m_pagination->walkToEvent(eventId);
     });
+    connect(m_eventContext.get(), &ContextController::restoreFailed,
+            m_pagination.get(), &PaginationController::failContextRestore);
     connect(m_eventContext.get(), &ContextController::threadReplyHit, this,
             [this](const QString &roomId, const QString &rootId,
                    const QString &eventId) {

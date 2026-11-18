@@ -37,8 +37,13 @@ Rectangle {
             app.eventContext.loadOlder()
         else if (delta > 0 && !app.eventContext.newerFailed
                  && list.originY + list.contentHeight + list.bottomMargin
-                    - list.contentY < 2 * list.height)
-            app.eventContext.loadNewer()
+                    - list.contentY < 2 * list.height) {
+            // A restore's fill can reach the live end without closing the view.
+            if (app.eventContext.reachedEnd && !view.restoreFillPending)
+                app.eventContext.jumpToLatest()
+            else
+                app.eventContext.loadNewer()
+        }
     }
     Timer {
         id: highlightTimer
@@ -106,13 +111,17 @@ Rectangle {
     // A restore holds the saved anchor while older and newer pages fill in
     // around it; reader input ends the hold.
     property bool restoreFillPending: false
+    property bool anchorFixing: false
     function noteAnchor() {
-        if (view.anchorFixPending || view.restoreFillPending)
+        if (view.anchorFixPending || view.anchorFixing
+                || view.restoreFillPending)
             return
         var row = list.indexAt(list.width / 2, list.contentY + list.height / 2)
         var item = row >= 0 ? list.itemAtIndex(row) : null
-        if (!item)
+        if (!item) {
+            view.anchorId = ""
             return
+        }
         view.anchorId = app.eventContext.model.stableIdAt(row)
         view.anchorScreenY = item.y - list.contentY
     }
@@ -135,6 +144,7 @@ Rectangle {
                 ? app.eventContext.model.rowForStableId(view.anchorId) : -1
         // Moving contentY makes ListView re-lay out from the new first row,
         // which can shift the anchor again; a few passes settle it.
+        view.anchorFixing = true
         for (var pass = 0; row >= 0 && pass < 3; ++pass) {
             list.forceLayout()
             var item = list.itemAtIndex(row)
@@ -154,6 +164,7 @@ Rectangle {
                 contextWheel.glideTargetY += target - list.contentY
             list.contentY = target
         }
+        view.anchorFixing = false
         if (view.restoreFillPending)
             view.fillAroundRestore()
     }
@@ -163,6 +174,7 @@ Rectangle {
         if (app.eventContext.loadingOlder || app.eventContext.loadingNewer)
             return
         view.restoreFillPending = false
+        app.eventContext.finishRestoreFill()
         if (app.eventContext.traceEnabled) {
             var row = app.eventContext.model.rowForStableId(view.anchorId)
             var item = row >= 0 ? list.itemAtIndex(row) : null
@@ -173,6 +185,8 @@ Rectangle {
         }
     }
     function readerTookControl() {
+        if (view.restoreFillPending)
+            app.eventContext.finishRestoreFill()
         view.restoreFillPending = false
     }
     property int tracePrepends: 0
@@ -240,7 +254,7 @@ Rectangle {
             return
         app.pagination.saveScrollAnchor(app.eventContext.roomId, eventId,
                                         item.y - list.contentY - list.height,
-                                        false)
+                                        false, app.eventContext.accountId)
     }
     Timer {
         id: savePositionTimer
@@ -559,7 +573,13 @@ Rectangle {
                     }
                 }
 
-                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: AppScrollBar {
+                    policy: ScrollBar.AsNeeded
+                    onPressedChanged: {
+                        if (pressed)
+                            view.readerTookControl()
+                    }
+                }
             }
         }
     }
