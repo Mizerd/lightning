@@ -1993,6 +1993,8 @@ void SfuCallController::clearSubscriberEngines()
 {
     m_subscriberParticipants.clear();
     m_connectionOwnIdentity.clear();
+    m_subscriberTransportStates.clear();
+    m_subscriberResumePending.clear();
 #ifdef HAVE_LIGHTNING_WEBRTC
     const auto engines = m_subscriberEngines;
     m_subscriberEngines.clear();
@@ -2162,6 +2164,7 @@ quint64 SfuCallController::connectFocusPlan()
                         qCInfo(lcSfuCall) << "subscriber transport"
                                           << "connection=" << id
                                           << "state=" << state;
+                        m_subscriberTransportStates.insert(id, state);
                         if (state == QLatin1String("failed"))
                             beginReconnect(QStringLiteral("subscriber_ice_failed"));
                     }
@@ -2191,6 +2194,10 @@ void SfuCallController::onSfuConnectionEvent(const QVariantMap &event)
     const QString type = event.value(QStringLiteral("type")).toString();
     if (type == QLatin1String("sfu_state")) {
         const QString state = event.value(QStringLiteral("state")).toString();
+        if (state == QLatin1String("resumed")) {
+            onSubscriberResumed(id, engine);
+            return;
+        }
         if (state == QLatin1String("failed")
             || state == QLatin1String("reconnecting")
             || state == QLatin1String("closed")
@@ -2215,8 +2222,25 @@ void SfuCallController::onSfuConnectionEvent(const QVariantMap &event)
         return;
     }
     if (type == QLatin1String("sfu_participants")) {
-        updateSubscriberParticipants(
-            id, event.value(QStringLiteral("participants")).toList(), false);
+        const QVariantList rows =
+            event.value(QStringLiteral("participants")).toList();
+        // The resume snapshot lists everyone, this connection's own identity
+        // included; a one-participant broadcast that lands first must not
+        // drop the rest.
+        bool snapshot = false;
+        if (m_subscriberResumePending.contains(id)) {
+            const QString self = m_connectionOwnIdentity.value(id);
+            for (const QVariant &row : rows) {
+                if (!self.isEmpty()
+                    && row.toMap().value(QStringLiteral("identity")).toString() == self) {
+                    snapshot = true;
+                    break;
+                }
+            }
+            if (snapshot)
+                m_subscriberResumePending.remove(id);
+        }
+        updateSubscriberParticipants(id, rows, snapshot);
     } else if (type == QLatin1String("sfu_remote_description")) {
         if (event.value(QStringLiteral("target")).toString()
             == QLatin1String("subscriber")) {
@@ -2622,6 +2646,28 @@ void SfuCallController::onSignalResumed()
         m_iceDisconnectedTimer.start();
     }
 }
+
+#ifdef HAVE_LIGHTNING_WEBRTC
+void SfuCallController::onSubscriberResumed(int id, SfuMediaEngine *engine)
+{
+    qCInfo(lcSfuCall) << "subscriber signalling resumed connection=" << id
+                      << "transport=" << m_subscriberTransportStates.value(id);
+    m_subscriberResumePending.insert(id);
+    if (m_subscriberTransportStates.value(id) == QLatin1String("connected"))
+        return;
+    const quint64 callGeneration = m_callGeneration;
+    QPointer<SfuMediaEngine> guard(engine);
+    QTimer::singleShot(m_iceDisconnectedTimer.interval(), this,
+        [this, id, guard, callGeneration] {
+            if (guard.isNull() || m_callGeneration != callGeneration
+                || m_subscriberEngines.value(id) != guard
+                || m_state != State::Connected
+                || m_subscriberTransportStates.value(id) == QLatin1String("connected"))
+                return;
+            beginReconnect(QStringLiteral("subscriber_ice_disconnected"));
+        });
+}
+#endif
 
 void SfuCallController::onEngineTransportState(int target,
                                                const QString &state)

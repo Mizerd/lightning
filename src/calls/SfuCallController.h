@@ -441,6 +441,10 @@ public:
     void setConnectionFocusUrlsForTest(const QStringList &urls)
     { m_connectionFocusUrls = urls; }
     quint64 sfuGenerationForTest() const { return m_sfuGeneration; }
+    void setConnectionOwnIdentityForTest(int connectionId, const QString &identity)
+    { m_connectionOwnIdentity.insert(connectionId, identity); }
+    int subscriberParticipantCountForTest(int connectionId) const
+    { return m_subscriberParticipants.value(connectionId).size(); }
     QString streamIdForIdentityForTest(const QString &identity) const
     { return streamIdForIdentity(identity); }
     void setReactionWindowMsForTest(int ms)
@@ -574,6 +578,9 @@ private Q_SLOTS:
                                const QString &delayedCategory);
     void onSfuState(const QString &state, const QString &category);
     void onSfuConnectionEvent(const QVariantMap &event);
+#ifdef HAVE_LIGHTNING_WEBRTC
+    void onSubscriberResumed(int id, SfuMediaEngine *engine);
+#endif
     void updateSubscriberParticipants(int id, const QVariantList &rows,
                                       bool replace);
     void logRemoteSubscription(int id, const QString &sid,
@@ -744,6 +751,8 @@ private:
     QHash<int, QHash<QString, QVariantMap>> m_subscriberParticipants;
     QHash<QString, QVariantMap> m_publisherParticipants;
     QHash<int, QString> m_connectionOwnIdentity;
+    QHash<int, QString> m_subscriberTransportStates;
+    QSet<int> m_subscriberResumePending;
     QStringList m_connectionFocusUrls;
     quint64 m_sfuGeneration = 0;
     quint64 m_callGeneration = 0;

@@ -1265,6 +1265,72 @@ private Q_SLOTS:
         QCOMPARE(call.sfuGenerationForTest(), quint64(0));
     }
 
+    void aSecondaryConnectionActsOnItsResume()
+    {
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("subscriber connections need the media engine");
+#else
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!resume:example.org");
+        const QString own = QStringLiteral("https://own.example.org");
+        const QString other = QStringLiteral("https://other.example.org");
+        rtc.discover(room);
+        client.answerTransports({own});
+        RtcSessionData session;
+        session.roomId = room;
+        RtcParticipant remote;
+        remote.rtcIdentity = QStringLiteral("@b:other.org:B");
+        remote.focusSelection = QStringLiteral("multi_sfu");
+        remote.focusServiceUrl = other;
+        remote.expiresAtMs = std::numeric_limits<qint64>::max();
+        session.participants = {remote};
+        session.focusServiceUrl = other;
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setReconnectTimingForTest(10000, 5000, 20000, 30);
+        const quint64 op = call.beginMembershipPublishForTest(room, own);
+        client.answerPublish(op, true, QString());
+        QCOMPARE(call.connectionFocusUrlsForTest(), QStringList({own, other}));
+        auto event = [&](const QString &type, QVariantMap extra) {
+            extra.insert(QStringLiteral("type"), type);
+            extra.insert(QStringLiteral("generation"), 7);
+            extra.insert(QStringLiteral("connection_id"), type == QLatin1String("gen") ? 0 : 1);
+            Q_EMIT client.sfuConnectionEvent(extra);
+        };
+        event(QStringLiteral("gen"), {});
+        call.setCallStateForTest(SfuCallController::State::Connected);
+
+        const QString self = QStringLiteral("@me:example.org:ME");
+        const QString stays = QStringLiteral("@b:other.org:B");
+        const QString left = QStringLiteral("@c:other.org:C");
+        call.setConnectionOwnIdentityForTest(1, self);
+        call.ingestSubscriberParticipantsForTest(1, {
+            sfuParticipant(stays, QStringLiteral("PA_B"), {}),
+            sfuParticipant(left, QStringLiteral("PA_C"), {})}, true);
+        QCOMPARE(call.subscriberParticipantCountForTest(1), 2);
+
+        event(QStringLiteral("sfu_state"), {{QStringLiteral("state"), QStringLiteral("resumed")}});
+        event(QStringLiteral("sfu_participants"), {{QStringLiteral("participants"), QVariantList{
+            sfuParticipant(stays, QStringLiteral("PA_B"), {})}}});
+        QCOMPARE(call.subscriberParticipantCountForTest(1), 2);
+        event(QStringLiteral("sfu_participants"), {{QStringLiteral("participants"), QVariantList{
+            sfuParticipant(self, QStringLiteral("PA_ME"), {}),
+            sfuParticipant(stays, QStringLiteral("PA_B"), {})}}});
+        QVERIFY2(call.subscriberParticipantCountForTest(1) == 1,
+                 "a participant who left while the secondary connection's "
+                 "signalling was down outlived the resume snapshot");
+
+        QCOMPARE(call.state(), SfuCallController::State::Connected);
+        QTRY_COMPARE_WITH_TIMEOUT(call.state(), SfuCallController::State::Reconnecting, 2000);
+#endif
+    }
+
     void twoSubscriberConnectionsKeepEqualSidsSeparate()
     {
         SfuCallController call;
