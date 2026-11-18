@@ -136,6 +136,13 @@ void UnifiedInboxModel::dropEvent(const QString &uid, const QString &eventId)
     dropWhere([&](const Entry &e) { return e.accountUserId == uid && e.eventId == eventId; });
 }
 
+void UnifiedInboxModel::dropBacklogOutside(const QString &uid, const QSet<QString> &unreadRooms)
+{
+    dropWhere([&](const Entry &e) {
+        return e.backlog && e.accountUserId == uid && !unreadRooms.contains(e.roomId);
+    });
+}
+
 QVariantMap UnifiedInboxModel::entryAt(int row) const
 {
     QVariantMap m;

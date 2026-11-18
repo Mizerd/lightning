@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QList>
+#include <QSet>
 #include <QString>
 #include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -55,6 +56,8 @@ public:
         qint64 timestampMs = 0;
         bool highlight = false;
         bool undecryptable = false;
+        // Older than the account's catch-up floor: kept only while its room is unread.
+        bool backlog = false;
     };
 
     static constexpr int kMaxEntries = 100;
@@ -74,6 +77,7 @@ public:
     void dropAccount(const QString &uid);
     void dropRoom(const QString &uid, const QString &roomId);
     void dropEvent(const QString &uid, const QString &eventId);
+    void dropBacklogOutside(const QString &uid, const QSet<QString> &unreadRooms);
 
     Q_INVOKABLE QVariantMap entryAt(int row) const;
 

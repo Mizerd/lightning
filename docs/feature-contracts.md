@@ -176,6 +176,22 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
   or presence; removal of a live one also signs it out on the server. Phase
   1 switching retires the host and then runs today's switch. The switches
   are not portable (not exported, not synced). Live: NOT TESTED.
+- **Unified inbox (#35, Labs, 2026-11-18).** With live accounts on, the
+  Activity panel's All tab shows "From your other accounts": what a Running
+  background account received that its notification rule would show
+  (`NotificationManager::decide` without the notifications-on, synced and
+  backlog gates), each row labelled with its account (`UnifiedInboxModel`,
+  fed by `BackgroundSessionHost::feedInbox`). In memory only, never
+  persisted; at most 100 rows. A row goes when it is redacted, when its room
+  stops being unread for that account, when a decrypted copy does not notify,
+  and all of an account's rows go when it leaves Running (switched to,
+  paused, stopped, removed, Labs off). Caught-up history (older than the
+  catch-up floor) is kept only while its room is unread. `add()` refuses an
+  account that is not Running, is removed or is the foreground one, and a host
+  epoch other than `SessionPool::epochFor`. A click switches account and
+  opens the room through `claimCrossAccountOpen`. Without live accounts, a
+  user with two or more saved accounts sees one line pointing at Settings >
+  Labs. Live: NOT TESTED.
 - **Warm account adoption (2026-10-27, review-gated).** Switching to a pinned
   account whose host is Running, past its initial sync, not being removed and
   with custody settled (no keyring write of its sign-in or live token write

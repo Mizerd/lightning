@@ -156,6 +156,25 @@ private Q_SLOTS:
                  (QStringList{ kBob, kBob }));
     }
 
+    void onlyCaughtUpRowsGoWhenTheirRoomIsNoLongerUnread()
+    {
+        Fixture f;
+        UnifiedInboxModel::Entry old = entry(kAlice, QStringLiteral("$old"), 1,
+                                             QStringLiteral("!read:hs.example"));
+        old.backlog = true;
+        QVERIFY(f.inbox->add(1, old));
+        QVERIFY(f.inbox->add(1, entry(kAlice, QStringLiteral("$live"), 2,
+                                      QStringLiteral("!read:hs.example"))));
+        UnifiedInboxModel::Entry bobOld = old;
+        bobOld.accountUserId = kBob;
+        QVERIFY(f.inbox->add(1, bobOld));
+        f.inbox->dropBacklogOutside(kAlice, { QStringLiteral("!other:hs.example") });
+        QCOMPARE(column(*f.inbox, UnifiedInboxModel::EventIdRole),
+                 (QStringList{ "$live", "$old" }));
+        QCOMPARE(column(*f.inbox, UnifiedInboxModel::AccountUserIdRole),
+                 (QStringList{ kAlice, kBob }));
+    }
+
     void theListIsBoundedAndKeepsTheNewest()
     {
         Fixture f;

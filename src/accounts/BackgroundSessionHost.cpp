@@ -205,6 +205,7 @@ void BackgroundSessionHost::applyTake(const QByteArray &json)
     }
     m_rooms = std::move(rooms);
     m_invites = take.value(QStringLiteral("invites")).toInt(0);
+    m_countsSeen = true;
     recomputeSummary(false);
 }
 
@@ -256,6 +257,7 @@ void BackgroundSessionHost::recomputeSummary(bool force)
             if (!unreadNow.contains(roomId))
                 m_deps.inbox->dropRoom(m_identity.userId, roomId);
         }
+        m_deps.inbox->dropBacklogOutside(m_identity.userId, unreadNow);
     }
     m_unreadRooms = std::move(unreadNow);
     const bool same = m_haveSummary && unreadRooms == m_lastUnreadRooms
@@ -519,7 +521,17 @@ void BackgroundSessionHost::feedInbox(const TimelineEvent &event,
     candidate.backlog = false;
     const NotificationManager::Decision decision =
         NotificationManager::decide(candidate, rule);
-    if (!decision.notify || (event.isEdit && !decision.mention))
+    // An edit stands in for the message it replaces, so the original's
+    // redaction removes it.
+    const QString rowId = event.isEdit ? event.replacesEventId : event.eventId;
+    if (!decision.notify || (event.isEdit && !decision.mention)) {
+        // A decrypted copy that turns out not to notify takes its UTD row with it.
+        if (!event.isEdit)
+            m_deps.inbox->dropEvent(m_identity.userId, rowId);
+        return;
+    }
+    // Catch-up replays each room's latest event whether or not it was read.
+    if (event.backlog && m_countsSeen && !m_unreadRooms.contains(event.roomId))
         return;
     UnifiedInboxModel::Entry entry;
     entry.accountUserId = m_identity.userId;
@@ -529,11 +541,12 @@ void BackgroundSessionHost::feedInbox(const TimelineEvent &event,
     entry.senderId = event.sender;
     entry.senderName = event.senderDisplayName;
     entry.preview = ActivityModel::previewOf(event);
-    entry.eventId = event.eventId;
+    entry.eventId = rowId;
     entry.threadRootId = event.threadRootId;
     entry.timestampMs = event.timestamp.toMSecsSinceEpoch();
     entry.highlight = decision.mention;
     entry.undecryptable = event.undecryptable;
+    entry.backlog = event.backlog;
     m_deps.inbox->add(m_epoch, entry);
 }
 

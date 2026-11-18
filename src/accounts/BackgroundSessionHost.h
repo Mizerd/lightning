@@ -143,6 +143,7 @@ private:
     QSet<QString> m_unreadRooms;
     QHash<QString, int> m_modes;
     bool m_haveSummary = false;
+    bool m_countsSeen = false;
     int m_lastUnreadRooms = -1;
     int m_lastMentions = -1;
     int m_lastInvites = -1;
