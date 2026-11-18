@@ -76,6 +76,10 @@ ItemDelegate {
         (root.highlightCount > 0 || root.unreadCount > 0
          || root.hasUnread || root.isInvite || root.threadOnly) && !root.muted
     readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
+    // Drives bold/emphasis only. readsUnread above also feeds the unread mark
+    // bar and must stay gated by notification mode. The showsPill already
+    // flags mentions/counts, so bold is free to mark any activity instead.
+    readonly property bool hasActivity: root.readsUnread || root.rawUnread
 
     height: Math.max(AppTheme.channelRowMinHeight,
                     2 * AppTheme.scaled(AppTheme.textBody))
@@ -195,8 +199,8 @@ ItemDelegate {
                 elide: Text.ElideRight
                 maximumLineCount: 1
                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-                font.weight: root.readsUnread && !root.muted ? AppTheme.weightBold : AppTheme.weightBody
-                color: root.active ? AppTheme.channelSelectedText : (root.muted ? AppTheme.channelCategoryText : (root.readsUnread ? AppTheme.channelTextUnread : AppTheme.channelText))
+                font.weight: root.hasActivity && !root.muted ? AppTheme.weightBold : AppTheme.weightBody
+                color: root.active ? AppTheme.channelSelectedText : (root.muted ? AppTheme.channelCategoryText : (root.hasActivity ? AppTheme.channelTextUnread : AppTheme.channelText))
             }
         }
 
