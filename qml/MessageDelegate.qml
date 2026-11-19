@@ -5641,7 +5641,11 @@ Item {
 
                             Accessible.role: Accessible.Button
                             Accessible.name: imageBox.starred
-                                ? qsTr("Remove from saved") : qsTr("Save image")
+                                ? qsTr("Remove from the GIF picker")
+                                : qsTr("Save to the GIF picker")
+                            ToolTip.text: Accessible.name
+                            ToolTip.visible: starHover.hovered
+                            ToolTip.delay: 400
                             Accessible.onPressAction: gifStarButton.activate()
 
                             function activate() {

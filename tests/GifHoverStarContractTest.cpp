@@ -187,12 +187,14 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("Accessible.role: Accessible.Button")));
         QVERIFY(block.contains(QStringLiteral(
             "Accessible.name: imageBox.starred")));
-        QVERIFY(block.contains(QStringLiteral("qsTr(\"Remove from saved\")")));
-        QVERIFY(block.contains(QStringLiteral("qsTr(\"Save image\")")));
+        QVERIFY(block.contains(QStringLiteral("qsTr(\"Remove from the GIF picker\")")));
+        QVERIFY(block.contains(QStringLiteral("qsTr(\"Save to the GIF picker\")")));
         QVERIFY(!block.contains(QStringLiteral("Star GIF")));
         QVERIFY(!block.contains(QStringLiteral("starred GIFs")));
         QVERIFY(!block.contains(QStringLiteral("qsTr(\"Save GIF\")")));
         QVERIFY(!block.contains(QStringLiteral("qsTr(\"Remove from saved GIFs\")")));
+        QVERIFY(block.contains(QStringLiteral("ToolTip.text: Accessible.name")));
+        QVERIFY(block.contains(QStringLiteral("ToolTip.visible: starHover.hovered")));
     }
 
     void savedStateIsAFillNotOnlyATint()
