@@ -1,6 +1,7 @@
 #include "calls/CallParticipantModel.h"
 
 #include <QDateTime>
+#include <QSet>
 #include <QVariantMap>
 #include <QtMath>
 
@@ -195,8 +196,18 @@ QList<int> CallParticipantModel::mergeRow(Entry &entry,
 }
 
 void CallParticipantModel::applyParticipants(
-    const QVector<CallParticipantRow> &desired)
+    const QVector<CallParticipantRow> &input)
 {
+    // Row positions index into desired, so an empty or repeated id must not
+    // occupy a slot.
+    QVector<CallParticipantRow> desired;
+    QSet<QString> seen;
+    for (const CallParticipantRow &row : input) {
+        if (!row.identity.isEmpty() && !seen.contains(row.identity)) {
+            seen.insert(row.identity);
+            desired.append(row);
+        }
+    }
     const int before = m_rows.size();
 
     {
@@ -215,8 +226,6 @@ void CallParticipantModel::applyParticipants(
 
     for (int i = 0; i < desired.size(); ++i) {
         const CallParticipantRow &row = desired.at(i);
-        if (row.identity.isEmpty())
-            continue;
         int at = -1;
         for (int j = i; j < m_rows.size(); ++j) {
             if (m_rows.at(j).row.identity == row.identity) {

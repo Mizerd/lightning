@@ -89,8 +89,18 @@ QStringList CallShareModel::shareIds() const
     return out;
 }
 
-void CallShareModel::applyShares(const QVector<CallShareRow> &desired)
+void CallShareModel::applyShares(const QVector<CallShareRow> &input)
 {
+    // Row positions index into desired, so an empty or repeated id must not
+    // occupy a slot.
+    QVector<CallShareRow> desired;
+    QSet<QString> seen;
+    for (const CallShareRow &row : input) {
+        if (!row.shareId.isEmpty() && !seen.contains(row.shareId)) {
+            seen.insert(row.shareId);
+            desired.append(row);
+        }
+    }
     const int before = m_rows.size();
     QStringList ended;
     QStringList appeared;
@@ -112,8 +122,6 @@ void CallShareModel::applyShares(const QVector<CallShareRow> &desired)
 
     for (int i = 0; i < desired.size(); ++i) {
         const CallShareRow &row = desired.at(i);
-        if (row.shareId.isEmpty())
-            continue;
         int at = -1;
         for (int j = i; j < m_rows.size(); ++j) {
             if (m_rows.at(j).shareId == row.shareId) {
