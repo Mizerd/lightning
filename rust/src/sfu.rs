@@ -901,13 +901,26 @@ async fn dial_signal(
 /// The OS trust store, as reqwest uses for the homeserver and the token
 /// service; without it a focus whose CA the system trusts fails here alone.
 fn signal_tls() -> Option<tokio_tungstenite::Connector> {
-    use rustls_platform_verifier::ConfigVerifierExt;
     static CONFIG: std::sync::OnceLock<Option<Arc<rustls::ClientConfig>>> =
         std::sync::OnceLock::new();
     CONFIG
-        .get_or_init(|| rustls::ClientConfig::with_platform_verifier().ok().map(Arc::new))
+        .get_or_init(signal_tls_config)
         .clone()
         .map(tokio_tungstenite::Connector::Rustls)
+}
+
+fn signal_tls_config() -> Option<Arc<rustls::ClientConfig>> {
+    use rustls_platform_verifier::ConfigVerifierExt;
+    match rustls::ClientConfig::with_platform_verifier() {
+        Ok(config) => Some(Arc::new(config)),
+        Err(err) => {
+            eprintln!(
+                "lightning: sfu signalling: system trust store unavailable, \
+                 using the bundled roots: {err}"
+            );
+            None
+        }
+    }
 }
 
 fn describe_race(family: &str, stats: RaceStats) -> String {
@@ -1855,10 +1868,12 @@ mod tests {
         assert_eq!(sif_trailer_b64(&not_base62), "");
     }
 
+    // SSL_CERT_FILE replaces the system roots only on Linux; setting it is
+    // process-wide, which no other test here depends on.
+    #[cfg(all(unix, not(target_vendor = "apple")))]
     #[test]
     fn signalling_trusts_a_focus_ca_from_the_system_store() {
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName};
-        use rustls_platform_verifier::ConfigVerifierExt;
 
         fn handshake(client: Arc<rustls::ClientConfig>) -> Result<(), rustls::Error> {
             let leaf = CertificateDer::from(include_bytes!("testdata/focus-leaf.der").to_vec());
@@ -1894,10 +1909,10 @@ mod tests {
         let ca = std::env::temp_dir().join(format!("lightning-focus-ca-{}.pem", std::process::id()));
         std::fs::write(&ca, include_bytes!("testdata/focus-ca.pem")).expect("write CA");
         std::env::set_var("SSL_CERT_FILE", &ca);
-        let system = rustls::ClientConfig::with_platform_verifier();
+        let system = signal_tls_config();
         std::env::remove_var("SSL_CERT_FILE");
         let _ = std::fs::remove_file(&ca);
-        handshake(Arc::new(system.expect("platform verifier"))).expect("CA in the system store is trusted");
+        handshake(system.expect("platform verifier")).expect("CA in the system store is trusted");
     }
 
     #[test]
