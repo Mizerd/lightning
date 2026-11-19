@@ -8006,7 +8006,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2702"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2732"/>
         <source>Voice message</source>
         <translation>Pesan suara</translation>
     </message>
@@ -16938,12 +16938,17 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomActivityDelegate</name>
     <message>
-        <location filename="../qml/RoomActivityDelegate.qml" line="+69"/>
-        <source>%1 – %2</source>
-        <translation>%1 – %2</translation>
+        <location filename="../qml/RoomActivityDelegate.qml" line="+61"/>
+        <source>Today</source>
+        <translation type="unfinished">Hari ini</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+1"/>
+        <source>Yesterday</source>
+        <translation type="unfinished">Kemarin</translation>
+    </message>
+    <message>
+        <location line="+36"/>
         <source>Collapse room updates</source>
         <translation>Ciutkan pembaruan ruang</translation>
     </message>
@@ -16958,7 +16963,15 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Ruang diperbarui</translation>
     </message>
     <message numerus="yes">
-        <location line="+1"/>
+        <location line="+2"/>
+        <source>%n room update(s) since %1</source>
+        <comment>collapsed state-event group spanning days</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
         <source>%n room update(s)</source>
         <comment>collapsed state-event group</comment>
         <translation>
@@ -16969,11 +16982,6 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+4"/>
         <source>%1 · permissions or security changed</source>
         <translation>%1 · izin atau keamanan diubah</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>%1 · %2</source>
-        <translation>%1 · %2</translation>
     </message>
 </context>
 <context>
@@ -32624,7 +32632,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1582"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1584"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 mengubah nama tampilannya dari “%2” menjadi “%3” dan mengubah avatarnya.</translation>
     </message>
@@ -32674,7 +32682,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>%1 memulai panggilan.</translation>
     </message>
     <message>
-        <location line="+1298"/>
+        <location line="+1300"/>
         <source>%1 is typing…</source>
         <translation>%1 sedang mengetik…</translation>
     </message>

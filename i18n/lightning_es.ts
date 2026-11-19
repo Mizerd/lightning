@@ -8040,7 +8040,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2702"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2732"/>
         <source>Voice message</source>
         <translation>Mensaje de voz</translation>
     </message>
@@ -16997,12 +16997,17 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>RoomActivityDelegate</name>
     <message>
-        <location filename="../qml/RoomActivityDelegate.qml" line="+69"/>
-        <source>%1 – %2</source>
-        <translation>%1 – %2</translation>
+        <location filename="../qml/RoomActivityDelegate.qml" line="+61"/>
+        <source>Today</source>
+        <translation type="unfinished">Hoy</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+1"/>
+        <source>Yesterday</source>
+        <translation type="unfinished">Ayer</translation>
+    </message>
+    <message>
+        <location line="+36"/>
         <source>Collapse room updates</source>
         <translation>Contraer los cambios de la sala</translation>
     </message>
@@ -17017,7 +17022,16 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Sala actualizada</translation>
     </message>
     <message numerus="yes">
-        <location line="+1"/>
+        <location line="+2"/>
+        <source>%n room update(s) since %1</source>
+        <comment>collapsed state-event group spanning days</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
         <source>%n room update(s)</source>
         <comment>collapsed state-event group</comment>
         <translation>
@@ -17029,11 +17043,6 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+4"/>
         <source>%1 · permissions or security changed</source>
         <translation>%1 · permisos o seguridad cambiados</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>%1 · %2</source>
-        <translation>%1 · %2</translation>
     </message>
 </context>
 <context>
@@ -32773,7 +32782,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1582"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1584"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 cambió su nombre visible de «%2» a «%3» y cambió su avatar.</translation>
     </message>
@@ -32823,7 +32832,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>%1 inició una llamada.</translation>
     </message>
     <message>
-        <location line="+1298"/>
+        <location line="+1300"/>
         <source>%1 is typing…</source>
         <translation>%1 está escribiendo…</translation>
     </message>

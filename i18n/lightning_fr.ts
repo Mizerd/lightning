@@ -8040,7 +8040,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2702"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2732"/>
         <source>Voice message</source>
         <translation>Message vocal</translation>
     </message>
@@ -16997,12 +16997,17 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomActivityDelegate</name>
     <message>
-        <location filename="../qml/RoomActivityDelegate.qml" line="+69"/>
-        <source>%1 – %2</source>
-        <translation>%1 – %2</translation>
+        <location filename="../qml/RoomActivityDelegate.qml" line="+61"/>
+        <source>Today</source>
+        <translation type="unfinished">Aujourd&apos;hui</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+1"/>
+        <source>Yesterday</source>
+        <translation type="unfinished">Hier</translation>
+    </message>
+    <message>
+        <location line="+36"/>
         <source>Collapse room updates</source>
         <translation>Replier les mises à jour du salon</translation>
     </message>
@@ -17017,7 +17022,16 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Salon mis à jour</translation>
     </message>
     <message numerus="yes">
-        <location line="+1"/>
+        <location line="+2"/>
+        <source>%n room update(s) since %1</source>
+        <comment>collapsed state-event group spanning days</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
         <source>%n room update(s)</source>
         <comment>collapsed state-event group</comment>
         <translation>
@@ -17029,11 +17043,6 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+4"/>
         <source>%1 · permissions or security changed</source>
         <translation>%1 · autorisations ou sécurité modifiées</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>%1 · %2</source>
-        <translation>%1 · %2</translation>
     </message>
 </context>
 <context>
@@ -32773,7 +32782,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1582"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1584"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -32823,7 +32832,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1298"/>
+        <location line="+1300"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>
