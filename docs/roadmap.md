@@ -1,6 +1,12 @@
 # Roadmap
 
-## Milestones
+This file is a planning record, not a current roadmap. The latest release is
+0.10.6; release notes are in `docs/releases/`. Each section below is dated or
+version-scoped, and a "planned" section may since have shipped. Open work is
+tracked in the [GitHub issues](https://github.com/lightning-matrix/lightning/issues)
+and in `docs/open-items.md`.
+
+## Milestones (v0.1 to v0.5.x, historical)
 
 | Version | Theme | Backend |
 |---|---|---|
@@ -12,7 +18,7 @@
 | v0.5.0 | E2EE via Matrix Rust SDK | Rust backend + encrypted send/receive + SAS verification + recovery key |
 | v0.5.2 | Design-token foundation | `AppTheme` semantic tokens, spacing, radii, typography, light/dark palettes |
 | v0.5.3 | Split Spaces + Rooms sidebar | `SpacesPanel` + `RoomsPanel` with independent scroll/search; bottom-left gear Settings |
-| **v0.5.4 (current)** | 3-column navigation + room grouping | `SpacesRail` (56 px) + `RoomsPanel` with DM/Room sections + user footer; softer light palette |
+| v0.5.4 | 3-column navigation + room grouping | `SpacesRail` (56 px) + `RoomsPanel` with DM/Room sections + user footer; softer light palette |
 | v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
@@ -381,7 +387,7 @@ Deliberately NOT proposed, with reasons, so they are not re-derived:
   - crypto backend description,
   - E2EE status string.
 
-## Next milestones after v0.4
+## Next milestones after v0.4 (written at v0.4, historical)
 
 ### v0.5.0-prep — Rust SDK foundation
 

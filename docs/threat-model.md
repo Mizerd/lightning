@@ -1,7 +1,21 @@
-# Threat model (v0.5.10 emoji picker, room state, timeline, verification, and key import)
+# Threat model
 
-Scoped to what the current v0.5.0-prep foundation needs a reader to
-know. Full model is v1.0 material.
+**Historical document.** It was written during the v0.5.x series and only
+partly updated since; sections are labelled with the version they describe.
+The latest release is 0.10.6. Where this file and the code disagree, the code
+wins. Current facts that override the v0.5.x sections below:
+
+- The Rust Matrix SDK backend is the real backend. Sync, room and thread
+  timelines, media, pagination and E2EE all run through matrix-sdk; the C++
+  HTTP backend is a development fallback only.
+- Lightning does not only talk to the homeserver. Every outbound destination
+  (homeserver, OAuth issuer, link-preview fallback, GIF providers, call SFUs
+  and TURN servers, update hosts) is listed with what it receives in
+  [privacy.md](privacy.md).
+- Updates are verified against an Ed25519-signed manifest
+  ([updates.md](updates.md)).
+
+A full current threat model has not been written.
 
 ## Local emoji data and privacy (v0.5.10)
 
@@ -218,7 +232,7 @@ minimises:
   non-encrypted rooms, and never prints the body. Interactive
   encrypted send remains gated by `supportsE2ee() == false`.
 
-## In scope
+## In scope (v0.5.x, historical)
 
 - The desktop process runs with the user's privileges. Same trust boundary
   as any other desktop application the user chooses to install.
@@ -226,7 +240,7 @@ minimises:
 - The client stores an access token via the SecretStore (libsecret when
   available; QSettings fallback with a visible warning otherwise).
 
-## Out of scope for this pass
+## Out of scope (v0.5.x, historical)
 
 - Multi-user machines. If two humans share the same OS user, they can read
   each other's cached non-E2E messages. The OS user remains the identity
@@ -236,7 +250,7 @@ minimises:
 - Compromised operating system, keyboard loggers, physical attackers.
 - Compromised update channel (packaging story is v1.0).
 
-## Sensitive assets
+## Sensitive assets (v0.4/v0.5.x, partly updated)
 
 | Asset | v0.4 storage | Future plan |
 |---|---|---|
@@ -267,22 +281,21 @@ At startup `SecretStore::createDefault()` picks the first working backend:
 Headless CI, `--platform offscreen` runs, and containers without a session
 bus will fall back to the insecure store. This is expected and warned about.
 
-## Guarantees this pass does *not* make
+## Guarantees v0.5.x did *not* make (historical)
 
-- Does not authenticate media downloads. Legacy `/_matrix/media/v3/*` is
-  used by design in v0.3/v0.4.
+- Did not authenticate media downloads in v0.3/v0.4. Superseded: the Rust
+  backend uses authenticated media (see "Sensitive assets").
 - Does not claim cryptographic independence from matrix-sdk. All Rust-backend
   E2EE, recovery, and verification operations remain SDK-owned.
 - Does not protect the SQLite cache. Anyone with read access to the user's
   home directory can read cached non-E2E message bodies.
-- Does not treat the Rust backend as feature-complete. `--backend=rust`
-  now wires login/restore/sync/plain text send, but rich timeline
-  features, media, pagination, and E2EE are still missing or partial.
+- Did not treat the Rust backend as feature-complete at v0.5.x. Superseded:
+  see the current facts at the top of this file.
 
-## Guarantees this pass does make
+## Guarantees v0.5.x made (historical)
 
-- No telemetry. Only outbound traffic is to the user-configured homeserver
-  via the Matrix Client-Server API over TLS.
+- No telemetry. (At v0.5.x the only outbound traffic was to the homeserver;
+  that no longer holds. The current list is in [privacy.md](privacy.md).)
 - No embedded browser rendering chat. QML draws every message directly.
 - No custom cryptography. E2EE must land through the Matrix Rust SDK.
 - SQLite cache never contains access tokens or raw crypto key material.
@@ -304,7 +317,7 @@ bus will fall back to the insecure store. This is expected and warned about.
   SecretStore and the plaintext key is removed. The migration runs
   synchronously in `SettingsManager::setSecretStore()`.
 
-## Warnings shown to the user (Settings screen)
+## Warnings shown to the user (Settings screen, v0.5.x, historical)
 
 - Secret backend name (e.g. `libsecret (Secret Service)` or
   `insecure fallback (QSettings)`).
