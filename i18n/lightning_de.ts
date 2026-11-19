@@ -8040,7 +8040,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2732"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -12994,7 +12994,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+376"/>
+        <location filename="../qml/MessageDelegate.qml" line="+449"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13018,14 +13018,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-571"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4149"/>
+        <location line="+4159"/>
         <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-5870"/>
+        <location line="-5880"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -13038,24 +13038,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3602"/>
+        <location line="+3612"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5087"/>
+        <location line="-5097"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4151"/>
+        <location line="+4161"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-4711"/>
+        <location line="-4721"/>
         <location line="+564"/>
-        <location line="+4252"/>
+        <location line="+4262"/>
         <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -13063,7 +13063,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-6111"/>
+        <location line="-6121"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -13169,12 +13169,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+91"/>
         <location line="+917"/>
-        <location line="+1110"/>
+        <location line="+1120"/>
         <source>Reply</source>
         <translation>Antworten</translation>
     </message>
     <message>
-        <location line="-2014"/>
+        <location line="-2024"/>
         <source>Original message removed</source>
         <translation>Ursprüngliche Nachricht entfernt</translation>
     </message>
@@ -13299,30 +13299,30 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2270"/>
+        <location line="+2280"/>
         <location line="+1031"/>
         <source>Retry</source>
         <translation>Wiederholen</translation>
     </message>
     <message>
-        <location line="-3284"/>
-        <location line="+1207"/>
+        <location line="-3294"/>
+        <location line="+1217"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location line="-1202"/>
+        <location line="-1212"/>
         <source>Cancel sending this message</source>
         <translation>Senden dieser Nachricht abbrechen</translation>
     </message>
     <message>
         <location line="+182"/>
-        <location line="+1367"/>
+        <location line="+1377"/>
         <source>Hide image</source>
         <translation>Bild ausblenden</translation>
     </message>
     <message>
-        <location line="-1363"/>
+        <location line="-1373"/>
         <source>Hide</source>
         <translation>Ausblenden</translation>
     </message>
@@ -13344,23 +13344,23 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+25"/>
         <location line="+4"/>
-        <location line="+1095"/>
+        <location line="+1105"/>
         <source>Reply in thread</source>
         <translation>Im Thread antworten</translation>
     </message>
     <message>
-        <location line="-1078"/>
+        <location line="-1088"/>
         <source>Edit message</source>
         <translation>Nachricht bearbeiten</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1093"/>
+        <location line="+1103"/>
         <source>Edit</source>
         <translation>Bearbeiten</translation>
     </message>
     <message>
-        <location line="-1072"/>
+        <location line="-1082"/>
         <source>More message actions</source>
         <translation>Weitere Nachrichtenaktionen</translation>
     </message>
@@ -13446,7 +13446,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Gelesen von %1, %2 und %3 weiteren</translation>
     </message>
     <message>
-        <location line="+551"/>
+        <location line="+561"/>
         <source>Message · %1 · %2</source>
         <translation>Nachricht · %1 · %2</translation>
     </message>
@@ -13627,13 +13627,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1942"/>
-        <location line="+655"/>
+        <location line="-1952"/>
+        <location line="+665"/>
         <source>Delete</source>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2558"/>
+        <location line="-2568"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
@@ -13663,7 +13663,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Entfernen</translation>
     </message>
     <message>
-        <location line="+688"/>
+        <location line="+698"/>
         <source>Message details</source>
         <translation>Nachrichtendetails</translation>
     </message>
@@ -32222,7 +32222,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Diesen Thread als gelesen markieren</translation>
     </message>
     <message>
-        <location line="+1232"/>
+        <location line="+1275"/>
         <source>Jump to the newest reply</source>
         <translation>Zur neuesten Antwort springen</translation>
     </message>
@@ -32235,7 +32235,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         </translation>
     </message>
     <message>
-        <location line="-1594"/>
+        <location line="-1637"/>
         <source>This room has been replaced.</source>
         <translation>Dieser Raum wurde ersetzt.</translation>
     </message>
@@ -32448,12 +32448,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Noch keine Antworten. Beginne unten die Unterhaltung.</translation>
     </message>
     <message>
-        <location line="+539"/>
+        <location line="+569"/>
         <source>Loading older replies…</source>
         <translation>Ältere Antworten werden geladen …</translation>
     </message>
     <message>
-        <location line="+174"/>
+        <location line="+187"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>Antwort an %1</translation>
@@ -32782,7 +32782,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1584"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1620"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 hat den Anzeigenamen von „%2“ in „%3“ geändert und den Avatar geändert.</translation>
     </message>
@@ -32864,7 +32864,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+6959"/>
+        <location filename="../qml/TimelinePane.qml" line="+7016"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -32908,8 +32908,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5783"/>
-        <location line="+5303"/>
+        <location filename="../qml/TimelinePane.qml" line="-5839"/>
+        <location line="+5359"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32933,8 +32933,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="+141"/>
-        <location filename="../qml/TimelinePane.qml" line="-6126"/>
-        <location line="+6763"/>
+        <location filename="../qml/TimelinePane.qml" line="-6183"/>
+        <location line="+6820"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -32988,7 +32988,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6367"/>
+        <location filename="../qml/TimelinePane.qml" line="-6424"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -33006,7 +33006,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         </translation>
     </message>
     <message>
-        <location line="+256"/>
+        <location line="+257"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Profil ansehen</translation>
@@ -33114,12 +33114,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3777"/>
+        <location line="+3833"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-3766"/>
+        <location line="-3822"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -33365,14 +33365,14 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Suche konnte nicht abgeschlossen werden.</translation>
     </message>
     <message>
-        <location line="+2670"/>
+        <location line="+2708"/>
         <location line="+27"/>
-        <location line="+418"/>
+        <location line="+436"/>
         <source>Loading older messages…</source>
         <translation>Ältere Nachrichten werden geladen …</translation>
     </message>
     <message>
-        <location line="-417"/>
+        <location line="-435"/>
         <source>Could not load older messages —</source>
         <translation>Ältere Nachrichten konnten nicht geladen werden –</translation>
     </message>
@@ -33387,7 +33387,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Wiederholen</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+109"/>
         <source>Loading conversation…</source>
         <translation>Unterhaltung wird geladen …</translation>
     </message>
@@ -33768,7 +33768,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5338"/>
+        <location line="-5394"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>
