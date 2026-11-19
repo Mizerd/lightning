@@ -1393,6 +1393,36 @@ decrypt-drop hold is covered by `HeldVideoRig` tests but was not exercised live
 (`Dropped: 0` throughout). Interop with Element, Element Call and Sable is NOT
 TESTED on this change: only Lightning to Lightning.
 
+**Loss on the viewer's own downlink was still unrecovered (2026-11-19).** The
+#68 rig lost packets on the SENDER's uplink only. With `netem` on SFU -> viewer
+instead, the viewer's jitterbuffers showed `rtx=0` or `rtxOk=0` and the share
+froze at 1.5% loss, because of two separate faults:
+
+* webrtcbin's `new-jitterbuffer` handler sets `do-retransmission` from every
+  ssrc in the bundle in turn, never checking the jitterbuffer's own, so the
+  last section wins. LiveKit's offer puts sections in track order, and a video
+  section followed by an audio one (any third participant, or a reconnect)
+  gives the video jitterbuffer no NACKs at all. Same code in 1.26.11, 1.28.6
+  and upstream main.
+* LiveKit retransmits a packet only once `min(100 ms, 2 x RTT)` has passed since
+  it first sent it, and ignores NACKs after a subscriber PLI until the next
+  keyframe. Our 100 ms jitterbuffer sent its NACKs within 20 ms and gave up
+  before that: LiveKit's own stats for one viewer read `nacks=23099 nackAcks=0`.
+
+The subscriber now connects its own `new-jitterbuffer` handler after
+webrtcbin's and decides from the jitterbuffer's ssrc, looked up in the remote
+offer (`a=ssrc` and `ssrc-group:FID`): video retransmits with a 400 ms latency,
+audio keeps 100 ms and asks for nothing, an unsignalled ssrc retransmits at
+100 ms. The video appsink is `sync=false`, so it is not live and adds nothing
+to the pipeline latency the audio sink gets; in-order packets leave the
+jitterbuffer at once, so only a frame behind a gap waits longer. PLIs now
+follow a gap the jitterbuffer gave up on, after its resends. Measured on the rig at 1.5% SFU -> viewer loss (a
+1440p VP8 share, host loaded): before, 331 packets lost in 60 s, 180 PLIs,
+no RTX on the wire, under 11 fps; after, 11-12 lost, 8-9 PLIs, 214-342
+recovered resends, about 28 fps. Received audio, measured end to end with
+tone bursts, stayed at 245-270 ms. Two later runs on a host saturated by
+another process lost packets even with no netem and are not comparable.
+
 Stream Info's "RTP packets sent" is webrtcbin's outbound `packets-sent` for the
 track's SSRC (an em dash until the first stats answer), not a counter upstream
 of the transport; "Keyframes encoded" is counted at the encoder.
