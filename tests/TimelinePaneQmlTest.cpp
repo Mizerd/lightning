@@ -835,6 +835,28 @@ private Q_SLOTS:
         QVERIFY(root->setProperty("expanded", false));
         QTRY_VERIFY_WITH_TIMEOUT(!expanded->isVisible(), kSignalTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(expanded->height(), 0.0, kSignalTimeoutMs);
+
+        QVariantList days;
+        for (int day : { 4, 4, 5 }) {
+            days.append(QVariantMap{
+                { QStringLiteral("eventKind"), QStringLiteral("m.room.topic") },
+                { QStringLiteral("description"), QStringLiteral("Topic changed.") },
+                { QStringLiteral("timestamp"),
+                  QDateTime(QDate(2020, 11, day), QTime(12, 0)) },
+            });
+        }
+        QVERIFY(root->setProperty("entries", days));
+        QTRY_VERIFY_WITH_TIMEOUT(summary->property("text").toString().contains(
+            QStringLiteral(" since ")), kSignalTimeoutMs);
+        QVERIFY(summary->property("text").toString().contains(QStringLiteral("2020")));
+        QVERIFY(root->setProperty("expanded", true));
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("renderedEntryCount").toInt(),
+                                  3, kSignalTimeoutMs);
+        int dayLabels = 0;
+        for (auto *label : root->findChildren<QQuickItem *>(
+                 QStringLiteral("stateActivityDayLabel")))
+            dayLabels += label->isVisible() ? 1 : 0;
+        QCOMPARE(dayLabels, 2);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 

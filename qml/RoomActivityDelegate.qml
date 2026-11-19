@@ -41,11 +41,6 @@ Item {
     }
     readonly property bool canExpand: entryCount > 0
 
-    // A collapsed group draws one summary line. The model breaks state runs at
-    // date dividers, so a multi-day range only appears for backends without
-    // dividers (mock/HTTP fixtures); same-day groups keep the plain count.
-    // Entries carry timestamps in timeline order, so the range is first and
-    // last.
     function sameCalendarDay(a, b) {
         return a.getFullYear() === b.getFullYear()
                && a.getMonth() === b.getMonth()
@@ -56,18 +51,28 @@ Item {
             return false
         return !isNaN(value.getTime())
     }
-    readonly property string dateRangeLabel: {
-        if (root.entryCount < 2)
+    // Same wording as the timeline's date dividers (MessageDelegate.dayLabel).
+    function dayLabel(ts) {
+        if (!root.validDate(ts))
             return ""
+        var stamp = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate())
+        var now = new Date(AppLocale.dayStartMs)
+        var days = Math.round((now.getTime() - stamp.getTime()) / 86400000)
+        if (days === 0) return qsTr("Today")
+        if (days === 1) return qsTr("Yesterday")
+        if (days > 1 && days < 7)
+            return Qt.locale(AppLocale.name).toString(ts, "dddd")
+        return Qt.locale(AppLocale.name).toString(
+            ts, ts.getFullYear() === now.getFullYear() ? "d MMMM"
+                                                       : "d MMMM yyyy")
+    }
+    readonly property bool spansDays: {
+        if (root.entryCount < 2)
+            return false
         var first = root.entriesWithoutCalls[0].timestamp
         var last = root.entriesWithoutCalls[root.entryCount - 1].timestamp
-        if (!root.validDate(first) || !root.validDate(last))
-            return ""
-        if (root.sameCalendarDay(first, last))
-            return ""
-        var locale = Qt.locale(AppLocale.name)
-        return qsTr("%1 – %2").arg(locale.toString(first, "d MMM"))
-                              .arg(locale.toString(last, "d MMM"))
+        return root.validDate(first) && root.validDate(last)
+               && !root.sameCalendarDay(first, last)
     }
     readonly property int renderedEntryCount: activityRepeater.count
     readonly property real expandedContentHeight: expandedColumn.height
@@ -118,16 +123,17 @@ Item {
                     text: {
                         if (root.entryCount === 0)
                             return qsTr("Room updated")
-                        var summary = qsTr("%n room update(s)",
-                                           "collapsed state-event group",
-                                           root.entryCount)
+                        var summary = root.spansDays
+                            ? qsTr("%n room update(s) since %1",
+                                   "collapsed state-event group spanning days",
+                                   root.entryCount)
+                                .arg(root.dayLabel(root.entriesWithoutCalls[0].timestamp))
+                            : qsTr("%n room update(s)",
+                                   "collapsed state-event group",
+                                   root.entryCount)
                         if (root.hasSecurityChanges)
                             summary = qsTr("%1 · permissions or security changed")
                                 .arg(summary)
-                        if (root.dateRangeLabel.length > 0)
-                            return qsTr("%1 · %2")
-                                .arg(summary)
-                                .arg(root.dateRangeLabel)
                         return summary
                     }
                     color: AppTheme.textMuted
@@ -166,72 +172,97 @@ Item {
                 id: activityRepeater
                 objectName: "stateActivityRepeater"
                 model: expandedColumn.visible ? root.entriesWithoutCalls : []
-                RowLayout {
-                    id: entryRow
+                Column {
+                    id: entryBlock
                     required property var modelData
-                    objectName: "stateActivityEntry"
+                    required property int index
                     width: expandedColumn.width
-                    spacing: 6
-
-                    readonly property string entryGlyph: {
-                        var kind = entryRow.modelData.eventKind || ""
-                        if (kind === "membership") {
-                            var change = entryRow.modelData.membershipChange || ""
-                            if (change === "joined")
-                                return "keyboard_tab"
-                            if (change === "left")
-                                return "logout"
-                            if (change === "invited")
-                                return "person_add"
-                            if (change === "kicked" || change === "revoked")
-                                return "person_remove"
-                            if (change === "banned")
-                                return "block"
-                            if (change === "unbanned")
-                                return "check_circle"
-                            return "group"
-                        }
-                        if (kind === "member_profile")
-                            return "edit_square"
-                        if (kind === "m.room.name" || kind === "m.room.topic")
-                            return "edit_square"
-                        if (kind === "m.room.avatar")
-                            return "image"
-                        if (kind === "m.room.encryption")
-                            return "lock"
-                        if (kind === "m.room.pinned_events")
-                            return "push_pin"
-                        if (kind === "m.room.canonical_alias")
-                            return "link"
-                        if (kind === "m.room.power_levels")
-                            return "shield"
-                        return "info"
-                    }
-
-                    Icon {
-                        name: entryRow.entryGlyph
-                        size: AppTheme.scaled(AppTheme.textMeta)
-                        color: AppTheme.textMuted
-                        Layout.alignment: Qt.AlignTop
-                        Layout.topMargin: 2
-                        Accessible.ignored: true
-                    }
+                    spacing: 1
 
                     Label {
-                    Layout.fillWidth: true
-                    height: Math.max(16, implicitHeight)
-                    text: entryRow.modelData.description || ""
-                    // Mandatory, a security control: the sentence embeds remote
-                    // display names, and AutoText would promote markup to
-                    // StyledText, so an <img> in a name would make every viewer
-                    // fetch its URL. Plain text fetches nothing.
-                    textFormat: Text.PlainText
-                    color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                    lineHeight: AppTheme.lineHeightBody
-                    lineHeightMode: Text.ProportionalHeight
-                    wrapMode: Text.WordWrap
-                    Accessible.name: text
+                        objectName: "stateActivityDayLabel"
+                        visible: root.spansDays
+                                 && root.validDate(entryBlock.modelData.timestamp)
+                                 && (entryBlock.index === 0
+                                     || !root.validDate(root.entriesWithoutCalls[entryBlock.index - 1].timestamp)
+                                     || !root.sameCalendarDay(
+                                         root.entriesWithoutCalls[entryBlock.index - 1].timestamp,
+                                         entryBlock.modelData.timestamp))
+                        text: root.dayLabel(entryBlock.modelData.timestamp)
+                        textFormat: Text.PlainText
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: Font.DemiBold
+                        topPadding: entryBlock.index === 0 ? 0 : AppTheme.spacingXS
+                    }
+
+                    RowLayout {
+                        id: entryRow
+                        readonly property var modelData: entryBlock.modelData
+                        objectName: "stateActivityEntry"
+                        width: entryBlock.width
+                        spacing: 6
+
+                        readonly property string entryGlyph: {
+                            var kind = entryRow.modelData.eventKind || ""
+                            if (kind === "membership") {
+                                var change = entryRow.modelData.membershipChange || ""
+                                if (change === "joined")
+                                    return "keyboard_tab"
+                                if (change === "left")
+                                    return "logout"
+                                if (change === "invited")
+                                    return "person_add"
+                                if (change === "kicked" || change === "revoked")
+                                    return "person_remove"
+                                if (change === "banned")
+                                    return "block"
+                                if (change === "unbanned")
+                                    return "check_circle"
+                                return "group"
+                            }
+                            if (kind === "member_profile")
+                                return "edit_square"
+                            if (kind === "m.room.name" || kind === "m.room.topic")
+                                return "edit_square"
+                            if (kind === "m.room.avatar")
+                                return "image"
+                            if (kind === "m.room.encryption")
+                                return "lock"
+                            if (kind === "m.room.pinned_events")
+                                return "push_pin"
+                            if (kind === "m.room.canonical_alias")
+                                return "link"
+                            if (kind === "m.room.power_levels")
+                                return "shield"
+                            return "info"
+                        }
+
+                        Icon {
+                            name: entryRow.entryGlyph
+                            size: AppTheme.scaled(AppTheme.textMeta)
+                            color: AppTheme.textMuted
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 2
+                            Accessible.ignored: true
+                        }
+
+                        Label {
+                        Layout.fillWidth: true
+                        height: Math.max(16, implicitHeight)
+                        text: entryRow.modelData.description || ""
+                        // Mandatory, a security control: the sentence embeds remote
+                        // display names, and AutoText would promote markup to
+                        // StyledText, so an <img> in a name would make every viewer
+                        // fetch its URL. Plain text fetches nothing.
+                        textFormat: Text.PlainText
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
+                        wrapMode: Text.WordWrap
+                        Accessible.name: text
+                        }
                     }
                 }
             }

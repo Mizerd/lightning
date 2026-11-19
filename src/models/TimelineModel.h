@@ -404,6 +404,8 @@ private:
     void announceReceiptHost(int row, const QHash<QString, QString> &before,
                              bool hostingChanged, bool announceRow);
     int stateGroupLeaderRow(int row) const;
+    bool isVisibleStateEntry(const TimelineEvent &e) const;
+    bool dividerJoinsStateRun(int dividerRow) const;
     int deletedGroupLeaderRow(int row) const;
     int deletedGroupLengthFrom(int leaderRow) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;

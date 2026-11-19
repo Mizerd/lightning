@@ -712,7 +712,7 @@ int TimelineModel::stateGroupLeaderRow(int row) const
             --probe;
             continue;
         }
-        if (e.type == TimelineEvent::DateDivider)
+        if (e.type == TimelineEvent::DateDivider && !dividerJoinsStateRun(probe))
             break;
         if (e.isVirtual()) {
             --probe;
@@ -721,6 +721,34 @@ int TimelineModel::stateGroupLeaderRow(int row) const
         break;
     }
     return leader;
+}
+
+bool TimelineModel::isVisibleStateEntry(const TimelineEvent &e) const
+{
+    return e.type == TimelineEvent::StateChange && !isCallEventRow(e)
+        && !isRtcMembershipKind(e.stateKind) && activityKindVisible(e.stateKind);
+}
+
+// A divider sits inside a merged multi-day run when both neighbouring days hold
+// visible activity and the later day is not followed by a message, which needs
+// its day's divider to stay truthful.
+bool TimelineModel::dividerJoinsStateRun(int dividerRow) const
+{
+    const auto daySide = [this](int row, int step, bool needDivider) {
+        bool visible = false;
+        for (; row >= 0 && row < m_events.size(); row += step) {
+            const auto &e = m_events.at(row);
+            if (e.type == TimelineEvent::DateDivider)
+                return visible;
+            if (isVisibleStateEntry(e))
+                visible = true;
+            else if (!e.isVirtual()
+                     && (e.type != TimelineEvent::StateChange || isCallEventRow(e)))
+                return visible && !needDivider;
+        }
+        return visible;
+    };
+    return daySide(dividerRow - 1, -1, false) && daySide(dividerRow + 1, 1, true);
 }
 
 int TimelineModel::deletedGroupLeaderRow(int row) const
@@ -840,7 +868,7 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
             ++i;
             continue;
         }
-        if (e.type == TimelineEvent::DateDivider)
+        if (e.type == TimelineEvent::DateDivider && !dividerJoinsStateRun(i))
             break;
         if (e.isVirtual()) {
             ++i;
@@ -1177,6 +1205,8 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
     // that decrypts to a thread reply), so it can end up introducing nothing.
     const bool readMarker =
         m_events.at(dividerRow).type == TimelineEvent::ReadMarker;
+    if (!readMarker && dividerJoinsStateRun(dividerRow))
+        return false;
     bool stateRunChecked = false;
     for (int row = dividerRow + 1; row < m_events.size(); ++row) {
         const auto &e = m_events.at(row);
