@@ -6082,6 +6082,7 @@ void SfuCallController::setStreamInfoVisible(bool visible)
     if (m_streamInfoVisible == visible) return;
     m_streamInfoVisible = visible;
     m_streamInfo.clear();
+    Q_EMIT streamInfoVisibleChanged();
     Q_EMIT streamInfoChanged();
 }
 

@@ -42,7 +42,7 @@ class SfuCallController : public QObject
     QML_UNCREATABLE("SfuCallController is exposed via app.groupCall")
 
     Q_PROPERTY(bool streamInfoVisible READ streamInfoVisible WRITE setStreamInfoVisible
-                   NOTIFY streamInfoChanged)
+                   NOTIFY streamInfoVisibleChanged)
     Q_PROPERTY(QVariantList streamInfo READ streamInfo NOTIFY streamInfoChanged)
     Q_PROPERTY(int state READ stateInt NOTIFY stateChanged)
     Q_PROPERTY(QString roomId READ roomId NOTIFY stateChanged)
@@ -539,6 +539,7 @@ public:
 
 Q_SIGNALS:
     void streamInfoChanged();
+    void streamInfoVisibleChanged();
     void stateChanged();
     void membershipWritesSettled();
     void mediaStateChanged();

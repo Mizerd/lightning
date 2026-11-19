@@ -924,6 +924,18 @@ private Q_SLOTS:
         QVERIFY(controller.streamInfo().isEmpty());
     }
 
+    void streamInfoRefreshDoesNotReevaluateItsVisibility()
+    {
+        // The overlay's Timer refreshes from onRunningChanged, inside the
+        // evaluation of a binding on streamInfoVisible.
+        const QMetaObject &meta = SfuCallController::staticMetaObject;
+        const QMetaProperty visible =
+            meta.property(meta.indexOfProperty("streamInfoVisible"));
+        const QMetaProperty rows = meta.property(meta.indexOfProperty("streamInfo"));
+        QVERIFY(visible.hasNotifySignal() && rows.hasNotifySignal());
+        QVERIFY(visible.notifySignalIndex() != rows.notifySignalIndex());
+    }
+
     void duplicateAcrossFocusesSurvivesOneDisconnectWithoutKeyRotation()
     {
         KeyLaneCall c({QStringLiteral("ADEV")});
