@@ -4116,6 +4116,65 @@ false);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    void typingInTheFocusedTimelineGoesToTheComposer()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        auto *composer = root->findChild<QQuickItem *>(
+            QStringLiteral("composerInput"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(composer != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        timeline->forceActiveFocus();
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
+        QTest::keyClick(&window, Qt::Key_H, Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        QVERIFY2(!composer->hasActiveFocus(), "a Ctrl chord is not typing");
+
+        QTest::keyClick(&window, Qt::Key_H);
+        QTest::keyClick(&window, Qt::Key_I);
+        QTRY_VERIFY_WITH_TIMEOUT(composer->hasActiveFocus(), kSignalTimeoutMs);
+        QCOMPARE(composer->property("text").toString(), QStringLiteral("hi"));
+
+        composer->setProperty("text", QString());
+        timeline->forceActiveFocus();
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
+        root->setProperty("keyboardSelectedEventId", QStringLiteral("$selected"));
+        QTest::keyClick(&window, Qt::Key_X);
+        QCoreApplication::processEvents();
+        QVERIFY2(!composer->hasActiveFocus(),
+                 "with a message selected, letters belong to the selection");
+        QCOMPARE(composer->property("text").toString(), QString());
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
     void ctrlGStepsTheFindResultsAndCtrlShiftGGoesBack()
     {
         AppController controller(AppController::MockBackend);

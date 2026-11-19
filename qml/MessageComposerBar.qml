@@ -503,6 +503,15 @@ Item {
         editor.forceActiveFocus()
         return true
     }
+    function typeForward(text) {
+        if (!root.focusForTyping())
+            return false
+        const editor = activeEditor()
+        if (editor.selectionStart !== editor.selectionEnd)
+            editor.remove(editor.selectionStart, editor.selectionEnd)
+        editor.insert(editor.cursorPosition, text)
+        return true
+    }
     property int composerFocusGeneration: 0
     function cancelPendingFocus() {
         ++root.composerFocusGeneration

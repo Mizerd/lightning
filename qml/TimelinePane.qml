@@ -4324,6 +4324,19 @@ Rectangle {
                     settleAtLatest()
                 }
                 activeFocusOnTab: true
+                // Typing with no message selected goes to the composer; bare-letter
+                // shortcuts only act on a selected message. Ctrl+Alt is AltGr.
+                function typesIntoComposer(event) {
+                    var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
+                    var alt = (event.modifiers & Qt.AltModifier) !== 0
+                    if (root.keyboardSelectedEventId !== "" || event.text.length === 0
+                            || event.text.charCodeAt(0) < 0x20 || event.text === "\u007f"
+                            || ctrl !== alt || (event.modifiers & Qt.MetaModifier) !== 0
+                            || !root.composerFocusable)
+                        return false
+                    root.focusComposerForTyping()
+                    return messageComposer.typeForward(event.text)
+                }
                 function runKeyAction(actionId) {
                     switch (actionId) {
                     case "timeline.pageUp":      keyboardPage(-1); return true
@@ -4364,7 +4377,7 @@ Rectangle {
                         keyboardPage((event.modifiers & Qt.ShiftModifier) ? -1 : 1)
                         event.accepted = true; break
                     default:
-                        event.accepted = false
+                        event.accepted = typesIntoComposer(event)
                     }
                 }
                 // Clicking the timeline gives it keyboard focus without
