@@ -867,6 +867,22 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
   TESTED.
 - Smooth mouse-wheel motion, touchpad pixel scrolling, configurable wheel
   speed, keyboard scrolling, and per-room position preservation
+- **Copying several messages.** A mouse drag that starts in a message's text
+  and leaves its row selects across rows (`MessageDragSelection.qml`, used by
+  the timeline and the thread panel): the end rows keep a partial text
+  selection from the press and the pointer, the rows between are selected
+  whole, and dragging into the top or bottom 40 px auto-scrolls, which
+  paginates like any other scroll. Ctrl+C, or the row menu's Copy text / Copy
+  messages while the row is in the selection, copies plain text built FROM
+  THE MODEL by `TimelineModel::plainTextForMessages`, the same formatter as
+  the Shift+J/K / Shift+C keyboard range: a `Name — time` line at the start
+  and whenever the sender or the day changes (the date is added unless it is
+  today), then each message's text. An end copies only its selected part when
+  that part is a prefix/suffix of the model text; otherwise (a pill or inline
+  image painted differently) it copies the whole message. Media without a
+  caption, state and virtual rows are left out. A new left press in the view,
+  Escape, or a room/thread change clears it; a click outside the view does
+  not. Disabled while forwarding or bulk-deleting. Live GUI NOT TESTED.
 
 ### Threads
 

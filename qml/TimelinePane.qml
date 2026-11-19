@@ -952,6 +952,7 @@ Rectangle {
         target: app
         function onCurrentRoomIdChanged() {
             root.closeRowAnchoredSurfaces()
+            messageDragSelection.clear()
         }
         function onAccountSwitchingChanged() {
             if (app.accountSwitching) {
@@ -2922,6 +2923,31 @@ Rectangle {
 
                 property bool selectionDetached: false
 
+                property Item dragSelection: messageDragSelection
+                function dragRowAt(scenePoint) {
+                    if (count <= 0)
+                        return null
+                    var p = rowColumn.mapFromItem(null, scenePoint.x, scenePoint.y)
+                    var row = Math.max(0, viewRowAtContentY(p.y))
+                    var item = itemAtViewRow(row)
+                    return item ? { item: item, row: sourceRowForViewRow(row) } : null
+                }
+                function dragScrollBy(dy, starting) {
+                    if (starting) {
+                        root.stopAutoscroll()
+                        cancelWheelMotion()
+                        noteReaderTookControl()
+                        beginExplicitTopApproach()
+                    }
+                    var target = Math.max(wheelMinY(), Math.min(wheelMaxY(), contentY - dy))
+                    setPositionY(target, "drag-select")
+                    if (dy < 0 && distanceFromTop() <= 1)
+                        renewPinnedTopBudget()
+                    if (dy > 0 && nearWindowNewEdge())
+                        extendRowWindowAtNewEnd()
+                    updateStickAndPaginate()
+                    scrollSettleTimer.restart()
+                }
                 readonly property var messageRangeIds:
                     root.rangeAnchorEventId !== "" && root.keyboardSelectedEventId !== ""
                     ? app.timeline.messageIdsBetween(root.rangeAnchorEventId,
@@ -4347,10 +4373,23 @@ Rectangle {
                     return false
                 }
                 Keys.onShortcutOverride: (event) => {
-                    if (navigationAction(event.key, event.modifiers) !== "")
+                    if (navigationAction(event.key, event.modifiers) !== ""
+                            || (messageDragSelection.active
+                                && (event.matches(StandardKey.Copy)
+                                    || event.key === Qt.Key_Escape)))
                         event.accepted = true
                 }
                 Keys.onPressed: (event) => {
+                    if (messageDragSelection.active && event.matches(StandardKey.Copy)) {
+                        messageDragSelection.copy(app.settings.clockTimeFormat)
+                        event.accepted = true
+                        return
+                    }
+                    if (messageDragSelection.active && event.key === Qt.Key_Escape) {
+                        messageDragSelection.clear()
+                        event.accepted = true
+                        return
+                    }
                     var action = navigationAction(event.key, event.modifiers)
                     if (action !== "" && runNavigationAction(action)) {
                         event.accepted = true
@@ -5172,6 +5211,24 @@ Rectangle {
                     timeline.updateStickAndPaginate()
                     scrollSettleTimer.restart()
                 }
+            }
+
+            MessageDragSelection {
+                id: messageDragSelection
+                objectName: "timelineDragSelection"
+                anchors.fill: timeline
+                enabled: app.currentRoomId !== "" && !app.forward.selecting
+                         && app.bulkRedaction.selecting !== true
+                model: app.timeline
+                takeFocus: function() {
+                    messageComposer.cancelPendingFocus()
+                    timeline.forceActiveFocus()
+                }
+                rowAt: timeline.dragRowAt
+                itemForRow: function(row) {
+                    return timeline.itemAtViewRow(timeline.viewRowForSourceRow(row))
+                }
+                scrollBy: timeline.dragScrollBy
             }
 
             Loader {

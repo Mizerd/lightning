@@ -1236,6 +1236,23 @@ Rectangle {
                     if (!extendingRange)
                         rangeAnchorEventId = ""
                 }
+                property Item dragSelection: threadDragSelection
+                function dragRowAt(scenePoint) {
+                    var p = contentItem.mapFromItem(null, scenePoint.x, scenePoint.y)
+                    var row = indexAt(width / 2, p.y)
+                    var item = row >= 0 ? itemAtIndex(row) : null
+                    return item ? { item: item, row: row } : null
+                }
+                function dragScrollBy(dy) {
+                    var lo = originY - topMargin
+                    var hi = originY + contentHeight + bottomMargin - height
+                    if (hi <= lo)
+                        return
+                    contentY = Math.max(lo, Math.min(hi, contentY + dy))
+                    followLatest = atBottomEdge()
+                    if (contentY - originY < height * 0.5)
+                        app.thread.model.requestOlder()
+                }
                 readonly property var messageRangeIds:
                     rangeAnchorEventId !== "" && selectedEventId !== ""
                     ? app.thread.model.messageIdsBetween(rangeAnchorEventId,
@@ -1368,11 +1385,24 @@ Rectangle {
                     return true
                 }
                 Keys.onShortcutOverride: (event) => {
-                    if (activeFocus && app.shortcuts.messageSelectionActionForKey(
+                    if ((activeFocus && app.shortcuts.messageSelectionActionForKey(
                             event.key, event.modifiers) !== "")
+                            || (threadDragSelection.active
+                                && (event.matches(StandardKey.Copy)
+                                    || event.key === Qt.Key_Escape)))
                         event.accepted = true
                 }
                 Keys.onPressed: (event) => {
+                    if (threadDragSelection.active && event.matches(StandardKey.Copy)) {
+                        threadDragSelection.copy(app.settings.clockTimeFormat)
+                        event.accepted = true
+                        return
+                    }
+                    if (threadDragSelection.active && event.key === Qt.Key_Escape) {
+                        threadDragSelection.clear()
+                        event.accepted = true
+                        return
+                    }
                     var action = app.shortcuts.messageSelectionActionForKey(
                         event.key, event.modifiers)
                     if (action !== "" && runNavigationAction(action)) {
@@ -1602,6 +1632,19 @@ Rectangle {
                             app.thread.model.requestOlder()
                     }
                 }
+            }
+
+            MessageDragSelection {
+                id: threadDragSelection
+                objectName: "threadDragSelection"
+                anchors.fill: replyList
+                enabled: replyList.visible && !app.forward.selecting
+                         && app.bulkRedaction.selecting !== true
+                model: app.thread.model
+                takeFocus: replyList.takeSelectionFocus
+                rowAt: replyList.dragRowAt
+                itemForRow: function(row) { return replyList.itemAtIndex(row) }
+                scrollBy: replyList.dragScrollBy
             }
 
             AbstractButton {

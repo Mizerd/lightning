@@ -2661,12 +2661,19 @@ QString TimelineModel::visibleTextForEvent(const QString &eventId) const
 QStringList TimelineModel::messageIdsBetween(const QString &firstId,
                                              const QString &secondId) const
 {
-    int from = rowForEventId(firstId);
-    int to = rowForEventId(secondId);
+    const int from = rowForEventId(firstId);
+    const int to = rowForEventId(secondId);
     if (from < 0 || to < 0)
         return {};
+    return messageIdsInRows(from, to);
+}
+
+QStringList TimelineModel::messageIdsInRows(int from, int to) const
+{
     if (from > to)
         std::swap(from, to);
+    from = std::max(from, 0);
+    to = std::min(to, static_cast<int>(m_events.size()) - 1);
     QStringList ids;
     for (int row = from; row <= to; ++row) {
         const TimelineEvent &event = m_events.at(row);
@@ -2676,22 +2683,51 @@ QStringList TimelineModel::messageIdsBetween(const QString &firstId,
     return ids;
 }
 
-QString TimelineModel::plainTextForMessages(const QStringList &eventIds,
-                                            const QString &timeFormat) const
+static QString normalizedCopyText(QString text)
 {
-    QStringList blocks;
-    for (const QString &id : eventIds) {
-        const QString text = visibleTextForEvent(id);
+    text.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+    text.replace(QChar::LineSeparator, QLatin1Char('\n'));
+    text.replace(QChar::Nbsp, QLatin1Char(' '));
+    return text;
+}
+
+QString TimelineModel::plainTextForMessages(const QStringList &eventIds,
+                                            const QString &timeFormat,
+                                            const QString &firstTail,
+                                            const QString &lastHead) const
+{
+    QString out;
+    QString lastSender;
+    QDate lastDay;
+    const QDate today = QDate::currentDate();
+    for (int i = 0; i < eventIds.size(); ++i) {
+        QString text = normalizedCopyText(visibleTextForEvent(eventIds.at(i)));
         if (text.isEmpty())
             continue;
-        const TimelineEvent *event = eventForId(id);
-        blocks.append(QStringLiteral("%1, %2\n%3")
-                          .arg(senderDisplayName(*event),
-                               event->timestamp.toLocalTime().toString(
-                                   QStringLiteral("yyyy-MM-dd ") + timeFormat),
-                               text));
+        // A painted fragment the model text cannot account for (a pill, an
+        // inline emoji image) copies the whole message rather than a guess.
+        const QString tail = normalizedCopyText(firstTail);
+        if (i == 0 && !tail.isEmpty() && text.endsWith(tail))
+            text = tail;
+        const QString head = normalizedCopyText(lastHead);
+        if (i == eventIds.size() - 1 && !head.isEmpty() && text.startsWith(head))
+            text = head;
+        const TimelineEvent *event = eventForId(eventIds.at(i));
+        const QDateTime when = event->timestamp.toLocalTime();
+        if (out.isEmpty() || event->sender != lastSender || when.date() != lastDay) {
+            const QString format = when.date() == today
+                ? timeFormat : QStringLiteral("yyyy-MM-dd ") + timeFormat;
+            if (!out.isEmpty())
+                out += QLatin1Char('\n');
+            out += senderDisplayName(*event) + QStringLiteral(" \u2014 ")
+                   + when.toString(format) + QLatin1Char('\n');
+            lastSender = event->sender;
+            lastDay = when.date();
+        }
+        out += text + QLatin1Char('\n');
     }
-    return blocks.join(QStringLiteral("\n\n"));
+    out.chop(1);
+    return out;
 }
 
 QString TimelineModel::replyPreviewForEvent(const QString &eventId) const

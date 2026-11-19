@@ -1180,6 +1180,7 @@ set(APP_QML_FILES
     qml/SettingsScreen.qml
     qml/SmoothWheelArea.qml
     qml/MiddleClickScroller.qml
+    qml/MessageDragSelection.qml
     qml/VoicePreviewBar.qml
     qml/UpdatesSettingsSection.qml
     qml/AboutToolsSection.qml

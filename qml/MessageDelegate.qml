@@ -93,6 +93,79 @@ Item {
         ? root.timelineView.messageRangeIds : []
     readonly property bool inMessageRange:
         messageRangeIds.length > 1 && messageRangeIds.indexOf(model.eventId) >= 0
+    readonly property bool inDragSelection:
+        !!root.timelineView && !!root.timelineView.dragSelection
+        && root.timelineView.dragSelection.ids.indexOf(model.eventId) >= 0
+    property string dragMode: ""
+    function dragTextItems() {
+        var out = []
+        function walk(item) {
+            for (var i = 0; i < item.children.length; ++i) {
+                var child = item.children[i]
+                if (!child.visible)
+                    continue
+                if (child.objectName === "messageBody"
+                        || child.objectName === "messageSegmentText") {
+                    if (child.selectByMouse)
+                        out.push(child)
+                } else {
+                    walk(child)
+                }
+            }
+        }
+        walk(root)
+        return out
+    }
+    function dragTextItemAt(scenePoint) {
+        var items = dragTextItems()
+        for (var i = 0; i < items.length; ++i) {
+            var p = items[i].mapFromItem(null, scenePoint.x, scenePoint.y)
+            if (items[i].contains(p))
+                return items[i]
+        }
+        return null
+    }
+    // mode: "all", "none", "tail" (from the point to the end) or "head" (from
+    // the start to the point). The selection's anchor stays at the point, so
+    // a TextEdit still dragging from there keeps extending it.
+    function applyDragSelection(mode, scenePoint, keep) {
+        if (mode === "all" && dragMode === "all")
+            return
+        dragMode = mode === "none" ? "" : mode
+        var items = dragTextItems()
+        var pivot = -1
+        var pos = 0
+        for (var i = 0; scenePoint && i < items.length; ++i) {
+            var p = items[i].mapFromItem(null, scenePoint.x, scenePoint.y)
+            if (p.y < items[i].height || i === items.length - 1) {
+                pivot = i
+                pos = p.y < 0 ? 0 : p.y >= items[i].height ? items[i].length
+                    : items[i].positionAt(p.x, p.y)
+                break
+            }
+        }
+        for (var j = 0; j < items.length; ++j) {
+            var t = items[j]
+            if (t === keep)
+                continue
+            if (mode === "none")
+                t.deselect()
+            else if (j === pivot)
+                t.select(pos, mode === "tail" ? t.length : 0)
+            else if (mode === "all" || pivot < 0 || (mode === "tail") === (j > pivot))
+                t.selectAll()
+            else
+                t.deselect()
+        }
+    }
+    function dragSelectedText() {
+        var parts = []
+        var items = dragTextItems()
+        for (var i = 0; i < items.length; ++i)
+            if (items[i].selectedText !== "")
+                parts.push(items[i].selectedText)
+        return parts.join("\n")
+    }
     Item {
         anchors.fill: parent
         z: 1001
@@ -3712,12 +3785,22 @@ Item {
             qsTr("Remove"),
             function() { root.timelineModel.redactEvent(id) })
     }
+    function copyDragSelection() {
+        if (!root.inDragSelection)
+            return false
+        root.timelineView.dragSelection.copy(app.settings.clockTimeFormat)
+        return true
+    }
     function copyMessageText() {
+        if (root.copyDragSelection())
+            return
         if (root.copyableText)
             root.copyToClipboard(
                 root.timelineModel.visibleTextForEvent(root.menuEventId))
     }
     function copyMessages() {
+        if (root.copyDragSelection())
+            return
         var ids = root.inMessageRange ? root.messageRangeIds : [root.menuEventId]
         root.copyToClipboard(root.timelineModel.plainTextForMessages(
             ids, app.settings.clockTimeFormat))
@@ -4067,7 +4150,7 @@ Item {
                 iconName: "content_copy"
                 text: qsTr("Copy messages")
                 accel: "Shift+C"
-                visible: root.inMessageRange
+                visible: root.inMessageRange || root.inDragSelection
                 enabled: visible
                 onTriggered: root.copyMessages()
             }
