@@ -242,6 +242,9 @@ where
 
 fn classify_io_error(err: &std::io::Error) -> &'static str {
     use std::io::ErrorKind as Kind;
+    if err.get_ref().is_some_and(|inner| inner.is::<rustls::Error>()) {
+        return "tls_failed";
+    }
     match err.kind() {
         Kind::ConnectionRefused => "sfu_refused_connection",
         Kind::HostUnreachable | Kind::NetworkUnreachable => "sfu_unreachable",
@@ -884,7 +887,7 @@ async fn dial_signal(
     let upgrade = tokio::time::timeout_at(
         deadline,
         tokio_tungstenite::client_async_tls_with_config(
-            target.as_str(), tcp, Some(config), None),
+            target.as_str(), tcp, Some(config), signal_tls()),
     )
     .await;
     let walk = match upgrade {
@@ -893,6 +896,18 @@ async fn dial_signal(
         Err(_) => ConnectWalk::TimedOut,
     };
     (walk, describe_race(family, stats))
+}
+
+/// The OS trust store, as reqwest uses for the homeserver and the token
+/// service; without it a focus whose CA the system trusts fails here alone.
+fn signal_tls() -> Option<tokio_tungstenite::Connector> {
+    use rustls_platform_verifier::ConfigVerifierExt;
+    static CONFIG: std::sync::OnceLock<Option<Arc<rustls::ClientConfig>>> =
+        std::sync::OnceLock::new();
+    CONFIG
+        .get_or_init(|| rustls::ClientConfig::with_platform_verifier().ok().map(Arc::new))
+        .clone()
+        .map(tokio_tungstenite::Connector::Rustls)
 }
 
 fn describe_race(family: &str, stats: RaceStats) -> String {
@@ -1841,6 +1856,51 @@ mod tests {
     }
 
     #[test]
+    fn signalling_trusts_a_focus_ca_from_the_system_store() {
+        use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName};
+        use rustls_platform_verifier::ConfigVerifierExt;
+
+        fn handshake(client: Arc<rustls::ClientConfig>) -> Result<(), rustls::Error> {
+            let leaf = CertificateDer::from(include_bytes!("testdata/focus-leaf.der").to_vec());
+            let key = PrivatePkcs8KeyDer::from(
+                include_bytes!("testdata/focus-leaf.key.der").to_vec());
+            let server = rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(vec![leaf], key.into())
+                .expect("fixture key matches its certificate");
+            let mut server = rustls::ServerConnection::new(Arc::new(server))?;
+            let mut client = rustls::ClientConnection::new(
+                client, ServerName::try_from("focus.test").expect("valid name"))?;
+            let mut wire = Vec::new();
+            while client.is_handshaking() || server.is_handshaking() {
+                wire.clear();
+                client.write_tls(&mut wire).expect("in-memory write");
+                server.read_tls(&mut wire.as_slice()).expect("in-memory read");
+                server.process_new_packets()?;
+                wire.clear();
+                server.write_tls(&mut wire).expect("in-memory write");
+                client.read_tls(&mut wire.as_slice()).expect("in-memory read");
+                client.process_new_packets()?;
+            }
+            Ok(())
+        }
+
+        let bundled_only = rustls::ClientConfig::builder()
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth();
+        assert!(matches!(handshake(Arc::new(bundled_only)),
+                         Err(rustls::Error::InvalidCertificate(_))));
+
+        let ca = std::env::temp_dir().join(format!("lightning-focus-ca-{}.pem", std::process::id()));
+        std::fs::write(&ca, include_bytes!("testdata/focus-ca.pem")).expect("write CA");
+        std::env::set_var("SSL_CERT_FILE", &ca);
+        let system = rustls::ClientConfig::with_platform_verifier();
+        std::env::remove_var("SSL_CERT_FILE");
+        let _ = std::fs::remove_file(&ca);
+        handshake(Arc::new(system.expect("platform verifier"))).expect("CA in the system store is trusted");
+    }
+
+    #[test]
     fn every_connect_failure_shape_has_its_own_category() {
         use tokio_tungstenite::tungstenite::Error as Ws;
         use std::io::ErrorKind as Kind;
@@ -1855,6 +1915,10 @@ mod tests {
         assert_eq!(io(Kind::PermissionDenied), "connect_blocked");
         assert_eq!(io(Kind::ConnectionReset), "connection_lost");
         assert_eq!(io(Kind::InvalidData), "transport_failed");
+        let bad_cert = std::io::Error::new(
+            Kind::InvalidData,
+            rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer));
+        assert_eq!(classify_ws_error(&Ws::Io(bad_cert)), "tls_failed");
 
         let http = |status: u16| {
             let response =

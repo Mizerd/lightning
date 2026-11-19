@@ -65,6 +65,10 @@ sha2 = "=0.10.9"
 # --offline --locked.
 livekit-protocol = "0.7"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
+# Both already in the lock through reqwest: the signalling socket trusts the
+# same system store as every other HTTPS request.
+rustls = { version = "0.23", default-features = false }
+rustls-platform-verifier = "0.7"
 rustls-native-certs = { version = "0.8.4", optional = true }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
