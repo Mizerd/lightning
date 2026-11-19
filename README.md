@@ -162,10 +162,12 @@ Bug reports, testing and focused patches are welcome. Read
 
 End-to-end encryption is handled entirely by the Rust Matrix SDK. Lightning
 collects nothing: no analytics, telemetry or crash reporting. Besides your
-homeserver it contacts the release host for an anonymous update check (on by
-default, sending only `Lightning/<version>`) and the GitHub mirror when you
-install an update, a GIF provider only while the GIF picker is open, and a
-linked site only for a link preview you ask for.
+homeserver it contacts the update hosts (GitHub, then GitLab) for an
+anonymous update check (on by default, sending only `Lightning/<version>`) and
+when you install an update, a GIF provider only while the GIF picker is open,
+a linked site only for a link preview you ask for that your homeserver could
+not provide, and a call's SFU and TURN servers while you are in a call. The
+full list is in the privacy policy.
 
 Message content, from encrypted rooms too, is stored **unencrypted** on disk
 in your account's store directory, readable only by your user account;

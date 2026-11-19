@@ -53,8 +53,8 @@ with `:shortcode` completion; a media browser that walks a room's full history
 and reports how much it has read; JPEG XL; drag-and-drop. Images open in a
 viewer with click-to-zoom, wheel-pan and wrapping navigation, and long media
 or link embeds can collapse to a single line. Link previews are
-off by default, because Lightning fetches them itself rather than through your
-homeserver.
+off by default; Lightning asks your homeserver first and, if it has no
+preview, fetches the page itself, which shows your IP address to that site.
 
 **Moderation and safety.** Mjolnir-style policy lists: read a room's published
 ban rules, publish your own where permitted, and follow lists others maintain.

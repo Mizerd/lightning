@@ -1,6 +1,6 @@
 # Lightning privacy policy
 
-**Last reviewed: 2026-08-16, against Lightning 0.7.0.**
+**Last reviewed: 2026-11-19, against Lightning 0.10.6 and current `main`.**
 
 This document is derived from the source code, not from marketing copy. Every
 claim below names the file that implements it, so it can be checked and so it can
@@ -8,9 +8,10 @@ be shown to be wrong if it ever drifts.
 
 Lightning is a desktop [Matrix](https://matrix.org/) client. It is not a service:
 there is no Lightning server, no Lightning account, and no backend operated by
-the project. Everything Lightning stores lives on the user's own computer, and
-everything it sends goes either to the homeserver the user signed in to or to a
-service the user explicitly invoked.
+the project. Everything Lightning stores lives on the user's own computer.
+What it sends goes to the homeserver the user signs in to, to a service that
+homeserver or a call's participants name, to a service the user explicitly
+invoked, or to the update hosts in section 5a.
 
 ## Summary
 
@@ -22,18 +23,38 @@ service the user explicitly invoked.
   account, device or usage information; it can be turned off in Settings →
   Updates — see section 5a.
 - The **Matrix homeserver the user chooses** receives normal Matrix protocol
-  traffic, because that is what a Matrix client does.
-- **Third parties** are contacted in exactly three situations, all listed below
-  and all under user control: link previews, the GIF picker, and downloading an
-  update file from the project's GitHub mirror.
+  traffic, because that is what a Matrix client does. The sign-in screen is
+  prefilled with `https://matrix.org` and probes whatever server is in that
+  field — see section 1.
+- **Other parties** are contacted only in the cases in the table below. Apart
+  from the update check, each one is either user-triggered or part of a feature
+  the user is using (a call, a sign-in, a link preview).
 - Message content in encrypted rooms is end-to-end encrypted by the official
   Rust Matrix SDK. Lightning implements no cryptography of its own.
+
+### Every outbound destination
+
+| Destination | Who it is | What is sent | When |
+|---|---|---|---|
+| The homeserver | Chosen by the user | Matrix client-server traffic (section 1) | Automatic while signed in |
+| The server in the sign-in field (default `matrix.org`) | Whatever the field holds | `.well-known` and login-method discovery | Automatic on the sign-in screen (section 1) |
+| The homeserver's OAuth/OIDC authorization server | Named by the homeserver; may be a separate host | OAuth metadata, client registration, token requests | Signing in with OAuth (section 1) |
+| A proxy the user configured | Chosen by the user | The account's Matrix traffic, tunnelled | Only when a per-account proxy is set (section 1) |
+| Linked websites | Third party, chosen by a message's sender | An HTTPS `GET` for the link | Link previews, off by default, and only if the homeserver could not preview it; linked video or large images only when the user plays or opens them (section 2) |
+| `api.giphy.com`, `api.klipy.com` and their media CDNs | Third party | Search term, API key, paging, rating | User opens the GIF picker (section 3) |
+| MatrixRTC focus (LiveKit SFU and its token service) | Advertised by the homeserver or by another call participant's client; may be a third party | OpenID token, device id, room id; then call media | Joining a group call (section 3a) |
+| TURN servers | From the homeserver (1:1 calls) or the SFU (group calls) | Relayed call media | During a call (section 3a) |
+| The other party of a 1:1 call | Another Matrix user | ICE candidates (IP addresses) and media | During a 1:1 call (section 3a) |
+| QR sign-in rendezvous server | Named in the QR code | Encrypted sign-in handshake | User scans a QR code to sign in another device (section 1) |
+| `github.com`, `gitlab.com`, `gitlab.smetonis.net` | Update hosts | Request for public release files, `Lightning/<version>` | Update check (automatic, can be turned off) and update download (user action) (section 5a) |
+| The default browser | Whatever URL the user opens | Handed over to the browser | User clicks a link, widget, map location or sign-in page (section 4) |
 
 ## 1. The Matrix homeserver
 
 **Destination:** the homeserver the user names when signing in (for example
-`matrix.org`, or any private server). Lightning ships **no** default or
-preferred homeserver and has no relationship with any homeserver operator.
+`matrix.org`, or any private server). Lightning has no relationship with any
+homeserver operator. The sign-in field is prefilled with `https://matrix.org`
+(`src/app/SettingsManager.cpp`), see "Discovery" below.
 
 **Why:** it is the service the user is a client of.
 
@@ -60,12 +81,35 @@ homeserver's own operator and policy, not by Lightning.
 
 **Discovery:** resolving a user's homeserver may involve a `.well-known` lookup
 against the domain part of the Matrix ID the user typed. That domain is supplied
-by the user.
+by the user. The sign-in screen asks the server in its field which sign-in
+methods it offers as soon as the screen opens and again 700 ms after the user
+stops typing (`qml/LoginScreen.qml`, `discoverAuthMethods`). On a first launch
+the field holds `https://matrix.org`, so **opening the sign-in screen contacts
+matrix.org before the user has chosen a server**, and a partly typed server name
+may be probed too. These requests carry no account data.
 
-## 2. Link previews — third party, **off by default**
+**OAuth/OIDC sign-in:** when the homeserver uses OAuth (for example Matrix
+Authentication Service), the SDK also talks to the authorization server the
+homeserver names, which may be a different host, and the sign-in page itself
+opens in the user's browser (`rust/src/oauth.rs`). The redirect back comes to a
+listener on `127.0.0.1`.
 
-**Destination:** whatever website a message links to. Arbitrary third-party
-hosts.
+**Signing in another device by QR code:** the SDK exchanges an encrypted
+handshake through the rendezvous server named in the scanned code
+(`rust/src/qrlogin.rs`). In practice that is a homeserver; Lightning's own code
+does not restrict which host the code names.
+
+**Per-account proxy:** an account can be given an HTTP or SOCKS5 proxy. Its
+Matrix traffic then goes through that proxy, and features that would otherwise
+leave directly (client-side link previews, link media, calls) are refused for
+that account. GIF search, the updater and the browser keep the system's network
+settings. Details in `docs/network-profiles.md`.
+
+## 2. Link previews — homeserver first, then the linked site; **off by default**
+
+**Destination:** first the user's homeserver (its authenticated `preview_url`
+endpoint). If the homeserver returns no usable preview, Lightning fetches the
+linked page itself, from whatever website the message links to.
 
 **Why:** to show a title/description/thumbnail card, or to render a directly
 linked image inline.
@@ -74,12 +118,15 @@ linked image inline.
 if the user has switched automatic previews on, or has used the per-message
 "Load link preview" action.
 
-**Important:** Lightning fetches the linked page **itself, from the user's own
-computer** (`rust/src/rooms.rs`, `fetch_url_preview`). It does **not** use the
-homeserver's `preview_url` proxy. That means a fetched preview reveals the user's
-**IP address**, approximate read timing, and the `Lightning/<version>` user agent
-to the linked site — including to a site chosen by whoever sent the message. This
-is the reason the feature is not on by default.
+**Important:** the fallback fetch is made **from the user's own computer**
+(`rust/src/rooms.rs`, `fetch_url_preview`). It reveals the user's **IP
+address**, approximate read timing, and the `Lightning/<version>` user agent to
+the linked site — including to a site chosen by whoever sent the message. The
+homeserver route instead tells the homeserver which link was previewed; the
+code makes no exception for encrypted rooms, so a preview requested there
+discloses that message's URL to the homeserver. This is
+the reason the feature is not on by default. An account with a proxy configured
+never makes the fallback fetch.
 
 **Defaults (`src/app/SettingsManager.cpp`):**
 
@@ -157,11 +204,45 @@ no network at all.
 **Attribution:** the selected provider's required attribution is displayed in the
 picker.
 
+## 3a. Calls — user-triggered, may involve third parties
+
+Nothing here happens unless the user places, answers or joins a call.
+
+**Group calls (MatrixRTC).** The call runs on a LiveKit SFU (a "focus").
+Lightning uses the focus the user's own homeserver advertises, or — to join a
+call already in progress — the focus named in the membership of the call's
+oldest participant (`rust/src/rtc.rs`, `select_focus`). **That host can belong
+to another participant's homeserver, i.e. a third party.** To join, Lightning
+asks the homeserver for an OpenID token and sends it, with the room id and
+device id, to the focus's token service (`rust/src/sfu.rs`,
+`fetch_sfu_credentials`; HTTPS only, public addresses only, no redirects).
+It then opens a WebSocket to the LiveKit server the token service returns and
+sends call media there, relayed through any TURN servers LiveKit supplies
+(`src/calls/SfuMediaEngine.cpp`). The SFU operator sees the user's IP address,
+Matrix user and device ids, the room id and call metadata. Media is end-to-end
+encrypted where the room is encrypted (with the key exchange carried over
+Matrix); in an unencrypted room the SFU can see it.
+
+**1:1 calls.** Signalling travels as Matrix events through the homeserver. ICE
+servers come only from the homeserver's `/voip/turnServer`; no third-party STUN
+server is configured (`src/calls/CallMediaBackend.h`). Media normally flows
+directly between the two parties, so each side learns the other's IP
+addresses from the ICE candidates; when it cannot, it is relayed through the
+homeserver's TURN server. Lightning does not force relay-only mode.
+
+**With a proxy configured** for the account, calls are refused rather than
+made directly.
+
 ## 4. Links the user clicks
 
 Clicking a link (or a link-preview card) hands the URL to the operating system's
 default browser (`src/media/MediaManager.cpp`, `openWebUrl`). From that point the
-browser's own privacy behaviour applies. Authenticated Matrix media URLs are
+browser's own privacy behaviour applies. The same holds for a room's widgets
+(opened in the browser with the user's Matrix id, display name and device id
+substituted into the widget URL where it asks for them; the widget list says
+what each will learn, see `docs/widgets.md`), for a shared location (opened on
+`www.openstreetmap.org`), for OAuth and SSO sign-in pages, and for the
+"Report an issue" link (GitHub). Authenticated Matrix media URLs are
 never handed to an external application; media is fetched and decrypted through
 Lightning's own media bridge.
 
@@ -178,11 +259,13 @@ corresponding integrations — there are none:
   there. See section 5a for exactly what is sent.
 - **No advertising, tracking, or fingerprinting services.**
 - **No hard-coded third-party endpoint other than the two GIF providers above
-  and the update-download mirror in section 5a.** The mirror is contacted only
-  when the user installs an update, serves only file bytes that are then
-  hash-checked, and is never asked for metadata. The only other external
-  hostnames in the source are `matrix.to` (used to *construct* permalinks —
-  Lightning never fetches it) and documentation links.
+  and the update hosts in section 5a.** Every other host Lightning connects to
+  is named at run time: by the user (homeserver, proxy), by the homeserver
+  (OAuth issuer, call focus, TURN), by a call participant (call focus), or by a
+  message (link previews). The only other external hostnames in the source are
+  `matrix.to` (used to *construct* permalinks — Lightning never fetches it), the
+  `matrix.org` sign-in prefill (section 1), and links opened only in the
+  browser (`www.openstreetmap.org`, GitHub, documentation).
 - **No QML component fetches an arbitrary remote URL.** Every image shown in the
   interface is routed through the C++ media bridge; there is no
   `Image { source: "https://…" }` anywhere in `qml/`.
@@ -204,15 +287,17 @@ available and is always an explicit user action.
 HTTPS, anonymously and without credentials — two small public files from one
 fixed release (`update-manifest-v1.json` and its detached signature). Only if
 GitHub cannot be reached, or serves a document that does not verify, does the
-check fall back to `gitlab.smetonis.net` for the same two files. A check
-contacts nothing else.
+check fall back to `gitlab.com`, and then to `gitlab.smetonis.net`, for the
+same two files (`src/update/UpdateEndpoints.cpp`). A check contacts nothing
+else.
 
 **What is contacted, for a download.** If the user chooses to install an
 update, the file itself is fetched from GitHub first: `github.com`, which redirects
 to `objects.githubusercontent.com` or `release-assets.githubusercontent.com`.
-If GitHub cannot supply the file, Lightning falls back to
-`gitlab.smetonis.net`. GitHub is a third party for checks and downloads: it sees an anonymous request for a public release file
-and the connecting IP address, as any file download does. It is never asked
+If GitHub cannot supply the file, Lightning falls back to `gitlab.com`, then
+to `gitlab.smetonis.net`. GitHub and gitlab.com are third parties for checks
+and downloads: they see an anonymous request for a public release file and the
+connecting IP address, as any file download does. It is never asked
 what version exists — Lightning makes no GitHub API call and reads no GitHub
 release metadata, and the download URL comes from the signed manifest rather
 than from GitHub. A download only ever happens after an explicit user action.
@@ -405,7 +490,8 @@ offering an opt-out is required of software that transfers user data to systems
 the user did not specify. Lightning does not: the homeserver is the one the user
 types in when signing in, GIF providers are contacted only while the user is
 using the GIF picker, link previews are off by default and each one is a
-deliberate action, there is no telemetry, analytics or crash reporting to opt
+deliberate action, a call's SFU and TURN servers are contacted only while the
+user is in a call, there is no telemetry, analytics or crash reporting to opt
 out of, and the update check, on by default, is an anonymous fetch of two
 public files that carries no personal data and can be turned off in Settings →
 Updates. Adding a consent dialog for transfers that do not happen would be
