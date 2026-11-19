@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 #include <QClipboard>
+#include <QDateTime>
 #include <QGuiApplication>
 #include <QJSValue>
 #include <QQmlComponent>
@@ -9,6 +10,8 @@
 #include <QQuickWindow>
 #include <QFile>
 #include <QTemporaryDir>
+
+#include <algorithm>
 
 #include "app/AppController.h"
 #include "app/ForwardController.h"
@@ -122,29 +125,70 @@ private:
     }
 
     static QString expectedBlocks(TimelineModel *model, const QStringList &ids,
-                                  const QString &timeFormat)
+                                  const QString &timeFormat,
+                                  const QString &tail = {}, const QString &head = {})
     {
-        QStringList blocks;
+        QString out;
+        QString sender;
+        QDate day;
         int lastRow = -1;
-        for (const QString &id : ids) {
+        for (int i = 0; i < ids.size(); ++i) {
             int row = -1;
             for (int r = 0; r < model->rowCount(); ++r)
-                if (model->eventIdAt(r) == id)
+                if (model->eventIdAt(r) == ids.at(i))
                     row = r;
-            if (row < 0)
-                return {};
-            if (row <= lastRow)
+            if (row < 0 || row <= lastRow)
                 return {};
             lastRow = row;
             const QModelIndex idx = model->index(row, 0);
-            blocks.append(
-                model->data(idx, TimelineModel::SenderDisplayNameRole).toString()
-                + QStringLiteral(", ")
-                + model->data(idx, TimelineModel::TimestampRole).toDateTime()
-                      .toLocalTime().toString(QStringLiteral("yyyy-MM-dd ") + timeFormat)
-                + QLatin1Char('\n') + model->visibleTextForEvent(id));
+            QString text = model->visibleTextForEvent(ids.at(i));
+            if (i == 0 && !tail.isEmpty())
+                text = tail;
+            if (i == ids.size() - 1 && !head.isEmpty())
+                text = head;
+            const QDateTime when =
+                model->data(idx, TimelineModel::TimestampRole).toDateTime().toLocalTime();
+            const QString from = model->data(idx, TimelineModel::SenderRole).toString();
+            if (out.isEmpty() || from != sender || when.date() != day) {
+                if (!out.isEmpty())
+                    out += QLatin1Char('\n');
+                out += model->data(idx, TimelineModel::SenderDisplayNameRole).toString()
+                       + QStringLiteral(" \u2014 ")
+                       + when.toString(when.date() == QDate::currentDate()
+                                           ? timeFormat
+                                           : QStringLiteral("yyyy-MM-dd ") + timeFormat)
+                       + QLatin1Char('\n');
+                sender = from;
+                day = when.date();
+            }
+            out += text + QLatin1Char('\n');
         }
-        return blocks.join(QStringLiteral("\n\n"));
+        out.chop(1);
+        return out;
+    }
+
+    QList<QQuickItem *> bodiesOnScreen() const
+    {
+        QList<QQuickItem *> bodies;
+        const QRectF view = item("timelineListView")->mapRectToScene(
+            QRectF(0, 0, item("timelineListView")->width(),
+                   item("timelineListView")->height()));
+        for (QQuickItem *body : itemsNamed(QStringLiteral("messageBody"))) {
+            const QRectF r = body->mapRectToScene(
+                QRectF(0, 0, body->width(), body->height()));
+            if (body->isVisible() && r.height() > 4 && view.contains(r)
+                && body->property("selectByMouse").toBool())
+                bodies.append(body);
+        }
+        std::sort(bodies.begin(), bodies.end(), [](QQuickItem *a, QQuickItem *b) {
+            return a->mapToScene({}).y() < b->mapToScene({}).y();
+        });
+        return bodies;
+    }
+
+    static QPoint scenePoint(QQuickItem *body, qreal x, qreal y)
+    {
+        return body->mapToScene(QPointF(x, y)).toPoint();
     }
 
 private slots:
@@ -1218,7 +1262,7 @@ ApplicationWindow {
         QCOMPARE(ids.last(), newest);
         const QString expected = expectedBlocks(
             m_controller->timeline(), ids, m_controller->settings()->clockTimeFormat());
-        QCOMPARE(expected.count(QStringLiteral("\n\n")), ids.size() - 1);
+        QVERIFY(expected.contains(QStringLiteral(" \u2014 ")));
 
         QGuiApplication::clipboard()->clear();
         QTest::keyClick(m_window, Qt::Key_C, Qt::ShiftModifier);
@@ -1226,6 +1270,73 @@ ApplicationWindow {
 
         QTest::keyClick(m_window, Qt::Key_J);
         QTRY_VERIFY(rangeIds(list).isEmpty());
+    }
+
+    void aMouseDragSelectsAcrossMessagesAndCopiesFromTheModel()
+    {
+        openJoinedRoom();
+        QList<QQuickItem *> bodies = bodiesOnScreen();
+        QVERIFY2(bodies.size() >= 3, qPrintable(QString::number(bodies.size())));
+        QQuickItem *first = bodies.first();
+        QQuickItem *last = bodies.last();
+        QVERIFY(first->property("length").toInt() > 4);
+        const QPoint press = scenePoint(first, 12, 4);
+        const QPoint end = scenePoint(last, 12, last->height() - 4);
+        QTest::mousePress(m_window, Qt::LeftButton, {}, press);
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(m_window, press + (end - press) * step / 8);
+        QTest::mouseRelease(m_window, Qt::LeftButton, {}, end);
+        for (QQuickItem *body : bodies)
+            QVERIFY2(!body->property("selectedText").toString().isEmpty(),
+                     "every message between the ends is highlighted");
+
+        auto *selection = item("timelineDragSelection");
+        QVERIFY(selection);
+        QVariant idsValue = selection->property("ids");
+        if (idsValue.userType() == qMetaTypeId<QJSValue>())
+            idsValue = idsValue.value<QJSValue>().toVariant();
+        const QStringList ids = idsValue.toStringList();
+        QVERIFY2(ids.size() >= 3, qPrintable(ids.join(u',')));
+
+        auto *model = m_controller->timeline();
+        const QString tail = first->property("selectedText").toString()
+                                 .replace(QChar::ParagraphSeparator, u'\n');
+        const QString head = last->property("selectedText").toString()
+                                 .replace(QChar::ParagraphSeparator, u'\n');
+        QVERIFY2(tail.size() < model->visibleTextForEvent(ids.first()).size(),
+                 "the first message is selected from the press, not whole");
+        QVERIFY(model->visibleTextForEvent(ids.first()).endsWith(tail));
+        QVERIFY(model->visibleTextForEvent(ids.last()).startsWith(head));
+        const QString expected = expectedBlocks(
+            model, ids, m_controller->settings()->clockTimeFormat(), tail, head);
+        QVERIFY(!expected.isEmpty());
+
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), expected);
+
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, scenePoint(bodies.at(1), 4, 4));
+        QTRY_VERIFY(!selection->property("active").toBool());
+        QVERIFY(last->property("selectedText").toString().isEmpty());
+        QVERIFY(first->property("selectedText").toString().isEmpty());
+    }
+
+    void aDragThatStaysInOneMessageSelectsOnlyItsText()
+    {
+        openJoinedRoom();
+        const QList<QQuickItem *> bodies = bodiesOnScreen();
+        QVERIFY(!bodies.isEmpty());
+        QQuickItem *body = bodies.first();
+        QVERIFY(body->property("length").toInt() > 4);
+        const QPoint press = scenePoint(body, 2, 4);
+        QTest::mousePress(m_window, Qt::LeftButton, {}, press);
+        QTest::mouseMove(m_window, press + QPoint(10, 0));
+        QTest::mouseMove(m_window, press + QPoint(30, 0));
+        QTest::mouseRelease(m_window, Qt::LeftButton, {}, press + QPoint(30, 0));
+        QVERIFY(!body->property("selectedText").toString().isEmpty());
+        QVERIFY(item("timelineDragSelection"));
+        QVERIFY(!item("timelineDragSelection")->property("active").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
     }
 
     void aRangeOfThreadRepliesCopiesTheSameWay()
