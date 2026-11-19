@@ -12491,7 +12491,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+748"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+757"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Adicionar ligação</translation>
@@ -12862,7 +12862,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Gravar uma mensagem de voz</translation>
     </message>
     <message>
-        <location line="-3163"/>
+        <location line="-3172"/>
         <source>A recording is already in progress.</source>
         <translation>Já está em curso uma gravação.</translation>
     </message>
@@ -12882,7 +12882,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>A gravação de voz está indisponível.</translation>
     </message>
     <message>
-        <location line="+2880"/>
+        <location line="+2889"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Mais</translation>
@@ -13150,12 +13150,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+14"/>
         <location line="+2270"/>
-        <location line="+1027"/>
+        <location line="+1031"/>
         <source>Retry</source>
         <translation>Tentar novamente</translation>
     </message>
     <message>
-        <location line="-3280"/>
+        <location line="-3284"/>
         <location line="+1207"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
@@ -13426,7 +13426,17 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>O seu servidor carrega-o — nunca direto</translation>
     </message>
     <message>
-        <location line="+902"/>
+        <location line="+836"/>
+        <source>Remove from the GIF picker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Save to the GIF picker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+69"/>
         <source>Image unavailable</source>
         <translation>Imagem indisponível</translation>
     </message>
@@ -13502,7 +13512,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Tentar novamente</translation>
     </message>
     <message>
-        <location line="-3676"/>
+        <location line="-3680"/>
         <location line="+1093"/>
         <source>Edit</source>
         <translation>Editar</translation>
@@ -13849,30 +13859,20 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+363"/>
-        <location line="+1041"/>
+        <location line="+1045"/>
         <location line="+305"/>
         <source>Download %1</source>
         <translation>Transferir %1</translation>
     </message>
     <message>
-        <location line="-1344"/>
-        <location line="+1041"/>
+        <location line="-1348"/>
+        <location line="+1045"/>
         <location line="+308"/>
         <source>Download</source>
         <translation>Transferir</translation>
     </message>
     <message>
-        <location line="-949"/>
-        <source>Remove from saved</source>
-        <translation>Remover dos guardados</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Save image</source>
-        <translation>Guardar a imagem</translation>
-    </message>
-    <message>
-        <location line="+63"/>
+        <location line="-886"/>
         <source>Media server unreachable — retrying in %1 min</source>
         <translation>Servidor de multimédia inacessível — a tentar novamente em %1 min</translation>
     </message>
@@ -13888,11 +13888,11 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>O autocolante não carregou — clique para tentar novamente</translation>
     </message>
     <message>
-        <location line="-5498"/>
+        <location line="-5502"/>
         <location line="+57"/>
         <location line="+511"/>
         <location line="+4149"/>
-        <location line="+1058"/>
+        <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
         <translation>Vídeo</translation>
@@ -13904,10 +13904,10 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>vídeo</translation>
     </message>
     <message>
-        <location line="-5879"/>
+        <location line="-5883"/>
         <location line="+564"/>
         <location line="+4252"/>
-        <location line="+1261"/>
+        <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
         <source>File</source>
@@ -13934,8 +13934,8 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Falha ao guardar</translation>
     </message>
     <message>
-        <location line="-1288"/>
-        <location line="+1346"/>
+        <location line="-1292"/>
+        <location line="+1350"/>
         <source>file</source>
         <translation>ficheiro</translation>
     </message>
@@ -32861,12 +32861,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5290"/>
+        <location line="+5303"/>
         <source>Space</source>
         <translation>Espaço</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5289"/>
+        <location filename="../qml/TimelinePane.qml" line="-5302"/>
         <source>Home</source>
         <translation>Início</translation>
     </message>
@@ -32968,12 +32968,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3764"/>
+        <location line="+3777"/>
         <source>Room information</source>
         <translation>Informações da sala</translation>
     </message>
     <message>
-        <location line="-3753"/>
+        <location line="-3766"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Mais ações da sala</translation>
@@ -33219,7 +33219,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Não foi possível concluir a procura.</translation>
     </message>
     <message>
-        <location line="+2657"/>
+        <location line="+2670"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33601,8 +33601,8 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6573"/>
-        <location line="+6750"/>
+        <location filename="../qml/TimelinePane.qml" line="-6586"/>
+        <location line="+6763"/>
         <source>Room</source>
         <translation>Sala</translation>
     </message>
@@ -33677,13 +33677,13 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5877"/>
+        <location line="-5890"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
     <message>
-        <location line="+5109"/>
+        <location line="+5122"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33759,7 +33759,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Largue ficheiros para os anexar</translation>
     </message>
     <message>
-        <location line="-5325"/>
+        <location line="-5338"/>
         <source>Join space</source>
         <translation>Entrar no espaço</translation>
     </message>

@@ -12444,7 +12444,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+748"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+757"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Tambahkan tautan</translation>
@@ -12815,7 +12815,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Rekam pesan suara</translation>
     </message>
     <message>
-        <location line="-3163"/>
+        <location line="-3172"/>
         <source>A recording is already in progress.</source>
         <translation>Rekaman sedang berlangsung.</translation>
     </message>
@@ -12835,7 +12835,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Perekaman suara tidak tersedia.</translation>
     </message>
     <message>
-        <location line="+2880"/>
+        <location line="+2889"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Lainnya</translation>
@@ -13102,12 +13102,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+14"/>
         <location line="+2270"/>
-        <location line="+1027"/>
+        <location line="+1031"/>
         <source>Retry</source>
         <translation>Coba lagi</translation>
     </message>
     <message>
-        <location line="-3280"/>
+        <location line="-3284"/>
         <location line="+1207"/>
         <source>Cancel</source>
         <translation>Batal</translation>
@@ -13378,7 +13378,17 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Server Anda yang memuatnya — tidak pernah langsung</translation>
     </message>
     <message>
-        <location line="+902"/>
+        <location line="+836"/>
+        <source>Remove from the GIF picker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Save to the GIF picker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+69"/>
         <source>Image unavailable</source>
         <translation>Gambar tidak tersedia</translation>
     </message>
@@ -13454,7 +13464,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Coba lagi</translation>
     </message>
     <message>
-        <location line="-3676"/>
+        <location line="-3680"/>
         <location line="+1093"/>
         <source>Edit</source>
         <translation>Sunting</translation>
@@ -13798,30 +13808,20 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+363"/>
-        <location line="+1041"/>
+        <location line="+1045"/>
         <location line="+305"/>
         <source>Download %1</source>
         <translation>Unduh %1</translation>
     </message>
     <message>
-        <location line="-1344"/>
-        <location line="+1041"/>
+        <location line="-1348"/>
+        <location line="+1045"/>
         <location line="+308"/>
         <source>Download</source>
         <translation>Unduh</translation>
     </message>
     <message>
-        <location line="-949"/>
-        <source>Remove from saved</source>
-        <translation>Hapus dari tersimpan</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Save image</source>
-        <translation>Simpan gambar</translation>
-    </message>
-    <message>
-        <location line="+63"/>
+        <location line="-886"/>
         <source>Media server unreachable — retrying in %1 min</source>
         <translation>Server media tidak dapat dijangkau — mencoba lagi dalam %1 menit</translation>
     </message>
@@ -13837,11 +13837,11 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Stiker gagal dimuat — klik untuk mencoba lagi</translation>
     </message>
     <message>
-        <location line="-5498"/>
+        <location line="-5502"/>
         <location line="+57"/>
         <location line="+511"/>
         <location line="+4149"/>
-        <location line="+1058"/>
+        <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
         <translation>Video</translation>
@@ -13853,10 +13853,10 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>video</translation>
     </message>
     <message>
-        <location line="-5879"/>
+        <location line="-5883"/>
         <location line="+564"/>
         <location line="+4252"/>
-        <location line="+1261"/>
+        <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
         <source>File</source>
@@ -13883,8 +13883,8 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Gagal menyimpan</translation>
     </message>
     <message>
-        <location line="-1288"/>
-        <location line="+1346"/>
+        <location line="-1292"/>
+        <location line="+1350"/>
         <source>file</source>
         <translation>berkas</translation>
     </message>
@@ -32711,12 +32711,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5290"/>
+        <location line="+5303"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5289"/>
+        <location filename="../qml/TimelinePane.qml" line="-5302"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -32818,12 +32818,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3764"/>
+        <location line="+3777"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
     <message>
-        <location line="-3753"/>
+        <location line="-3766"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Tindakan ruang lainnya</translation>
@@ -33069,7 +33069,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pencarian tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="+2657"/>
+        <location line="+2670"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33447,8 +33447,8 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6573"/>
-        <location line="+6750"/>
+        <location filename="../qml/TimelinePane.qml" line="-6586"/>
+        <location line="+6763"/>
         <source>Room</source>
         <translation>Ruang</translation>
     </message>
@@ -33519,13 +33519,13 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-5877"/>
+        <location line="-5890"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Lihat profil</translation>
     </message>
     <message>
-        <location line="+5109"/>
+        <location line="+5122"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Gambar (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33601,7 +33601,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Lepaskan berkas untuk melampirkannya</translation>
     </message>
     <message>
-        <location line="-5325"/>
+        <location line="-5338"/>
         <source>Join space</source>
         <translation>Gabung ke space</translation>
     </message>

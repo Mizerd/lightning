@@ -12480,7 +12480,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+748"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+757"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -12851,7 +12851,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3163"/>
+        <location line="-3172"/>
         <source>A recording is already in progress.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12871,7 +12871,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2880"/>
+        <location line="+2889"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished"></translation>
@@ -13139,12 +13139,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+14"/>
         <location line="+2270"/>
-        <location line="+1027"/>
+        <location line="+1031"/>
         <source>Retry</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3280"/>
+        <location line="-3284"/>
         <location line="+1207"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
@@ -13415,7 +13415,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+902"/>
+        <location line="+836"/>
+        <source>Remove from the GIF picker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Save to the GIF picker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+69"/>
         <source>Image unavailable</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13491,7 +13501,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3676"/>
+        <location line="-3680"/>
         <location line="+1093"/>
         <source>Edit</source>
         <translation type="unfinished"></translation>
@@ -13838,30 +13848,20 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+363"/>
-        <location line="+1041"/>
+        <location line="+1045"/>
         <location line="+305"/>
         <source>Download %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1344"/>
-        <location line="+1041"/>
+        <location line="-1348"/>
+        <location line="+1045"/>
         <location line="+308"/>
         <source>Download</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-949"/>
-        <source>Remove from saved</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Save image</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+63"/>
+        <location line="-886"/>
         <source>Media server unreachable — retrying in %1 min</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13877,11 +13877,11 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5498"/>
+        <location line="-5502"/>
         <location line="+57"/>
         <location line="+511"/>
         <location line="+4149"/>
-        <location line="+1058"/>
+        <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
         <translation type="unfinished"></translation>
@@ -13893,10 +13893,10 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5879"/>
+        <location line="-5883"/>
         <location line="+564"/>
         <location line="+4252"/>
-        <location line="+1261"/>
+        <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
         <source>File</source>
@@ -13923,8 +13923,8 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1288"/>
-        <location line="+1346"/>
+        <location line="-1292"/>
+        <location line="+1350"/>
         <source>file</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32827,12 +32827,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+6633"/>
+        <location filename="../qml/TimelinePane.qml" line="+6646"/>
         <source>Only Space admins can change this.</source>
         <translation>Only Space admins can change this.</translation>
     </message>
     <message>
-        <location line="-5864"/>
+        <location line="-5877"/>
         <source>Seen by 1 person</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32852,12 +32852,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+293"/>
-        <location line="+5290"/>
+        <location line="+5303"/>
         <source>Space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5289"/>
+        <location filename="../qml/TimelinePane.qml" line="-5302"/>
         <source>Home</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32959,12 +32959,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3764"/>
+        <location line="+3777"/>
         <source>Room information</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3753"/>
+        <location line="-3766"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -33210,7 +33210,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2657"/>
+        <location line="+2670"/>
         <location line="+27"/>
         <location line="+418"/>
         <source>Loading older messages…</source>
@@ -33592,8 +33592,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6573"/>
-        <location line="+6750"/>
+        <location filename="../qml/TimelinePane.qml" line="-6586"/>
+        <location line="+6763"/>
         <source>Room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33668,13 +33668,13 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5877"/>
+        <location line="-5890"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5109"/>
+        <location line="+5122"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33745,7 +33745,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5325"/>
+        <location line="-5338"/>
         <source>Join space</source>
         <translation type="unfinished"></translation>
     </message>
