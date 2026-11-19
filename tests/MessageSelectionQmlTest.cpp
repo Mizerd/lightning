@@ -1280,24 +1280,23 @@ ApplicationWindow {
         QQuickItem *first = bodies.first();
         QQuickItem *last = bodies.last();
         QVERIFY(first->property("length").toInt() > 4);
-        auto *selection = item("timelineDragSelection");
-        QVERIFY(selection);
-
         const QPoint press = scenePoint(first, 12, 4);
         const QPoint end = scenePoint(last, 12, last->height() - 4);
         QTest::mousePress(m_window, Qt::LeftButton, {}, press);
         for (int step = 1; step <= 8; ++step)
             QTest::mouseMove(m_window, press + (end - press) * step / 8);
         QTest::mouseRelease(m_window, Qt::LeftButton, {}, end);
+        for (QQuickItem *body : bodies)
+            QVERIFY2(!body->property("selectedText").toString().isEmpty(),
+                     "every message between the ends is highlighted");
 
+        auto *selection = item("timelineDragSelection");
+        QVERIFY(selection);
         QVariant idsValue = selection->property("ids");
         if (idsValue.userType() == qMetaTypeId<QJSValue>())
             idsValue = idsValue.value<QJSValue>().toVariant();
         const QStringList ids = idsValue.toStringList();
         QVERIFY2(ids.size() >= 3, qPrintable(ids.join(u',')));
-        for (QQuickItem *body : bodies)
-            QVERIFY2(!body->property("selectedText").toString().isEmpty(),
-                     "every message between the ends is highlighted");
 
         auto *model = m_controller->timeline();
         const QString tail = first->property("selectedText").toString()
@@ -1335,6 +1334,7 @@ ApplicationWindow {
         QTest::mouseMove(m_window, press + QPoint(30, 0));
         QTest::mouseRelease(m_window, Qt::LeftButton, {}, press + QPoint(30, 0));
         QVERIFY(!body->property("selectedText").toString().isEmpty());
+        QVERIFY(item("timelineDragSelection"));
         QVERIFY(!item("timelineDragSelection")->property("active").toBool());
         QTest::keyClick(m_window, Qt::Key_Escape);
     }
