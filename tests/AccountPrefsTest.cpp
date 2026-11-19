@@ -161,6 +161,31 @@ private Q_SLOTS:
         QCOMPARE(c.mediaPreviews(), QStringLiteral("off"));
     }
 
+    void aFailedMediaChoiceReadIsRetriedUntilItIsKnown()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setMediaReadRetryBaseMsForTest(10);
+        c.setClient(&client);
+        c.refresh();
+        const QString type = QStringLiteral("m.media_preview_config");
+        const auto readsOf = [&] { return client.reads.count(type); };
+        QCOMPARE(readsOf(), 1);
+        Q_EMIT client.accountPrefReadFailed(type, QStringLiteral("timeout"));
+        QVERIFY2(c.mediaReadRetryScheduled(),
+                 "a failed read would leave every picture collapsed for the session");
+        QTRY_COMPARE_WITH_TIMEOUT(readsOf(), 2, 2000);
+        Q_EMIT client.accountPrefReadFailed(type, QStringLiteral("timeout"));
+        QTRY_COMPARE_WITH_TIMEOUT(readsOf(), 3, 2000);
+
+        Q_EMIT client.accountPrefRead(type, false, {});
+        QVERIFY(c.mediaPreviewKnown());
+        QVERIFY(!c.mediaReadRetryScheduled());
+        QVERIFY(!c.collapsesMedia(QStringLiteral("public"), false, false));
+        Q_EMIT client.accountPrefReadFailed(type, QStringLiteral("timeout"));
+        QVERIFY2(!c.mediaReadRetryScheduled(), "a known choice needs no retry");
+    }
+
     void aMediaWriteKeepsForeignFieldsAndIsHeldAgainstAStaleRead()
     {
         FakePrefsClient client;

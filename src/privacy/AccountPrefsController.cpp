@@ -5,6 +5,10 @@
 
 #include <algorithm>
 
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(lcAccountPrefs, "lightning.accountprefs")
+
 using namespace AccountPrefs;
 
 AccountPrefsController::AccountPrefsController(QObject *parent)
@@ -19,6 +23,11 @@ AccountPrefsController::AccountPrefsController(QObject *parent)
     m_emojiRetry.setSingleShot(true);
     connect(&m_emojiRetry, &QTimer::timeout, this,
             &AccountPrefsController::flushEmoji);
+    m_mediaReadRetry.setSingleShot(true);
+    connect(&m_mediaReadRetry, &QTimer::timeout, this, [this] {
+        if (m_client && !m_mediaKnown)
+            m_client->readAccountPref(QString::fromLatin1(kMediaPreviewType));
+    });
 }
 
 void AccountPrefsController::setClient(MatrixClient *client)
@@ -43,8 +52,18 @@ void AccountPrefsController::setClient(MatrixClient *client)
         onWritten(type, ok, category);
     });
     connect(m_client, &MatrixClient::accountPrefReadFailed, this,
-            [this](const QString &type, const QString &) {
+            [this](const QString &type, const QString &category) {
         if (type == QLatin1String(kMediaPreviewType)) {
+            // Media stays collapsed until this is known, so a failed read must
+            // not be the last one.
+            if (!m_mediaKnown && !m_mediaReadRetry.isActive()) {
+                m_mediaReadAttempts = std::min(m_mediaReadAttempts + 1, 7);
+                m_mediaReadRetry.start(m_mediaReadRetryBaseMs
+                                       << (m_mediaReadAttempts - 1));
+                qCWarning(lcAccountPrefs) << "media preview read failed category="
+                                          << category << "retry_in_ms="
+                                          << m_mediaReadRetry.interval();
+            }
             return;
         }
         if (type == QLatin1String(kInvitePermissionType))
@@ -99,6 +118,8 @@ void AccountPrefsController::reset()
     m_emojiFlush.stop();
     m_emojiRetry.stop();
     m_emojiAttempts = 0;
+    m_mediaReadRetry.stop();
+    m_mediaReadAttempts = 0;
     m_emojiWriteFailed = false;
     m_media = {};
     m_mediaConfirmed = {};
@@ -304,6 +325,8 @@ void AccountPrefsController::onRead(const QString &type, bool present,
         m_mediaConfirmed = present ? parseMediaPreview(content) : MediaPreview();
         m_media = m_mediaConfirmed;
         m_mediaKnown = true;
+        m_mediaReadRetry.stop();
+        m_mediaReadAttempts = 0;
         m_writeFailed = false;
         Q_EMIT changed();
         if (m_mediaRetryPending) {

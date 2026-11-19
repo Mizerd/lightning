@@ -55,6 +55,8 @@ public:
     bool recentsRetryScheduled() const { return m_emojiRetry.isActive(); }
     int recentsWriteAttempts() const { return m_emojiAttempts; }
     void setRecentsRetryBaseMsForTest(int ms) { m_emojiRetryBaseMs = ms; }
+    void setMediaReadRetryBaseMsForTest(int ms) { m_mediaReadRetryBaseMs = ms; }
+    bool mediaReadRetryScheduled() const { return m_mediaReadRetry.isActive(); }
     Q_INVOKABLE void setMediaPreviews(const QString &mode);
     Q_INVOKABLE void setInviteAvatars(bool on);
     Q_INVOKABLE void setInvitesBlocked(bool block);
@@ -91,6 +93,9 @@ private:
     QStringList m_emojiPending;
     QTimer m_emojiFlush;
     QTimer m_emojiRetry;
+    QTimer m_mediaReadRetry;
+    int m_mediaReadAttempts = 0;
+    int m_mediaReadRetryBaseMs = 5000;
     int m_emojiAttempts = 0;
     int m_emojiRetryBaseMs = 5000;
     bool m_emojiWriteFailed = false;
