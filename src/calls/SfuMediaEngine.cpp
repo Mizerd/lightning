@@ -8422,6 +8422,7 @@ void SfuMediaEngine::clearKeys()
         m_streamForMline.clear();
         m_midForMline.clear();
         m_trackForMline.clear();
+        m_kindForSsrc.clear();
     }
     m_sendKeyReady.store(false);
     m_recvKeyReady.store(false);
@@ -8435,6 +8436,7 @@ void SfuMediaEngine::clearSessionRouting()
         m_streamForMline.clear();
         m_midForMline.clear();
         m_trackForMline.clear();
+        m_kindForSsrc.clear();
     }
     setServerInjectedTrailer(QByteArray());
 }

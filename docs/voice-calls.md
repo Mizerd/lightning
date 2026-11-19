@@ -1415,8 +1415,9 @@ offer (`a=ssrc` and `ssrc-group:FID`): video retransmits with a 400 ms latency,
 audio keeps 100 ms and asks for nothing, an unsignalled ssrc retransmits at
 100 ms. The video appsink is `sync=false`, so it is not live and adds nothing
 to the pipeline latency the audio sink gets; in-order packets leave the
-jitterbuffer at once, so only a frame behind a gap waits longer. PLIs now
-follow a gap the jitterbuffer gave up on, after its resends.
+jitterbuffer at once, so only a frame behind a gap waits longer. With the
+longer latency the existing keyframe request follows only a gap the
+jitterbuffer gave up on, after its resends.
 
 Measured on the rig at 1.5% SFU -> viewer loss (a 1440p VP8 share, host
 loaded): before, 331 packets lost in 60 s, 180 PLIs,
