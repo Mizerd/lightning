@@ -1416,12 +1416,17 @@ audio keeps 100 ms and asks for nothing, an unsignalled ssrc retransmits at
 100 ms. The video appsink is `sync=false`, so it is not live and adds nothing
 to the pipeline latency the audio sink gets; in-order packets leave the
 jitterbuffer at once, so only a frame behind a gap waits longer. PLIs now
-follow a gap the jitterbuffer gave up on, after its resends. Measured on the rig at 1.5% SFU -> viewer loss (a
-1440p VP8 share, host loaded): before, 331 packets lost in 60 s, 180 PLIs,
-no RTX on the wire, under 11 fps; after, 11-12 lost, 8-9 PLIs, 214-342
-recovered resends, about 28 fps. Received audio, measured end to end with
-tone bursts, stayed at 245-270 ms. Two later runs on a host saturated by
-another process lost packets even with no netem and are not comparable.
+follow a gap the jitterbuffer gave up on, after its resends.
+
+Measured on the rig at 1.5% SFU -> viewer loss (a 1440p VP8 share, host
+loaded): before, 331 packets lost in 60 s, 180 PLIs,
+no RTX on the wire, under 11 fps. After, two runs (audio section first) lost
+11-12, sent 8-9 PLIs, recovered 214-342 resends and ran at about 28 fps; a
+third (video section first) lost 105, sent 61 PLIs, recovered 224 and ran at
+about 15 fps, NOT explained, on the same loaded host. Received audio, measured
+end to end with tone bursts, stayed at 245-270 ms. Two later runs on a host
+saturated by another process lost packets even with no netem and are not
+comparable. A clean-host repeat is still owed.
 
 Stream Info's "RTP packets sent" is webrtcbin's outbound `packets-sent` for the
 track's SSRC (an em dash until the first stats answer), not a counter upstream
