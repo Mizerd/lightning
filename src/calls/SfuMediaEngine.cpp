@@ -1877,6 +1877,10 @@ bool SfuMediaEngine::ensurePeer(Target target)
             if (g_object_class_find_property(G_OBJECT_GET_CLASS(rtpbin),
                                              "autoremove"))
                 g_object_set(rtpbin, "autoremove", FALSE, nullptr);
+            // Runs after webrtcbin's own handler, which sets every
+            // jitterbuffer from whichever section's ssrc it saw last.
+            g_signal_connect(rtpbin, "new-jitterbuffer",
+                             G_CALLBACK(onNewJitterbuffer), this);
             gst_object_unref(rtpbin);
         }
     }
@@ -6322,6 +6326,79 @@ void SfuMediaEngine::enableVideoRetransmission(GstWebRTCRTPTransceiver *transcei
         g_object_set(transceiver, "do-nack", TRUE, nullptr);
 }
 
+QHash<quint32, QString> SfuMediaEngine::ssrcKindsFromSdp(const QString &sdp)
+{
+    QHash<quint32, QString> kinds;
+    QString kind;
+    for (QStringView line : QStringView(sdp).split(u'\n')) {
+        line = line.trimmed();
+        if (line.startsWith(u"m=")) {
+            kind = line.mid(2).split(u' ').value(0).toString();
+            continue;
+        }
+        QStringView ssrcs;
+        if (line.startsWith(u"a=ssrc:"))
+            ssrcs = line.mid(7).split(u' ').value(0);
+        else if (line.startsWith(u"a=ssrc-group:FID "))
+            ssrcs = line.mid(17);
+        else
+            continue;
+        for (QStringView word : ssrcs.split(u' ', Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const quint32 ssrc = word.toUInt(&ok);
+            if (ok && !kind.isEmpty())
+                kinds.insert(ssrc, kind);
+        }
+    }
+    return kinds;
+}
+
+SfuMediaEngine::JitterbufferChoice SfuMediaEngine::receiveJitterbuffer(
+    const QString &kind)
+{
+    if (kind == QLatin1String("audio"))
+        return {false, -1};
+    // LiveKit resends nothing within 100 ms (or two RTTs) of the original
+    // send, so a video jitterbuffer must wait past that plus the resend's RTT.
+    if (kind == QLatin1String("video"))
+        return {true, kVideoJitterbufferMs};
+    // An unsignalled ssrc: asking costs nothing, but its latency stays, since
+    // it may be a voice.
+    return {true, -1};
+}
+
+void SfuMediaEngine::onNewJitterbuffer(GstElement *rtpbin,
+                                       GstElement *jitterbuffer,
+                                       unsigned int, unsigned int ssrc,
+                                       void *self)
+{
+    GstElement *webrtc = GST_ELEMENT(gst_element_get_parent(rtpbin));
+    if (!webrtc)
+        return;
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    gst_object_unref(webrtc);
+    if (!scope.live())
+        return;
+    auto *engine = static_cast<SfuMediaEngine *>(self);
+    QString kind;
+    {
+        QMutexLocker lock(&engine->m_recvMutex);
+        kind = engine->m_kindForSsrc.value(ssrc);
+    }
+    const JitterbufferChoice choice = receiveJitterbuffer(kind);
+    GObjectClass *klass = G_OBJECT_GET_CLASS(jitterbuffer);
+    if (g_object_class_find_property(klass, "do-retransmission"))
+        g_object_set(jitterbuffer, "do-retransmission",
+                     choice.retransmit ? TRUE : FALSE, nullptr);
+    if (choice.latencyMs > 0 && g_object_class_find_property(klass, "latency"))
+        g_object_set(jitterbuffer, "latency",
+                     static_cast<guint>(choice.latencyMs), nullptr);
+    qCInfo(lcSfuMedia) << "receive jitterbuffer ssrc=" << ssrc << "kind="
+                       << (kind.isEmpty() ? QStringLiteral("unknown") : kind)
+                       << "retransmission=" << choice.retransmit
+                       << "latencyMs=" << choice.latencyMs;
+}
+
 void SfuMediaEngine::enablePublishRetransmission(GstPad *webrtcSinkPad)
 {
     // offerForSfu() renumbers video codecs across sections when hardware
@@ -7052,6 +7129,9 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
         QHash<int, QString> tracks;
         streamIdsFromSdp(message, &streams, &mids, &tracks);
         noteStreamIds(streams, mids, tracks);
+        const QHash<quint32, QString> kinds = ssrcKindsFromSdp(sdp);
+        QMutexLocker lock(&m_recvMutex);
+        m_kindForSsrc = kinds;
     }
 
     const GstWebRTCSDPType type = (kind == QLatin1String("offer"))

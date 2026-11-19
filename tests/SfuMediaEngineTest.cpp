@@ -1105,6 +1105,31 @@ static QString subscriberOffer(const QList<QList<int>> &videos, int version)
     }
     return sdp;
 }
+// LiveKit's order after a renegotiation: a video section, then an audio one.
+static QString videoThenAudioOffer()
+{
+    QString offer = subscriberOffer({QList<int>{96}}, 1);
+    offer.replace(QStringLiteral("a=group:BUNDLE 0 1 2"),
+                  QStringLiteral("a=group:BUNDLE 0 1 2 3"));
+    offer.replace(QStringLiteral("m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"),
+                  QStringLiteral("m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\n"));
+    offer.replace(QStringLiteral("a=rtpmap:96 VP8/90000\r\n"),
+                  QStringLiteral("a=rtpmap:96 VP8/90000\r\n"
+                                 "a=rtcp-fb:96 nack\r\n"
+                                 "a=rtcp-fb:96 nack pli\r\n"
+                                 "a=rtpmap:97 rtx/90000\r\n"
+                                 "a=fmtp:97 apt=96\r\n"
+                                 "a=ssrc-group:FID 2000 3000\r\n"
+                                 "a=ssrc:3000 cname:b\r\n"));
+    offer += QStringLiteral("m=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\n"
+                            "a=ice-ufrag:abcd\r\na=ice-pwd:0123456789012345678901234\r\n"
+                            "a=setup:actpass\r\na=mid:3\r\na=sendonly\r\na=rtcp-mux\r\n"
+                            "a=rtpmap:111 opus/48000/2\r\n"
+                            "a=ssrc:4000 cname:c\r\n"
+                            "a=ssrc:4000 msid:PA_c|TR_c TR_c\r\n"
+                            "a=msid:PA_c|TR_c TR_c\r\n");
+    return offer;
+}
 static QString answerTo(SfuMediaEngine &engine, const QString &offer)
 {
     QSignalSpy spy(&engine, &SfuMediaEngine::localDescription);
@@ -6926,6 +6951,67 @@ true);
                  qPrintable(video.join(QLatin1Char('\n'))));
         QVERIFY2(video.contains(QStringLiteral("a=rtcp-fb:96 nack")),
                  qPrintable(video.join(QLatin1Char('\n'))));
+        engine.stop();
+    }
+
+    void eachReceivedSsrcTakesItsOwnSectionsKind()
+    {
+        const QString offer = videoThenAudioOffer();
+        const QHash<quint32, QString> kinds = SfuMediaEngine::ssrcKindsFromSdp(offer);
+        QCOMPARE(kinds.value(1000), QStringLiteral("audio"));
+        QCOMPARE(kinds.value(2000), QStringLiteral("video"));
+        QCOMPARE(kinds.value(3000), QStringLiteral("video"));
+        QCOMPARE(kinds.value(4000), QStringLiteral("audio"));
+        QVERIFY(!kinds.contains(7777));
+        QCOMPARE(kinds.size(), 4);
+    }
+
+    void onlyVideoJitterbuffersWaitLongerForResends()
+    {
+        const auto video = SfuMediaEngine::receiveJitterbuffer(QStringLiteral("video"));
+        QVERIFY(video.retransmit);
+        QVERIFY(video.latencyMs > 100 + 100);
+        const auto audio = SfuMediaEngine::receiveJitterbuffer(QStringLiteral("audio"));
+        QVERIFY(!audio.retransmit);
+        QCOMPARE(audio.latencyMs, -1);
+        const auto unknown = SfuMediaEngine::receiveJitterbuffer(QString());
+        QVERIFY(unknown.retransmit);
+        QCOMPARE(unknown.latencyMs, -1);
+    }
+
+    void aVideoJitterbufferRetransmitsWhenAnAudioSectionFollowsIt()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        const auto restore = qScopeGuard(
+            [] { qunsetenv("LIGHTNING_RECEIVE_VIDEO_CODEC"); });
+        qputenv("LIGHTNING_RECEIVE_VIDEO_CODEC", "vp8");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        QVERIFY(!answerTo(engine, videoThenAudioOffer()).isEmpty());
+        GstElement *rtpbin = gst_bin_get_by_name(GST_BIN(engine.m_subscriber.webrtc), "rtpbin");
+        QVERIFY(rtpbin);
+        struct Want { guint ssrc; bool retransmit; guint latency; };
+        const QList<Want> wants{{2000, true, SfuMediaEngine::kVideoJitterbufferMs},
+                                {3000, true, SfuMediaEngine::kVideoJitterbufferMs},
+                                {1000, false, 100}, {4000, false, 100},
+                                {7777, true, 100}};
+        for (const Want &want : wants) {
+            GstElement *jitterbuffer = gst_element_factory_make("rtpjitterbuffer", nullptr);
+            QVERIFY(jitterbuffer);
+            gst_object_ref_sink(jitterbuffer);
+            g_object_set(jitterbuffer, "latency", 100u, nullptr);
+            g_signal_emit_by_name(rtpbin, "new-jitterbuffer", jitterbuffer, 0u, want.ssrc);
+            gboolean retransmit = !want.retransmit;
+            guint latency = 0;
+            g_object_get(jitterbuffer, "do-retransmission", &retransmit,
+                         "latency", &latency, nullptr);
+            gst_object_unref(jitterbuffer);
+            QVERIFY2(bool(retransmit) == want.retransmit, qPrintable(QString::number(want.ssrc)));
+            QVERIFY2(latency == want.latency, qPrintable(QString::number(want.ssrc)));
+        }
+        gst_object_unref(rtpbin);
         engine.stop();
     }
 

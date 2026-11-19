@@ -740,6 +740,16 @@ private:
     static void installKeyframeRequestGate(
         GstPad *depaySink, std::shared_ptr<lightning::calls::StreamInfoStats> stats);
     static void enableVideoRetransmission(GstWebRTCRTPTransceiver *transceiver);
+    struct JitterbufferChoice {
+        bool retransmit = true;
+        int latencyMs = -1; // -1 keeps webrtcbin's latency
+    };
+    static constexpr int kVideoJitterbufferMs = 400;
+    static QHash<quint32, QString> ssrcKindsFromSdp(const QString &sdp);
+    static JitterbufferChoice receiveJitterbuffer(const QString &kind);
+    static void onNewJitterbuffer(GstElement *rtpbin, GstElement *jitterbuffer,
+                                  unsigned int session, unsigned int ssrc,
+                                  void *self);
     void enablePublishRetransmission(GstPad *webrtcSinkPad);
     QHash<QString, QString> m_shareBackups;
     struct Peer {
@@ -965,6 +975,7 @@ private:
     QHash<int, QString> m_streamForMline;
     QHash<int, QString> m_midForMline;
     QHash<int, QString> m_trackForMline;
+    QHash<quint32, QString> m_kindForSsrc;
     std::atomic<bool> m_encryptionRequired{false};
     std::atomic<bool> m_sendKeyReady{false};
     std::atomic<bool> m_recvKeyReady{false};
