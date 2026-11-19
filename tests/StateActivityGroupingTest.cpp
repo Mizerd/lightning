@@ -1,7 +1,7 @@
 // Room-activity (state-change) grouping is transparent through read markers
-// and the timeline-start marker, which matrix-sdk-ui interleaves freely. A
-// date divider ends the run, so each day's activity leads its own group under
-// its own date. A visible message/media/call event also ends a group.
+// and the timeline-start marker, which matrix-sdk-ui interleaves freely. Days
+// holding only activity merge into one run across their date dividers; a
+// visible message/media/call event ends a group and keeps its day's divider.
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
@@ -120,9 +120,13 @@ private Q_SLOTS:
     void consecutiveStateChangesFormOneGroup();
     void exposesTypedMembershipAndRoomStateEntries();
     void aMembershipEntryCarriesWhatItDid();
-    void dateDividerSplitsTheRunIntoDailyGroups();
-    void multiDayRunYieldsOneGroupPerDay();
-    void aDividerLeadingOnlyActivityStillIntroducesVisibleContent();
+    void dateDividerBetweenActivityDaysMergesTheRun();
+    void multiDayActivityRunMergesIntoOneGroup();
+    void aDayWhoseActivityPrecedesAMessageKeepsItsDivider();
+    void aMessageBetweenDaysSplitsTheRun();
+    void appendingANewDayExtendsTheMergedRunUntilAMessageArrives();
+    void prependingAnOlderDayMergesIntoTheRun();
+    void aDayOfHiddenActivityDoesNotJoinTheRun();
     void readMarkerDoesNotSplitGroup();
     void readMarkerIntroducesOnlyALoadedUnreadRow();
     void timelineStartDoesNotSplitGroup();
@@ -136,7 +140,7 @@ private Q_SLOTS:
     void appendingContiguousStateChangeExtendsGroupForward();
     void prependingOlderStateChangesExtendsGroupBackward();
     void groupCountAlwaysMatchesAccessibleChildren();
-    void everyDayOfAMultiDayRunOwnsItsGroupAndItsDate();
+    void aQuietStretchOfDaysCollapsesToOneRunBetweenMessages();
     void hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce();
     void showRoomActivityFlipReAnnouncesTheDividerRows();
 
@@ -337,7 +341,7 @@ void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
              QStringLiteral("Bob joined the room."));
 }
 
-void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
+void StateActivityGroupingTest::dateDividerBetweenActivityDaysMergesTheRun()
 {
     m_client->mirror = {
         onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("first")), 0),
@@ -347,26 +351,26 @@ void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
     m_model->setRoomId(kRoom);
 
     QCOMPARE(m_model->data(m_model->index(1), TimelineModel::IsStateActivityRole).toBool(), false);
+    QCOMPARE(m_model->data(m_model->index(1),
+                           TimelineModel::DividerIntroducesVisibleContentRole).toBool(),
+             false);
 
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupLeaderRole).toBool(), true);
-    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), true);
-    QVERIFY(m_model->data(m_model->index(2), TimelineModel::StateGroupIdRole).toString()
-            != m_model->data(m_model->index(0), TimelineModel::StateGroupIdRole).toString());
-    QCOMPARE(m_model->stateGroupCount(), 2);
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), false);
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupIdRole).toString(),
+             m_model->data(m_model->index(0), TimelineModel::StateGroupIdRole).toString());
+    QCOMPARE(m_model->stateGroupCount(), 1);
 
-    const QVariantList first =
+    const QVariantList entries =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
-    QCOMPARE(first.size(), 1);
-    QCOMPARE(first.at(0).toMap().value(QStringLiteral("description")).toString(),
+    QCOMPARE(entries.size(), 2);
+    QCOMPARE(entries.at(0).toMap().value(QStringLiteral("description")).toString(),
              QStringLiteral("first"));
-    const QVariantList second =
-        m_model->data(m_model->index(2), TimelineModel::StateGroupEntriesRole).toList();
-    QCOMPARE(second.size(), 1);
-    QCOMPARE(second.at(0).toMap().value(QStringLiteral("description")).toString(),
+    QCOMPARE(entries.at(1).toMap().value(QStringLiteral("description")).toString(),
              QStringLiteral("second"));
 }
 
-void StateActivityGroupingTest::multiDayRunYieldsOneGroupPerDay()
+void StateActivityGroupingTest::multiDayActivityRunMergesIntoOneGroup()
 {
     m_client->mirror = {
         onDay(makeStateChange(QStringLiteral("$a0"), QStringLiteral("a0")), 0),
@@ -379,21 +383,25 @@ void StateActivityGroupingTest::multiDayRunYieldsOneGroupPerDay()
     m_model->setRoomId(kRoom);
 
     QCOMPARE(m_model->stateActivityRowCount(), 4);
-    QCOMPARE(m_model->stateGroupCount(), 3);
+    QCOMPARE(m_model->stateGroupCount(), 1);
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole)
-                 .toList().size(), 2);
-    QCOMPARE(m_model->data(m_model->index(3), TimelineModel::StateGroupEntriesRole)
-                 .toList().size(), 1);
-    QCOMPARE(m_model->data(m_model->index(5), TimelineModel::StateGroupEntriesRole)
-                 .toList().size(), 1);
+                 .toList().size(), 4);
+    for (int row : { 3, 5 })
+        QVERIFY(m_model->data(m_model->index(row), TimelineModel::StateGroupEntriesRole)
+                    .toList().isEmpty());
+    for (int row : { 2, 4 })
+        QCOMPARE(m_model->data(m_model->index(row),
+                               TimelineModel::DividerIntroducesVisibleContentRole).toBool(),
+                 false);
 }
 
-void StateActivityGroupingTest::aDividerLeadingOnlyActivityStillIntroducesVisibleContent()
+void StateActivityGroupingTest::aDayWhoseActivityPrecedesAMessageKeepsItsDivider()
 {
     m_client->mirror = {
         onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("yesterday")), 0),
         makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div0")),
         onDay(makeStateChange(QStringLiteral("$s1"), QStringLiteral("today")), 1),
+        onDay(makeMessage(QStringLiteral("$m"), QStringLiteral("hello")), 1),
     };
     m_model->setRoomId(kRoom);
 
@@ -401,6 +409,116 @@ void StateActivityGroupingTest::aDividerLeadingOnlyActivityStillIntroducesVisibl
                            TimelineModel::DividerIntroducesVisibleContentRole)
                  .toBool(),
              true);
+    QCOMPARE(m_model->stateGroupCount(), 2);
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), true);
+}
+
+void StateActivityGroupingTest::aMessageBetweenDaysSplitsTheRun()
+{
+    m_client->mirror = {
+        onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("first")), 0),
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div1")),
+        onDay(makeMessage(QStringLiteral("$m"), QStringLiteral("hello")), 1),
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div2")),
+        onDay(makeStateChange(QStringLiteral("$s1"), QStringLiteral("second")), 2),
+    };
+    m_model->setRoomId(kRoom);
+
+    QCOMPARE(m_model->stateGroupCount(), 2);
+    for (int row : { 1, 3 })
+        QCOMPARE(m_model->data(m_model->index(row),
+                               TimelineModel::DividerIntroducesVisibleContentRole).toBool(),
+                 true);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 1);
+}
+
+void StateActivityGroupingTest::appendingANewDayExtendsTheMergedRunUntilAMessageArrives()
+{
+    m_client->mirror = {
+        onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("first")), 0),
+    };
+    m_model->setRoomId(kRoom);
+
+    const auto divider = onDay(makeVirtual(TimelineEvent::DateDivider,
+                                           QStringLiteral("$div1")), 1);
+    const auto next = onDay(makeStateChange(QStringLiteral("$s1"),
+                                            QStringLiteral("second")), 1);
+    for (const auto &e : { divider, next }) {
+        m_client->mirror.append(e);
+        Q_EMIT m_client->eventAppended(kRoom, e);
+    }
+    QCOMPARE(m_model->stateGroupCount(), 1);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 2);
+    QCOMPARE(m_model->data(m_model->index(1),
+                           TimelineModel::DividerIntroducesVisibleContentRole).toBool(),
+             false);
+
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    const auto message = onDay(makeMessage(QStringLiteral("$m"),
+                                           QStringLiteral("hello")), 1);
+    m_client->mirror.append(message);
+    Q_EMIT m_client->eventAppended(kRoom, message);
+    QCOMPARE(m_model->stateGroupCount(), 2);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 1);
+    QCOMPARE(m_model->data(m_model->index(1),
+                           TimelineModel::DividerIntroducesVisibleContentRole).toBool(),
+             true);
+    bool announced = false;
+    for (const QList<QVariant> &emitted : changed) {
+        if (emitted.at(0).value<QModelIndex>().row() == 0
+            && emitted.at(1).value<QModelIndex>().row() >= 1
+            && emitted.at(2).value<QList<int>>().contains(
+                   TimelineModel::StateGroupEntriesRole))
+            announced = true;
+    }
+    QVERIFY(announced);
+}
+
+void StateActivityGroupingTest::prependingAnOlderDayMergesIntoTheRun()
+{
+    m_client->mirror = {
+        onDay(makeStateChange(QStringLiteral("$s1"), QStringLiteral("second")), 1),
+    };
+    m_model->setRoomId(kRoom);
+
+    const QList<TimelineEvent> older = {
+        onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("first")), 0),
+        onDay(makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div1")), 1),
+    };
+    m_client->mirror = older + m_client->mirror;
+    Q_EMIT m_client->eventsPrepended(kRoom, older);
+
+    QCOMPARE(m_model->rowCount(), 3);
+    QCOMPARE(m_model->stateGroupCount(), 1);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupLeaderRole).toBool(), true);
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), false);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 2);
+    QCOMPARE(m_model->data(m_model->index(1),
+                           TimelineModel::DividerIntroducesVisibleContentRole).toBool(),
+             false);
+}
+
+void StateActivityGroupingTest::aDayOfHiddenActivityDoesNotJoinTheRun()
+{
+    m_model->setShowMembershipEvents(false);
+    m_client->mirror = {
+        onDay(makeStateChange(QStringLiteral("$join"), QStringLiteral("joined"),
+                              QStringLiteral("membership"), QStringLiteral("Bob")), 0),
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div1")),
+        onDay(makeStateChange(QStringLiteral("$s1"), QStringLiteral("topic")), 1),
+    };
+    m_model->setRoomId(kRoom);
+
+    QCOMPARE(m_model->data(m_model->index(1),
+                           TimelineModel::DividerIntroducesVisibleContentRole).toBool(),
+             true);
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), true);
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 1);
 }
 
 void StateActivityGroupingTest::readMarkerDoesNotSplitGroup()
@@ -599,7 +717,7 @@ void StateActivityGroupingTest::groupCountAlwaysMatchesAccessibleChildren()
         QVERIFY(!child.toMap().value(QStringLiteral("description")).toString().isEmpty());
 }
 
-void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
+void StateActivityGroupingTest::aQuietStretchOfDaysCollapsesToOneRunBetweenMessages()
 {
     QList<TimelineEvent> mirror;
     mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
@@ -636,7 +754,7 @@ void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
                              TimelineModel::StateGroupLeaderRole).toBool())
             ++leaders;
     }
-    QCOMPARE(leaders, 3);
+    QCOMPARE(leaders, 1);
 
     const auto dividerAt = [this](int row, const QString &eventId) {
         const QModelIndex idx = m_model->index(row);
@@ -646,35 +764,24 @@ void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
             idx, TimelineModel::DividerIntroducesVisibleContentRole);
     };
 
-    QCOMPARE(dividerAt(2, QStringLiteral("$div1")), QVariant(true));
-    QCOMPARE(dividerAt(20, QStringLiteral("$div2")), QVariant(true));
-    QCOMPARE(dividerAt(38, QStringLiteral("$div3")), QVariant(true));
     QCOMPARE(dividerAt(0, QStringLiteral("$divA")), QVariant(true));
+    QCOMPARE(dividerAt(2, QStringLiteral("$div1")), QVariant(true));
+    QCOMPARE(dividerAt(20, QStringLiteral("$div2")), QVariant(false));
+    QCOMPARE(dividerAt(38, QStringLiteral("$div3")), QVariant(false));
     QCOMPARE(dividerAt(56, QStringLiteral("$divAfter")), QVariant(true));
 
-    const QList<int> leaderRows = { 3, 21, 39 };
-    const QStringList leaderIds = { QStringLiteral("$s0"),
-                                    QStringLiteral("$s17"),
-                                    QStringLiteral("$s34") };
-    for (int i = 0; i < leaderRows.size(); ++i) {
-        const int leaderRow = leaderRows.at(i);
-        QCOMPARE(m_model->data(m_model->index(leaderRow),
-                               TimelineModel::EventIdRole).toString(),
-                 leaderIds.at(i));
-        QCOMPARE(m_model->data(m_model->index(leaderRow),
-                               TimelineModel::StateGroupLeaderRole).toBool(),
-                 true);
-        const QVariantList entries =
-            m_model->data(m_model->index(leaderRow),
-                          TimelineModel::StateGroupEntriesRole).toList();
-        QCOMPARE(entries.size(), 17);
-        const QDateTime first = entries.first().toMap()
-                                    .value(QStringLiteral("timestamp")).toDateTime();
-        const QDateTime last = entries.last().toMap()
-                                   .value(QStringLiteral("timestamp")).toDateTime();
-        QVERIFY(first.isValid() && last.isValid());
-        QCOMPARE(first.date(), last.date());
-    }
+    QCOMPARE(m_model->data(m_model->index(3), TimelineModel::EventIdRole).toString(),
+             QStringLiteral("$s0"));
+    QCOMPARE(m_model->data(m_model->index(3), TimelineModel::StateGroupLeaderRole).toBool(),
+             true);
+    const QVariantList entries =
+        m_model->data(m_model->index(3), TimelineModel::StateGroupEntriesRole).toList();
+    QCOMPARE(entries.size(), 51);
+    const QDateTime first = entries.first().toMap()
+                                .value(QStringLiteral("timestamp")).toDateTime();
+    const QDateTime last = entries.last().toMap()
+                               .value(QStringLiteral("timestamp")).toDateTime();
+    QCOMPARE(first.daysTo(last), 2);
 }
 
 void StateActivityGroupingTest::hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce()
