@@ -9,6 +9,7 @@
 #include <QSignalSpy>
 
 #include <QAbstractItemModel>
+#include <QAbstractItemModelTester>
 #include <limits>
 
 #include "calls/CallController.h"
@@ -874,6 +875,36 @@ private:
     }
 
 private Q_SLOTS:
+    void emptyAndRepeatedIdsDoNotShiftModelRows()
+    {
+        CallParticipantModel people;
+        QAbstractItemModelTester peopleTester(
+            &people, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        CallParticipantRow a;
+        a.identity = QStringLiteral("a");
+        CallParticipantRow b;
+        b.identity = QStringLiteral("b");
+        people.applyParticipants({CallParticipantRow(), a, a, b});
+        people.applyParticipants({b, CallParticipantRow(), a});
+        QCOMPARE(people.rowCount(), 2);
+        QCOMPARE(people.index(0).data(CallParticipantModel::IdentityRole).toString(),
+                 QStringLiteral("b"));
+        QCOMPARE(people.index(1).data(CallParticipantModel::IdentityRole).toString(),
+                 QStringLiteral("a"));
+
+        CallShareModel shares;
+        QAbstractItemModelTester sharesTester(
+            &shares, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        CallShareRow s1;
+        s1.shareId = QStringLiteral("s1");
+        CallShareRow s2;
+        s2.shareId = QStringLiteral("s2");
+        shares.applyShares({CallShareRow(), s1, s1, s2});
+        shares.applyShares({s2, CallShareRow(), s1});
+        QCOMPARE(shares.shareIds(),
+                 QStringList({QStringLiteral("s2"), QStringLiteral("s1")}));
+    }
+
     void streamInfoIsOptInAndClearedOnLeave()
     {
         SfuCallController controller;
