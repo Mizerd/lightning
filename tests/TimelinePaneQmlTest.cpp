@@ -853,8 +853,8 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(root->property("renderedEntryCount").toInt(),
                                   3, kSignalTimeoutMs);
         int dayLabels = 0;
-        for (auto *label : root->findChildren<QQuickItem *>(
-                 QStringLiteral("stateActivityDayLabel")))
+        for (auto *label : findVisualChildren(
+                 root, QStringLiteral("stateActivityDayLabel")))
             dayLabels += label->isVisible() ? 1 : 0;
         QCOMPARE(dayLabels, 2);
         QCOMPARE(realWarnings(warnings), QStringList{});
