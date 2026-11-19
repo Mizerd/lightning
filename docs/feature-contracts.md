@@ -661,6 +661,18 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
 - SDK-backed live timelines and local echoes
 - Text, rich replies, edits, reactions, redactions, typing indicators, read
   receipts, mentions, and room-state activity rows
+- Consecutive room-state activity collapses into one "N room updates" row.
+  Days that hold ONLY activity merge into one row across their date
+  dividers, which are hidden: "N room updates since <day>" (the divider's
+  wording: Today, Yesterday, weekday, else the date), and the expanded list
+  labels each day. A divider joins the run only when the days on both sides
+  hold VISIBLE activity and the later day ends at another divider or the end
+  of the loaded timeline; a day whose activity is followed by a message keeps
+  its divider, so a message never sits under an earlier day's date. A day of
+  only hidden activity (a disabled kind) does not join. The rows stay in the
+  model; the merge is the leader/entries walk and
+  `DividerIntroducesVisibleContentRole` (`TimelineModel::dividerJoinsStateRun`).
+  Live look NOT TESTED
 - Element-style read-receipt chips on live-room rows: newest 16 receipts
   cross the bridge with a truthful uncapped total, and **ONLY the local user
   is excluded** — a user's marker renders even on their own message, as in
