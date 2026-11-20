@@ -3132,35 +3132,33 @@ Item {
                                    ? name.substring(0, 24) + "…" : name
                         }
                         readonly property string reactorSummary: {
-                            var names = reactionChip.reactorNames
-                            if (names.length === 0
-                                    || (names[0] || "").length === 0)
-                                return ""
-                            var total = Math.max(reactionChip.reactorTotal,
-                                                 names.length)
-                            var first = reactionChip.boundedName(names[0])
-                            if (total <= 1)
-                                return first
-                            var second = names.length > 1
-                                         ? reactionChip.boundedName(names[1]) : ""
-                            if (second.length === 0) {
-                                return total === 2
-                                    ? qsTr("%1 and 1 other").arg(first)
-                                    : qsTr("%1 and %2 others")
-                                        .arg(first).arg(total - 1)
+                            var names = []
+                            var raw = reactionChip.reactorNames
+                            for (var i = 0; i < raw.length && names.length < 10; ++i) {
+                                if ((raw[i] || "").length > 0)
+                                    names.push(reactionChip.boundedName(raw[i]))
                             }
-                            if (total === 2)
-                                return qsTr("%1 and %2").arg(first).arg(second)
-                            if (total === 3)
-                                return qsTr("%1, %2 and 1 other")
-                                    .arg(first).arg(second)
-                            return qsTr("%1, %2 and %3 others")
-                                .arg(first).arg(second).arg(total - 2)
+                            if (names.length === 0)
+                                return ""
+                            var others = Math.max(reactionChip.reactorTotal,
+                                                  raw.length) - names.length
+                            if (others > 0)
+                                return qsTr("%1 and %n other(s)", "", others)
+                                    .arg(names.join(", "))
+                            if (names.length === 1)
+                                return names[0]
+                            return qsTr("%1 and %2")
+                                .arg(names.slice(0, -1).join(", "))
+                                .arg(names[names.length - 1])
                         }
-                        ToolTip.text: reactionChip.reactorSummary
-                        ToolTip.visible: reactionHover.hovered
-                                         && reactionChip.reactorSummary.length > 0
-                        ToolTip.delay: 300
+                        PlainToolTip {
+                            objectName: "reactionTooltip"
+                            text: reactionChip.reactorSummary
+                            visible: reactionHover.hovered
+                                     && reactionChip.reactorSummary.length > 0
+                            delay: 300
+                            width: Math.min(implicitWidth, AppTheme.scaled(320))
+                        }
                         readonly property bool customEmojiReaction:
                             typeof modelData.key === "string"
                             && modelData.key.startsWith("mxc://")

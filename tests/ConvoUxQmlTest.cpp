@@ -620,6 +620,51 @@ ApplicationWindow {
         reset.evaluate();
     }
 
+    void aReactionTooltipNamesUpToTenReactorsAndWraps()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantList names;
+        for (int i = 1; i <= 12; ++i)
+            names << QStringLiteral("Reactor number %1").arg(i);
+        auto reaction = [](const QVariantList &who, int total) {
+            QVariantMap r;
+            r.insert(QStringLiteral("key"), QStringLiteral("x"));
+            r.insert(QStringLiteral("count"), total);
+            r.insert(QStringLiteral("byMe"), false);
+            r.insert(QStringLiteral("reactorNames"), who);
+            r.insert(QStringLiteral("reactorTotal"), total);
+            return QVariant(r);
+        };
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("reactions"),
+                 QVariantList{reaction(names, 14),
+                              reaction(names.mid(0, 3), 3)});
+        Delegate d;
+        QVERIFY(buildDelegate(controller, f, d));
+        QList<QQuickItem *> chips;
+        collect(d.root, QStringLiteral("reactionChip"), chips);
+        QCOMPARE(chips.size(), 2);
+
+        const QString many = chips.at(0)->property("reactorSummary").toString();
+        QVERIFY2(many.startsWith(QStringLiteral("Reactor number 1, Reactor number 2, "))
+                     && many.contains(QStringLiteral("Reactor number 10 and 4 other"))
+                     && !many.contains(QStringLiteral("Reactor number 11")),
+                 qPrintable(many));
+        QCOMPARE(chips.at(1)->property("reactorSummary").toString(),
+                 QStringLiteral("Reactor number 1, Reactor number 2 and "
+                                "Reactor number 3"));
+
+        QObject *tip = chips.at(0)->findChild<QObject *>(
+            QStringLiteral("reactionTooltip"));
+        QVERIFY(tip);
+        QQmlExpression cap(qmlContext(d.root), d.root,
+                           QStringLiteral("AppTheme.scaled(320)"));
+        const qreal maxWidth = cap.evaluate().toReal();
+        QVERIFY(tip->property("width").toReal() <= maxWidth);
+        QVERIFY2(tip->property("implicitWidth").toReal() > maxWidth,
+                 "the fixture must be long enough to need wrapping");
+    }
+
     void theMicrophoneLeadsTheCallBar()
     {
         AppController controller(AppController::MockBackend);
