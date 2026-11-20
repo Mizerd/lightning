@@ -41,6 +41,16 @@ private:
         return loginSpy.wait(kSignalTimeoutMs);
     }
 
+    // The root renders as rich text; compare what a reader sees.
+    static QString shownText(QQuickItem *body)
+    {
+        QString text;
+        QMetaObject::invokeMethod(body, "getText", Q_RETURN_ARG(QString, text),
+                                  Q_ARG(int, 0),
+                                  Q_ARG(int, body->property("length").toInt()));
+        return text;
+    }
+
     static QString firstThreadRootId(MockMatrixClient &client,
                                      const QString &roomId)
     {
@@ -565,7 +575,7 @@ private Q_SLOTS:
             QStringLiteral("threadRootBody"));
         QVERIFY2(scroll && body, "the thread root card has no scrolling body");
         QTRY_VERIFY(body->isVisible());
-        QTRY_COMPARE(body->property("text").toString(), rootEvent.body);
+        QTRY_COMPARE(shownText(body), rootEvent.body);
         QVERIFY2(!body->property("truncated").toBool(),
                  "the thread root is elided, so part of it cannot be read");
 
@@ -644,7 +654,7 @@ private Q_SLOTS:
             QStringLiteral("threadRootBody"));
         QVERIFY(scroll && body);
         QTRY_VERIFY(body->isVisible());
-        QTRY_COMPARE(body->property("text").toString(), rootEvent.body);
+        QTRY_COMPARE(shownText(body), rootEvent.body);
         const bool scrolls = lineCount > 10;
 
         const QPoint from = body->mapToScene(QPointF(2, 8)).toPoint();
