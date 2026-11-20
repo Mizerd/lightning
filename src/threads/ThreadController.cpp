@@ -1,4 +1,5 @@
 #include "threads/ThreadController.h"
+#include "matrix/EventPreview.h"
 
 #include "models/SlashCommands.h"
 
@@ -1030,7 +1031,8 @@ void ThreadController::beginReply(const QString &eventId)
     if (m_replyToSender.isEmpty())
         m_replyToSender =
             m_model.data(idx, TimelineModel::SenderRole).toString();
-    m_replyToPreview = m_model.replyPreviewForEvent(eventId).left(80);
+    m_replyToPreview = m_model.replyPreviewForEvent(eventId).left(
+        matrix::preview::kReplyPreviewMaxChars);
     Q_EMIT replyStateChanged();
 }
 
