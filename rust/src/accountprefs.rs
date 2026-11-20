@@ -511,9 +511,13 @@ mod tests {
         let read = crate::optprobe::read_global(&client, MEDIA_PREVIEW_TYPE, None, false).await;
         assert_eq!(read, Ok(None), "the store inferred absence");
 
+        let (one, both) = (
+            json!({"media_previews": "on"}),
+            json!({"media_previews": "on", "invite_avatars": "off"}),
+        );
         let (first, second) = tokio::join!(
-            put(&client, MEDIA_PREVIEW_TYPE, &json!({"media_previews": "on"})),
-            put(&client, MEDIA_PREVIEW_TYPE, &json!({"media_previews": "on", "invite_avatars": "off"})),
+            put(&client, MEDIA_PREVIEW_TYPE, &one),
+            put(&client, MEDIA_PREVIEW_TYPE, &both),
         );
         crate::optprobe::forget_account_id("@prefsrace:example.org");
         assert_eq!(puts.load(std::sync::atomic::Ordering::SeqCst), 0, "a write replaced the server's copy");
