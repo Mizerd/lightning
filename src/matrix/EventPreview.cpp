@@ -57,8 +57,6 @@ static QString decodeHtmlEntities(const QString &text)
 QString htmlPlainText(const QString &html, const QString &placeholder)
 {
     const QString body = stripReplyFallback(html);
-    static const QRegularExpression tag(
-        QStringLiteral("<(/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>"));
     static const QStringList breaking{
         QStringLiteral("br"), QStringLiteral("p"), QStringLiteral("div"),
         QStringLiteral("li"), QStringLiteral("blockquote"),
@@ -67,29 +65,42 @@ QString htmlPlainText(const QString &html, const QString &placeholder)
         QStringLiteral("h6"), QStringLiteral("pre")
     };
     QString out;
-    qsizetype last = 0;
     int spoilerDepth = 0;
-    auto it = tag.globalMatch(body);
-    while (it.hasNext()) {
-        const QRegularExpressionMatch match = it.next();
+    qsizetype pos = 0;
+    while (pos < body.size()) {
+        const qsizetype open = body.indexOf(QLatin1Char('<'), pos);
+        if (open < 0) {
+            if (spoilerDepth == 0)
+                out += QStringView(body).mid(pos);
+            break;
+        }
         if (spoilerDepth == 0)
-            out += QStringView(body).mid(last, match.capturedStart() - last);
-        last = match.capturedEnd();
-        const bool closing = !match.captured(1).isEmpty();
-        const QString name = match.captured(2).toLower();
-        const QString attributes = match.captured(3);
+            out += QStringView(body).mid(pos, open - pos);
+        const qsizetype close = body.indexOf(QLatin1Char('>'), open + 1);
+        if (close < 0) {
+            if (spoilerDepth == 0)
+                out += QStringView(body).mid(open);
+            break;
+        }
+        pos = close + 1;
+        const QStringView tag = QStringView(body).mid(open + 1, close - open - 1);
+        const bool closing = tag.startsWith(QLatin1Char('/'));
+        const QStringView rest = closing ? tag.mid(1) : tag;
+        qsizetype nameEnd = 0;
+        while (nameEnd < rest.size()
+               && (rest.at(nameEnd).isLetterOrNumber() || rest.at(nameEnd) == QLatin1Char('-')))
+            ++nameEnd;
+        if (nameEnd == 0)
+            continue;
+        const QString name = rest.left(nameEnd).toString().toLower();
+        const QStringView attributes = rest.mid(nameEnd);
         if (spoilerDepth > 0) {
-            if (name == QLatin1String("span")) {
-                if (closing)
-                    --spoilerDepth;
-                else if (!attributes.trimmed().endsWith(QLatin1Char('/')))
-                    ++spoilerDepth;
-            }
+            if (name == QLatin1String("span"))
+                spoilerDepth += closing ? -1 : 1;
             continue;
         }
         if (!closing && name == QLatin1String("span")
-            && attributes.contains(QLatin1String("data-mx-spoiler"),
-                                   Qt::CaseInsensitive)) {
+            && attributes.contains(QLatin1String("data-mx-spoiler"), Qt::CaseInsensitive)) {
             out += QLatin1Char(' ') + placeholder + QLatin1Char(' ');
             spoilerDepth = 1;
             continue;
@@ -97,8 +108,6 @@ QString htmlPlainText(const QString &html, const QString &placeholder)
         if (breaking.contains(name))
             out += QLatin1Char('\n');
     }
-    if (spoilerDepth == 0)
-        out += QStringView(body).mid(last);
     return decodeHtmlEntities(out);
 }
 

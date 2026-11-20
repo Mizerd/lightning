@@ -6907,13 +6907,12 @@ pub(crate) fn html_preview_text(html: &str) -> String {
                     if name == "mx-reply" {
                         s.reply = if start { s.reply + 1 } else { s.reply.saturating_sub(1) };
                     } else if s.spoiler > 0 {
-                        if name == "span" && !tag.self_closing {
+                        if name == "span" {
                             s.spoiler = if start { s.spoiler + 1 } else { s.spoiler - 1 };
                         }
                     } else if s.reply == 0 {
                         if start
                             && name == "span"
-                            && !tag.self_closing
                             && tag.attrs.iter().any(|a| a.name.local.as_ref() == "data-mx-spoiler")
                         {
                             s.out.push(' ');
@@ -9695,6 +9694,10 @@ mod preview_text_tests {
                  a <span>nested</span> secret</span> end</li></ul>"
             ),
             "Bold and code:\none\ntwo & \u{2588}\u{2588}\u{2588} end"
+        );
+        assert_eq!(
+            html_preview_text("a <SPAN DATA-MX-SPOILER/>hidden</span> b"),
+            "a \u{2588}\u{2588}\u{2588} b"
         );
         let markdown = MessageType::Text(TextMessageEventContent::markdown("**Bold** and `code`"));
         assert_eq!(message_preview_text(&markdown), "Bold and code");

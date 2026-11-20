@@ -11176,7 +11176,7 @@ fn room_message_event_json(
         .filter(|f| f.format == matrix_sdk::ruma::events::room::message::MessageFormat::Html)
         .map(|f| f.body.as_str());
     let body = match html {
-        Some(html) if html.contains("data-mx-spoiler") => crate::timeline::html_preview_text(html),
+        Some(html) if has_text_spoiler(html) => crate::timeline::html_preview_text(html),
         _ => body,
     };
     let explicit_filename = match row_msgtype {
@@ -11229,9 +11229,13 @@ fn room_message_event_json(
     }))
 }
 
+fn has_text_spoiler(html: &str) -> bool {
+    html.to_ascii_lowercase().contains("data-mx-spoiler")
+}
+
 fn spoiler_safe_body(msgtype: &MessageType) -> String {
     match crate::timeline::msgtype_formatted(msgtype) {
-        Some(f) if f.body.contains("data-mx-spoiler") => crate::timeline::html_preview_text(&f.body),
+        Some(f) if has_text_spoiler(&f.body) => crate::timeline::html_preview_text(&f.body),
         _ => msgtype.body().to_owned(),
     }
 }
@@ -11246,6 +11250,7 @@ fn hide_spoiler_caption(event: &mut serde_json::Value, raw_json: &str) {
     }
     event["body"] = "".into();
     event["formatted_body"] = "".into();
+    event["new_body"] = "".into();
 }
 
 fn trace_remote_edit(stage: &str, event_id: &str, target: &str, encrypted: bool) {
@@ -16115,6 +16120,7 @@ mod tests {
             r#"{"content":{"msgtype":"m.image","body":"caption","m.spoiler":{}}}"#,
         );
         assert_eq!(image["body"], "");
+        assert_eq!(image["new_body"], "");
     }
 
     #[test]

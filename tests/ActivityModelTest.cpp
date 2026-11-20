@@ -124,6 +124,12 @@ private Q_SLOTS:
         QVERIFY2(!preview.contains(QLatin1String("secret")), qPrintable(preview));
         QVERIFY2(!preview.contains(QLatin1String("**")), qPrintable(preview));
         QVERIFY2(preview.startsWith(QLatin1String("Bold and")), qPrintable(preview));
+
+        e.formattedBody = QStringLiteral(
+            "x <span data-mx-spoiler>a <span/> b</span> hidden-tail</span> y");
+        const QString nested = ActivityModel::previewOf(e);
+        QVERIFY2(!nested.contains(QLatin1String("hidden-tail")), qPrintable(nested));
+        QVERIFY2(nested.endsWith(QLatin1String("y")), qPrintable(nested));
     }
 
     void favouritesOnlyKeepsFavouriteRoomsAndFollowsTagChanges()
