@@ -1084,6 +1084,7 @@ struct XcbApi {
     LT_XCB(get_window_attributes_reply) LT_XCB(intern_atom)
     LT_XCB(intern_atom_reply) LT_XCB(poll_for_event) LT_XCB(request_check)
     LT_XCB(screen_next) LT_XCB(setup_roots_iterator)
+    LT_XCB(translate_coordinates) LT_XCB(translate_coordinates_reply)
 #undef LT_XCB
     CompositeCookie (*composite_query_version)(xcb_connection_t *, uint32_t,
                                                uint32_t) = nullptr;
@@ -1149,6 +1150,7 @@ const XcbApi &xcb()
     LT_CORE(get_window_attributes_reply) LT_CORE(intern_atom)
     LT_CORE(intern_atom_reply) LT_CORE(poll_for_event) LT_CORE(request_check)
     LT_CORE(screen_next) LT_CORE(setup_roots_iterator)
+    LT_CORE(translate_coordinates) LT_CORE(translate_coordinates_reply)
     LT_COMP(composite_query_version) LT_COMP(composite_query_version_reply)
     LT_COMP(composite_redirect_window_checked)
     LT_COMP(composite_name_window_pixmap_checked)
@@ -1247,23 +1249,48 @@ QImage windowPixels(xcb_connection_t *c, xcb_window_t w, int *width,
         drawable = w;
         origin = 0;
     }
+    QRect part(0, 0, geo->width, geo->height);
+    if (drawable == w) {
+        // GetImage on an unredirected window fails if any of it is off the root.
+        auto pos = reply(xcb().translate_coordinates_reply(
+            c, xcb().translate_coordinates(c, w, geo->root, 0, 0), nullptr));
+        auto rootGeo = reply(xcb().get_geometry_reply(
+            c, xcb().get_geometry(c, geo->root), nullptr));
+        if (!pos || !rootGeo)
+            return {};
+        const QPoint at(pos->dst_x, pos->dst_y);
+        part = (part.translated(at) & QRect(0, 0, rootGeo->width, rootGeo->height))
+                   .translated(-at);
+        if (part.isEmpty())
+            return {};
+    }
     // shortcut: plain GetImage, no MIT-SHM; add xcb-shm if a large window
     // cannot hold the frame rate.
     auto image = reply(xcb().get_image_reply(
         c,
-        xcb().get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, drawable, origin, origin,
-                      geo->width, geo->height, ~0u),
+        xcb().get_image(c, XCB_IMAGE_FORMAT_Z_PIXMAP, drawable,
+                      static_cast<int16_t>(origin + part.x()),
+                      static_cast<int16_t>(origin + part.y()),
+                      static_cast<uint16_t>(part.width()),
+                      static_cast<uint16_t>(part.height()), ~0u),
         nullptr));
     if (drawable != w)
         xcb().free_pixmap(c, drawable);
     if (!image)
         return {};
-    const int stride = geo->width * 4;
-    if (xcb().get_image_data_length(image.get()) < stride * geo->height)
+    const int stride = part.width() * 4;
+    if (xcb().get_image_data_length(image.get()) < stride * part.height())
         return {};
-    QImage out(xcb().get_image_data(image.get()), geo->width, geo->height, stride,
-               QImage::Format_RGB32);
-    return out.copy();
+    const QImage pixels(xcb().get_image_data(image.get()), part.width(),
+                        part.height(), stride, QImage::Format_RGB32);
+    if (part.size() == QSize(geo->width, geo->height))
+        return pixels.copy();
+    QImage out(geo->width, geo->height, QImage::Format_RGB32);
+    out.fill(Qt::black);
+    for (int y = 0; y < part.height(); ++y)
+        std::memcpy(out.scanLine(part.y() + y) + part.x() * 4,
+                    pixels.constScanLine(y), size_t(stride));
+    return out;
 }
 
 bool redirect(xcb_connection_t *c, xcb_window_t w)
