@@ -64,6 +64,9 @@ QtObject {
         property bool reactionsVisible: true
         property string searchQuery: ""
         property bool favouritesOnly: false
+        property bool unseenOnly: false
+        property int releaseCalls: 0
+        function releaseSeenRows() { releaseCalls += 1 }
         property bool historyUnavailable: false
         property bool activityHasMore: true
         property bool threadPageLoading: false
@@ -302,6 +305,53 @@ private Q_SLOTS:
             ->setProperty("roomFavouritesSupported", false);
         QTRY_VERIFY(!star->isVisible());
         QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void theUnseenToggleScopesTheListAndSaysNothingNew()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        QQuickItem *toggle = findVisualItem(w->contentItem(),
+                                            QStringLiteral("activityUnseenOnly"));
+        QVERIFY(toggle);
+        QVERIFY(toggle->isVisible());
+        QVERIFY(!toggle->property("active").toBool());
+        QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
+        QCOMPARE(f.activity->property("unseenOnly").toBool(), true);
+        QVERIFY(toggle->property("active").toBool());
+
+        QObject *empty = f.panel->findChild<QObject *>(QStringLiteral("activityEmptyState"));
+        QVERIFY(empty);
+        QVERIFY(QMetaObject::invokeMethod(f.activity, "clear"));
+        settle();
+        QVERIFY(empty->property("visible").toBool());
+        QCOMPARE(empty->property("text").toString(), QStringLiteral("Nothing new."));
+
+        f.activity->setProperty("filter", QStringLiteral("threads"));
+        settle();
+        QVERIFY(!toggle->isVisible());
+        f.activity->setProperty("filter", QStringLiteral("all"));
+
+        QMetaObject::invokeMethod(f.panel, "close");
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QCOMPARE(f.activity->property("releaseCalls").toInt(), 1);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void theUnseenOnlyChoiceIsRemembered()
+    {
+        QSettings().clear();
+        {
+            SettingsManager settings;
+            QCOMPARE(settings.activityUnseenOnly(), false);
+            settings.setActivityUnseenOnly(true);
+        }
+        SettingsManager reloaded;
+        QCOMPARE(reloaded.activityUnseenOnly(), true);
+        reloaded.setActivityUnseenOnly(false);
+        QCOMPARE(SettingsManager().activityUnseenOnly(), false);
     }
 
     void searchFieldStaysPutWhenNothingMatches()

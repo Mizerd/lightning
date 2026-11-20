@@ -444,6 +444,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                                m_settings->setActivityState(state);
                            } });
     m_activity->setReadHorizonDays(m_settings->activityReadHorizonDays());
+    m_activity->setUnseenOnly(m_settings->activityUnseenOnly());
+    connect(m_activity.get(), &ActivityModel::unseenOnlyChanged, this, [this] {
+        m_settings->setActivityUnseenOnly(m_activity->unseenOnly());
+    });
     connect(m_settings.get(), &SettingsManager::activityReadHorizonDaysChanged,
             this, [this] {
         m_activity->setReadHorizonDays(m_settings->activityReadHorizonDays());

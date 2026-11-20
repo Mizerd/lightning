@@ -180,6 +180,7 @@ constexpr auto kAccountDismissedSpaceBanners = "dismissedSpaceBanners";
 constexpr auto kLabsConcurrentAccounts = "labs/concurrentAccounts";
 constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
 constexpr auto kActivityReadHorizonDays = "ui/activityReadHorizonDays";
+constexpr auto kActivityUnseenOnly = "ui/activityUnseenOnly";
 
 bool storedTrue(const QVariant &v)
 {
@@ -2308,6 +2309,18 @@ void SettingsManager::setActivityReadHorizonDays(int days)
         return;
     m_store->setValue(QLatin1String(kActivityReadHorizonDays), days);
     Q_EMIT activityReadHorizonDaysChanged();
+}
+
+bool SettingsManager::activityUnseenOnly() const
+{
+    return storedTrue(m_store->value(QLatin1String(kActivityUnseenOnly)));
+}
+
+void SettingsManager::setActivityUnseenOnly(bool on)
+{
+    if (activityUnseenOnly() == on)
+        return;
+    m_store->setValue(QLatin1String(kActivityUnseenOnly), on);
 }
 
 bool SettingsManager::labsConcurrentAccounts() const

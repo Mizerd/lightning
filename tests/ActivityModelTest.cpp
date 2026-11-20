@@ -1264,6 +1264,100 @@ private Q_SLOTS:
         QCOMPARE(h.model.count(), 3);
     }
 
+    void unseenOnlyCombinesWithEveryKindTab()
+    {
+        Harness h;
+        const QStringList kinds{ QStringLiteral("mention"), QStringLiteral("reply"),
+                                 QStringLiteral("thread"), QStringLiteral("reaction"),
+                                 QStringLiteral("invite"), QStringLiteral("keyword") };
+        QVariantList rows;
+        qint64 ts = 1000;
+        for (const QString &kind : kinds) {
+            for (bool read : { false, true }) {
+                rows.append(QVariantMap{
+                    { QStringLiteral("eventId"),
+                      QStringLiteral("$%1-%2").arg(kind, read ? QStringLiteral("seen") : QStringLiteral("new")) },
+                    { QStringLiteral("roomId"), kRoom },
+                    { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                    { QStringLiteral("kind"), kind },
+                    { QStringLiteral("timestampMs"), ts++ },
+                    { QStringLiteral("read"), read } });
+            }
+        }
+        h.model.seed(rows);
+        QCOMPARE(h.model.count(), 12);
+        QCOMPARE(h.model.unseenCount(), 6);
+
+        QSignalSpy toggled(&h.model, &ActivityModel::unseenOnlyChanged);
+        h.model.setProperty("unseenOnly", true);
+        QCOMPARE(toggled.count(), 1);
+        h.model.setUnseenOnly(true);
+        QCOMPARE(toggled.count(), 1);
+        QCOMPARE(h.model.count(), 6);
+        for (int i = 0; i < h.model.count(); ++i)
+            QVERIFY(!h.row(i).value(QStringLiteral("seen")).toBool());
+        QCOMPARE(h.model.unseenCount(), 6);
+
+        const QHash<QString, QString> tabFor{
+            { QStringLiteral("mention"), QStringLiteral("mentions") },
+            { QStringLiteral("reply"), QStringLiteral("replies") },
+            { QStringLiteral("thread"), QStringLiteral("threads") },
+            { QStringLiteral("reaction"), QStringLiteral("reactions") },
+            { QStringLiteral("invite"), QStringLiteral("invites") },
+            { QStringLiteral("keyword"), QStringLiteral("keywords") } };
+        for (const QString &kind : kinds) {
+            h.model.setFilter(tabFor.value(kind));
+            QCOMPARE(h.model.count(), 1);
+            QCOMPARE(h.row(0).value(QStringLiteral("entryId")).toString(),
+                     QStringLiteral("$%1-new").arg(kind));
+            h.model.setUnseenOnly(false);
+            QCOMPARE(h.model.count(), 2);
+            h.model.setUnseenOnly(true);
+        }
+        h.model.setFilter(QStringLiteral("all"));
+        h.model.setUnseenOnly(false);
+        QCOMPARE(h.model.count(), 12);
+        QCOMPARE(h.model.unseenCount(), 6);
+    }
+
+    void aRowMarkedSeenUnderUnseenOnlyStaysUntilReleased()
+    {
+        Harness h;
+        auto mention = [](const QString &id, qint64 ts) {
+            return QVariantMap{ { QStringLiteral("eventId"), id },
+                                { QStringLiteral("roomId"), kRoom },
+                                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                                { QStringLiteral("kind"), QStringLiteral("mention") },
+                                { QStringLiteral("timestampMs"), ts } };
+        };
+        h.model.seed({ mention(QStringLiteral("$a"), 100), mention(QStringLiteral("$b"), 200) });
+        h.model.setUnseenOnly(true);
+        QCOMPARE(h.model.count(), 2);
+
+        h.model.markSeen(QStringLiteral("$b"));
+        QCOMPARE(h.model.unseenCount(), 1);
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), true);
+        h.model.seed({ mention(QStringLiteral("$c"), 300) });
+        QCOMPARE(h.model.count(), 3);
+
+        h.model.releaseSeenRows();
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.row(0).value(QStringLiteral("entryId")).toString(), QStringLiteral("$c"));
+
+        h.model.markSeen(QStringLiteral("$c"));
+        QCOMPARE(h.model.count(), 2);
+        h.model.setFilter(QStringLiteral("mentions"));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("entryId")).toString(), QStringLiteral("$a"));
+
+        h.model.markAllSeen();
+        QCOMPARE(h.model.unseenCount(), 0);
+        QCOMPARE(h.model.count(), 0);
+        h.model.setUnseenOnly(false);
+        QCOMPARE(h.model.count(), 3);
+    }
+
     void theListIsBoundedNewestFirst()
     {
         Harness h;

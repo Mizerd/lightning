@@ -27,6 +27,7 @@ class ActivityModel : public QAbstractListModel
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
     Q_PROPERTY(bool favouritesOnly READ favouritesOnly WRITE setFavouritesOnly
                    NOTIFY favouritesOnlyChanged)
+    Q_PROPERTY(bool unseenOnly READ unseenOnly WRITE setUnseenOnly NOTIFY unseenOnlyChanged)
     Q_PROPERTY(QStringList keywords READ keywords WRITE setKeywords
                    NOTIFY keywordsChanged)
     Q_PROPERTY(bool historyUnavailable READ historyUnavailable
@@ -97,6 +98,9 @@ public:
     void setSearchQuery(const QString &query);
     bool favouritesOnly() const { return m_favouritesOnly; }
     void setFavouritesOnly(bool on);
+    bool unseenOnly() const { return m_unseenOnly; }
+    void setUnseenOnly(bool on);
+    Q_INVOKABLE void releaseSeenRows();
     QString filter() const { return m_filter; }
     void setFilter(const QString &filter);
     QStringList keywords() const { return m_keywords; }
@@ -156,6 +160,7 @@ Q_SIGNALS:
     void reactionsVisibleChanged();
     void searchQueryChanged();
     void favouritesOnlyChanged();
+    void unseenOnlyChanged();
     void keywordsChanged();
     void historyUnavailableChanged();
     void readHorizonDaysChanged();
@@ -232,6 +237,10 @@ private:
     QString m_searchQuery;
     bool m_favouritesOnly = false;
     QSet<QString> m_favouriteRoomIds;
+    bool m_unseenOnly = false;
+    // Rows marked seen under unseenOnly stay listed until releaseSeenRows(),
+    // so the row just opened does not vanish under the pointer.
+    QSet<QString> m_heldSeenIds;
     QString m_filter = QStringLiteral("all");
     bool m_reactionsVisible = true;
     QStringList m_keywords;

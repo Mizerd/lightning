@@ -343,6 +343,7 @@ void ActivityModel::clear()
         Q_EMIT favouritesOnlyChanged();
     }
     m_favouriteRoomIds.clear();
+    m_heldSeenIds.clear();
     m_entries.clear();
     m_visible.clear();
     m_ids.clear();
@@ -536,8 +537,12 @@ void ActivityModel::markAllSeen()
     m_seenUpToMs = std::min(newest, QDateTime::currentMSecsSinceEpoch());
     persistSeenInvites();
     saveStore();
-    if (!m_visible.isEmpty())
+    if (m_unseenOnly) {
+        m_heldSeenIds.clear();
+        rebuildVisible();
+    } else if (!m_visible.isEmpty()) {
         Q_EMIT dataChanged(index(0), index(m_visible.size() - 1), { SeenRole });
+    }
     Q_EMIT unseenCountChanged();
 }
 
@@ -731,6 +736,8 @@ void ActivityModel::markSeen(const QString &id)
         if (e.seenMark)
             return;
         e.seenMark = true;
+        if (m_unseenOnly)
+            m_heldSeenIds.insert(e.id);
         const int row = m_visible.indexOf(i);
         if (row >= 0)
             Q_EMIT dataChanged(index(row), index(row), { SeenRole });
@@ -894,6 +901,7 @@ void ActivityModel::setFilter(const QString &filter)
     if (next == m_filter)
         return;
     m_filter = next;
+    m_heldSeenIds.clear();
     rebuildVisible();
     Q_EMIT filterChanged();
 }
@@ -935,9 +943,30 @@ void ActivityModel::setFavouritesOnly(bool on)
     Q_EMIT favouritesOnlyChanged();
 }
 
+void ActivityModel::setUnseenOnly(bool on)
+{
+    if (m_unseenOnly == on)
+        return;
+    m_unseenOnly = on;
+    m_heldSeenIds.clear();
+    rebuildVisible();
+    Q_EMIT unseenOnlyChanged();
+}
+
+void ActivityModel::releaseSeenRows()
+{
+    if (m_heldSeenIds.isEmpty())
+        return;
+    m_heldSeenIds.clear();
+    if (m_unseenOnly)
+        rebuildVisible();
+}
+
 bool ActivityModel::passesFilter(const Entry &e) const
 {
     if (!passesFavourites(e))
+        return false;
+    if (m_unseenOnly && isSeen(e) && !m_heldSeenIds.contains(e.id))
         return false;
     const QString query = m_searchQuery.trimmed();
     if (!query.isEmpty()

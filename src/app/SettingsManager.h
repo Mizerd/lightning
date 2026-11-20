@@ -494,6 +494,8 @@ public:
     static constexpr int kMaxActivityReadHorizonDays = 3650;
     int activityReadHorizonDays() const;
     void setActivityReadHorizonDays(int days);
+    bool activityUnseenOnly() const;
+    void setActivityUnseenOnly(bool on);
     bool labsConcurrentAccounts() const;
     void setLabsConcurrentAccounts(bool on);
     bool labsConcurrentAccountsWarmSlot() const;

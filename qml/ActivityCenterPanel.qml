@@ -36,7 +36,13 @@ Dialog {
         }
     }
 
-    onClosed: if (activity) activity.searchQuery = ""
+    onClosed: {
+        if (!activity)
+            return
+        activity.searchQuery = ""
+        if (activity.releaseSeenRows)
+            activity.releaseSeenRows()
+    }
 
     function openPanel() {
         openOnFilter("all")
@@ -446,6 +452,25 @@ Dialog {
                 }
             }
             IconButton {
+                objectName: "activityUnseenOnly"
+                Keys.forwardTo: [dialogKeySink]
+                visible: !root.showingThreads
+                storm: true
+                size: "sm"
+                iconName: "radio_button_checked"
+                active: !!root.activity && root.activity.unseenOnly === true
+                Accessible.role: Accessible.CheckBox
+                Accessible.checkable: true
+                Accessible.checked: active
+                Accessible.name: qsTr("Unseen only")
+                ToolTip.text: active ? qsTr("Showing unseen activity only")
+                                     : qsTr("Show unseen activity only")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: if (root.activity)
+                    root.activity.unseenOnly = !root.activity.unseenOnly
+            }
+            IconButton {
                 objectName: "activityFavouritesOnly"
                 Keys.forwardTo: [dialogKeySink]
                 visible: !!app.roomList && app.roomList.roomFavouritesSupported === true
@@ -499,6 +524,8 @@ Dialog {
                     return ""
                 if (root.activity && root.activity.searchQuery.trim().length > 0)
                     return qsTr("No loaded activity matches your search.")
+                if (root.activity.unseenOnly && !root.showingThreads)
+                    return qsTr("Nothing new.")
                 if (root.activity.favouritesOnly)
                     return qsTr("No activity from favourite rooms.")
                 if (root.showingThreads)
