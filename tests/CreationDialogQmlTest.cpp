@@ -732,7 +732,11 @@ private slots:
                 : it->width();
             const QRectF r = it->mapRectToItem(
                 content, QRectF(0, 0, drawn, it->height()));
-            if (r.left() < -0.5 || r.right() > available + 0.5)
+            // Focus rings are drawn 3px outside their control, into the padding.
+            const bool ring = it->inherits("QQuickRectangle")
+                && it->property("color").value<QColor>().alpha() == 0;
+            const qreal slack = ring ? 3.5 : 0.5;
+            if (r.left() < -slack || r.right() > available + slack)
                 out << QStringLiteral("%1 %2 [%3, %4] outside [0, %5]")
                            .arg(QString::fromLatin1(it->metaObject()->className()),
                                 it->objectName())
