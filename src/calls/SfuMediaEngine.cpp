@@ -5822,7 +5822,10 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     const bool tryJpeg =
         !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
     bool dmaBufEntry = false;
-    if (useGpu && screenShare) {
+    const bool x11Capture =
+        source.startsWith(QLatin1String(x11ScreenCaptureElementName()))
+        || source.startsWith(QLatin1String(lightning::wincap::windowCaptureSrcName()));
+    if (useGpu && screenShare && !x11Capture) {
         const QString pipewireVersion = pipewirePluginVersion();
         dmaBufEntry = pipewireSrcKeepsFormatOnRenegotiation(pipewireVersion)
             ? !g_shareDmaBufCaptureFailed.load()

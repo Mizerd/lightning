@@ -150,6 +150,19 @@ private Q_SLOTS:
                      "got:\n%1").arg(log)));
     }
 
+    void callMediaStatusNamesTheShareEncoder()
+    {
+        const Run r = run({ QStringLiteral("--call-media-status") });
+        QVERIFY(r.started);
+        if (!r.out.contains(QStringLiteral("call media engine built in: yes"))
+            || r.out.contains(QStringLiteral("gstreamer: FAILED")))
+            QSKIP("no call media engine in this build");
+        QVERIFY2(QRegularExpression(QStringLiteral(
+                     "(?m)^screen share encoder: \\S+ (cpu|gpu-readback|gpu-zero-copy) "))
+                     .match(r.out).hasMatch(),
+                 qUtf8Printable(r.out));
+    }
+
     void aLogFileBeforeATerminatingFlagStillWorks()
     {
         QTemporaryDir dir;

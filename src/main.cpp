@@ -1766,6 +1766,31 @@ static int printCallMediaStatus()
         << "\n";
 #endif
 
+    {
+        const bool gpu = SfuMediaEngine::shareGpuScalingRequested()
+            && SfuMediaEngine::missingGpuShareElement().isEmpty()
+            && SfuMediaEngine::gpuShareChainUsable();
+        const bool hardwareAsked = SfuMediaEngine::shareHardwareEncodeRequested();
+        const auto hardware = hardwareAsked
+            ? SfuMediaEngine::firstWorkingShareEncoder(
+                  SfuMediaEngine::shareEncoderCandidates(), gpu)
+            : std::nullopt;
+        out << "screen share encoder: "
+            << (hardware ? QLatin1String(hardware->candidate.factory)
+                         : QLatin1String("vp8enc"))
+            << " "
+            << (hardware && gpu && hardware->zeroCopy ? "gpu-zero-copy"
+                : gpu                                 ? "gpu-readback"
+                                                      : "cpu")
+            << (hardware ? " (LIGHTNING_SHARE_ENCODER=hardware)"
+                : hardwareAsked
+                    ? " (LIGHTNING_SHARE_ENCODER=hardware, but no hardware "
+                      "encoder works here)"
+                    : " (default; LIGHTNING_SHARE_ENCODER=hardware tries "
+                      "hardware H.264)")
+            << "\n";
+    }
+
     out << lightning::shareaudio::systemExclusionStatusLine(
                lightning::shareaudio::systemExclusion())
         << "\n";
