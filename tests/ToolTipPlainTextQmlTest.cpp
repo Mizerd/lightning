@@ -120,6 +120,53 @@ private Q_SLOTS:
         }
     }
 
+    void anExplicitPlainToolTipMatchesTheSharedChrome()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+            import QtQuick.Window
+            import MatrixClient
+            Window {
+                width: 400; height: 200; visible: true
+                SharedToolTipGuard { }
+                Item {
+                    id: row
+                    objectName: "row"
+                    width: 200; height: 40
+                    ToolTip.text: "shared"
+                    ToolTip.visible: true
+                    ToolTip.delay: 0
+                    PlainToolTip { objectName: "plain"; text: "plain"; visible: true; delay: 0 }
+                }
+            }
+        )QML", QUrl(QStringLiteral("tooltipchrome.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *row = root->findChild<QQuickItem *>(QStringLiteral("row"));
+        auto *plain = root->findChild<QObject *>(QStringLiteral("plain"));
+        QVERIFY(row && plain);
+        QQmlExpression tipExpr(qmlContext(row), row, QStringLiteral("ToolTip.toolTip"));
+        auto *shared = tipExpr.evaluate().value<QObject *>();
+        QVERIFY(shared);
+        QTRY_VERIFY(shared->property("visible").toBool() && plain->property("visible").toBool());
+        auto *sharedBg = shared->property("background").value<QObject *>();
+        auto *plainBg = plain->property("background").value<QObject *>();
+        QVERIFY(sharedBg && plainBg);
+        QVERIFY(sharedBg->property("radius").toReal() > 0);
+        QCOMPARE(plainBg->property("radius").toReal(), sharedBg->property("radius").toReal());
+        auto *sharedBorder = sharedBg->property("border").value<QObject *>();
+        auto *plainBorder = plainBg->property("border").value<QObject *>();
+        QVERIFY(sharedBorder && plainBorder);
+        QCOMPARE(plainBorder->property("color").value<QColor>(),
+                 sharedBorder->property("color").value<QColor>());
+    }
+
     void theApplicationWindowCarriesTheGuard()
     {
         QFile f(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/Main.qml"));
