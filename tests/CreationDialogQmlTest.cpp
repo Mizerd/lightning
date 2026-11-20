@@ -765,23 +765,21 @@ private slots:
                                 + bad.join(QStringLiteral("; "))));
         };
 
-        openDialog("dm");
-        QTRY_VERIFY(item("dmTab"));
-        check("dm");
-        if (QTest::currentTestFailed())
-            return;
-        closeDialog();
-
         QVariantMap dm;
         dm.insert(QStringLiteral("roomId"), QStringLiteral("!dm:example.org"));
         dm.insert(QStringLiteral("name"), QStringLiteral("Bob Builder"));
         m_fake->dmRooms = { dm };
         openDialog("dm");
-        selectUserFromSearch(QStringLiteral("@bob:example.org"),
-                             QStringLiteral("Bob Builder"));
-        m_fake->dmRooms.clear();
-        if (QTest::currentTestFailed())
+        QTRY_VERIFY(item("dmTab"));
+        check("dm");
+        if (QTest::currentTestFailed()) {
+            m_fake->dmRooms.clear();
             return;
+        }
+        m_dialog->setProperty("selectedUserId", QStringLiteral("@bob:example.org"));
+        m_dialog->setProperty("selectedDisplayName", QStringLiteral("Bob Builder"));
+        conversations()->checkExistingDm(QStringLiteral("@bob:example.org"));
+        m_fake->dmRooms.clear();
         QTRY_VERIFY(item("existingDmRow_0"));
         check("dm existing");
         if (QTest::currentTestFailed())
