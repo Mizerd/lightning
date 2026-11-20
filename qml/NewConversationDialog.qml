@@ -158,6 +158,9 @@ Dialog {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: chip.text
+        ToolTip.text: chip.text
+        ToolTip.visible: chip.hovered && chipLabel.truncated
+        ToolTip.delay: 500
         contentItem: RowLayout {
             id: chipRow
             spacing: AppTheme.spacing4
@@ -167,6 +170,7 @@ Dialog {
                 color: AppTheme.stormTextMuted
             }
             Label {
+                id: chipLabel
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 text: chip.text
