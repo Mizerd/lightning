@@ -1157,7 +1157,9 @@ RoomsPanel { width: %1; height: 700 }
                  "an unselected Archived chip still crowds the strip");
         auto *showArchived = f.item->findChild<QObject *>(QStringLiteral("roomListShowArchivedItem"));
         QVERIFY2(showArchived, "the room list options offer no way into the archive");
-        QTRY_VERIFY(showArchived->property("visible").toBool());
+        auto *optionsMenu = f.item->findChild<QObject *>(QStringLiteral("roomListSortMenu"));
+        QVERIFY(optionsMenu);
+        QTRY_VERIFY(optionsMenu->property("archivedCount").toInt() > 0);
         QVERIFY(QMetaObject::invokeMethod(showArchived, "triggered"));
         QTRY_COMPARE(settings->roomFilterMode(), 5);
         auto *flick = byName(f.item.get(), QStringLiteral("roomFilterChipsFlick"));

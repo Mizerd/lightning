@@ -1113,7 +1113,7 @@ Rectangle {
         IconButton {
             objectName: "compactRoomListArchived"
             Layout.alignment: Qt.AlignHCenter
-            visible: filterChips.archivedShown
+            visible: filterChips.archivedCount > 0 || filterChips.current === 5
             active: app.settings.roomFilterMode === 5
             iconName: "archive"
             Accessible.name: active ? qsTr("Show all rooms")
