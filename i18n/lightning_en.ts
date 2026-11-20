@@ -14396,7 +14396,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>NewConversationDialog</name>
     <message>
-        <location filename="../qml/NewConversationDialog.qml" line="+211"/>
+        <location filename="../qml/NewConversationDialog.qml" line="+213"/>
         <source>Choose a room picture</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14436,27 +14436,27 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+99"/>
         <source>New DM</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Working…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <location line="+1"/>
         <location line="+314"/>
         <source>Cancel</source>

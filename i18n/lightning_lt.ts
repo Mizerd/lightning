@@ -14462,7 +14462,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>NewConversationDialog</name>
     <message>
-        <location filename="../qml/NewConversationDialog.qml" line="+211"/>
+        <location filename="../qml/NewConversationDialog.qml" line="+213"/>
         <source>Choose a room picture</source>
         <translation>Pasirinkite kambario nuotrauką</translation>
     </message>
@@ -14502,27 +14502,27 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įveskite vardą, @user ID arba #kambario adresą – Lightning nustato visa kita.</translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+99"/>
         <source>New DM</source>
         <translation>Naujas DM</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New room</source>
         <translation>Naujas kambarys</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New space</source>
         <translation>Nauja erdvė</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Working…</source>
         <translation>Dirba…</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <location line="+1"/>
         <location line="+314"/>
         <source>Cancel</source>

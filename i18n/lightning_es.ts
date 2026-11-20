@@ -14407,7 +14407,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>NewConversationDialog</name>
     <message>
-        <location filename="../qml/NewConversationDialog.qml" line="+211"/>
+        <location filename="../qml/NewConversationDialog.qml" line="+213"/>
         <source>Choose a room picture</source>
         <translation>Elige una imagen para la sala</translation>
     </message>
@@ -14447,27 +14447,27 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Escribe un nombre, un ID de usuario (@) o una dirección de sala (#): Lightning se encarga del resto.</translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+99"/>
         <source>New DM</source>
         <translation>Nuevo MD</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New room</source>
         <translation>Nueva sala</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New space</source>
         <translation>Nuevo espacio</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Working…</source>
         <translation>Procesando…</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <location line="+1"/>
         <location line="+314"/>
         <source>Cancel</source>

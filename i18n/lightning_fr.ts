@@ -14407,7 +14407,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>NewConversationDialog</name>
     <message>
-        <location filename="../qml/NewConversationDialog.qml" line="+211"/>
+        <location filename="../qml/NewConversationDialog.qml" line="+213"/>
         <source>Choose a room picture</source>
         <translation>Choisir une image de salon</translation>
     </message>
@@ -14447,27 +14447,27 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Saisissez un nom, un identifiant @utilisateur ou une adresse #salon — Lightning se charge du reste.</translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+99"/>
         <source>New DM</source>
         <translation>Nouvelle conversation privée</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New room</source>
         <translation>Nouveau salon</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>New space</source>
         <translation>Nouvel espace</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Working…</source>
         <translation>Traitement…</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <location line="+1"/>
         <location line="+314"/>
         <source>Cancel</source>
