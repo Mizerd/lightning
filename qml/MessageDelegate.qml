@@ -2769,6 +2769,9 @@ Item {
                                 }
                                 }
                             }
+                            // Takes the leftover width so the row packs left
+                            // instead of spreading its cells apart.
+                            Item { Layout.fillWidth: true }
                         }
                     }
                 }
@@ -2799,8 +2802,11 @@ Item {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: restY + headerPush
+                // In the narrow thread panel the bar rides up into the gap
+                // above the row so it covers the header line, not the text.
                 readonly property real restY: root.liftsActionBar
-                    ? AppTheme.spacingXS - height : -3
+                    ? AppTheme.spacingXS - height
+                    : root.inThreadPanel ? Math.min(-3, AppTheme.scaled(20) - height) : -3
                 property real headerPush: 0
                 function refreshHeaderPush() {
                     var view = root.timelineView

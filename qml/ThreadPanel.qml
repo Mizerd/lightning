@@ -758,8 +758,9 @@ Rectangle {
                         objectName: "threadRootDate"
                         visible: rootHeaderRow.showDate
                         text: panel.rootData.timestamp
-                              ? Qt.locale(AppLocale.name).toString(panel.rootData.timestamp,
-                                                  "d MMM hh:mm")
+                              ? Qt.locale(AppLocale.name).toString(panel.rootData.timestamp, "d MMM")
+                                + " " + Qt.formatTime(panel.rootData.timestamp,
+                                                      app.settings.clockTimeFormat)
                               : ""
                         textFormat: Text.PlainText
                         color: AppTheme.textMuted
@@ -1110,8 +1111,17 @@ Rectangle {
                 objectName: "threadReplyList"
                 onWidthChanged: if (app.thread.traceEnabled)
                                     layoutTraceDebounce.restart()
-                onHeightChanged: if (app.thread.traceEnabled)
-                                     layoutTraceDebounce.restart()
+                onHeightChanged: {
+                    if (app.thread.traceEnabled)
+                        layoutTraceDebounce.restart()
+                    // A banner opening below the list shrinks it from the
+                    // bottom; a reader at the end stays at the end.
+                    if (followLatest && count > 0 && !moving)
+                        Qt.callLater(function() {
+                            if (replyList.followLatest)
+                                replyList.pinToEnd()
+                        })
+                }
                 anchors.top: threadSearchRow.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
