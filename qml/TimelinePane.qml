@@ -157,6 +157,8 @@ Rectangle {
     onKeyboardSelectedEventIdChanged: {
         if (!extendingRange)
             rangeAnchorEventId = ""
+        if (keyboardSelectedEventId !== "")
+            timeline.focusedByClick = false
         rememberSelection()
     }
     onResumeSelectedEventIdChanged: rememberSelection()
@@ -3118,7 +3120,15 @@ Rectangle {
                     return false
                 }
 
+                // Set when a click focused the view with no message selected:
+                // printable keys then type into the composer, J/K/U/D included.
+                property bool focusedByClick: false
+                onActiveFocusChanged: if (!activeFocus) focusedByClick = false
                 function navigationAction(key, modifiers) {
+                    if (focusedByClick && root.keyboardSelectedEventId === ""
+                            && (modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)) === 0
+                            && key > 0 && key < Qt.Key_Escape && key !== Qt.Key_Space)
+                        return ""
                     return activeFocus && root.timelineFocusable
                         ? app.shortcuts.messageSelectionActionForKey(key, modifiers)
                         : ""
@@ -4401,6 +4411,14 @@ Rectangle {
                         event.accepted = true
                         return
                     }
+                    if (event.key === Qt.Key_Escape && root.keyboardSelectedEventId !== ""
+                            && event.modifiers === Qt.NoModifier) {
+                        root.resumeSelectedEventId = root.keyboardSelectedEventId
+                        root.keyboardSelectedEventId = ""
+                        root.focusComposerForTyping()
+                        event.accepted = true
+                        return
+                    }
                     var action = navigationAction(event.key, event.modifiers)
                     if (action !== "" && runNavigationAction(action)) {
                         event.accepted = true
@@ -4445,7 +4463,14 @@ Rectangle {
                                 return
                         }
                         messageComposer.cancelPendingFocus()
+                        timeline.stopEntrySelection()
+                        if (root.keyboardSelectedEventId !== ""
+                                && !(point.modifiers & Qt.ShiftModifier)) {
+                            root.resumeSelectedEventId = root.keyboardSelectedEventId
+                            root.keyboardSelectedEventId = ""
+                        }
                         timeline.forceActiveFocus()
+                        timeline.focusedByClick = true
                     }
                 }
 

@@ -12,6 +12,7 @@
 #include <QTemporaryDir>
 
 #include <algorithm>
+#include <cmath>
 
 #include "app/AppController.h"
 #include "app/ForwardController.h"
@@ -1182,6 +1183,64 @@ ApplicationWindow {
         QVERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
     }
 
+    void aClickInTheTimelineThenTypingGoesToTheComposer()
+    {
+        openJoinedRoom();
+        auto *pane = item("timelinePane");
+        auto *list = item("timelineListView");
+        auto *editor = item("composerInput");
+        const QList<QQuickItem *> bodies = bodiesOnScreen();
+        QVERIFY(bodies.size() >= 2);
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, scenePoint(bodies.at(1), 4, 4));
+        QTRY_VERIFY(list->hasActiveFocus());
+        QVERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
+        for (const Qt::Key key : { Qt::Key_J, Qt::Key_U, Qt::Key_S, Qt::Key_T })
+            QTest::keyClick(m_window, key);
+        QTRY_VERIFY(editor->hasActiveFocus());
+        QTRY_COMPARE(editor->property("text").toString(), QStringLiteral("just"));
+        QVERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
+        QVERIFY(!m_controller->thread()->active());
+    }
+
+    void aClickOrEscapeLeavesAKeyboardSelection()
+    {
+        openJoinedRoom();
+        auto *pane = item("timelinePane");
+        auto *list = item("timelineListView");
+        auto *editor = item("composerInput");
+        QTest::keyClick(m_window, Qt::Key_Space, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(list->hasActiveFocus());
+        QTRY_VERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());
+        const QString selected = pane->property("keyboardSelectedEventId").toString();
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(editor->hasActiveFocus());
+        QVERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
+        QCOMPARE(pane->property("resumeSelectedEventId").toString(), selected);
+
+        QTest::keyClick(m_window, Qt::Key_Space, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());
+        const QList<QQuickItem *> bodies = bodiesOnScreen();
+        QVERIFY(bodies.size() >= 2);
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, scenePoint(bodies.at(1), 4, 4));
+        QTRY_VERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
+        QVERIFY(!pane->property("resumeSelectedEventId").toString().isEmpty());
+        QTest::keyClick(m_window, Qt::Key_D);
+        QTest::keyClick(m_window, Qt::Key_O);
+        QTRY_COMPARE(editor->property("text").toString(), QStringLiteral("do"));
+
+        // Deliberate entry from a click-focused view still navigates.
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, scenePoint(bodies.at(1), 4, 4));
+        QTRY_VERIFY(list->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_Space, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());
+        const QString newest = pane->property("keyboardSelectedEventId").toString();
+        QTest::keyClick(m_window, Qt::Key_K);
+        QTRY_VERIFY(pane->property("keyboardSelectedEventId").toString() != newest);
+        QVERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());
+        QCOMPARE(editor->property("text").toString(), QStringLiteral("do"));
+    }
+
     void selectedMessageActionsRunFromTheKeyboard()
     {
         openJoinedRoom();
@@ -1319,6 +1378,64 @@ ApplicationWindow {
         QTRY_VERIFY(!selection->property("active").toBool());
         QVERIFY(last->property("selectedText").toString().isEmpty());
         QVERIFY(first->property("selectedText").toString().isEmpty());
+    }
+
+    void aDragThatAutoScrollsKeepsItsStartMessage_data()
+    {
+        QTest::addColumn<bool>("upward");
+        QTest::newRow("up") << true;
+        QTest::newRow("down") << false;
+    }
+
+    void aDragThatAutoScrollsKeepsItsStartMessage()
+    {
+        QFETCH(bool, upward);
+        openJoinedRoom();
+        auto *list = item("timelineListView");
+        if (!upward) {
+            QVariant maximum;
+            QVERIFY(QMetaObject::invokeMethod(list, "wheelMaxY", Q_RETURN_ARG(QVariant, maximum)));
+            const qreal y = std::min(maximum.toReal(), list->property("contentY").toReal() + 1500);
+            QVERIFY(list->setProperty("contentY", y));
+            QTest::qWait(300);
+        }
+        const QList<QQuickItem *> bodies = bodiesOnScreen();
+        QVERIFY2(bodies.size() >= 2, qPrintable(QString::number(bodies.size())));
+        QQuickItem *start = upward ? bodies.last() : bodies.first();
+        QVERIFY(start->property("length").toInt() > 4);
+        const QPoint press = scenePoint(start, 30, start->height() / 2);
+        const QRectF view = list->mapRectToScene(QRectF(0, 0, list->width(), list->height()));
+        const QPoint edge(press.x(), int(upward ? view.top() + 10 : view.bottom() - 10));
+        const qreal before = list->property("contentY").toReal();
+        QTest::mousePress(m_window, Qt::LeftButton, {}, press);
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(m_window, press + (edge - press) * step / 8);
+        QTest::qWait(500);
+        QTest::mouseRelease(m_window, Qt::LeftButton, {}, edge);
+        QVERIFY2(std::abs(list->property("contentY").toReal() - before) > start->height() + 48,
+                 "the drag auto-scrolled past the start row's height");
+
+        auto *selection = item("timelineDragSelection");
+        QVERIFY(selection->property("active").toBool());
+        QVariant idsValue = selection->property("ids");
+        if (idsValue.userType() == qMetaTypeId<QJSValue>())
+            idsValue = idsValue.value<QJSValue>().toVariant();
+        const QStringList ids = idsValue.toStringList();
+        QVERIFY(ids.size() >= 2);
+        const QString full = m_controller->timeline()->visibleTextForEvent(
+            upward ? ids.last() : ids.first());
+        const QString part = start->property("selectedText").toString()
+                                 .replace(QChar::ParagraphSeparator, u'\n');
+        QVERIFY2(!part.isEmpty(), "the start message keeps its selection");
+        QVERIFY2(part.size() < full.size(), "the start message is selected from the press");
+        QVERIFY(upward ? full.startsWith(part) : full.endsWith(part));
+
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QTRY_VERIFY(!QGuiApplication::clipboard()->text().isEmpty());
+        QVERIFY(upward ? QGuiApplication::clipboard()->text().endsWith(part)
+                       : QGuiApplication::clipboard()->text().contains(part));
+        QTest::keyClick(m_window, Qt::Key_Escape);
     }
 
     void aDragThatStaysInOneMessageSelectsOnlyItsText()
