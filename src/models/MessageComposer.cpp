@@ -329,7 +329,10 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
         auto &entry = entries[row];
-        if (entry.state != QLatin1String("queued"))
+        // sendRequested: already queued behind an earlier Send, so not this
+        // message's; a schedule also leaves a poster-pending row behind.
+        if (entry.state != QLatin1String("queued") || entry.sendRequested
+            || (m_preparingForSchedule && entry.posterPending))
             continue;
         // The plain bytes send has no caption; the room-scoped one takes a
         // caption but no reply target. Spoiler and scheduled sends take both.
@@ -343,12 +346,20 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
     return false;
 }
 
+// {thread root, reply target}: a reply to the root itself is just the thread.
+QPair<QString, QString> MessageComposer::sendTarget() const
+{
+    const QString root = sendThreadRootId();
+    return { root, !root.isEmpty() && m_replyingToEventId == root
+                       ? QString() : m_replyingToEventId };
+}
+
 void MessageComposer::captureSendTarget(AttachmentQueueModel::Entry &entry) const
 {
-    if (!m_replyingToEventId.isEmpty())
-        entry.replyToEventId = m_replyingToEventId;
     // The thread is captured with the reply: a row must not move between
     // the room and a thread if the filter changes before it is sent.
+    if (!m_replyingToEventId.isEmpty())
+        entry.replyToEventId = m_replyingToEventId;
     const QString root = sendThreadRootId();
     if (!root.isEmpty()) {
         entry.threadRootId = root;
@@ -373,7 +384,8 @@ void MessageComposer::dispatchAttachments()
 
 QVariantMap MessageComposer::prepareAttachmentsForSchedule(
     const QString &roomId, const QString &captionBody,
-    const QStringList &mentionIds)
+    const QStringList &mentionIds, const QString &threadRootId,
+    const QString &replyToEventId)
 {
     QVariantList media;
     bool captioned = false;
@@ -382,7 +394,8 @@ QVariantMap MessageComposer::prepareAttachmentsForSchedule(
     if (m_client && !m_roomId.isEmpty() && roomId == m_roomId) {
         const QString caption = captionBody.trimmed();
         m_preparingForSchedule = true;
-        captioned = takeTextAsCaption(caption, mentionIds);
+        // A thread send never folds its text into a caption (takeTextAsCaption).
+        captioned = threadRootId.isEmpty() && takeTextAsCaption(caption, mentionIds);
         auto &entries = m_attachments->entries();
         for (int row = 0; row < entries.size(); ++row) {
             auto &entry = entries[row];
@@ -391,11 +404,14 @@ QVariantMap MessageComposer::prepareAttachmentsForSchedule(
                 || entry.sendRequested)
                 continue;
             entry.sendRequested = true;
-            captureSendTarget(entry);
+            entry.threadRootId = threadRootId;
+            entry.replyToEventId = replyToEventId;
             dispatchAttachment(row);
             if (entry.state != QLatin1String("dispatching")) {
                 // Never left for the pump: it would send it now.
                 entry.sendRequested = false;
+                if (captioned && entry.caption == caption)
+                    entry.caption.clear();
                 continue;
             }
             if (captioned && entry.caption == caption)
@@ -930,13 +946,14 @@ QVariantMap MessageComposer::composedMessage() const
     QString body = expansion.body.trimmed();
     if (m_emojiAutoConvert)
         body = convertUnicodeShortcodesForSend(body);
+    const auto target = sendTarget();
     return QVariantMap{
         { QStringLiteral("body"), body },
         { QStringLiteral("mentionIds"), expansion.userIds },
         { QStringLiteral("bodySpec"), QVariantMap() },
         { QStringLiteral("roomId"), m_roomId },
-        { QStringLiteral("threadRootId"), m_threadRootId },
-        { QStringLiteral("replyToEventId"), m_replyingToEventId },
+        { QStringLiteral("threadRootId"), target.first },
+        { QStringLiteral("replyToEventId"), target.second },
     };
 }
 

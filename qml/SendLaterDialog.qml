@@ -54,7 +54,9 @@ Dialog {
             var prepared = app.composer.prepareAttachmentsForSchedule(
                 message.roomId,
                 message.captionable === true ? message.body : "",
-                message.mentionIds || [])
+                message.mentionIds || [],
+                message.threadRootId || "",
+                message.replyToEventId || "")
             message.media = prepared.media
             if (prepared.captioned)
                 message.body = ""

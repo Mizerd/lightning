@@ -1672,6 +1672,53 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
+    void sendLaterInAnInlineThreadKeepsTheAttachmentAndTextTogether()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        auto *composer = m_controller->composer();
+        const QString root = QStringLiteral("$inline-root:mock.local");
+        composer->setThreadTargetRootId(root);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        composer->setText(QStringLiteral("thread later"));
+        composer->addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("thread.txt"), QByteArrayLiteral("t"))));
+        QTRY_VERIFY(composer->hasAttachments());
+
+        auto *bar = item("composerBar");
+        QVERIFY(QMetaObject::invokeMethod(bar, "openSendLater"));
+        auto *dialog = m_root->findChild<QObject *>(QStringLiteral("sendLaterDialog"));
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
+        QTRY_VERIFY(!composer->hasAttachments());
+
+        QObject *scheduler = m_controller->scheduledSends();
+        QStringList ids;
+        QString mediaRoot = QStringLiteral("<none>");
+        QString textRoot = QStringLiteral("<none>");
+        for (const QVariant &v : scheduler->property("pending").toList()) {
+            const QVariantMap e = v.toMap();
+            if (e.value(QStringLiteral("roomId")).toString()
+                != QLatin1String("!general:mock.local"))
+                continue;
+            ids << e.value(QStringLiteral("id")).toString();
+            if (e.value(QStringLiteral("media")).toString() == QLatin1String("thread.txt"))
+                mediaRoot = e.value(QStringLiteral("threadRootId")).toString();
+            if (e.value(QStringLiteral("body")).toString() == QLatin1String("thread later"))
+                textRoot = e.value(QStringLiteral("threadRootId")).toString();
+        }
+        for (const QString &id : ids)
+            QMetaObject::invokeMethod(scheduler, "cancel", Q_ARG(QString, id));
+        composer->setThreadTargetRootId(QString());
+        QTest::qWait(30);
+        m_controller->setCurrentRoomId(previousRoom);
+        QCOMPARE(mediaRoot, root);
+        QCOMPARE(textRoot, root);
+    }
+
     void aSecondPressOnAPickerButtonClosesItsPanel()
     {
         auto *bar = item("composerBar");

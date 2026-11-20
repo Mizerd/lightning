@@ -91,6 +91,17 @@ public:
     }
     QString lastReplyTo;
     QString lastCaption;
+    QStringList scheduledCaptions;
+    quint64 prepareScheduledMedia(const QString &, const QString &,
+                                  const QString &, const QByteArray &,
+                                  const QString &, const QString &,
+                                  const QString &caption, int, int, qint64, bool,
+                                  bool, const QByteArray &, int, int,
+                                  const QString &) override
+    {
+        scheduledCaptions << caption;
+        return nextOp++;
+    }
     int threadFileSends = 0;
     QString lastThreadRoot;
     quint64 sendThreadAttachment(const QString &, const QString &root,
@@ -906,6 +917,37 @@ private Q_SLOTS:
         QCOMPARE(client.fileSends, 1);
         QCOMPARE(client.lastCaption, QStringLiteral("look at this"));
         QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
+    }
+
+    void sendLaterNeverCaptionsARowAnEarlierSendAlreadyTook()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setSendTextAsCaption(true);
+        QTemporaryDir dir;
+        for (const char *name : { "a.png", "b.png" })
+            composer.addAttachment(QUrl::fromLocalFile(
+                writeFile(dir, QLatin1String(name), tinyPng())));
+        composer.send();
+        // a.png is out; b.png waits behind it as part of that earlier Send.
+        QCOMPARE(client.fileSends, 1);
+        QCOMPARE(composer.attachments()->rowCount(), 2);
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("c.png"), tinyPng())));
+
+        const QVariantMap prepared = composer.prepareAttachmentsForSchedule(
+            QStringLiteral("!room:example.org"), QStringLiteral("later"), {});
+        const QVariantList media = prepared.value(QStringLiteral("media")).toList();
+        QCOMPARE(media.size(), 1);
+        QCOMPARE(client.scheduledCaptions, QStringList{ QStringLiteral("later") });
+        QVERIFY(prepared.value(QStringLiteral("captioned")).toBool());
+
+        Q_EMIT client.attachmentQueueFinished(
+            client.lastOpId, QStringLiteral("!room:example.org"), true, {});
+        QCOMPARE(client.fileSends, 2);
+        QCOMPARE(client.lastCaption, QString());
     }
 
     void aVideoThatWaitsForItsPosterStillCarriesTheReply()

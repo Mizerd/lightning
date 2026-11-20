@@ -9,6 +9,7 @@
 #include "models/VimKeymap.h"
 
 #include <QList>
+#include <QPair>
 #include <QObject>
 #include <QHash>
 #include <QString>
@@ -138,12 +139,14 @@ public:
     Q_INVOKABLE void send();
     Q_INVOKABLE void sendBypassingCommands();
     Q_INVOKABLE QVariantMap composedMessage() const;
-    // Uploads the queued attachments for "Send later"; rows leave the tray
-    // once uploaded. {captioned, media: [{op, fileName, threadRootId,
-    // replyToEventId}]}, ops answered on scheduledMediaPrepared.
+    // Uploads the queued attachments for "Send later" to the target the
+    // composedMessage() snapshot named; rows leave the tray once uploaded.
+    // {captioned, media: [{op, fileName, threadRootId, replyToEventId}]},
+    // ops answered on scheduledMediaPrepared.
     Q_INVOKABLE QVariantMap prepareAttachmentsForSchedule(
         const QString &roomId, const QString &captionBody,
-        const QStringList &mentionIds);
+        const QStringList &mentionIds, const QString &threadRootId = QString(),
+        const QString &replyToEventId = QString());
 
     void setCustomEmojiUseRecorder(std::function<void(const QVariantMap &)> record)
     {
@@ -302,6 +305,7 @@ private:
                                             const QString &html, bool edit);
     void dispatchAttachments();
     void captureSendTarget(AttachmentQueueModel::Entry &entry) const;
+    QPair<QString, QString> sendTarget() const;
     void pumpAttachments();
     void dispatchAttachment(int row);
     void parkAttachments();

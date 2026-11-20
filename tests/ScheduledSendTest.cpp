@@ -881,11 +881,19 @@ private Q_SLOTS:
         Harness h;
         const QString failed = h.scheduler.schedule(
             withMedia(message(kPlain, QString()), { 904 }), nowMs() + 60000);
+        QVERIFY(!failed.isEmpty());
+        QVERIFY(h.entry(failed).value(QStringLiteral("uploading")).toBool());
+        QCOMPARE(h.entry(failed).value(QStringLiteral("media")).toString(),
+                 QStringLiteral("file-904.png"));
         Q_EMIT h.client.scheduledMediaPrepared(904, kPlain, false, false, QString());
         QVERIFY(h.entry(failed).isEmpty());
 
         const QString cancelled = h.scheduler.schedule(
             withMedia(message(kPlain, QString()), { 905 }), nowMs() + 60000);
+        QVERIFY(!cancelled.isEmpty());
+        QVERIFY(h.entry(cancelled).value(QStringLiteral("uploading")).toBool());
+        QCOMPARE(h.entry(cancelled).value(QStringLiteral("media")).toString(),
+                 QStringLiteral("file-905.png"));
         h.scheduler.cancel(cancelled);
         QVERIFY(h.entry(cancelled).isEmpty());
         Q_EMIT h.client.scheduledMediaPrepared(905, kPlain, true, false, kPlainContent);
