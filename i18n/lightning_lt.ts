@@ -456,7 +456,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+62"/>
         <source>You will be signed out of this session. Lightning&apos;s local data for this account is removed from this computer; your messages stay on the server, and encrypted history may need your recovery key after the next sign-in.</source>
-        <translation>Būsite atjungti nuo šios sesijos. Vietiniai šios paskyros „Lightning“ duomenys pašalinami iš šio kompiuterio; jūsų žinutės lieka serveryje, o šifruotai istorijai gali prireikti atkūrimo rakto po kito prisijungimo.</translation>
+        <translation>Būsite atjungti nuo šio seanso. Vietiniai šios paskyros „Lightning“ duomenys pašalinami iš šio kompiuterio; jūsų žinutės lieka serveryje, o šifruotai istorijai gali prireikti atkūrimo rakto po kito prisijungimo.</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
@@ -1550,7 +1550,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+15"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
-        <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
+        <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinio seanso. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+164"/>
@@ -4885,7 +4885,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+77"/>
         <source>Session expired — please sign in again.</source>
-        <translation>Sesija baigėsi – prisijunkite dar kartą.</translation>
+        <translation>Seansas baigėsi – prisijunkite dar kartą.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -4895,7 +4895,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+140"/>
         <source>Session expired during sync.</source>
-        <translation>Sesija baigėsi sinchronizuojant.</translation>
+        <translation>Seansas baigėsi sinchronizuojant.</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -5255,26 +5255,26 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location filename="../src/crypto/CryptoBootstrapModel.cpp" line="+39"/>
         <source>Verify this session to unlock encrypted history.</source>
-        <translation>Patvirtinkite šią sesiją, kad atrakintumėte šifruotą istoriją.</translation>
+        <translation>Patvirtinkite šį seansą, kad atrakintumėte šifruotą istoriją.</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Encryption-key request sent to %n verified session(s).</source>
         <translation>
             <numerusform>Šifravimo rakto užklausa išsiųsta į %n patvirtintą seansą.</numerusform>
-            <numerusform>Šifravimo rakto užklausa išsiųsta į %n patvirtintas sesijas.</numerusform>
+            <numerusform>Šifravimo rakto užklausa išsiųsta į %n patvirtintus seansus.</numerusform>
             <numerusform>Šifravimo rakto užklausa išsiųsta į %n patvirtintų seansų.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Requesting encryption keys from your verified session. Approve the request on your other device if it asks.</source>
-        <translation>Patvirtintos sesijos šifravimo raktų užklausa. Patvirtinkite užklausą kitame įrenginyje, jei jis prašo.</translation>
+        <translation>Prašoma šifravimo raktų iš jūsų patvirtinto seanso. Jei kitas įrenginys paprašys, patvirtinkite užklausą jame.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your verified session has not responded yet. Keep it open and connected — Lightning will request the keys again automatically.</source>
-        <translation>Jūsų patvirtinta sesija dar neatsakė. Laikykite jį atidarytą ir prijungtą – „Lightning“ vėl automatiškai paprašys raktų.</translation>
+        <translation>Jūsų patvirtintas seansas dar neatsakė. Laikykite jį atidarytą ir prijungtą – „Lightning“ vėl automatiškai paprašys raktų.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -5289,7 +5289,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+5"/>
         <source>This session is trusted by your other device, but its own identity check did not complete. Verify this session again — or enter your recovery key.</source>
-        <translation>Šiuo seansu pasitiki kitas įrenginys, bet jo tapatybės patikrinimas nebuvo baigtas. Dar kartą patvirtinkite šią sesiją arba įveskite atkūrimo raktą.</translation>
+        <translation>Šiuo seansu pasitiki kitas įrenginys, bet jo tapatybės patikrinimas nebuvo baigtas. Dar kartą patvirtinkite šį seansą arba įveskite atkūrimo raktą.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -5323,7 +5323,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+3"/>
         <source>Your verified session did not send the encryption keys. Enter your recovery key or passphrase to restore encrypted history.</source>
-        <translation>Jūsų patvirtinta sesija neatsiuntė šifravimo raktų. Įveskite atkūrimo raktą arba slaptafrazę, kad atkurtumėte šifruotą istoriją.</translation>
+        <translation>Jūsų patvirtintas seansas neatsiuntė šifravimo raktų. Įveskite atkūrimo raktą arba slaptafrazę, kad atkurtumėte šifruotą istoriją.</translation>
     </message>
 </context>
 <context>
@@ -5346,17 +5346,17 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+2"/>
         <source>This session is verified and key backup is active.</source>
-        <translation>Ši sesija patvirtinta ir aktyvi rakto atsarginė kopija.</translation>
+        <translation>Šis seansas patvirtintas ir rakto atsarginė kopija aktyvi.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This session is verified.</source>
-        <translation>Ši sesija patvirtinta.</translation>
+        <translation>Šis seansas patvirtintas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This session is not verified yet. Verify it from another session or with a recovery key.</source>
-        <translation>Ši sesija dar nepatvirtinta. Patvirtinkite jį iš kitos sesijos arba naudodami atkūrimo raktą.</translation>
+        <translation>Šis seansas dar nepatvirtintas. Patvirtinkite jį iš kito seanso arba naudodami atkūrimo raktą.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -7223,12 +7223,12 @@ Dydis: %3</translation>
     <message>
         <location line="+11"/>
         <source>Shows read-only views of what the homeserver reports and what your account stores, and adds each person&apos;s sessions to their profile card. Nothing here changes your account.</source>
-        <translation>Rodo tik skaitymui skirtus duomenis apie tai, ką praneša namų serveris ir ką saugo jūsų paskyra, ir prideda kiekvieno žmogaus sesijas į jo profilio kortelę. Niekas čia nekeičia jūsų paskyros.</translation>
+        <translation>Rodo tik skaitymui skirtus duomenis apie tai, ką praneša namų serveris ir ką saugo jūsų paskyra, ir prideda kiekvieno žmogaus seansus į jo profilio kortelę. Niekas čia nekeičia jūsų paskyros.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This session</source>
-        <translation>Ši sesija</translation>
+        <translation>Šis seansas</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -11130,17 +11130,17 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+2"/>
         <location line="+2"/>
         <source>This local session doesn&apos;t match this account</source>
-        <translation>Ši vietinė sesija neatitinka šios paskyros</translation>
+        <translation>Šis vietinis seansas neatitinka šios paskyros</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This device has an incomplete local session</source>
-        <translation>Šio įrenginio vietinė sesija neužbaigta</translation>
+        <translation>Šio įrenginio vietinis seansas neužbaigtas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning&apos;s saved record for this account is missing its device ID and can&apos;t be used to sign back in. Rebuilding the local session is safe — your messages stay on the server.</source>
-        <translation>„Lightning“ išsaugotame šios paskyros įraše trūksta įrenginio ID ir jo negalima naudoti norint vėl prisijungti. Vietinės sesijos atkūrimas yra saugus – jūsų žinutės lieka serveryje.</translation>
+        <translation>„Lightning“ išsaugotame šios paskyros įraše trūksta įrenginio ID ir jo negalima naudoti norint vėl prisijungti. Vietinio seanso atkūrimas yra saugus – jūsų žinutės lieka serveryje.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -11161,7 +11161,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+1"/>
         <source>Rebuild the local session?</source>
-        <translation>Atkurti vietinę sesiją?</translation>
+        <translation>Atkurti vietinį seansą?</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -11176,12 +11176,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+1"/>
         <source>The local encryption store for this device is gone, so this device can&apos;t resume its old session — signing in creates a new device instead. Your messages stay on the server; encrypted history may need your recovery key or another verified device afterwards.</source>
-        <translation>Vietinės šio įrenginio šifravimo saugyklos nebėra, todėl šis įrenginys negali atnaujinti senosios sesijos – prisijungus sukuriamas naujas įrenginys. Jūsų žinutės lieka serveryje; užšifruotai istorijai vėliau gali prireikti atkūrimo rakto arba kito patvirtinto įrenginio.</translation>
+        <translation>Vietinės šio įrenginio šifravimo saugyklos nebėra, todėl šis įrenginys negali atnaujinti senojo seanso – prisijungus sukuriamas naujas įrenginys. Jūsų žinutės lieka serveryje; užšifruotai istorijai vėliau gali prireikti atkūrimo rakto arba kito patvirtinto įrenginio.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>This session was signed out remotely</source>
-        <translation>Ši sesija buvo atsijungta nuotoliniu būdu</translation>
+        <translation>Šis seansas buvo atjungtas nuotoliniu būdu</translation>
     </message>
     <message>
         <location line="-471"/>
@@ -11306,7 +11306,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+22"/>
         <source>More than one local session was found</source>
-        <translation>Rasta daugiau nei viena vietinė sesija</translation>
+        <translation>Rastas daugiau nei vienas vietinis seansas</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -11444,7 +11444,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+12"/>
         <source>Restoring your session…</source>
-        <translation>Atkuriama sesija…</translation>
+        <translation>Atkuriamas seansas…</translation>
     </message>
     <message>
         <location line="+198"/>
@@ -12457,12 +12457,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+6"/>
         <source>You left %1 from another session.</source>
-        <translation>Išėjote iš kambario „%1“ kitoje sesijoje.</translation>
+        <translation>Išėjote iš kambario „%1“ kitame seanse.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You left this room from another session.</source>
-        <translation>Išėjote iš šio kambario kitoje sesijoje.</translation>
+        <translation>Išėjote iš šio kambario kitame seanse.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -13147,7 +13147,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+2"/>
         <source>Sender requires a verified session</source>
-        <translation>Siuntėjas reikalauja patvirtintos sesijos</translation>
+        <translation>Siuntėjas reikalauja patvirtinto seanso</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -16664,7 +16664,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+1"/>
         <source>Sessions</source>
-        <translation>Sesijos</translation>
+        <translation>Seansai</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -16830,7 +16830,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location filename="../qml/RailHiddenActions.qml" line="+18"/>
         <source>Settings — this session is not verified</source>
-        <translation>Nustatymai – ši sesija nepatvirtinta</translation>
+        <translation>Nustatymai – šis seansas nepatvirtintas</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -20049,7 +20049,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+109"/>
         <source>You signed in, but your system keyring is locked or did not accept the sign-in, so Lightning did not keep it. Unlock the keyring and sign in again. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
-        <translation>Prisijungėte, bet jūsų sistemos raktų saugykla užrakinta arba nepriėmė prisijungimo, todėl Lightning jo neišsaugojo. Atrakinkite raktų saugyklą ir prisijunkite dar kartą. Serveris dabar rodo nenaudojamą šio bandymo sesiją; ją galite atjungti skiltyje Sesijos.</translation>
+        <translation>Prisijungėte, bet jūsų sistemos raktų saugykla užrakinta arba nepriėmė prisijungimo, todėl Lightning jo neišsaugojo. Atrakinkite raktų saugyklą ir prisijunkite dar kartą. Serveris dabar rodo nenaudojamą šio bandymo seansą; jį galite atjungti skiltyje Seansai.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -20077,12 +20077,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+50"/>
         <location line="+2691"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
-        <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
+        <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinio seanso. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="-2705"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
-        <translation>Atkurta vietinė Lightning sesija. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
+        <translation>Vietinis Lightning seansas atkurtas. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -20136,17 +20136,17 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+197"/>
         <source>Local Lightning session reset. You can sign in again.</source>
-        <translation>Vietinė Lightning sesija nustatyta iš naujo. Galite prisijungti dar kartą.</translation>
+        <translation>Vietinis Lightning seansas nustatytas iš naujo. Galite prisijungti dar kartą.</translation>
     </message>
     <message>
         <location line="+301"/>
         <source>%1 is already on this device, so this sign-in was not kept and the saved account was not changed. Switch to it from the account menu, or sign in with the full Matrix ID %1. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
-        <translation>Paskyra %1 jau yra šiame įrenginyje, todėl šis prisijungimas nebuvo išsaugotas, o išsaugota paskyra liko nepakeista. Pasirinkite ją paskyrų meniu arba prisijunkite naudodami visą Matrix ID %1. Po šio bandymo serverio sesijų sąraše liko nenaudojama sesija. Ją galite užbaigti skiltyje „Sesijos“.</translation>
+        <translation>Paskyra %1 jau yra šiame įrenginyje, todėl šis prisijungimas nebuvo išsaugotas, o išsaugota paskyra liko nepakeista. Pasirinkite ją paskyrų meniu arba prisijunkite naudodami visą Matrix ID %1. Po šio bandymo serverio seansų sąraše liko nenaudojamas seansas. Jį galite užbaigti skiltyje „Seansai“.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server signed you in as %1, but this device keeps another account&apos;s data where this sign-in was going, so it was not kept and no saved account was changed. Sign in with the full Matrix ID %1. The server now lists an unused session from this attempt; you can sign it out under Sessions after signing in with %1.</source>
-        <translation>Serveris prijungė jus kaip %1, tačiau šiame įrenginyje toje vietoje, kur turėjo būti išsaugotas šis prisijungimas, saugomi kitos paskyros duomenys. Todėl prisijungimas nebuvo išsaugotas ir nė viena išsaugota paskyra nebuvo pakeista. Prisijunkite naudodami visą Matrix ID %1. Po šio bandymo serverio sesijų sąraše liko nenaudojama sesija. Ją galite užbaigti skiltyje „Sesijos“, prisijungę kaip %1.</translation>
+        <translation>Serveris prijungė jus kaip %1, tačiau šiame įrenginyje toje vietoje, kur turėjo būti išsaugotas šis prisijungimas, saugomi kitos paskyros duomenys. Todėl prisijungimas nebuvo išsaugotas ir nė viena išsaugota paskyra nebuvo pakeista. Prisijunkite naudodami visą Matrix ID %1. Po šio bandymo serverio seansų sąraše liko nenaudojamas seansas. Jį galite užbaigti skiltyje „Seansai“, prisijungę kaip %1.</translation>
     </message>
     <message>
         <location line="+85"/>
@@ -20166,7 +20166,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+158"/>
         <source>Matrix session is no longer authorized.</source>
-        <translation>Matrix sesija nebėra autorizuota.</translation>
+        <translation>Matrix seansas nebėra autorizuotas.</translation>
     </message>
     <message>
         <location line="+183"/>
@@ -22316,7 +22316,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+6889"/>
         <location line="+509"/>
         <source>Sessions</source>
-        <translation>Sesijos</translation>
+        <translation>Seansai</translation>
     </message>
     <message>
         <location line="-9229"/>
@@ -22455,7 +22455,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="-9909"/>
         <source>reset danger local session</source>
-        <translation>iš naujo nustatyti pavojaus vietinę sesiją</translation>
+        <translation>iš naujo nustatyti pavojus vietinis seansas</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -22466,7 +22466,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+3"/>
         <location line="+9463"/>
         <source>Current session</source>
-        <translation>Dabartinė sesija</translation>
+        <translation>Dabartinis seansas</translation>
     </message>
     <message>
         <location line="-9462"/>
@@ -22488,7 +22488,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+5"/>
         <location line="+9508"/>
         <source>Verify this session</source>
-        <translation>Patvirtinkite šią sesiją</translation>
+        <translation>Patvirtinkite šį seansą</translation>
     </message>
     <message>
         <location line="-9507"/>
@@ -25020,7 +25020,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+20"/>
         <source>Verify this session again</source>
-        <translation>Dar kartą patvirtinkite šią sesiją</translation>
+        <translation>Dar kartą patvirtinkite šį seansą</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26116,7 +26116,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+485"/>
         <source>Current session verified: %1</source>
-        <translation>Dabartinė sesija patvirtinta: %1</translation>
+        <translation>Dabartinis seansas patvirtintas: %1</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -26126,7 +26126,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+2"/>
         <source>Cross-signing: not complete on this session</source>
-        <translation>Kryžminis pasirašymas: šioje sesijoje nebaigta</translation>
+        <translation>Kryžminis pasirašymas: šiame seanse nebaigtas</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26136,12 +26136,12 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+9"/>
         <source>Key backup: active on this session</source>
-        <translation>Rakto atsarginė kopija: aktyvi šioje sesijoje</translation>
+        <translation>Rakto atsarginė kopija: aktyvi šiame seanse</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Key backup: exists, but this session cannot use it yet</source>
-        <translation>Atsarginė rakto kopija: yra, bet ši sesija dar negali jos naudoti</translation>
+        <translation>Atsarginė rakto kopija: yra, bet šis seansas dar negali jos naudoti</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -26208,7 +26208,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+2"/>
         <source>not verified on this session</source>
-        <translation>nepatvirtinta šioje sesijoje</translation>
+        <translation>nepatvirtinta šiame seanse</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26229,7 +26229,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+2"/>
         <source>missing on this session</source>
-        <translation>trūksta šioje sesijoje</translation>
+        <translation>trūksta šiame seanse</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -26254,7 +26254,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+2"/>
         <source>no verified session to ask</source>
-        <translation>nėra patvirtintos sesijos, kurios būtų galima paklausti</translation>
+        <translation>nėra patvirtinto seanso, kurio būtų galima paklausti</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -26278,7 +26278,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+11"/>
         <source>Verified sessions available: %1</source>
-        <translation>Galimos patvirtintos sesijos: %1</translation>
+        <translation>Galimi patvirtinti seansai: %1</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -26503,7 +26503,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+93"/>
         <source>This session</source>
-        <translation>Ši sesija</translation>
+        <translation>Šis seansas</translation>
     </message>
     <message>
         <location line="+203"/>
@@ -26622,17 +26622,17 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+21"/>
         <source>This Lightning session is verified through Matrix cross-signing.</source>
-        <translation>Ši Lightning sesija patvirtinta naudojant Matrix kryžminį pasirašymą.</translation>
+        <translation>Šis Lightning seansas patvirtintas naudojant Matrix kryžminį pasirašymą.</translation>
     </message>
     <message>
         <location line="+60"/>
         <source>This session is not verified. Verify it to prove it is yours, so your other sessions share encryption keys with it.</source>
-        <translation>Ši sesija nepatvirtinta. Patvirtinkite jį, kad įrodytumėte, kad tai jūsų, kad kiti jūsų seansai su juo bendrintų šifravimo raktus.</translation>
+        <translation>Šis seansas nepatvirtintas. Patvirtinkite jį, kad įrodytumėte, jog jis jūsų, ir kiti jūsų seansai su juo bendrintų šifravimo raktus.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This session is verified through Matrix cross-signing.</source>
-        <translation>Ši sesija patvirtinama naudojant Matrix kryžminį pasirašymą.</translation>
+        <translation>Šis seansas patvirtintas naudojant Matrix kryžminį pasirašymą.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -26642,7 +26642,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+3"/>
         <source>Checking this session&apos;s verification state…</source>
-        <translation>Tikrinama šios sesijos patvirtinimo būsena…</translation>
+        <translation>Tikrinama šio seanso patvirtinimo būsena…</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -26657,7 +26657,7 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
     <message>
         <location line="+16"/>
         <source>Import an encrypted Matrix room-key export from another session. Imported keys may unlock older encrypted messages, but they do not verify this session.</source>
-        <translation>Importuokite šifruotą Matrix kambario rakto eksportą iš kitos sesijos. Importuoti raktai gali atrakinti senesnes šifruotas žinutes, tačiau jie nepatvirtina šios sesijos.</translation>
+        <translation>Importuokite šifruotą Matrix kambario raktų eksportą iš kito seanso. Importuoti raktai gali atrakinti senesnes šifruotas žinutes, tačiau jie nepatvirtina šio seanso.</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -26700,15 +26700,15 @@ Escape ir keli klavišai, kuriuos naudoja pati Lightning, yra rezervuoti. Klavi�
 Imported sessions: %1
 Affected rooms: %2
 Note: importing keys does not verify this session.</source>
-        <translation>kambario rakto importavimas baigtas.
-Importuotos sesijos: %1
+        <translation>Kambario raktų importavimas baigtas.
+Importuoti seansai: %1
 Paveikti kambariai: %2
-Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
+Pastaba: importavus raktus šis seansas nepatvirtinamas.</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Verification establishes trust in this session. Secure Backup and room-key imports provide decryption keys for message history. These are separate operations.</source>
-        <translation>Patvirtinimas sukuria pasitikėjimą šia sesija. Saugus atsarginis kopijavimas ir kambario raktų importavimas suteikia žinučių istorijos iššifravimo raktus. Tai yra atskiros operacijos.</translation>
+        <translation>Patvirtinimas sukuria pasitikėjimą šiuo seansu. Saugus atsarginis kopijavimas ir kambario raktų importavimas suteikia žinučių istorijos iššifravimo raktus. Tai yra atskiros operacijos.</translation>
     </message>
     <message>
         <location line="-10518"/>
@@ -29570,7 +29570,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+984"/>
         <source>Settings — this session is not verified</source>
-        <translation>Nustatymai – ši sesija nepatvirtinta</translation>
+        <translation>Nustatymai – šis seansas nepatvirtintas</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -34029,7 +34029,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-9"/>
         <source>Verify this session</source>
-        <translation>Patvirtinkite šią sesiją</translation>
+        <translation>Patvirtinkite šį seansą</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -34070,7 +34070,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+38"/>
         <source>The session was signed out.</source>
-        <translation>Sesija buvo atsijungta.</translation>
+        <translation>Seansas buvo atjungtas.</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -34108,7 +34108,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+9"/>
         <source>The server requires your account password to sign out the selected session.</source>
-        <translation>Serveris reikalauja paskyros slaptažodžio, kad atsijungtų nuo pasirinktos sesijos.</translation>
+        <translation>Serveris reikalauja paskyros slaptažodžio, kad atjungtų pasirinktą seansą.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -34509,12 +34509,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/UserClientsInfo.qml" line="+40"/>
         <source>Session</source>
-        <translation>Sesija</translation>
+        <translation>Seansas</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Sessions</source>
-        <translation>Sesijos</translation>
+        <translation>Seansai</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -34524,17 +34524,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+1"/>
         <source>Unknown: sessions could not be read.</source>
-        <translation>Nežinoma: nepavyko nuskaityti sesijų.</translation>
+        <translation>Nežinoma: nepavyko nuskaityti seansų.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Unknown: this device has no record of session %1.</source>
-        <translation>Nežinoma: šiame įrenginyje nėra sesijos %1 įrašo.</translation>
+        <translation>Nežinoma: šiame įrenginyje nėra seanso %1 įrašo.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unknown: this device has no session list for this user.</source>
-        <translation>Nežinoma: šiame įrenginyje nėra šio naudotojo sesijų sąrašo.</translation>
+        <translation>Nežinoma: šiame įrenginyje nėra šio naudotojo seansų sąrašo.</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -34544,7 +34544,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+9"/>
         <source>Names are chosen by the account&apos;s owner and are not checked. Lightning does not guess which app a session is.</source>
-        <translation>Pavadinimus parenka paskyros savininkas ir jie netikrinami. Lightning nespėlioja, kokia programa yra sesija.</translation>
+        <translation>Pavadinimus parenka paskyros savininkas ir jie netikrinami. Lightning nespėlioja, kokia programa yra seansas.</translation>
     </message>
 </context>
 <context>
@@ -34611,7 +34611,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+15"/>
         <source>Verify this session</source>
-        <translation>Patvirtinkite šią sesiją</translation>
+        <translation>Patvirtinkite šį seansą</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -34640,7 +34640,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+4"/>
         <source>Scan this code with your other device to verify this session.</source>
-        <translation>Nuskaitykite šį kodą su kitu įrenginiu, kad patvirtintumėte šią sesiją.</translation>
+        <translation>Nuskaitykite šį kodą kitu įrenginiu, kad patvirtintumėte šį seansą.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -34650,12 +34650,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+2"/>
         <source>Verification request sent. Accept it in another session, such as Element.</source>
-        <translation>Patvirtinimo užklausa išsiųsta. Priimkite ją kitoje sesijoje, pvz., programoje Element.</translation>
+        <translation>Patvirtinimo užklausa išsiųsta. Priimkite ją kitame seanse, pvz., programoje Element.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Incoming verification request from %1, session %2</source>
-        <translation>Gauta patvirtinimo užklausa iš %1, sesija %2</translation>
+        <translation>Gauta patvirtinimo užklausa iš %1, seansas %2</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -34670,7 +34670,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+4"/>
         <source>Compare all seven emojis with the other session. Confirm only if every emoji matches in the same order.</source>
-        <translation>Palyginkite visus septynis jaustukus su kita sesija. Patvirtinkite, tik jei visi jaustukai sutampa ta pačia tvarka.</translation>
+        <translation>Palyginkite visus septynis jaustukus su kitu seansu. Patvirtinkite, tik jei visi jaustukai sutampa ta pačia tvarka.</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -34680,7 +34680,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+4"/>
         <source>Verification complete. This session is now verified; Lightning is refreshing the trust state and requesting encryption keys.</source>
-        <translation>Patvirtinimas baigtas. Ši sesija dabar patvirtinta; „Lightning“ atnaujina pasitikėjimo būseną ir prašo šifravimo raktų.</translation>
+        <translation>Patvirtinimas baigtas. Šis seansas dabar patvirtintas; „Lightning“ atnaujina pasitikėjimo būseną ir prašo šifravimo raktų.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -34783,12 +34783,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/VerifySessionPrompt.qml" line="+50"/>
         <source>This session is not verified</source>
-        <translation>Ši sesija nepatvirtinta</translation>
+        <translation>Šis seansas nepatvirtintas</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Verify this session</source>
-        <translation>Patvirtinkite šią sesiją</translation>
+        <translation>Patvirtinkite šį seansą</translation>
     </message>
     <message>
         <location line="+15"/>
