@@ -61,7 +61,7 @@ inline QList<Segment> diff(const QString &before, const QString &after, bool *ok
         ++suf;
     const qsizetype n = a.size() - pre - suf;
     const qsizetype m = b.size() - pre - suf;
-    if (n > 0 && m > 0 && (n + 1) * (m + 1) > kMaxCells) {
+    if (n > 0 && m > 0 && (m >= kMaxCells || n >= kMaxCells / (m + 1))) {
         if (ok)
             *ok = false;
         return {};
@@ -73,7 +73,8 @@ inline QList<Segment> diff(const QString &before, const QString &after, bool *ok
 
     // lcs[i][j] = LCS length of a[pre+i..pre+n) and b[pre+j..pre+m).
     const qsizetype w = m + 1;
-    std::vector<std::uint16_t> lcs(size_t((n + 1) * w), 0);
+    // A one-sided change never reads the table.
+    std::vector<std::uint16_t> lcs(n && m ? size_t((n + 1) * w) : 0, 0);
     for (qsizetype i = n - 1; i >= 0; --i)
         for (qsizetype j = m - 1; j >= 0; --j)
             lcs[i * w + j] = a[pre + i] == b[pre + j]

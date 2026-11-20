@@ -108,6 +108,17 @@ private Q_SLOTS:
                                 QStringLiteral("#ff0000")).isEmpty());
     }
 
+    void cellCountBeyond32BitsIsRejected()
+    {
+        const QString before = QStringLiteral("a ").repeated(32768) + QLatin1Char('a');
+        const QString after = QStringLiteral("b ").repeated(32768) + QLatin1Char('b');
+        bool ok = true;
+        QVERIFY(textdiff::diff(before, after, &ok).isEmpty());
+        QVERIFY(!ok);
+        QCOMPARE(textdiff::diff({}, after), (QList<Segment>{{Op::Added, after}}));
+        QCOMPARE(textdiff::diff(before, {}), (QList<Segment>{{Op::Removed, before}}));
+    }
+
     void htmlEscapesEveryFragment()
     {
         const QString h = textdiff::html(QStringLiteral("<b>x</b> & \"q\""),
