@@ -7643,7 +7643,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7663,7 +7663,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7678,7 +7678,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7688,7 +7688,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8049,7 +8049,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation type="unfinished"></translation>
     </message>

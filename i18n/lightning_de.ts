@@ -7647,7 +7647,7 @@ Größe: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation>Bearbeitungsverlauf</translation>
     </message>
@@ -7667,7 +7667,7 @@ Größe: %3</translation>
         <translation>Das ist möglicherweise unvollständig. Ältere Versionen konnten nicht geladen werden, daher fehlen eventuell die frühesten Fassungen dieser Nachricht.</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation>Original</translation>
     </message>
@@ -7682,7 +7682,7 @@ Größe: %3</translation>
         <translation>Gelöscht</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation>Diese Version konnte nicht entschlüsselt werden.</translation>
     </message>
@@ -7692,7 +7692,7 @@ Größe: %3</translation>
         <translation>Diese Version wurde gelöscht.</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation>Schließen</translation>
     </message>
@@ -8060,7 +8060,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>

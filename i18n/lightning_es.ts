@@ -7647,7 +7647,7 @@ Tamaño: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation>Historial de ediciones</translation>
     </message>
@@ -7667,7 +7667,7 @@ Tamaño: %3</translation>
         <translation>Puede que esté incompleto. No se pudieron cargar las revisiones antiguas, así que puede faltar la primera versión de este mensaje.</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation>Original</translation>
     </message>
@@ -7682,7 +7682,7 @@ Tamaño: %3</translation>
         <translation>Eliminado</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation>No se pudo descifrar esta revisión.</translation>
     </message>
@@ -7692,7 +7692,7 @@ Tamaño: %3</translation>
         <translation>Esta revisión se eliminó.</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation>Cerrar</translation>
     </message>
@@ -8060,7 +8060,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation>Mensaje de voz</translation>
     </message>

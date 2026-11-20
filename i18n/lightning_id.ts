@@ -7615,7 +7615,7 @@ Ukuran: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation>Riwayat suntingan</translation>
     </message>
@@ -7635,7 +7635,7 @@ Ukuran: %3</translation>
         <translation>Ini mungkin tidak lengkap. Revisi lama tidak dapat dimuat, sehingga versi paling awal dari pesan ini mungkin hilang.</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation>Asli</translation>
     </message>
@@ -7650,7 +7650,7 @@ Ukuran: %3</translation>
         <translation>Dihapus</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation>Revisi ini tidak dapat didekripsi.</translation>
     </message>
@@ -7660,7 +7660,7 @@ Ukuran: %3</translation>
         <translation>Revisi ini telah dihapus.</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation>Tutup</translation>
     </message>
@@ -8026,7 +8026,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation>Pesan suara</translation>
     </message>

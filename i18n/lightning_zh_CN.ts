@@ -7615,7 +7615,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation>编辑历史</translation>
     </message>
@@ -7635,7 +7635,7 @@ Size: %3</source>
         <translation>内容可能不完整。较早的修订版本无法加载，因此此消息的最早版本可能缺失。</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation>原始</translation>
     </message>
@@ -7650,7 +7650,7 @@ Size: %3</source>
         <translation>已删除</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation>此修订版本无法解密。</translation>
     </message>
@@ -7660,7 +7660,7 @@ Size: %3</source>
         <translation>此修订版本已被删除。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation>关闭</translation>
     </message>
@@ -8026,7 +8026,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation>语音消息</translation>
     </message>

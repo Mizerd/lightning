@@ -7647,7 +7647,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation>संपादन इतिहास</translation>
     </message>
@@ -7667,7 +7667,7 @@ Size: %3</source>
         <translation>यह अधूरा हो सकता है। पुराने संशोधन लोड नहीं हो सके, इसलिए इस संदेश के सबसे पुराने संस्करण छूट सकते हैं।</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation>मूल</translation>
     </message>
@@ -7682,7 +7682,7 @@ Size: %3</source>
         <translation>हटाया गया</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation>यह संशोधन डिक्रिप्ट नहीं हो सका।</translation>
     </message>
@@ -7692,7 +7692,7 @@ Size: %3</source>
         <translation>यह संशोधन हटाया गया था।</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation>बंद करें</translation>
     </message>
@@ -8060,7 +8060,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation>वॉइस संदेश</translation>
     </message>

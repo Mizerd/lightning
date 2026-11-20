@@ -7645,7 +7645,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation>সম্পাদনার ইতিহাস</translation>
     </message>
@@ -7665,7 +7665,7 @@ Size: %3</source>
         <translation>এটি অসম্পূর্ণ হতে পারে। পুরনো সংস্করণ লোড করা যায়নি, তাই এই বার্তার সবচেয়ে আগের সংস্করণগুলো নাও থাকতে পারে।</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation>মূল</translation>
     </message>
@@ -7680,7 +7680,7 @@ Size: %3</source>
         <translation>মুছে ফেলা হয়েছে</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation>এই সংস্করণ ডিক্রিপ্ট করা যায়নি।</translation>
     </message>
@@ -7690,7 +7690,7 @@ Size: %3</source>
         <translation>এই সংস্করণ মুছে ফেলা হয়েছিল।</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation>বন্ধ করুন</translation>
     </message>
@@ -8051,7 +8051,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation>ভয়েস বার্তা</translation>
     </message>

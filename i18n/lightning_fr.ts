@@ -7647,7 +7647,7 @@ Taille : %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+71"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation>Historique des modifications</translation>
     </message>
@@ -7667,7 +7667,7 @@ Taille : %3</translation>
         <translation>Ce contenu est peut-être incomplet. Les révisions plus anciennes n&apos;ont pas pu être chargées : les toutes premières versions de ce message peuvent manquer.</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+58"/>
         <source>Original</source>
         <translation>Original</translation>
     </message>
@@ -7682,7 +7682,7 @@ Taille : %3</translation>
         <translation>Supprimé</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>This revision could not be decrypted.</source>
         <translation>Cette révision n&apos;a pas pu être déchiffrée.</translation>
     </message>
@@ -7692,7 +7692,7 @@ Taille : %3</translation>
         <translation>Cette révision a été supprimée.</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+23"/>
         <source>Close</source>
         <translation>Fermer</translation>
     </message>
@@ -8060,7 +8060,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2768"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2769"/>
         <source>Voice message</source>
         <translation>Message vocal</translation>
     </message>
