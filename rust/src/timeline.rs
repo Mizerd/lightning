@@ -472,6 +472,13 @@ impl ThreadTally {
         true
     }
 
+    fn root_media_spoiler(&self, root: &EventId) -> bool {
+        self.roots.get(root).is_some_and(|record| {
+            let json = record.raw.deserialize_as::<serde_json::Value>().ok();
+            crate::spoiler::event_spoiler(json.as_ref(), None).is_some()
+        })
+    }
+
     fn corrected(&self, item: &ThreadListItem) -> ThreadListItem {
         let mut out = item.clone();
         let root = &item.root_event.event_id;
@@ -4111,7 +4118,11 @@ fn emit_thread_list_snapshot(
         .iter()
         .map(|item| {
             tally.observe(item, now);
-            thread_list_item_to_json(&tally.corrected(item))
+            let mut json = thread_list_item_to_json(&tally.corrected(item));
+            if tally.root_media_spoiler(&item.root_event.event_id) {
+                json["root_preview"] = spoiler_media_preview(item.root_event.content.as_ref()).into();
+            }
+            json
         })
         .collect();
     drop(tally);
@@ -4131,6 +4142,15 @@ fn emit_thread_list_snapshot(
             "items": items,
         }),
     );
+}
+
+/// A spoiler's caption is hidden with its media, so only the kind is shown.
+fn spoiler_media_preview(content: Option<&TimelineItemContent>) -> String {
+    let kind = match content.and_then(|c| c.as_msglike()).map(|m| &m.kind) {
+        Some(MsgLikeKind::Message(message)) => message_summary(message.msgtype()).kind,
+        _ => "media",
+    };
+    format!("[{kind}]")
 }
 
 fn thread_list_item_to_json(item: &ThreadListItem) -> serde_json::Value {
@@ -6709,10 +6729,107 @@ fn is_emote_content(content: &TimelineItemContent) -> bool {
     )
 }
 
+pub(crate) const SPOILER_MASK: &str = "\u{2588}\u{2588}\u{2588}";
+
+/// Plain text of a message's HTML: rendered text, not Markdown source, with
+/// every spoiler masked and the reply fallback dropped.
+pub(crate) fn html_preview_text(html: &str) -> String {
+    use html5ever::tokenizer::{
+        BufferQueue, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
+    };
+    #[derive(Default)]
+    struct State {
+        out: String,
+        spoiler: usize,
+        reply: usize,
+    }
+    struct Sink(std::cell::RefCell<State>);
+    impl TokenSink for Sink {
+        type Handle = ();
+        fn process_token(&self, token: Token, _: u64) -> TokenSinkResult<()> {
+            let mut s = self.0.borrow_mut();
+            match token {
+                Token::TagToken(tag) => {
+                    let name = tag.name.as_ref();
+                    let start = tag.kind == TagKind::StartTag;
+                    if name == "mx-reply" {
+                        s.reply = if start { s.reply + 1 } else { s.reply.saturating_sub(1) };
+                    } else if s.spoiler > 0 {
+                        if name == "span" && !tag.self_closing {
+                            s.spoiler = if start { s.spoiler + 1 } else { s.spoiler - 1 };
+                        }
+                    } else if s.reply == 0 {
+                        if start
+                            && name == "span"
+                            && !tag.self_closing
+                            && tag.attrs.iter().any(|a| a.name.local.as_ref() == "data-mx-spoiler")
+                        {
+                            s.out.push(' ');
+                            s.out.push_str(SPOILER_MASK);
+                            s.out.push(' ');
+                            s.spoiler = 1;
+                        } else if matches!(
+                            name,
+                            "br" | "p" | "div" | "li" | "blockquote" | "tr" | "pre" | "ul" | "ol"
+                                | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+                        ) {
+                            s.out.push('\n');
+                        }
+                    }
+                }
+                Token::CharacterTokens(text) if s.spoiler == 0 && s.reply == 0 => {
+                    s.out.push_str(&text);
+                }
+                _ => {}
+            }
+            TokenSinkResult::Continue
+        }
+    }
+    let mut input = BufferQueue::default();
+    input.push_back(tendril::StrTendril::from(html));
+    let tokenizer = Tokenizer::new(Sink(Default::default()), TokenizerOpts::default());
+    let _ = tokenizer.feed(&mut input);
+    tokenizer.end();
+    let out = tokenizer.sink.0.into_inner().out;
+    let lines: Vec<String> = out
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines.join("\n")
+}
+
+pub(crate) fn msgtype_formatted(msgtype: &MessageType) -> Option<&FormattedBody> {
+    match msgtype {
+        MessageType::Text(c) => c.formatted.as_ref(),
+        MessageType::Notice(c) => c.formatted.as_ref(),
+        MessageType::Emote(c) => c.formatted.as_ref(),
+        MessageType::Image(c) => c.formatted.as_ref(),
+        MessageType::Video(c) => c.formatted.as_ref(),
+        MessageType::Audio(c) => c.formatted.as_ref(),
+        MessageType::File(c) => c.formatted.as_ref(),
+        _ => None,
+    }
+}
+
+/// A message's preview line: the rendered text when it carries HTML.
+pub(crate) fn message_preview_text(msgtype: &MessageType) -> String {
+    let summary = message_summary(msgtype);
+    match msgtype_formatted(msgtype) {
+        Some(formatted)
+            if formatted.format == MessageFormat::Html
+                && summary.text == msgtype.body() =>
+        {
+            html_preview_text(&formatted.body)
+        }
+        _ => summary.text,
+    }
+}
+
 fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
     let text = match content {
         TimelineItemContent::MsgLike(msg_like) => match &msg_like.kind {
-            MsgLikeKind::Message(message) => message_summary(message.msgtype()).text,
+            MsgLikeKind::Message(message) => message_preview_text(message.msgtype()),
             MsgLikeKind::Redacted => "[message deleted]".to_owned(),
             MsgLikeKind::UnableToDecrypt(_) => "[unable to decrypt]".to_owned(),
             MsgLikeKind::Sticker(_) => "[sticker]".to_owned(),
@@ -9405,6 +9522,32 @@ mod gallery_tests {
         fill_message_media(&mut out, &wire.msgtype, "$cap");
         assert_eq!(out["body"], "look at this");
         assert_eq!(out["media_filename"], "cat.png");
+    }
+}
+
+#[cfg(test)]
+mod preview_text_tests {
+    use super::{html_preview_text, message_preview_text};
+    use matrix_sdk::ruma::events::room::message::{MessageType, TextMessageEventContent};
+
+    #[test]
+    fn a_spoiler_is_masked_and_markdown_is_shown_rendered() {
+        assert_eq!(
+            html_preview_text("Spoiler first: <span data-mx-spoiler=\"\">hidden-word</span> then visible tail"),
+            "Spoiler first: \u{2588}\u{2588}\u{2588} then visible tail"
+        );
+        assert_eq!(
+            html_preview_text(
+                "<mx-reply><blockquote>quoted</blockquote></mx-reply><p><strong>Bold</strong> and \
+                 <code>code</code>:</p><ul><li>one</li><li>two &amp; <span data-mx-spoiler>\
+                 a <span>nested</span> secret</span> end</li></ul>"
+            ),
+            "Bold and code:\none\ntwo & \u{2588}\u{2588}\u{2588} end"
+        );
+        let markdown = MessageType::Text(TextMessageEventContent::markdown("**Bold** and `code`"));
+        assert_eq!(message_preview_text(&markdown), "Bold and code");
+        let plain = MessageType::Text(TextMessageEventContent::plain("**not markdown**"));
+        assert_eq!(message_preview_text(&plain), "**not markdown**");
     }
 }
 

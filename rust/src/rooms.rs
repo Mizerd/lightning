@@ -7151,10 +7151,18 @@ pub(crate) fn activity_seed_entry(
     };
     let (body, msgtype): (String, &str) = match event_type {
         "m.room.message" => (
-            crate::timeline::strip_reply_fallback(shown["body"].as_str().unwrap_or_default())
-                .chars()
-                .take(200)
-                .collect(),
+            match shown["formatted_body"].as_str() {
+                Some(html) if shown["format"] == "org.matrix.custom.html" => {
+                    crate::timeline::html_preview_text(html)
+                }
+                _ => crate::timeline::strip_reply_fallback(
+                    shown["body"].as_str().unwrap_or_default(),
+                )
+                .to_owned(),
+            }
+            .chars()
+            .take(200)
+            .collect(),
             shown["msgtype"].as_str().unwrap_or_default(),
         ),
         "m.sticker" => (String::new(), "m.sticker"),

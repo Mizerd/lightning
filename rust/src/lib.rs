@@ -11103,6 +11103,13 @@ fn room_message_event_json(
         }
         None => content.body().to_owned(),
     };
+    let html = crate::timeline::msgtype_formatted(&content.msgtype)
+        .filter(|f| f.format == matrix_sdk::ruma::events::room::message::MessageFormat::Html)
+        .map(|f| f.body.as_str());
+    let body = match html {
+        Some(html) if html.contains("data-mx-spoiler") => crate::timeline::html_preview_text(html),
+        _ => body,
+    };
     let explicit_filename = match row_msgtype {
         MessageType::File(content) => content.filename.as_deref(),
         MessageType::Image(content) => content.filename.as_deref(),
@@ -11126,7 +11133,7 @@ fn room_message_event_json(
     let (replaces_event_id, new_body) = match &content.relates_to {
         Some(Relation::Replacement(replacement)) => (
             replacement.event_id.to_string(),
-            replacement.new_content.msgtype.body().to_owned(),
+            spoiler_safe_body(&replacement.new_content.msgtype),
         ),
         _ => (String::new(), String::new()),
     };
@@ -11135,6 +11142,7 @@ fn room_message_event_json(
         "event_id": event_id.to_string(),
         "sender": sender.to_string(),
         "body": body,
+        "formatted_body": html.unwrap_or_default(),
         "media_filename": media_filename,
         "msgtype": kind,
         "media_voice": message_is_voice(row_msgtype),
@@ -11150,6 +11158,25 @@ fn room_message_event_json(
         "new_body": new_body,
         "decrypted": is_encrypted,
     }))
+}
+
+fn spoiler_safe_body(msgtype: &MessageType) -> String {
+    match crate::timeline::msgtype_formatted(msgtype) {
+        Some(f) if f.body.contains("data-mx-spoiler") => crate::timeline::html_preview_text(&f.body),
+        _ => msgtype.body().to_owned(),
+    }
+}
+
+/// MSC4193 spoiler media keeps its caption hidden with it.
+fn hide_spoiler_caption(event: &mut serde_json::Value, raw_json: &str) {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw_json) else { return };
+    if crate::spoiler::event_spoiler(Some(&value), None).is_none()
+        || matches!(event["msgtype"].as_str(), Some("text" | "notice" | "emote" | "poll"))
+    {
+        return;
+    }
+    event["body"] = "".into();
+    event["formatted_body"] = "".into();
 }
 
 fn trace_remote_edit(stage: &str, event_id: &str, target: &str, encrypted: bool) {
@@ -11288,6 +11315,7 @@ async fn decrypted_event_json(
         ),
         _ => return None,
     };
+    hide_spoiler_caption(&mut event, raw.json().get());
     if let Some(object) = event.as_object_mut() {
         object.insert("backlog".to_owned(), backlog.into());
     }
@@ -11639,6 +11667,7 @@ fn install_event_handlers(
                 ) else {
                     return;
                 };
+                hide_spoiler_caption(&mut event, raw.get());
                 mark_sync_backlog(
                     &notify,
                     &mut event,
@@ -14189,16 +14218,18 @@ pub(crate) fn raw_event_preview_line(
                 Some(Relation::Replacement(replacement)) => replacement.new_content.msgtype,
                 _ => message.content.msgtype,
             };
+            let media_spoiler = || {
+                let value = raw.deserialize_as::<serde_json::Value>().ok();
+                crate::spoiler::event_spoiler(value.as_ref(), None).is_some()
+            };
             match msgtype {
-                MessageType::Text(content) => {
-                    one_line(crate::timeline::strip_reply_fallback(&content.body))
+                MessageType::Text(_) | MessageType::Notice(_) | MessageType::Emote(_) => {
+                    one_line(crate::timeline::strip_reply_fallback(&spoiler_safe_body(&msgtype)))
                 }
-                MessageType::Notice(content) => {
-                    one_line(crate::timeline::strip_reply_fallback(&content.body))
-                }
-                MessageType::Emote(content) => {
-                    one_line(crate::timeline::strip_reply_fallback(&content.body))
-                }
+                MessageType::Image(_) if media_spoiler() => kind_preview("image", ""),
+                MessageType::Video(_) if media_spoiler() => kind_preview("video", ""),
+                MessageType::Audio(_) if media_spoiler() => kind_preview("audio", ""),
+                MessageType::File(_) if media_spoiler() => kind_preview("file", ""),
                 MessageType::Image(content) => body_or(
                     one_line(crate::timeline::strip_reply_fallback(&content.body)),
                     "image",
@@ -15877,6 +15908,36 @@ mod tests {
     }
 
     #[test]
+    fn a_synced_spoiler_does_not_reach_the_ui_in_its_body() {
+        use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
+        let content = RoomMessageEventContent::text_html(
+            "plain leaks the secret",
+            "visible <span data-mx-spoiler>secret</span> tail",
+        );
+        let event = super::room_message_event_json(
+            &content,
+            matrix_sdk::ruma::event_id!("$e:x"),
+            matrix_sdk::ruma::user_id!("@them:x"),
+            1,
+            matrix_sdk::ruma::user_id!("@me:x"),
+            false,
+        )
+        .unwrap();
+        assert_eq!(event["body"], "visible \u{2588}\u{2588}\u{2588} tail");
+        assert!(event["formatted_body"].as_str().unwrap().contains("data-mx-spoiler"));
+    }
+
+    #[test]
+    fn a_synced_spoiler_image_does_not_carry_its_caption() {
+        let mut image = serde_json::json!({ "msgtype": "image", "body": "caption", "formatted_body": "" });
+        super::hide_spoiler_caption(
+            &mut image,
+            r#"{"content":{"msgtype":"m.image","body":"caption","m.spoiler":{}}}"#,
+        );
+        assert_eq!(image["body"], "");
+    }
+
+    #[test]
     fn an_encrypted_room_with_a_real_mention_still_shows_it() {
         assert_eq!(super::unread_and_highlight_counts(true, 3, 2, 3, 0), (3, 2));
     }
@@ -16562,6 +16623,29 @@ mod latest_event_preview_tests {
             latest_event_preview_text(&quote_only),
             "> <@a:b.c> quoted no separator"
         );
+    }
+
+    #[test]
+    fn a_spoiler_is_masked_in_the_room_preview() {
+        let value = remote(
+            json!({
+                "msgtype": "m.text",
+                "body": "Secret: the cake is a lie",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "Secret: <span data-mx-spoiler>the cake is a lie</span>",
+            }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&value), "Secret: \u{2588}\u{2588}\u{2588}");
+        let image = remote(
+            json!({
+                "msgtype": "m.image", "body": "the hidden caption", "filename": "a.png",
+                "url": "mxc://example.org/i",
+                "page.codeberg.everypizza.msc4193.spoiler": true,
+            }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&image), "Image");
     }
 
     #[test]

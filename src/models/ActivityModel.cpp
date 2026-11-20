@@ -1102,6 +1102,9 @@ QString ActivityModel::previewOf(const TimelineEvent &event)
     case TimelineEvent::Poll: return collapse(event.pollQuestion);
     default: break;
     }
+    if (!event.formattedBody.isEmpty())
+        return collapse(matrix::preview::htmlPlainText(
+            event.formattedBody, QStringLiteral("\u2588\u2588\u2588")));
     return collapse(matrix::preview::stripReplyFallback(event.body));
 }
 

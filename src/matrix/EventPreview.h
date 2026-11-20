@@ -59,4 +59,7 @@ QString normalizePreviewText(const QString &text, int maxChars = 120);
 
 QString stripReplyFallback(const QString &body);
 
+// Text of formatted HTML with each spoiler replaced by `placeholder`.
+QString htmlPlainText(const QString &html, const QString &placeholder);
+
 }

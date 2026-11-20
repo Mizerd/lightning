@@ -201,7 +201,8 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
         inner += recovered.text.mid(pos).toHtmlEscaped();
         const QString html = QStringLiteral("<span data-mx-spoiler>") + inner
             + QStringLiteral("</span>");
-        actions.send(recovered.text, mentionIds,
+        // The spec's fallback: body must not carry the hidden text.
+        actions.send(QStringLiteral("[Spoiler]"), mentionIds,
                      { { QStringLiteral("format"), QStringLiteral("html") },
                        { QStringLiteral("html"), html } });
         return done();

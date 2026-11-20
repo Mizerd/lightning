@@ -293,7 +293,7 @@ private Q_SLOTS:
         m_composer->send();
         QCOMPARE(m_client->sends.size(), 1);
         const SendRecord &s = m_client->sends.first();
-        QCOMPARE(s.body, QStringLiteral("ends <b>badly</b>"));
+        QCOMPARE(s.body, QStringLiteral("[Spoiler]"));
         QCOMPARE(s.spec.value(QStringLiteral("format")).toString(),
                  QStringLiteral("html"));
         QCOMPARE(s.spec.value(QStringLiteral("html")).toString(),

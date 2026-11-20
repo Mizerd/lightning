@@ -113,6 +113,19 @@ class ActivityModelTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void aPreviewShowsRenderedTextWithSpoilersMasked()
+    {
+        TimelineEvent e;
+        e.type = TimelineEvent::TextMessage;
+        e.body = QStringLiteral("**Bold** and the secret");
+        e.formattedBody = QStringLiteral(
+            "<strong>Bold</strong> and <span data-mx-spoiler>the secret</span>");
+        const QString preview = ActivityModel::previewOf(e);
+        QVERIFY2(!preview.contains(QLatin1String("secret")), qPrintable(preview));
+        QVERIFY2(!preview.contains(QLatin1String("**")), qPrintable(preview));
+        QVERIFY2(preview.startsWith(QLatin1String("Bold and")), qPrintable(preview));
+    }
+
     void favouritesOnlyKeepsFavouriteRoomsAndFollowsTagChanges()
     {
         Harness h;
