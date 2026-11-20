@@ -1105,6 +1105,10 @@ RoomsPanel { width: 260; height: 700 }
         const QString roomId = rooms->data(rooms->index(rooms->rowCount() - 1),
                                            RoomListModel::RoomIdRole).toString();
         rooms->setRoomArchived(roomId, true);
+        auto *settings = f.controller->settings();
+        const int filterBefore = settings->roomFilterMode();
+        const auto restoreFilter = qScopeGuard([&] { settings->setRoomFilterMode(filterBefore); });
+        settings->setRoomFilterMode(5);
         auto *flick = byName(f.item.get(), QStringLiteral("roomFilterChipsFlick"));
         auto *right = byName(f.item.get(), QStringLiteral("roomFilterChipsMoreRight"));
         QVERIFY(flick && right);
@@ -1146,6 +1150,16 @@ RoomsPanel { width: %1; height: 700 }
             rooms->setRoomArchived(roomId, false);
         });
         rooms->setRoomArchived(roomId, true);
+        settings->setRoomFilterMode(0);
+        QTest::qWait(50);
+        auto *archivedChip = byName(f.item.get(), QStringLiteral("roomFilterChips_5"));
+        QVERIFY2(!archivedChip || !archivedChip->isVisible(),
+                 "an unselected Archived chip still crowds the strip");
+        auto *showArchived = f.item->findChild<QObject *>(QStringLiteral("roomListShowArchivedItem"));
+        QVERIFY2(showArchived, "the room list options offer no way into the archive");
+        QTRY_VERIFY(showArchived->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(showArchived, "triggered"));
+        QTRY_COMPARE(settings->roomFilterMode(), 5);
         auto *flick = byName(f.item.get(), QStringLiteral("roomFilterChipsFlick"));
         auto *left = byName(f.item.get(), QStringLiteral("roomFilterChipsMoreLeft"));
         auto *right = byName(f.item.get(), QStringLiteral("roomFilterChipsMoreRight"));
