@@ -109,6 +109,7 @@ private Q_SLOTS:
     void aCancelledVerificationRequestDropsItsCard();
     void aHostRetiredMidTickShiftsNoOtherHost();
     void aBackgroundEventFeedsTheUnifiedInboxUnderItsOwnAccount();
+    void inboxEditsRequireTheOriginalRoomAndSender();
     void caughtUpHistoryReachesTheInboxOnlyWhileItsRoomIsUnread();
 
 private:
@@ -751,6 +752,52 @@ void BackgroundHostTest::aBackgroundEventFeedsTheUnifiedInboxUnderItsOwnAccount(
     QCOMPARE(m_inbox->count(), 0);
 }
 
+
+void BackgroundHostTest::inboxEditsRequireTheOriginalRoomAndSender()
+{
+    m_settings->setActiveAccountUserId(kBob);
+    m_activity->setActiveUserId(kBob);
+    auto host = makeHost(kAlice, QStringLiteral("Alice"));
+    m_activity->setLiveState(kAlice, AccountActivityModel::Running);
+    const QString room = QStringLiteral("!inbox:example.org");
+    const QString sender = QStringLiteral("@carol:example.org");
+    auto deliver = [&](const QJsonObject &payload) {
+        m_fake->pushEvent(handleOf(*host), payload);
+        host->drainOnce();
+    };
+    auto edit = [&](const QString &where, const QString &who) {
+        auto payload = timelineEvent(where, QStringLiteral("$edit"), who, true);
+        auto event = payload.value(QStringLiteral("event")).toObject();
+        event.insert(QStringLiteral("replaces_event_id"), QStringLiteral("$original"));
+        event.insert(QStringLiteral("mentions_me"), true);
+        event.insert(QStringLiteral("body"), QStringLiteral("edited"));
+        payload.insert(QStringLiteral("event"), event);
+        deliver(payload);
+    };
+    edit(room, sender);
+    QCOMPARE(m_inbox->count(), 1);
+    QCOMPARE(m_inbox->entryAt(0).value(QStringLiteral("eventId")).toString(),
+             QStringLiteral("$edit"));
+    deliver(QJsonObject{{QStringLiteral("type"), QStringLiteral("event_redacted")},
+                        {QStringLiteral("room_id"), room}, {QStringLiteral("redacts"), QStringLiteral("$edit")}});
+    QCOMPARE(m_inbox->count(), 0);
+    for (const auto &redacts : {QStringLiteral("$edit"), QStringLiteral("$original")}) {
+        deliver(timelineEvent(room, QStringLiteral("$original"), sender, true));
+        edit(room, QStringLiteral("@eve:example.org"));
+        edit(QStringLiteral("!other:example.org"), sender);
+        QCOMPARE(m_inbox->entryAt(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("fixture body"));
+        edit(room, sender);
+        QCOMPARE(m_inbox->count(), 1);
+        QCOMPARE(m_inbox->entryAt(0).value(QStringLiteral("eventId")).toString(),
+                 QStringLiteral("$original"));
+        QCOMPARE(m_inbox->entryAt(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("edited"));
+        deliver(QJsonObject{{QStringLiteral("type"), QStringLiteral("event_redacted")},
+                            {QStringLiteral("room_id"), room}, {QStringLiteral("redacts"), redacts}});
+        QCOMPARE(m_inbox->count(), 0);
+    }
+}
 
 void BackgroundHostTest::caughtUpHistoryReachesTheInboxOnlyWhileItsRoomIsUnread()
 {

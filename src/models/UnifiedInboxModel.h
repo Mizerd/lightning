@@ -58,6 +58,7 @@ public:
         bool undecryptable = false;
         // Older than the account's catch-up floor: kept only while its room is unread.
         bool backlog = false;
+        QString editId;
     };
 
     static constexpr int kMaxEntries = 100;
@@ -72,10 +73,12 @@ public:
     QHash<int, QByteArray> roleNames() const override;
     int count() const { return int(m_entries.size()); }
 
-    // A second copy of an event (its late decryption) replaces the first.
-    bool add(quint64 epoch, const Entry &entry);
+    // A second copy of an event (its late decryption) replaces the first; an
+    // edit updates its original's row only when the room and sender match.
+    bool add(quint64 epoch, const Entry &entry, const QString &replaces = {});
     void dropAccount(const QString &uid);
     void dropRoom(const QString &uid, const QString &roomId);
+    void dropRoomPlaceholder(const QString &uid, const QString &roomId, const QString &eventId);
     void dropEvent(const QString &uid, const QString &eventId);
     void dropBacklogOutside(const QString &uid, const QSet<QString> &unreadRooms);
 

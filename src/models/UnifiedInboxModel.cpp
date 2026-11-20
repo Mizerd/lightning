@@ -74,19 +74,36 @@ bool UnifiedInboxModel::accepts(const QString &uid, quint64 epoch) const
     return !m_epochOf || m_epochOf(uid) == epoch;
 }
 
-bool UnifiedInboxModel::add(quint64 epoch, const Entry &entry)
+bool UnifiedInboxModel::add(quint64 epoch, const Entry &entry, const QString &replaces)
 {
     if (entry.roomId.isEmpty() || entry.eventId.isEmpty()
         || !accepts(entry.accountUserId, epoch))
         return false;
+    for (int i = 0; !replaces.isEmpty() && i < m_entries.size(); ++i) {
+        Entry &old = m_entries[i];
+        if (old.accountUserId != entry.accountUserId || old.eventId != replaces)
+            continue;
+        if (old.roomId != entry.roomId || old.senderId.isEmpty() || old.senderId != entry.senderId)
+            return false;
+        old.editId = entry.eventId;
+        old.preview = entry.preview;
+        old.highlight = entry.highlight;
+        old.undecryptable = entry.undecryptable;
+        const QModelIndex idx = index(i, 0);
+        Q_EMIT dataChanged(idx, idx);
+        return true;
+    }
+    // An edit of an unknown original keeps its own identity.
     for (int i = 0; i < m_entries.size(); ++i) {
         Entry &old = m_entries[i];
-        if (old.accountUserId == entry.accountUserId && old.eventId == entry.eventId) {
-            old = entry;
-            const QModelIndex idx = index(i, 0);
-            Q_EMIT dataChanged(idx, idx);
-            return true;
-        }
+        if (old.accountUserId != entry.accountUserId || old.eventId != entry.eventId)
+            continue;
+        if (!old.editId.isEmpty())
+            return false;
+        old = entry;
+        const QModelIndex idx = index(i, 0);
+        Q_EMIT dataChanged(idx, idx);
+        return true;
     }
     int at = 0;
     while (at < m_entries.size() && m_entries.at(at).timestampMs >= entry.timestampMs)
@@ -131,9 +148,19 @@ void UnifiedInboxModel::dropRoom(const QString &uid, const QString &roomId)
     dropWhere([&](const Entry &e) { return e.accountUserId == uid && e.roomId == roomId; });
 }
 
+void UnifiedInboxModel::dropRoomPlaceholder(const QString &uid, const QString &roomId,
+                                           const QString &eventId)
+{
+    dropWhere([&](const Entry &e) {
+        return e.undecryptable && e.accountUserId == uid && e.roomId == roomId && e.eventId == eventId;
+    });
+}
+
 void UnifiedInboxModel::dropEvent(const QString &uid, const QString &eventId)
 {
-    dropWhere([&](const Entry &e) { return e.accountUserId == uid && e.eventId == eventId; });
+    dropWhere([&](const Entry &e) {
+        return e.accountUserId == uid && (e.eventId == eventId || e.editId == eventId);
+    });
 }
 
 void UnifiedInboxModel::dropBacklogOutside(const QString &uid, const QSet<QString> &unreadRooms)

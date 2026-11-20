@@ -521,13 +521,11 @@ void BackgroundSessionHost::feedInbox(const TimelineEvent &event,
     candidate.backlog = false;
     const NotificationManager::Decision decision =
         NotificationManager::decide(candidate, rule);
-    // An edit stands in for the message it replaces, so the original's
-    // redaction removes it.
-    const QString rowId = event.isEdit ? event.replacesEventId : event.eventId;
+    if (event.isEdit)
+        m_deps.inbox->dropRoomPlaceholder(m_identity.userId, event.roomId, event.eventId);
     if (!decision.notify || (event.isEdit && !decision.mention)) {
-        // A decrypted copy that turns out not to notify takes its UTD row with it.
         if (!event.isEdit)
-            m_deps.inbox->dropEvent(m_identity.userId, rowId);
+            m_deps.inbox->dropEvent(m_identity.userId, event.eventId);
         return;
     }
     // Catch-up replays each room's latest event whether or not it was read.
@@ -541,13 +539,13 @@ void BackgroundSessionHost::feedInbox(const TimelineEvent &event,
     entry.senderId = event.sender;
     entry.senderName = event.senderDisplayName;
     entry.preview = ActivityModel::previewOf(event);
-    entry.eventId = rowId;
+    entry.eventId = event.eventId;
     entry.threadRootId = event.threadRootId;
     entry.timestampMs = event.timestamp.toMSecsSinceEpoch();
     entry.highlight = decision.mention;
     entry.undecryptable = event.undecryptable;
     entry.backlog = event.backlog;
-    m_deps.inbox->add(m_epoch, entry);
+    m_deps.inbox->add(m_epoch, entry, event.replacesEventId);
 }
 
 void BackgroundSessionHost::rememberForwardedUtd(const QString &eventId)
