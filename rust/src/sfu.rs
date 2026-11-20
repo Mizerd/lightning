@@ -1868,24 +1868,25 @@ mod tests {
         assert_eq!(sif_trailer_b64(&not_base62), "");
     }
 
-    // SSL_CERT_FILE replaces the system roots only on Linux; setting it is
-    // process-wide, which no other test here depends on.
+    // SSL_CERT_FILE replaces the system roots only on Linux. It is set only in
+    // a child process running this test alone, never in the shared test process.
     #[cfg(all(unix, not(target_vendor = "apple")))]
     #[test]
     fn signalling_trusts_a_focus_ca_from_the_system_store() {
+        use base64::Engine as _;
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName};
 
-        fn handshake(client: Arc<rustls::ClientConfig>) -> Result<(), rustls::Error> {
-            let leaf = CertificateDer::from(include_bytes!("testdata/focus-leaf.der").to_vec());
+        const LEAF: &[u8] = include_bytes!("testdata/focus-leaf.der");
+        fn handshake(client: Arc<rustls::ClientConfig>, name: &'static str) -> Result<(), rustls::Error> {
             let key = PrivatePkcs8KeyDer::from(
                 include_bytes!("testdata/focus-leaf.key.der").to_vec());
             let server = rustls::ServerConfig::builder()
                 .with_no_client_auth()
-                .with_single_cert(vec![leaf], key.into())
+                .with_single_cert(vec![CertificateDer::from(LEAF.to_vec())], key.into())
                 .expect("fixture key matches its certificate");
             let mut server = rustls::ServerConnection::new(Arc::new(server))?;
             let mut client = rustls::ClientConnection::new(
-                client, ServerName::try_from("focus.test").expect("valid name"))?;
+                client, ServerName::try_from(name).expect("valid name"))?;
             let mut wire = Vec::new();
             while client.is_handshaking() || server.is_handshaking() {
                 wire.clear();
@@ -1899,20 +1900,58 @@ mod tests {
             }
             Ok(())
         }
+        let rejected = |result: Result<(), rustls::Error>| {
+            matches!(result, Err(rustls::Error::InvalidCertificate(_)))
+        };
 
-        let bundled_only = rustls::ClientConfig::builder()
-            .with_root_certificates(rustls::RootCertStore::empty())
-            .with_no_client_auth();
-        assert!(matches!(handshake(Arc::new(bundled_only)),
-                         Err(rustls::Error::InvalidCertificate(_))));
+        match std::env::var("LIGHTNING_FOCUS_TLS_CHILD").as_deref() {
+            Ok("trusted") => {
+                let system = signal_tls_config().expect("platform verifier");
+                handshake(Arc::clone(&system), "focus.test")
+                    .expect("CA in the system store is trusted");
+                assert!(rejected(handshake(system, "other.test")), "a wrong hostname was accepted");
+                return;
+            }
+            Ok("untrusted") => {
+                let system = signal_tls_config().expect("platform verifier");
+                assert!(rejected(handshake(system, "focus.test")), "an untrusted chain was accepted");
+                return;
+            }
+            _ => {}
+        }
 
-        let ca = std::env::temp_dir().join(format!("lightning-focus-ca-{}.pem", std::process::id()));
-        std::fs::write(&ca, include_bytes!("testdata/focus-ca.pem")).expect("write CA");
-        std::env::set_var("SSL_CERT_FILE", &ca);
-        let system = signal_tls_config();
-        std::env::remove_var("SSL_CERT_FILE");
-        let _ = std::fs::remove_file(&ca);
-        handshake(system.expect("platform verifier")).expect("CA in the system store is trusted");
+        let name = format!(
+            "{}::signalling_trusts_a_focus_ca_from_the_system_store",
+            module_path!().split_once("::").expect("crate path").1
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(LEAF);
+        let lines: Vec<&str> = encoded.as_bytes().chunks(64)
+            .map(|line| std::str::from_utf8(line).expect("base64 is ascii")).collect();
+        let other_root = format!(
+            "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n",
+            lines.join("\n")
+        );
+        for (mode, roots) in [
+            ("trusted", include_str!("testdata/focus-ca.pem").to_owned()),
+            ("untrusted", other_root),
+        ] {
+            let file = std::env::temp_dir()
+                .join(format!("lightning-focus-{mode}-{}.pem", std::process::id()));
+            std::fs::write(&file, roots).expect("write roots");
+            let out = std::process::Command::new(std::env::current_exe().expect("test binary"))
+                .args(["--exact", &name, "--test-threads=1"])
+                .env("LIGHTNING_FOCUS_TLS_CHILD", mode)
+                .env("SSL_CERT_FILE", &file)
+                .output()
+                .expect("child test runs");
+            let _ = std::fs::remove_file(&file);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success() && stdout.contains("1 passed"),
+                "{mode}: {stdout}{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
     }
 
     #[test]
