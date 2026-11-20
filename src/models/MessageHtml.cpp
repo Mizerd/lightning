@@ -1078,14 +1078,16 @@ QString MessageHtml::sanitize(
             }
             const bool spoiler = spoilerAttr.match(t.raw).hasMatch();
             const QString &cover = mentionStyle.codeBackground;
+            const QString &hiddenCover = mentionStyle.spoilerCover.isEmpty()
+                ? cover : mentionStyle.spoilerCover;
             if (spoiler) {
                 out += QStringLiteral(
                     "<a href=\"spoiler:toggle\" "
                     "style=\"text-decoration:none\">");
-                if (!revealSpoilers && !cover.isEmpty()) {
+                if (!revealSpoilers && !hiddenCover.isEmpty()) {
                     out += QStringLiteral("<span style=\"background-color:")
-                        + cover.toHtmlEscaped() + QStringLiteral(";color:")
-                        + cover.toHtmlEscaped() + QStringLiteral("\">");
+                        + hiddenCover.toHtmlEscaped() + QStringLiteral(";color:")
+                        + hiddenCover.toHtmlEscaped() + QStringLiteral("\">");
                 } else if (!cover.isEmpty()) {
                     out += QStringLiteral("<span style=\"background-color:")
                         + cover.toHtmlEscaped() + QStringLiteral("\">");

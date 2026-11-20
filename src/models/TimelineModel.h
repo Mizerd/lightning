@@ -321,6 +321,7 @@ public:
                                      bool underlineLinks = false);
 
     Q_INVOKABLE void setQuoteStyle(const QString &bar, const QString &ink);
+    Q_INVOKABLE void setSpoilerStyle(const QString &cover);
 
     Q_INVOKABLE QString markRoomMention(const QString &safeHtml,
                                         const QString &fill,
@@ -481,6 +482,7 @@ private:
     bool m_underlineMentions = false;
     QString m_quoteBarColor;
     QString m_quoteInkColor;
+    QString m_spoilerCoverColor;
 
     bool m_showRoomActivity = true;
     bool m_showMembershipEvents = true;

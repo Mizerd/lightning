@@ -557,6 +557,12 @@ Item {
             app.timeline.setQuoteStyle(bar, ink)
         if (app.thread && app.thread.model && app.thread.model.setQuoteStyle)
             app.thread.model.setQuoteStyle(bar, ink)
+        // A text-grade ink, so a hidden spoiler reads as a solid bar.
+        var spoiler = "" + AppTheme.textMuted
+        if (app.timeline && app.timeline.setSpoilerStyle)
+            app.timeline.setSpoilerStyle(spoiler)
+        if (app.thread && app.thread.model && app.thread.model.setSpoilerStyle)
+            app.thread.model.setSpoilerStyle(spoiler)
     }
     Component.onCompleted: {
         applyDirection()
@@ -576,6 +582,7 @@ Item {
         function onLinkChanged() { _pushMentionStyle() }
         function onBorderStrongChanged() { _pushMentionStyle() }
         function onTextSecondaryChanged() { _pushMentionStyle() }
+        function onTextMutedChanged() { _pushMentionStyle() }
         function onUnderlineLinksChanged() { _pushMentionStyle() }
     }
 

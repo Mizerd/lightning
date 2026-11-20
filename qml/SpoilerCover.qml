@@ -14,6 +14,8 @@ Item {
     property string reason: ""
     property bool focusable: true
     property bool interactive: true
+    // Matches the corners of the media it covers.
+    property real radius: AppTheme.radiusSm
 
     signal revealRequested()
 
@@ -26,7 +28,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: AppTheme.radiusSm
+        radius: root.radius
         color: AppTheme.embedSurface
         border.color: AppTheme.border
         border.width: 1
@@ -45,11 +47,20 @@ Item {
         asynchronous: true
         cache: false
     }
+    Rectangle {
+        id: coverMask
+        anchors.fill: parent
+        radius: root.radius
+        visible: false
+        layer.enabled: true
+    }
     MultiEffect {
         objectName: "spoilerBlur"
         anchors.fill: parent
         visible: root.covered && smear.status === Image.Ready
         source: smear
+        maskEnabled: true
+        maskSource: coverMask
         blurEnabled: true
         blur: 1.0
         blurMax: 32 + Math.round(root.strength * 0.32)
@@ -133,7 +144,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible: root.activeFocus
-        radius: AppTheme.radiusSm
+        radius: root.radius
         color: "transparent"
         border.width: 2
         border.color: AppTheme.focusRing

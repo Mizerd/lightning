@@ -15,6 +15,8 @@ struct MentionStyle {
     bool underlineMentions = false;
     QString quoteBar;
     QString quoteInk;
+    // Fill of a hidden spoiler; codeBackground when empty.
+    QString spoilerCover;
 };
 
 QString sanitize(

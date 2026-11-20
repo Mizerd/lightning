@@ -413,6 +413,21 @@ private Q_SLOTS:
             QStringLiteral("background-color:#22262e;color:#22262e")));
     }
 
+    void aHiddenSpoilerUsesItsOwnCoverAndARevealedOneTheCodeTint()
+    {
+        MessageHtml::MentionStyle style{
+            QString(), QString(), QStringLiteral("#22262e")};
+        style.spoilerCover = QStringLiteral("#8a8f98");
+        const QString hidden = MessageHtml::sanitize(
+            QStringLiteral("<span data-mx-spoiler>x</span>"), nullptr, QString(), style, false);
+        QVERIFY2(hidden.contains(QStringLiteral("background-color:#8a8f98;color:#8a8f98")),
+                 qPrintable(hidden));
+        const QString shown = MessageHtml::sanitize(
+            QStringLiteral("<span data-mx-spoiler>x</span>"), nullptr, QString(), style, true);
+        QVERIFY2(shown.contains(QStringLiteral("background-color:#22262e")), qPrintable(shown));
+        QVERIFY(!shown.contains(QStringLiteral("#8a8f98")));
+    }
+
     void aPlainSpanBesideASpoilerCLosesItsOwnTagOnly()
     {
         const MessageHtml::MentionStyle style{

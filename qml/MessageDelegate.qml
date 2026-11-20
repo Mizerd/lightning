@@ -5624,6 +5624,8 @@ Item {
                     id: imageSpoilerCover
                     SpoilerCover {
                         covered: true
+                        // The revealed image is rounded by 35 permille of its short side.
+                        radius: Math.min(width, height) * 0.035
                         source: root.mediaPixmapRetained ? imageBox.resolvedSource : ""
                         reason: model.mediaSpoilerReason || ""
                         interactive: root.rowActionsEnabled
@@ -6424,6 +6426,7 @@ Item {
                     SpoilerCover {
                         covered: true
                         focusable: false
+                        radius: Math.min(width, height) * 0.035
                         source: root.mediaPixmapRetained && videoBox.usesBridge
                                 ? videoBox.bridgeSource : ""
                         reason: model.mediaSpoilerReason || ""
