@@ -54,7 +54,8 @@ Dialog {
         const cur = revisions[i]
         const prev = i > 0 ? revisions[i - 1] : null
         if (!prev || !timelineModel || !timelineModel.editDiffHtml
-                || cur.redacted || cur.undecryptable || prev.redacted || prev.undecryptable)
+                || cur.redacted || cur.undecryptable || prev.redacted || prev.undecryptable
+                || (prev.body || "") === (cur.body || ""))
             return ""
         return timelineModel.editDiffHtml(prev.body || "", cur.body || "",
                                           String(AppTheme.stormSuccess),
