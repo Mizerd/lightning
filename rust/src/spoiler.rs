@@ -53,26 +53,75 @@ pub(crate) fn local_spoiler(uri: &str) -> Option<String> {
 const REPLIED_SPOILERS_KEPT: usize = 512;
 static REPLIED_SPOILERS: Mutex<VecDeque<(String, bool)>> = Mutex::new(VecDeque::new());
 
-/// Whether a quoted event is a spoiler, once `learn_replied_spoiler` has read it.
-pub(crate) fn replied_is_spoiler(event_id: &str) -> bool {
-    REPLIED_SPOILERS.lock().is_ok_and(|kept| kept.iter().any(|(k, hidden)| k == event_id && *hidden))
+/// `Some(true)` for a quoted spoiler, `Some(false)` for ordinary media, `None`
+/// while unknown; a quote's thumbnail is shown only for `Some(false)`.
+pub(crate) fn replied_spoiler_state(event_id: &str) -> Option<bool> {
+    REPLIED_SPOILERS.lock().ok()?.iter().find(|(k, _)| k == event_id).map(|(_, hidden)| *hidden)
 }
 
-/// `EmbeddedEvent` carries no raw JSON, so a quote of an event the timeline
-/// has not loaded reads the marker from the event itself.
-pub(crate) async fn learn_replied_spoiler(room: &Room, event_id: &matrix_sdk::ruma::EventId) {
-    if REPLIED_SPOILERS.lock().is_ok_and(|kept| kept.iter().any(|(k, _)| k == event_id.as_str())) {
-        return;
-    }
-    let Ok(event) = room.load_or_fetch_event(event_id, None).await else { return };
-    let json = event.raw().deserialize_as::<Value>().ok();
-    let spoiler = event_spoiler(json.as_ref(), None).is_some();
+/// Records what the timeline itself resolved, including a validated edit.
+pub(crate) fn note_replied_spoiler(event_id: &str, hidden: bool) {
     if let Ok(mut kept) = REPLIED_SPOILERS.lock() {
+        kept.retain(|(k, _)| k != event_id);
         if kept.len() >= REPLIED_SPOILERS_KEPT {
             kept.pop_front();
         }
-        kept.push_back((event_id.to_string(), spoiler));
+        kept.push_back((event_id.to_owned(), hidden));
     }
+}
+
+/// An edit or redaction of the quoted event makes the recorded answer stale.
+pub(crate) fn forget_replied_spoiler(event_id: &str) {
+    if let Ok(mut kept) = REPLIED_SPOILERS.lock() {
+        kept.retain(|(k, _)| k != event_id);
+    }
+}
+
+/// `EmbeddedEvent` carries no raw JSON, so a quote of an event the timeline
+/// has not loaded reads the marker from the event and its latest valid edit.
+/// A failed read stays unknown and is retried.
+pub(crate) async fn learn_replied_spoiler(room: &Room, event_id: &matrix_sdk::ruma::EventId) {
+    use matrix_sdk::ruma::events::relation::RelationType;
+    if replied_spoiler_state(event_id.as_str()).is_some() {
+        return;
+    }
+    let cached = match room.event_cache().await {
+        Ok((cache, _handles)) => cache
+            .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
+            .await
+            .ok()
+            .flatten(),
+        Err(_) => None,
+    };
+    let (event, edits) = match cached {
+        Some(found) => found,
+        None => match room.load_or_fetch_event(event_id, None).await {
+            Ok(event) => (event, Vec::new()),
+            Err(_) => return,
+        },
+    };
+    let latest_edit = edits
+        .iter()
+        .filter(|edit| {
+            matrix_sdk::check_validity_of_replacement_events(
+                event.raw(),
+                event.encryption_info().map(|i| &**i),
+                edit.raw(),
+                edit.encryption_info().map(|i| &**i),
+            )
+            .is_ok()
+        })
+        .max_by_key(|edit| edit.raw().get_field::<u64>("origin_server_ts").ok().flatten())
+        .and_then(|edit| edit.raw().deserialize_as::<Value>().ok());
+    let json = event.raw().deserialize_as::<Value>().ok();
+    let redacted = json
+        .as_ref()
+        .and_then(|j| j.pointer("/unsigned/redacted_because"))
+        .is_some();
+    note_replied_spoiler(
+        event_id.as_str(),
+        redacted || event_spoiler(json.as_ref(), latest_edit.as_ref()).is_some(),
+    );
 }
 
 pub(crate) const UNSTABLE_SPOILER: &str = "page.codeberg.everypizza.msc4193.spoiler";

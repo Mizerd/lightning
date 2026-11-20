@@ -11745,6 +11745,11 @@ fn install_event_handlers(
                 ) else {
                     return;
                 };
+                if let Some(matrix_sdk::ruma::events::room::message::Relation::Replacement(r)) =
+                    &ev.content.relates_to
+                {
+                    spoiler::forget_replied_spoiler(r.event_id.as_str());
+                }
                 hide_spoiler_caption(&mut event, raw.get());
                 mark_sync_backlog(
                     &notify,
@@ -11863,6 +11868,7 @@ fn install_event_handlers(
                 else {
                     return;
                 };
+                spoiler::forget_replied_spoiler(redacts.as_str());
                 // A redaction anyone may SEND is not one that applies: only
                 // the event's own sender, or a member allowed to redact
                 // others, removes it. An unauthorised one must not withdraw

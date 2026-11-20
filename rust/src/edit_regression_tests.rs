@@ -851,6 +851,14 @@ async fn an_edit_is_lost_when_the_timeline_is_built_before_the_cache_has_the_ori
 }
 
 async fn quote_row_of_unloaded_image(spoiler: bool, id: &str) -> serde_json::Value {
+    quote_row_of_unloaded_image_after(spoiler, id, false).await
+}
+
+async fn quote_row_of_unloaded_image_after(
+    spoiler: bool,
+    id: &str,
+    first_fetch_fails: bool,
+) -> serde_json::Value {
     use matrix_sdk::deserialized_responses::TimelineEvent;
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -865,6 +873,9 @@ async fn quote_row_of_unloaded_image(spoiler: bool, id: &str) -> serde_json::Val
         "w":10, "h":10, "size":10}}});
     if spoiler {
         image["content"][crate::spoiler::UNSTABLE_SPOILER] = json!(true);
+    }
+    if first_fetch_fails {
+        server.mock_room_event().match_event_id().error500().mock_once().mount().await;
     }
     server
         .mock_room_event()
@@ -901,6 +912,47 @@ async fn a_quote_of_an_unloaded_spoiler_image_has_no_thumbnail() {
     assert!(quote.get("reply_to_media_key").is_none(), "spoiler thumbnail leaked: {quote}");
     let control = quote_row_of_unloaded_image(false, "$plainimage").await;
     assert!(control.get("reply_to_media_key").is_some(), "control lost its thumbnail: {control}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_first_spoiler_lookup_does_not_expose_the_thumbnail() {
+    let quote = quote_row_of_unloaded_image_after(true, "$spoiledlater", true).await;
+    assert!(quote.get("reply_to_media_key").is_none(), "spoiler thumbnail leaked: {quote}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_valid_edit_that_adds_the_spoiler_marker_hides_the_quote() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+    let image = |id: &str, sender: &str| {
+        json!({"type":"m.room.message", "event_id":id, "sender":sender,
+            "origin_server_ts":1000, "content":{"msgtype":"m.image",
+            "body":"cat.png", "url":"mxc://localhost/cat"}})
+    };
+    let marked_edit = |id: &str, sender: &str, ts: u64| {
+        let mut edit = image(id, sender);
+        edit["origin_server_ts"] = json!(ts);
+        edit["content"]["m.new_content"] = json!({"msgtype":"m.image", "body":"cat.png",
+            "url":"mxc://localhost/cat"});
+        edit["content"]["m.new_content"][crate::spoiler::UNSTABLE_SPOILER] = json!(true);
+        edit["content"]["m.relates_to"] = json!({"rel_type":"m.replace", "event_id":"$marked"});
+        edit
+    };
+    sync(&client, vec![image("$marked", SENDER)], "1").await;
+    let room = client.get_room(room_id!("!edits:localhost")).unwrap();
+    crate::spoiler::learn_replied_spoiler(&room, matrix_sdk::ruma::event_id!("$marked")).await;
+    assert_eq!(crate::spoiler::replied_spoiler_state("$marked"), Some(false));
+
+    sync(&client, vec![marked_edit("$forged", "@mallory:localhost", 2000)], "2").await;
+    crate::spoiler::forget_replied_spoiler("$marked");
+    crate::spoiler::learn_replied_spoiler(&room, matrix_sdk::ruma::event_id!("$marked")).await;
+    assert_eq!(crate::spoiler::replied_spoiler_state("$marked"), Some(false));
+
+    sync(&client, vec![marked_edit("$valid", SENDER, 3000)], "3").await;
+    crate::spoiler::forget_replied_spoiler("$marked");
+    crate::spoiler::learn_replied_spoiler(&room, matrix_sdk::ruma::event_id!("$marked")).await;
+    assert_eq!(crate::spoiler::replied_spoiler_state("$marked"), Some(true));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

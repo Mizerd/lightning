@@ -4645,12 +4645,21 @@ pub(crate) async fn annotate_room_gone_rows(room: &matrix_sdk::Room, rows: &mut 
 
 async fn annotate_room_gone_slots(room: &matrix_sdk::Room, mut slots: Vec<&mut serde_json::Value>) {
     for slot in slots.iter_mut() {
-        let hidden = slot
+        if slot.get("reply_to_media_key").is_none() {
+            continue;
+        }
+        let Some(id) = slot
             .get("reply_to_event_id")
             .and_then(|id| id.as_str())
-            .is_some_and(crate::spoiler::replied_is_spoiler);
-        if let (true, Some(slot)) = (hidden, slot.as_object_mut()) {
-            slot.remove("reply_to_media_key");
+            .and_then(|id| EventId::parse(id).ok())
+        else {
+            continue;
+        };
+        crate::spoiler::learn_replied_spoiler(room, &id).await;
+        if crate::spoiler::replied_spoiler_state(id.as_str()) != Some(false) {
+            if let Some(slot) = slot.as_object_mut() {
+                slot.remove("reply_to_media_key");
+            }
         }
     }
     slots.retain(|slot| slot.get("send_forbidden").is_some());
@@ -5648,9 +5657,11 @@ fn fill_spoiler(
     };
     let original = event.original_json().and_then(parse);
     let latest_edit = event.latest_edit_json().and_then(parse);
-    if let Some(reason) =
-        crate::spoiler::event_spoiler(original.as_ref(), latest_edit.as_ref())
-    {
+    let spoiler = crate::spoiler::event_spoiler(original.as_ref(), latest_edit.as_ref());
+    if let Some(id) = event.event_id() {
+        crate::spoiler::note_replied_spoiler(id.as_str(), spoiler.is_some());
+    }
+    if let Some(reason) = spoiler {
         out["media_spoiler"] = true.into();
         if !reason.is_empty() {
             out["media_spoiler_reason"] = reason.into();
