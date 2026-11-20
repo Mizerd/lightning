@@ -446,8 +446,9 @@ impl Control {
         for (room, session) in keys {
             if walking.as_deref() == Some(room.as_str()) {
                 let seen = &mut during.get_or_insert_with(|| (room.clone(), BTreeSet::new())).1;
-                if seen.len() < MAX_KEYS_DURING_WALK {
-                    seen.insert(session.clone());
+                if !seen.contains("") && seen.insert(session.clone()) && seen.len() > MAX_KEYS_DURING_WALK {
+                    seen.clear();
+                    seen.insert(String::new());
                 }
             }
             let wanted = progress
@@ -467,18 +468,15 @@ impl Control {
         }
     }
 
-    /// The key stream lagged: which keys arrived is unknown, so any key wakes
-    /// every waiting room again, and the room being walked is not parked.
+    /// A missed key may belong to any parked room or the current walk.
     pub(crate) fn keys_missed(&self) {
         let mut inner = self.lock();
         if let Some(room) = self.current_room_locked(&mut inner) {
-            let mut during = inner.keys_during_walk.take().filter(|(r, _)| *r == room)
-                .unwrap_or_else(|| (room, BTreeSet::new()));
-            during.1.insert(String::new());
-            inner.keys_during_walk = Some(during);
+            inner.keys_during_walk = Some((room, BTreeSet::from([String::new()])));
         }
         let progress = self.loaded(&mut inner);
-        if !progress.utd_sessions.is_empty() {
+        if !progress.utd_rooms.is_empty() || !progress.utd_sessions.is_empty() {
+            progress.utd_rooms.clear();
             progress.utd_sessions.clear();
             let snapshot = progress.clone();
             drop(inner);
@@ -1287,7 +1285,6 @@ mod tests {
         let control = Control::new(Path::new(""));
         walk_with_utd(&control, |_| {});
         control.keys_missed();
-        control.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "unrelated".to_owned())));
         assert_eq!(control.begin(false, || rooms(&[("!e2e:x", 1)])), Begin::Started);
 
         let control = Control::new(Path::new(""));
@@ -1297,6 +1294,16 @@ mod tests {
             Begin::Started,
             "keys missed during the walk parked the room"
         );
+    }
+
+    #[test]
+    fn overflow_during_a_walk_leaves_the_room_eligible() {
+        let control = Control::new(Path::new(""));
+        walk_with_utd(&control, |c| {
+            c.keys_arrived((0..MAX_KEYS_DURING_WALK).map(|i| ("!e2e:x".to_owned(), i.to_string())));
+            c.keys_arrived(std::iter::once(("!e2e:x".to_owned(), "s".to_owned())));
+        });
+        assert_eq!(control.begin_background(|| rooms(&[("!e2e:x", 1)])), Begin::Started);
     }
 
     #[test]
