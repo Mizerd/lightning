@@ -1159,6 +1159,50 @@ async fn redacting_a_never_edited_root_reaches_the_thread_list() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_thread_started_while_the_list_is_open_is_listed_like_the_others() {
+    use matrix_sdk::deserialized_responses::TimelineEvent;
+    let server = MatrixMockServer::new().await;
+    let client = threaded_client(&server).await;
+    let mut root = message("$root", "listed", 1000);
+    sync(&client, vec![root.clone()], "1").await;
+    root["room_id"] = json!(ROOM);
+    server
+        .mock_room_threads()
+        .ok(vec![Raw::from_json_string(root.to_string()).unwrap()], None)
+        .mount()
+        .await;
+    let (events, task) = open_list(&client).await;
+    listed_preview(&events, "listed").await;
+
+    let now = thread_list_now_ms();
+    let mut fresh = json!({"type":"m.room.message", "event_id":"$fresh", "sender":SENDER,
+        "origin_server_ts":now, "content":{"msgtype":"m.image", "body":"the hidden caption",
+        "url":"mxc://localhost/cat"}});
+    fresh["content"][crate::spoiler::UNSTABLE_SPOILER] = json!(true);
+    let mut reply = message("$fr", "a reply", now + 1);
+    reply["content"]["m.relates_to"] = json!({"rel_type":"m.thread", "event_id":"$fresh"});
+    let mut served = fresh.clone();
+    served["room_id"] = json!(ROOM);
+    served["unsigned"] = json!({"m.relations": {"m.thread": {
+        "count": 3, "current_user_participated": false, "latest_event": reply.clone()}}});
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(TimelineEvent::from_plaintext(Raw::from_json_string(served.to_string()).unwrap()))
+        .mount()
+        .await;
+    sync(&client, vec![fresh, reply], "2").await;
+    next_event(&events, |v| {
+        v["type"] == "thread_list_reset"
+            && v["items"][0]["root_event_id"] == "$fresh"
+            && v["items"][0]["root_preview"] == "[image]"
+            && v["items"][0]["reply_count"] == 3
+    })
+    .await;
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_root_already_redacted_when_listed_is_shown_deleted() {
     let server = MatrixMockServer::new().await;
     let client = threaded_client(&server).await;

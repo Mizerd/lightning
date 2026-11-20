@@ -3825,8 +3825,10 @@ async fn open_thread_list_task(
                         (had_edits, true)
                     }
                 };
-                changed |= adopt_new_threads(&room, &service, replies, &tally, opened_ms).await;
-                if relook {
+                let adopted =
+                    adopt_new_threads(&room, &service, replies, &tally, opened_ms).await;
+                changed |= adopted;
+                if relook || adopted {
                     changed |= look_up_root_edits(&room, &service, &tally).await;
                 }
                 if !registry.thread_list_current(list_gen, lifecycle) {
@@ -3987,6 +3989,7 @@ async fn look_up_root_edits(
             .items()
             .into_iter()
             .map(|item| item.root_event.event_id)
+            .chain(tally.fresh.iter().map(|(item, _)| item.root_event.event_id.clone()))
             .filter(|root| !tally.roots.contains_key(root))
             .collect()
     };
@@ -4170,10 +4173,41 @@ async fn adopt_new_threads(
         let Some(latest) = list_event(room, &reply).await else { continue };
         let known = lock_tally(tally).fresh.iter().any(|(item, _)| item.root_event.event_id == root);
         if !known {
-            let Ok(root_event) = room.load_or_fetch_event(&root, None).await else { continue };
+            // The server's copy bundles the thread's real reply count; an old
+            // thread whose history we never loaded must not read as one reply.
+            let fetched = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                room.event(&root, None),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok);
+            let bundled = fetched.as_ref().and_then(|event| {
+                event
+                    .raw()
+                    .get_field::<serde_json::Value>("unsigned")
+                    .ok()
+                    .flatten()?
+                    .pointer("/m.relations/m.thread/count")?
+                    .as_u64()
+            });
+            let root_event = match fetched {
+                Some(event) => event,
+                None => match room.load_or_fetch_event(&root, None).await {
+                    Ok(event) => event,
+                    Err(_) => continue,
+                },
+            };
             let Some(root_item) = list_event(room, &root_event).await else { continue };
-            let item = ThreadListItem { root_event: root_item, latest_event: None, num_replies: 0 };
-            lock_tally(tally).fresh.insert(0, (item, HashSet::new()));
+            let num_replies = u32::try_from(bundled.unwrap_or(0)).unwrap_or(u32::MAX);
+            let counted: HashSet<OwnedEventId> =
+                if num_replies > 0 { HashSet::from([reply_id.clone()]) } else { HashSet::new() };
+            let item = ThreadListItem {
+                root_event: root_item,
+                latest_event: (num_replies > 0).then(|| latest.clone()),
+                num_replies,
+            };
+            lock_tally(tally).fresh.insert(0, (item, counted));
         }
         let mut guard = lock_tally(tally);
         let Some((item, counted)) =
@@ -4222,7 +4256,14 @@ fn emit_thread_list_snapshot(
         .fresh
         .iter()
         .filter(|(item, _)| !listed.contains(&item.root_event.event_id))
-        .map(|(item, _)| thread_list_item_to_json(item))
+        .map(|(item, _)| {
+            let mut json = thread_list_item_to_json(&tally.corrected(item));
+            if tally.root_media_spoiler(&item.root_event.event_id) {
+                json["root_preview"] =
+                    spoiler_media_preview(item.root_event.content.as_ref()).into();
+            }
+            json
+        })
         .collect();
     let items: Vec<serde_json::Value> = fresh.into_iter().chain(items).collect();
     drop(tally);
