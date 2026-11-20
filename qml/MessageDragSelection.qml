@@ -23,6 +23,7 @@ Item {
     property string originStable: ""
     property string currentStable: ""
     property Item originText: null
+    // In originText's coordinates, so it follows the start row when the content scrolls.
     property point originPoint
     property point lastPoint
     property var touched: []
@@ -45,7 +46,7 @@ Item {
         if (!text)
             return
         originText = text
-        originPoint = sp
+        originPoint = text.mapFromItem(null, sp.x, sp.y)
         lastPoint = sp
         originStable = model.stableIdAt(hit.row)
     }
@@ -72,6 +73,7 @@ Item {
         if (!hit)
             return
         var originItem = itemForRow(origin)
+        var originScene = originText ? originText.mapToItem(null, originPoint.x, originPoint.y) : null
         if (hit.row === origin) {
             for (var k = 0; k < touched.length; ++k)
                 if (touched[k])
@@ -89,7 +91,7 @@ Item {
             if (!item || !item.applyDragSelection)
                 continue
             item.applyDragSelection(r === lo ? "tail" : r === hi ? "head" : "all",
-                                    r === origin ? originPoint
+                                    r === origin ? originScene
                                     : r === hit.row ? lastPoint : null,
                                     null)
             next.push(item)
