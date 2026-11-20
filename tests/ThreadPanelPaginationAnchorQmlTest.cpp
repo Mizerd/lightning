@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QRegularExpression>
@@ -852,6 +853,51 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("the newest reply ends %1 px below the list "
                                                "once the reply banner shows")
                                     .arg(distanceFromEnd())));
+    }
+
+    void aHiddenSpoilerInTheRootIsNotReadAloud()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"), QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(400, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, kSignalTimeoutMs));
+
+        QVariantMap data = root->property("rootData").toMap();
+        data.insert(QStringLiteral("loaded"), true);
+        data.insert(QStringLiteral("redacted"), false);
+        data.insert(QStringLiteral("undecryptable"), false);
+        data.insert(QStringLiteral("body"), QStringLiteral("visible the-butler-did-it"));
+        data.insert(QStringLiteral("formattedBody"), QStringLiteral(
+            "visible <a href=\"spoiler:toggle\" style=\"text-decoration:none\">"
+            "<span style=\"background-color:#333333;color:#333333\">the-butler-did-it"
+            "</span></a>"));
+        QVERIFY(root->setProperty("rootData", data));
+        auto *body = root->findChild<QQuickItem *>(QStringLiteral("threadRootBody"));
+        QVERIFY(body);
+        QQmlExpression name(qmlContext(body), body, QStringLiteral("Accessible.name"));
+        QTRY_VERIFY2(name.evaluate().toString().contains(QStringLiteral("visible")),
+                     qPrintable(name.evaluate().toString()));
+        QVERIFY2(!name.evaluate().toString().contains(QStringLiteral("butler")),
+                 qPrintable(name.evaluate().toString()));
     }
 
     void theThreadRootCollapsesToOneLineAndRemembersIt()

@@ -848,7 +848,7 @@ Rectangle {
                                 font.weight: AppTheme.weightBold
                             }
                             // The rendered root with hidden spoilers masked,
-                            // for the one-line view.
+                            // for the one-line view and the root's accessible name.
                             TextEdit {
                                 id: rootLineSource
                                 visible: false
@@ -956,7 +956,11 @@ Rectangle {
                                ? AppTheme.textMuted : AppTheme.text
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                         wrapMode: Text.Wrap
-                        Accessible.name: panel.rootBodyText
+                        // The masked rendering, so a hidden spoiler is not read aloud.
+                        Accessible.name: panel.rootIsPlaceholder ? panel.rootBodyText
+                            : (rootLineSource.text, rootLineSource
+                               .getText(0, rootLineSource.length)
+                               .replace(/\u2588\u2588\u2588/g, qsTr("[spoiler]")))
                         // Qt shows the pointing hand only while linkHovered
                         // is connected.
                         onLinkHovered: function(link) {}
