@@ -599,7 +599,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>New direct message</source>
-        <translation type="unfinished"></translation>
+        <translation>رسالة مباشرة جديدة</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -642,46 +642,46 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+11"/>
         <source>Activity options</source>
-        <translation type="unfinished"></translation>
+        <translation>خيارات النشاط</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Hide read activity older than</source>
-        <translation type="unfinished"></translation>
+        <translation>إخفاء النشاط المقروء الأقدم من</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Never hide</source>
-        <translation type="unfinished"></translation>
+        <translation>عدم الإخفاء أبدًا</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n year(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n سنة</numerusform>
+            <numerusform>سنة واحدة</numerusform>
+            <numerusform>سنتان</numerusform>
+            <numerusform>%n سنوات</numerusform>
+            <numerusform>%n سنة</numerusform>
+            <numerusform>%n سنة</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n day(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n يوم</numerusform>
+            <numerusform>يوم واحد</numerusform>
+            <numerusform>يومان</numerusform>
+            <numerusform>%n أيام</numerusform>
+            <numerusform>%n يومًا</numerusform>
+            <numerusform>%n يوم</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Unread rows are always shown</source>
-        <translation type="unfinished"></translation>
+        <translation>تظهر الصفوف غير المقروءة دائمًا</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -696,7 +696,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <source>Everything addressed to you, newest first</source>
-        <translation type="unfinished"></translation>
+        <translation>كل ما وُجّه إليك، الأحدث أولًا</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -757,32 +757,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+64"/>
         <source>Unseen only</source>
-        <translation type="unfinished"></translation>
+        <translation>غير المرئي فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Showing unseen activity only</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض النشاط غير المرئي فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show unseen activity only</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار النشاط غير المرئي فقط</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Favourites only</source>
-        <translation type="unfinished"></translation>
+        <translation>المفضلة فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Showing activity from favourite rooms only</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض النشاط من الغرف المفضلة فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show activity from favourite rooms only</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار النشاط من الغرف المفضلة فقط</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -792,17 +792,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+17"/>
         <source>No loaded activity matches your search.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يطابق بحثَك أي نشاط محمَّل.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing new.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا جديد.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No activity from favourite rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا نشاط من الغرف المفضلة.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -847,7 +847,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="-103"/>
         <source>Search loaded activity</source>
-        <translation type="unfinished"></translation>
+        <translation>البحث في النشاط المحمَّل</translation>
     </message>
     <message>
         <location line="+316"/>
@@ -931,7 +931,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location filename="../src/models/ActivityModel.cpp" line="+836"/>
         <location line="+140"/>
         <source>Encrypted message</source>
-        <translation type="unfinished">رسالة معمّاة</translation>
+        <translation>رسالة معمّاة</translation>
     </message>
 </context>
 <context>
@@ -1375,12 +1375,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+941"/>
         <source>Joined the space</source>
-        <translation type="unfinished"></translation>
+        <translation>انضممت إلى الفضاء</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Joined %1</source>
-        <translation type="unfinished"></translation>
+        <translation>انضممت إلى %1</translation>
     </message>
     <message>
         <location line="+854"/>
@@ -1420,7 +1420,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+155"/>
         <source>Your camera couldn&apos;t be started. The call goes on without it.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر تشغيل كاميرتك. تستمر المكالمة بدونها.</translation>
     </message>
     <message>
         <location line="+149"/>
@@ -2164,7 +2164,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>Your system keyring is locked, and Lightning keeps your sign-in there. Unlock it when asked, then try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>حلقة مفاتيح نظامك مقفلة، ويحفظ Lightning تسجيل دخولك فيها. افتح قفلها عند الطلب، ثم حاول مجددًا.</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -2177,7 +2177,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AvatarViewAction.qml" line="+27"/>
         <source>View picture</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض الصورة</translation>
     </message>
 </context>
 <context>
@@ -2465,61 +2465,61 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="-3"/>
         <source>Deleting %1 of %n message(s)…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>جارٍ حذف %1 من %n رسالة…</numerusform>
+            <numerusform>جارٍ حذف %1 من رسالة واحدة…</numerusform>
+            <numerusform>جارٍ حذف %1 من رسالتين…</numerusform>
+            <numerusform>جارٍ حذف %1 من %n رسائل…</numerusform>
+            <numerusform>جارٍ حذف %1 من %n رسالة…</numerusform>
+            <numerusform>جارٍ حذف %1 من %n رسالة…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+7"/>
         <source>Stopped after %1 of %n message(s); %2 failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>توقّف الحذف بعد %1 من %n رسالة؛ فشل %2.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من رسالة واحدة؛ فشل %2.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من رسالتين؛ فشل %2.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من %n رسائل؛ فشل %2.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من %n رسالة؛ فشل %2.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من %n رسالة؛ فشل %2.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Stopped after %1 of %n message(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>توقّف الحذف بعد %1 من %n رسالة.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من رسالة واحدة.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من رسالتين.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من %n رسائل.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من %n رسالة.</numerusform>
+            <numerusform>توقّف الحذف بعد %1 من %n رسالة.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Deleted %n message(s); %1 failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>حُذفت %n رسالة؛ فشل %1.</numerusform>
+            <numerusform>حُذفت رسالة واحدة؛ فشل %1.</numerusform>
+            <numerusform>حُذفت رسالتان؛ فشل %1.</numerusform>
+            <numerusform>حُذفت %n رسائل؛ فشل %1.</numerusform>
+            <numerusform>حُذفت %n رسالة؛ فشل %1.</numerusform>
+            <numerusform>حُذفت %n رسالة؛ فشل %1.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Deleted %n message(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>حُذفت %n رسالة.</numerusform>
+            <numerusform>حُذفت رسالة واحدة.</numerusform>
+            <numerusform>حُذفت رسالتان.</numerusform>
+            <numerusform>حُذفت %n رسائل.</numerusform>
+            <numerusform>حُذفت %n رسالة.</numerusform>
+            <numerusform>حُذفت %n رسالة.</numerusform>
         </translation>
     </message>
     <message>
@@ -2631,22 +2631,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
-        <translation type="unfinished">انتهت المكالمة بسبب فقدان الاتصال.</translation>
+        <translation>انتهت المكالمة بسبب فقدان الاتصال.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The call ended because its audio or video stopped working.</source>
-        <translation type="unfinished"></translation>
+        <translation>انتهت المكالمة لأن الصوت أو الفيديو توقف عن العمل.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The call could not connect.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر اتصال المكالمة.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The call ended because its audio or video could not be set up.</source>
-        <translation type="unfinished"></translation>
+        <translation>انتهت المكالمة لأنه تعذّر إعداد الصوت أو الفيديو.</translation>
     </message>
 </context>
 <context>
@@ -3033,92 +3033,92 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallFormatMenu.qml" line="+26"/>
         <source>This homeserver has no MatrixRTC call service.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا توجد خدمة مكالمات MatrixRTC على هذا الخادوم المنزلي.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The homeserver&apos;s call service did not answer.</source>
-        <translation type="unfinished"></translation>
+        <translation>لم تُجب خدمة المكالمات في الخادوم المنزلي.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking whether calling is available…</source>
-        <translation type="unfinished">جارٍ التحقق من توفر الاتصال…</translation>
+        <translation>جارٍ التحقق من توفر الاتصال…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t start calls in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يمكنك بدء مكالمات في هذه الغرفة.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished">المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا.</translation>
+        <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encrypted calls aren&apos;t available in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمات المعمّاة غير متاحة في هذا الإصدار.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>MatrixRTC calls aren&apos;t available here.</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمات MatrixRTC غير متاحة هنا.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>MatrixRTC</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Direct</source>
-        <translation type="unfinished"></translation>
+        <translation>مباشر</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not available here</source>
-        <translation type="unfinished"></translation>
+        <translation>غير متاح هنا</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Voice call</source>
-        <translation type="unfinished">مكالمة صوتية</translation>
+        <translation>مكالمة صوتية</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Video call</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة فيديو</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Call type</source>
-        <translation type="unfinished"></translation>
+        <translation>نوع المكالمة</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Automatic (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>تلقائي (%1)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>MatrixRTC (through a call server)</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC (عبر خادوم مكالمات)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Direct (1:1 peer-to-peer)</source>
-        <translation type="unfinished"></translation>
+        <translation>مباشر (نظير إلى نظير، 1:1)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>MatrixRTC: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Direct: only in a chat with one other person.</source>
-        <translation type="unfinished"></translation>
+        <translation>مباشر: فقط في محادثة مع شخص واحد آخر.</translation>
     </message>
 </context>
 <context>
@@ -3148,7 +3148,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+3"/>
         <source>Video call</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة فيديو</translation>
     </message>
     <message>
         <location line="+152"/>
@@ -3232,7 +3232,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+55"/>
         <location line="+3"/>
         <source>More reactions</source>
-        <translation type="unfinished">تفاعلات أخرى</translation>
+        <translation>تفاعلات أخرى</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -3257,22 +3257,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="-111"/>
         <source>MatrixRTC</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct</source>
-        <translation type="unfinished"></translation>
+        <translation>مباشر</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>MatrixRTC call: media goes through a call server</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة MatrixRTC: تمر الوسائط عبر خادوم مكالمات</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct call (m.call): media goes straight to the other person</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة مباشرة (m.call): تذهب الوسائط مباشرة إلى الشخص الآخر</translation>
     </message>
     <message>
         <location line="+108"/>
@@ -3359,7 +3359,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>Can&apos;t play this video: %1 isn&apos;t supported by this build</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر تشغيل هذا الفيديو: %1 غير مدعوم في هذا الإصدار</translation>
     </message>
     <message>
         <location line="+118"/>
@@ -3558,7 +3558,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
-        <translation type="unfinished"></translation>
+        <translation>الوضع التلقائي هو 720p للكاميرا و1080p بمعدل 30 إطارًا في الثانية لمشاركة الشاشة. لا يؤدي حد معدل البتات إلا إلى خفض جودة المشاركة، وهذا يفيد على الاتصال البطيء. يسري معدل الإطارات الجديد فورًا؛ أما التغييرات الأخرى فتسري على الكاميرا أو المشاركة التالية التي تبدؤها.</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -3737,12 +3737,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>%1 isn&apos;t supported by this build</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 غير مدعوم في هذا الإصدار</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Can&apos;t play this stream: %1 isn&apos;t supported by this build</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر تشغيل هذا البث: %1 غير مدعوم في هذا الإصدار</translation>
     </message>
     <message>
         <location line="+202"/>
@@ -3798,12 +3798,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>MatrixRTC</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>MatrixRTC call: media goes through a call server</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة MatrixRTC: تمر الوسائط عبر خادوم مكالمات</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -3854,13 +3854,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+99"/>
         <location line="+310"/>
         <source>Hide Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>إخفاء معلومات البث</translation>
     </message>
     <message>
         <location line="-310"/>
         <location line="+310"/>
         <source>Show Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار معلومات البث</translation>
     </message>
     <message>
         <location line="-300"/>
@@ -4824,7 +4824,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="-229"/>
         <location line="+1"/>
         <source>Dismiss</source>
-        <translation type="unfinished"></translation>
+        <translation>إخفاء</translation>
     </message>
     <message>
         <location line="+197"/>
@@ -4931,7 +4931,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CoverArtButton.qml" line="+9"/>
         <source>View cover art</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض صورة الغلاف</translation>
     </message>
 </context>
 <context>
@@ -7211,7 +7211,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Hide (Ctrl+Alt+Shift+D restores)</source>
-        <translation type="unfinished"></translation>
+        <translation>إخفاء (Ctrl+Alt+Shift+D يعيدها)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -7308,37 +7308,37 @@ Size: %3</source>
     <message>
         <location line="+11"/>
         <source>Shows read-only views of what the homeserver reports and what your account stores, and adds each person&apos;s sessions to their profile card. Nothing here changes your account.</source>
-        <translation type="unfinished"></translation>
+        <translation>يعرض بيانات للقراءة فقط عمّا يُبلغ عنه الخادوم المنزلي وما يخزّنه حسابك، ويضيف جلسات كل شخص إلى بطاقة ملفه الشخصي. لا شيء هنا يغيّر حسابك.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This session</source>
-        <translation type="unfinished">هذه الجلسة</translation>
+        <translation>هذه الجلسة</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Device ID: %1</source>
-        <translation type="unfinished">معرّف الجهاز: %1</translation>
+        <translation>معرّف الجهاز: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>unknown</source>
-        <translation type="unfinished">غير معروف</translation>
+        <translation>غير معروف</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Call media: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>وسائط المكالمات: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Call media: not built into this package</source>
-        <translation type="unfinished"></translation>
+        <translation>وسائط المكالمات: غير مضمّنة في هذه الحزمة</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Room ID, room version and each event&apos;s source are on the room&apos;s info panel and a message&apos;s menu. Logs are under Troubleshooting below.</source>
-        <translation type="unfinished"></translation>
+        <translation>معرّف الغرفة وإصدارها ومصدر كل حدث موجودة في لوحة معلومات الغرفة وفي قائمة الرسالة. السجلات ضمن استكشاف الأخطاء وإصلاحها أدناه.</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -7497,17 +7497,17 @@ Size: %3</source>
     <message>
         <location line="+9"/>
         <source>Your server</source>
-        <translation type="unfinished"></translation>
+        <translation>خادومك</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Other server…</source>
-        <translation type="unfinished"></translation>
+        <translation>خادوم آخر…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room directory</source>
-        <translation type="unfinished"></translation>
+        <translation>دليل الغرف</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -7517,7 +7517,7 @@ Size: %3</source>
     <message>
         <location line="+11"/>
         <source>matrixrooms.info is a third-party directory: your homeserver sends it your search terms.</source>
-        <translation type="unfinished"></translation>
+        <translation>matrixrooms.info دليل تابع لجهة خارجية: يرسل إليه خادومك المنزلي عبارات بحثك.</translation>
     </message>
     <message>
         <location line="+69"/>
@@ -8901,7 +8901,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>This spoiler can&apos;t be forwarded with its cover.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يمكن إعادة توجيه هذا الحرق مع غطائه.</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -10162,7 +10162,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Video call — connecting…</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة فيديو — جارٍ الاتصال…</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10177,12 +10177,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+0"/>
         <source>Video call</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة فيديو</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Incoming video call</source>
-        <translation type="unfinished">مكالمة فيديو واردة</translation>
+        <translation>مكالمة فيديو واردة</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10217,12 +10217,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+10"/>
         <source>%1 is calling with video.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 يتصل بالفيديو.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Incoming video call.</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة فيديو واردة.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -10257,7 +10257,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+13"/>
         <source>Audio only</source>
-        <translation type="unfinished"></translation>
+        <translation>صوت فقط</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -10416,7 +10416,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <source>View %1&apos;s profile</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض الملف الشخصي لـ %1</translation>
     </message>
     <message>
         <location line="+34"/>
@@ -10712,7 +10712,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+46"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
+        <translation>أنت المدير الوحيد. إذا غادرت، فلن يتمكن أحد من تغيير إعدادات هذه الغرفة أو إدارة أعضائها. اجعل شخصًا آخر مديرًا أولًا.</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -10730,7 +10730,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/LegacyCallVideo.qml" line="+31"/>
         <source>Their camera is off</source>
-        <translation type="unfinished"></translation>
+        <translation>كاميرته متوقفة</translation>
     </message>
 </context>
 <context>
@@ -11416,12 +11416,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>Your keyring isn&apos;t returning this sign-in</source>
-        <translation type="unfinished"></translation>
+        <translation>حلقة المفاتيح لا تُعيد تسجيل الدخول هذا</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning saved the sign-in for %1 in your system keyring, and the keyring isn&apos;t returning it. It may be locked, it may have been reset, or a Flatpak or snap may have started using a different keyring. Nothing on this device has been deleted, and its encryption keys are intact. Unlock your keyring and try again, or sign in with your password to continue as this same device.</source>
-        <translation type="unfinished"></translation>
+        <translation>حفظ Lightning تسجيل الدخول لـ %1 في حلقة مفاتيح نظامك، وحلقة المفاتيح لا تُعيده. ربما هي مقفلة، أو أُعيد ضبطها، أو بدأت حزمة Flatpak أو Snap باستخدام حلقة مفاتيح مختلفة. لم يُحذف شيء على هذا الجهاز، ومفاتيح التعمية فيه سليمة. افتح قفل حلقة المفاتيح وحاول مجددًا، أو سجّل الدخول بكلمة مرورك للمتابعة على هذا الجهاز نفسه.</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -12350,27 +12350,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-541"/>
         <source>%1 with %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 مع %2</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Is %1</source>
-        <translation type="unfinished"></translation>
+        <translation>هو %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Has %1</source>
-        <translation type="unfinished"></translation>
+        <translation>لديه %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, give %2!</source>
-        <translation type="unfinished"></translation>
+        <translation>%1، أعطِ %2!</translation>
     </message>
     <message>
         <location line="+437"/>
         <source>Pronouns: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>الضمائر: %1</translation>
     </message>
     <message>
         <location line="+65"/>
@@ -12380,7 +12380,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Local time %1</source>
-        <translation type="unfinished"></translation>
+        <translation>الوقت المحلي %1</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -12390,7 +12390,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+227"/>
         <source>Creator</source>
-        <translation type="unfinished">المنشئ</translation>
+        <translation>المنشئ</translation>
     </message>
     <message>
         <location line="+71"/>
@@ -12811,17 +12811,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+15"/>
         <source>Mark %1 as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>تعليم %1 كحرق</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Marked as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>معلَّم كحرق</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mark as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>تعليم كحرق</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -13485,12 +13485,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+606"/>
         <source>%1 • not sent: you&apos;re no longer in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 • لم تُرسل: لم تعد في هذه الغرفة</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished">لم تعد في هذه الغرفة. ربما حُذفت على الخادم. استخدم «مغادرة الغرفة» لإزالتها من قائمتك.</translation>
+        <translation>لم تعد في هذه الغرفة. ربما حُذفت على الخادم. استخدم «مغادرة الغرفة» لإزالتها من قائمتك.</translation>
     </message>
     <message numerus="yes">
         <location line="+484"/>
@@ -13537,7 +13537,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Copy messages</source>
-        <translation type="unfinished"></translation>
+        <translation>نسخ الرسائل</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -13623,12 +13623,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+836"/>
         <source>Remove from the GIF picker</source>
-        <translation type="unfinished"></translation>
+        <translation>إزالة من منتقي GIF</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Save to the GIF picker</source>
-        <translation type="unfinished"></translation>
+        <translation>حفظ في منتقي GIF</translation>
     </message>
     <message>
         <location line="+69"/>
@@ -15318,32 +15318,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>Test sent. If no notification appeared, your desktop is not showing them.</source>
-        <translation type="unfinished"></translation>
+        <translation>أُرسل الاختبار. إذا لم يظهر إشعار، فسطح مكتبك لا يعرض الإشعارات.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>1 problem found. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>وُجدت مشكلة واحدة. التفاصيل أدناه.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 problems found. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>وُجدت %1 مشكلات. التفاصيل أدناه.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>1 thing to check. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>أمر واحد يجب التحقق منه. التفاصيل أدناه.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 things to check. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 أمور يجب التحقق منها. التفاصيل أدناه.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing wrong that Lightning can see. Send a test notification to be sure.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا خلل يستطيع Lightning رؤيته. أرسل إشعارًا تجريبيًا للتأكد.</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -15731,12 +15731,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PackChipStrip.qml" line="+72"/>
         <source>All</source>
-        <translation type="unfinished">الكل</translation>
+        <translation>الكل</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Untitled pack</source>
-        <translation type="unfinished"></translation>
+        <translation>حزمة بلا عنوان</translation>
     </message>
 </context>
 <context>
@@ -15754,7 +15754,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+6"/>
         <source>Your earlier place is too far back to restore.</source>
-        <translation type="unfinished"></translation>
+        <translation>موضعك السابق بعيد جدًا في السجل ولا يمكن استعادته.</translation>
     </message>
 </context>
 <context>
@@ -16391,17 +16391,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Direct messages</source>
-        <translation type="unfinished">الرسائل المباشرة</translation>
+        <translation>الرسائل المباشرة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct messages and private rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>الرسائل المباشرة والغرف الخاصة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>All rooms</source>
-        <translation type="unfinished">كل الغرف</translation>
+        <translation>كل الغرف</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17135,12 +17135,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <source>Unarchive</source>
-        <translation type="unfinished"></translation>
+        <translation>إلغاء الأرشفة</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Archive</source>
-        <translation type="unfinished">أرشيف</translation>
+        <translation>أرشفة</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -17238,12 +17238,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomActivityDelegate.qml" line="+61"/>
         <source>Today</source>
-        <translation type="unfinished">اليوم</translation>
+        <translation>اليوم</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Yesterday</source>
-        <translation type="unfinished">أمس</translation>
+        <translation>أمس</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -17264,13 +17264,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>%n room update(s) since %1</source>
         <comment>collapsed state-event group spanning days</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n تحديث للغرفة منذ %1</numerusform>
+            <numerusform>تحديث واحد للغرفة منذ %1</numerusform>
+            <numerusform>تحديثان للغرفة منذ %1</numerusform>
+            <numerusform>%n تحديثات للغرفة منذ %1</numerusform>
+            <numerusform>%n تحديثًا للغرفة منذ %1</numerusform>
+            <numerusform>%n تحديث للغرفة منذ %1</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -17345,7 +17345,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t reach this homeserver&apos;s call service, so calling isn&apos;t available</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر الوصول إلى خدمة المكالمات في هذا الخادوم المنزلي، لذا الاتصال غير متاح</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -17395,7 +17395,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+32"/>
         <source>Try again</source>
-        <translation type="unfinished">حاول مجددًا</translation>
+        <translation>حاول مجددًا</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -17436,7 +17436,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>No archived chats in this view.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا محادثات مؤرشفة في هذا العرض.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -18047,7 +18047,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>View %1&apos;s profile</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض الملف الشخصي لـ %1</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -18097,17 +18097,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+58"/>
         <source>Accept invitation</source>
-        <translation type="unfinished">قبول الدعوة</translation>
+        <translation>قبول الدعوة</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reject invitation</source>
-        <translation type="unfinished">رفض الدعوة</translation>
+        <translation>رفض الدعوة</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>View inviter&apos;s profile</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض الملف الشخصي للداعي</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -18120,7 +18120,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/JoinErrorText.cpp" line="+8"/>
         <source>Joining a room by address is not supported by this backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>الانضمام إلى غرفة بعنوانها غير مدعوم في هذه الواجهة الخلفية.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -18386,35 +18386,35 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+27"/>
         <source>No rooms in common</source>
-        <translation type="unfinished"></translation>
+        <translation>لا غرف مشتركة</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n room(s) in common</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>لا غرف مشتركة (%n)</numerusform>
+            <numerusform>غرفة مشتركة واحدة</numerusform>
+            <numerusform>غرفتان مشتركتان</numerusform>
+            <numerusform>%n غرف مشتركة</numerusform>
+            <numerusform>%n غرفة مشتركة</numerusform>
+            <numerusform>%n غرفة مشتركة</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No known rooms in common</source>
-        <translation type="unfinished"></translation>
+        <translation>لا غرف مشتركة معروفة</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>At least %n room(s) in common</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n غرفة مشتركة على الأقل</numerusform>
+            <numerusform>غرفة مشتركة واحدة على الأقل</numerusform>
+            <numerusform>غرفتان مشتركتان على الأقل</numerusform>
+            <numerusform>%n غرف مشتركة على الأقل</numerusform>
+            <numerusform>%n غرفة مشتركة على الأقل</numerusform>
+            <numerusform>%n غرفة مشتركة على الأقل</numerusform>
         </translation>
     </message>
 </context>
@@ -19418,7 +19418,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-130"/>
         <source>Archived</source>
-        <translation type="unfinished"></translation>
+        <translation>المؤرشفة</translation>
     </message>
     <message>
         <location line="+132"/>
@@ -19458,7 +19458,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>No archived chats</source>
-        <translation type="unfinished"></translation>
+        <translation>لا محادثات مؤرشفة</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19503,7 +19503,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Archive a chat from its menu to keep it out of your other lists.</source>
-        <translation type="unfinished"></translation>
+        <translation>أرشف محادثة من قائمتها لإبعادها عن قوائمك الأخرى.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19593,32 +19593,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-10"/>
         <source>Rooms stay in their groups. Within each group: current call, favourites, other rooms, then low priority.</source>
-        <translation type="unfinished"></translation>
+        <translation>تبقى الغرف في مجموعاتها. داخل كل مجموعة: المكالمة الحالية، ثم المفضلة، ثم الغرف الأخرى، ثم الأولوية المنخفضة.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Current call first, then invitations, favourites, other conversations, and low priority.</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمة الحالية أولًا، ثم الدعوات، ثم المفضلة، ثم المحادثات الأخرى، ثم الأولوية المنخفضة.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Within each section: alphabetical order.</source>
-        <translation type="unfinished"></translation>
+        <translation>داخل كل قسم: ترتيب أبجدي.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Within each section: unread rooms first, then newest activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>داخل كل قسم: الغرف غير المقروءة أولًا، ثم الأحدث نشاطًا.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Within each section: your room arrangement, then the space&apos;s default order.</source>
-        <translation type="unfinished"></translation>
+        <translation>داخل كل قسم: ترتيبك للغرف، ثم الترتيب الافتراضي للفضاء.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Within each section: newest activity first. Unread status does not change the order.</source>
-        <translation type="unfinished"></translation>
+        <translation>داخل كل قسم: الأحدث نشاطًا أولًا. حالة عدم القراءة لا تغيّر الترتيب.</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -19840,24 +19840,24 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-518"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>المؤرشفة (%1)</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n archived chat(s) with unread messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n محادثة مؤرشفة فيها رسائل غير مقروءة</numerusform>
+            <numerusform>محادثة مؤرشفة واحدة فيها رسائل غير مقروءة</numerusform>
+            <numerusform>محادثتان مؤرشفتان فيهما رسائل غير مقروءة</numerusform>
+            <numerusform>%n محادثات مؤرشفة فيها رسائل غير مقروءة</numerusform>
+            <numerusform>%n محادثة مؤرشفة فيها رسائل غير مقروءة</numerusform>
+            <numerusform>%n محادثة مؤرشفة فيها رسائل غير مقروءة</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Archived chats stay joined and keep notifying as usual</source>
-        <translation type="unfinished"></translation>
+        <translation>تبقى المحادثات المؤرشفة منضمًّا إليها وتواصل إرسال الإشعارات كالمعتاد</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -19917,12 +19917,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Archive</source>
-        <translation type="unfinished">أرشيف</translation>
+        <translation>أرشفة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unarchive</source>
-        <translation type="unfinished"></translation>
+        <translation>إلغاء الأرشفة</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19963,13 +19963,13 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="-31"/>
         <source>%n room(s) updated</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>حُدّثت %n غرفة</numerusform>
+            <numerusform>حُدّثت غرفة واحدة</numerusform>
+            <numerusform>حُدّثت غرفتان</numerusform>
+            <numerusform>حُدّثت %n غرف</numerusform>
+            <numerusform>حُدّثت %n غرفة</numerusform>
+            <numerusform>حُدّثت %n غرفة</numerusform>
         </translation>
     </message>
     <message>
@@ -20277,7 +20277,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+109"/>
         <source>You signed in, but your system keyring is locked or did not accept the sign-in, so Lightning did not keep it. Unlock the keyring and sign in again. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
-        <translation type="unfinished"></translation>
+        <translation>سجّلت الدخول، لكن حلقة مفاتيح نظامك مقفلة أو لم تقبل تسجيل الدخول، لذا لم يحتفظ به Lightning. افتح قفل حلقة المفاتيح وسجّل الدخول مجددًا. يُدرج الخادوم الآن جلسة غير مستخدمة من هذه المحاولة؛ يمكنك تسجيل خروجها من قسم الجلسات.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -20786,7 +20786,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+61"/>
         <source>Attachment</source>
-        <translation type="unfinished">مرفق</translation>
+        <translation>مرفق</translation>
     </message>
     <message>
         <location line="+64"/>
@@ -20806,7 +20806,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>The attachment could not be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر إرسال المرفق.</translation>
     </message>
 </context>
 <context>
@@ -20990,89 +20990,89 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SearchIndexEmptyState.qml" line="+27"/>
         <source>just now</source>
-        <translation type="unfinished"></translation>
+        <translation>الآن</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n minute(s) ago</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>قبل %n دقيقة</numerusform>
+            <numerusform>قبل دقيقة واحدة</numerusform>
+            <numerusform>قبل دقيقتين</numerusform>
+            <numerusform>قبل %n دقائق</numerusform>
+            <numerusform>قبل %n دقيقة</numerusform>
+            <numerusform>قبل %n دقيقة</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n hour(s) ago</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>قبل %n ساعة</numerusform>
+            <numerusform>قبل ساعة واحدة</numerusform>
+            <numerusform>قبل ساعتين</numerusform>
+            <numerusform>قبل %n ساعات</numerusform>
+            <numerusform>قبل %n ساعة</numerusform>
+            <numerusform>قبل %n ساعة</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n day(s) ago</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>قبل %n يوم</numerusform>
+            <numerusform>قبل يوم واحد</numerusform>
+            <numerusform>قبل يومين</numerusform>
+            <numerusform>قبل %n أيام</numerusform>
+            <numerusform>قبل %n يومًا</numerusform>
+            <numerusform>قبل %n يوم</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>No messages found</source>
-        <translation type="unfinished">لم يُعثر على رسائل</translation>
+        <translation>لم يُعثر على رسائل</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Indexing older messages… %1 of %2 rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ فهرسة الرسائل الأقدم… %1 من %2 غرفة</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Indexing older messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ فهرسة الرسائل الأقدم…</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3"/>
         <source>Results may be incomplete.</source>
-        <translation type="unfinished"></translation>
+        <translation>قد تكون النتائج غير مكتملة.</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Indexing new messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ فهرسة الرسائل الجديدة…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Older messages last indexed %1</source>
-        <translation type="unfinished"></translation>
+        <translation>آخر فهرسة للرسائل الأقدم %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Older messages are not indexed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>لم تُفهرس الرسائل الأقدم بعد.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Resume indexing</source>
-        <translation type="unfinished"></translation>
+        <translation>استئناف الفهرسة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Index older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>فهرسة الرسائل الأقدم</translation>
     </message>
 </context>
 <context>
@@ -21254,22 +21254,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+24"/>
         <source>Indexing this room&apos;s history…</source>
-        <translation type="unfinished">جارٍ فهرسة سجلّ هذه الغرفة…</translation>
+        <translation>جارٍ فهرسة سجلّ هذه الغرفة…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Searching %1 messages Lightning has indexed, including encrypted ones.</source>
-        <translation type="unfinished">جارٍ البحث في %1 من الرسائل التي فهرسها Lightning، ومنها المعمّاة.</translation>
+        <translation>جارٍ البحث في %1 من الرسائل التي فهرسها Lightning، ومنها المعمّاة.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Index this room</source>
-        <translation type="unfinished">فهرسة هذه الغرفة</translation>
+        <translation>فهرسة هذه الغرفة</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Fetch this room&apos;s older messages so they can be searched</source>
-        <translation type="unfinished">جلب الرسائل الأقدم لهذه الغرفة ليمكن البحث فيها</translation>
+        <translation>جلب الرسائل الأقدم لهذه الغرفة ليمكن البحث فيها</translation>
     </message>
     <message>
         <location line="+155"/>
@@ -21388,7 +21388,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+25"/>
         <source>With the attachments in the composer. They are uploaded now.</source>
-        <translation type="unfinished"></translation>
+        <translation>مع المرفقات الموجودة في مربع الرسالة. تُرفع الآن.</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -21489,12 +21489,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+9"/>
         <source>Uploading %1…</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ رفع %1…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Attachment: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>مرفق: %1</translation>
     </message>
     <message>
         <location line="+42"/>
@@ -22315,7 +22315,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7203"/>
         <location line="+10"/>
         <source>Album art</source>
-        <translation type="unfinished"></translation>
+        <translation>صورة الألبوم</translation>
     </message>
     <message>
         <location line="-7208"/>
@@ -24853,12 +24853,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4224"/>
         <location line="+29"/>
         <source>Use bubbles in</source>
-        <translation type="unfinished"></translation>
+        <translation>استخدام الفقاعات في</translation>
     </message>
     <message>
         <location line="-4252"/>
         <source>bubbles bubble scope direct messages private public group rooms all rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>فقاعات فقاعة نطاق رسائل مباشرة خاصة عامة غرف مجموعات كل الغرف</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -24887,12 +24887,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2177"/>
         <location line="+2161"/>
         <source>Collapse the thread&apos;s first message</source>
-        <translation type="unfinished"></translation>
+        <translation>طي الرسالة الأولى في الخيط</translation>
     </message>
     <message>
         <location line="-4337"/>
         <source>thread threads root first message original header card collapse collapsed compact one line expand</source>
-        <translation type="unfinished"></translation>
+        <translation>خيط خيوط جذر الرسالة الأولى الأصلية ترويسة بطاقة طي مطوي مضغوط سطر واحد توسيع</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -24908,7 +24908,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+62"/>
         <source>room activity membership joins leaves profile routine</source>
-        <translation type="unfinished"></translation>
+        <translation>نشاط الغرفة العضوية انضمام مغادرة ملف شخصي روتيني</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -24936,24 +24936,24 @@ Signing out and signing in again is the only fix.</source>
         <location line="+34"/>
         <location line="+4745"/>
         <source>Message actions on hover</source>
-        <translation type="unfinished"></translation>
+        <translation>إجراءات الرسالة عند التمرير</translation>
     </message>
     <message>
         <location line="-4744"/>
         <source>message actions hover bar toolbar react reply thread popup hide declutter irc</source>
-        <translation type="unfinished"></translation>
+        <translation>إجراءات الرسالة تمرير شريط أدوات تفاعل رد خيط نافذة منبثقة إخفاء تبسيط irc</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+2074"/>
         <location line="+2715"/>
         <source>Go to the newest message when I send</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى أحدث رسالة عند الإرسال</translation>
     </message>
     <message>
         <location line="-4788"/>
         <source>send jump scroll bottom latest newest stay place history</source>
-        <translation type="unfinished"></translation>
+        <translation>إرسال انتقال تمرير أسفل الأحدث آخر البقاء موضع سجل</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -25012,12 +25012,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+3762"/>
         <source>Show profile colours from other users</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار ألوان الملفات الشخصية من المستخدمين الآخرين</translation>
     </message>
     <message>
         <location line="-3761"/>
         <source>profile card colour color background name sable theme</source>
-        <translation type="unfinished"></translation>
+        <translation>ملف شخصي بطاقة لون ألوان خلفية اسم sable سمة</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -25045,12 +25045,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2025"/>
         <location line="+2814"/>
         <source>Vim-style editing in the composer</source>
-        <translation type="unfinished"></translation>
+        <translation>تحرير بأسلوب Vim في مربع الرسالة</translation>
     </message>
     <message>
         <location line="-4838"/>
         <source>vim modal normal insert mode keys editor composer message box hjkl</source>
-        <translation type="unfinished"></translation>
+        <translation>vim وضع عادي إدراج أوضاع مفاتيح محرر مربع الرسالة hjkl</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -25099,12 +25099,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>معلومات البث</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>call video screen share codec encoder bitrate FPS debug overlay</source>
-        <translation type="unfinished"></translation>
+        <translation>مكالمة فيديو مشاركة الشاشة ترميز مرمّز معدل البتات FPS تصحيح طبقة</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -25136,45 +25136,45 @@ Signing out and signing in again is the only fix.</source>
         <location line="+507"/>
         <location line="+6387"/>
         <source>Unread dot</source>
-        <translation type="unfinished"></translation>
+        <translation>نقطة غير المقروء</translation>
     </message>
     <message>
         <location line="-6893"/>
         <source>unread dot badge indicator room list bold muted mentions hide</source>
-        <translation type="unfinished"></translation>
+        <translation>نقطة غير مقروء شارة مؤشر قائمة الغرف عريض مكتوم إشارات إخفاء</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+6922"/>
         <source>Mark all rooms read automatically</source>
-        <translation type="unfinished"></translation>
+        <translation>تعليم كل الغرف كمقروءة تلقائيًا</translation>
     </message>
     <message>
         <location line="-6921"/>
         <source>mark all read automatically auto timer interval minutes unread clear</source>
-        <translation type="unfinished"></translation>
+        <translation>تعليم الكل كمقروء تلقائيًا مؤقت فاصل دقائق غير مقروء مسح</translation>
     </message>
     <message>
         <location line="+106"/>
         <location line="+5436"/>
         <source>Show online status dots</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار نقاط حالة الاتصال</translation>
     </message>
     <message>
         <location line="-5435"/>
         <source>presence online idle offline status dot show hide matrix.org</source>
-        <translation type="unfinished"></translation>
+        <translation>حضور متصل خامل غير متصل حالة نقطة إظهار إخفاء matrix.org</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+5736"/>
         <source>Index older messages in the background</source>
-        <translation type="unfinished"></translation>
+        <translation>فهرسة الرسائل الأقدم في الخلفية</translation>
     </message>
     <message>
         <location line="-5735"/>
         <source>message search index background automatic startup older messages encrypted history</source>
-        <translation type="unfinished"></translation>
+        <translation>رسالة بحث فهرس خلفية تلقائي بدء التشغيل رسائل أقدم معمّاة سجل</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -25218,12 +25218,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+6034"/>
         <source>Spoiler blur</source>
-        <translation type="unfinished"></translation>
+        <translation>تمويه الحرق</translation>
     </message>
     <message>
         <location line="-6033"/>
         <source>spoiler blur hidden image video msc4193</source>
-        <translation type="unfinished"></translation>
+        <translation>حرق تمويه مخفي صورة فيديو msc4193</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -25453,13 +25453,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+561"/>
         <location line="+1"/>
         <source>Show settings names and search</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار أسماء الإعدادات والبحث</translation>
     </message>
     <message>
         <location line="+30"/>
         <location line="+1"/>
         <source>Show icons only</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار الأيقونات فقط</translation>
     </message>
     <message>
         <location line="+150"/>
@@ -25486,17 +25486,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+849"/>
         <source>Scales message, list and Settings text, and the Spaces rail with it, so its nesting levels stay readable at any size. Icons and the window layout keep their size — Interface zoom below scales the whole window.</source>
-        <translation type="unfinished"></translation>
+        <translation>يغيّر حجم نص الرسائل والقوائم والإعدادات، ومعه شريط الفضاءات، لتبقى مستويات تداخله مقروءة بأي حجم. تحتفظ الأيقونات وتخطيط النافذة بحجمها — أما تكبير الواجهة أدناه فيغيّر حجم النافذة كلها.</translation>
     </message>
     <message>
         <location line="+698"/>
         <source>Use the card and name colours people set on their profile</source>
-        <translation type="unfinished"></translation>
+        <translation>استخدام ألوان البطاقة والاسم التي يضبطها الأشخاص في ملفاتهم الشخصية</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Some clients let people colour their profile card and name. When off, profiles use your theme only.</source>
-        <translation type="unfinished"></translation>
+        <translation>تتيح بعض العملاء للأشخاص تلوين بطاقة ملفهم الشخصي واسمهم. عند الإيقاف، تستخدم الملفات الشخصية سمتك فقط.</translation>
     </message>
     <message>
         <location line="+185"/>
@@ -25807,17 +25807,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+14"/>
         <source>How the cover of an audio file is shown: a small tile beside the play button, a larger tile beside the title and controls, or a big square above the controls. A file with no cover, or a narrow message, always gets the small tile.</source>
-        <translation type="unfinished"></translation>
+        <translation>طريقة عرض غلاف الملف الصوتي: بلاطة صغيرة بجانب زر التشغيل، أو بلاطة أكبر بجانب العنوان وعناصر التحكم، أو مربع كبير فوق عناصر التحكم. الملف الذي لا غلاف له، أو الرسالة الضيقة، يحصل دائمًا على البلاطة الصغيرة.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Card</source>
-        <translation type="unfinished"></translation>
+        <translation>بطاقة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Large</source>
-        <translation type="unfinished"></translation>
+        <translation>كبير</translation>
     </message>
     <message>
         <location line="+1146"/>
@@ -26244,12 +26244,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+39"/>
         <source>Show the message a thread started from as one line at the top of the thread</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار الرسالة التي بدأ منها الخيط في سطر واحد أعلى الخيط</translation>
     </message>
     <message>
         <location line="+147"/>
         <source>Room list</source>
-        <translation type="unfinished">قائمة الغرف</translation>
+        <translation>قائمة الغرف</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -26259,7 +26259,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+50"/>
         <source>Banners and side panel</source>
-        <translation type="unfinished"></translation>
+        <translation>الشرائط واللوحة الجانبية</translation>
     </message>
     <message>
         <location line="+120"/>
@@ -26269,17 +26269,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+201"/>
         <source>Show the react, reply and thread buttons on the message under the pointer, or not at all. The right-click menu offers every action either way</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار أزرار التفاعل والرد والخيط على الرسالة تحت المؤشر، أو عدم إظهارها إطلاقًا. توفر قائمة النقر بزر الفأرة الأيمن كل الإجراءات في الحالتين</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>When off, sending from up in history keeps your place. A reply always keeps your place.</source>
-        <translation type="unfinished"></translation>
+        <translation>عند الإيقاف، يحافظ الإرسال من موضع أعلى في السجل على موضعك. الرد يحافظ دائمًا على موضعك.</translation>
     </message>
     <message>
         <location line="+156"/>
         <source>Esc switches to Normal mode for hjkl, w b e, d c y with counts, p, u and Ctrl+R; i or a returns to typing, and Enter in Normal mode sends.</source>
-        <translation type="unfinished"></translation>
+        <translation>ينتقل Esc إلى الوضع العادي لاستخدام hjkl وw b e وd c y مع الأعداد وp وu وCtrl+R؛ ويعيدك i أو a إلى الكتابة، ويرسل Enter في الوضع العادي.</translation>
     </message>
     <message>
         <location line="+469"/>
@@ -26294,12 +26294,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+682"/>
         <source>Index encrypted rooms fetches older history for every encrypted room you are in, one room at a time and up to the same per-room limit as Index this room, so you can search it here. It can take a long time and uses bandwidth, and like the rest of the index it stores the decrypted message text on this device. Messages that cannot be decrypted yet are skipped until their keys arrive — run it again then and they are added. It pauses during calls and continues after a restart. With background indexing on, it runs by itself shortly after start-up and walks only rooms not yet indexed.</source>
-        <translation type="unfinished"></translation>
+        <translation>تجلب «فهرسة الغرف المعمّاة» السجل الأقدم لكل غرفة معمّاة أنت فيها، غرفةً تلو الأخرى وحتى الحد نفسه لكل غرفة كما في «فهرسة هذه الغرفة»، لتتمكن من البحث فيه هنا. قد يستغرق ذلك وقتًا طويلًا ويستهلك البيانات، ومثل بقية الفهرس يخزّن نص الرسائل بعد فك تعميتها على هذا الجهاز. تُتخطى الرسائل التي لا يمكن فك تعميتها بعد حتى تصل مفاتيحها — شغّلها مجددًا حينئذٍ لتُضاف. تتوقف مؤقتًا أثناء المكالمات وتستأنف بعد إعادة التشغيل. عند تفعيل الفهرسة في الخلفية، تعمل تلقائيًا بعد بدء التشغيل بقليل ولا تمر إلا على الغرف غير المفهرسة بعد.</translation>
     </message>
     <message>
         <location line="+337"/>
         <source>Spoiler blur strength</source>
-        <translation type="unfinished"></translation>
+        <translation>شدة تمويه الحرق</translation>
     </message>
     <message>
         <location line="+623"/>
@@ -26315,33 +26315,33 @@ Signing out and signing in again is the only fix.</source>
         <location line="-2999"/>
         <location line="+3048"/>
         <source>All rooms</source>
-        <translation type="unfinished">كل الغرف</translation>
+        <translation>كل الغرف</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only rooms with notifications on</source>
-        <translation type="unfinished"></translation>
+        <translation>الغرف التي إشعاراتها مفعّلة فقط</translation>
     </message>
     <message>
         <location line="-1344"/>
         <location line="+1345"/>
         <source>Never</source>
-        <translation type="unfinished">أبدًا</translation>
+        <translation>أبدًا</translation>
     </message>
     <message>
         <location line="-3053"/>
         <source>Direct messages</source>
-        <translation type="unfinished">الرسائل المباشرة</translation>
+        <translation>الرسائل المباشرة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct messages and private rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>الرسائل المباشرة والغرف الخاصة</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Bubbles applies to the rooms chosen under “Use bubbles in”; other rooms keep the Modern rows. Compact tightens every timeline. Small avatars puts a small avatar beside each sender&apos;s name, above their messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>تنطبق الفقاعات على الغرف المختارة ضمن «استخدام الفقاعات في»؛ وتحتفظ الغرف الأخرى بصفوف «حديث». يضيّق «مضغوط» كل الخطوط الزمنية. ويضع «صور رمزية صغيرة» صورة رمزية صغيرة بجانب اسم كل مرسل، فوق رسائله.</translation>
     </message>
     <message>
         <location line="+1411"/>
@@ -26352,109 +26352,115 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape and a few keys Lightning uses itself are reserved. A key another action has by default can be taken: that action then has no key until you give it one.</source>
-        <translation type="unfinished"></translation>
+        <translation>يمكن أن يكون الاختصار العام مفتاحًا واحدًا بمفرده، مثل حرف أو F5 أو مفتاح من لوحة الأرقام؛ وتُحسب لوحة الأرقام منفصلة عن لوحة المفاتيح الرئيسية. الحرف أو الرقم أو الرمز المفرد لا يعمل إلا حين لا تكتب في حقل نصي، لذا تبقى الأولوية للكتابة دائمًا.
+
+تقبل إجراءات صفحة الإعدادات أيضًا Tab وShift+Tab؛ ولا تحل هذه الروابط محل التنقل العادي بين العناصر إلا في الإعدادات.
+
+لا تعمل مفاتيح تنسيق الرسائل إلا حين يكون التركيز على مربع الرسالة. وفي أي مكان آخر، يؤدي المفتاح نفسه وظيفته المعتادة.
+
+Escape وبعض المفاتيح التي يستخدمها Lightning بنفسه محجوزة. ويمكن أخذ مفتاح يملكه إجراء آخر افتراضيًا: عندها يبقى ذلك الإجراء بلا مفتاح حتى تعيّن له واحدًا.</translation>
     </message>
     <message>
         <location line="+269"/>
         <source>Automatic — only if my server provides it</source>
-        <translation type="unfinished"></translation>
+        <translation>تلقائي — فقط إن كان خادومي يوفره</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Always</source>
-        <translation type="unfinished">دائمًا</translation>
+        <translation>دائمًا</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Online, away and offline dots next to people. Some servers, such as matrix.org, never share anyone&apos;s status, so everyone would look offline; Automatic hides the dots there. Never also stops asking the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>نقاط الاتصال والغياب وعدم الاتصال بجانب الأشخاص. بعض الخوادم، مثل matrix.org، لا تشارك حالة أحد أبدًا، فيبدو الجميع غير متصلين؛ لذا يُخفي الخيار «تلقائي» النقاط هناك. ويتوقف «أبدًا» أيضًا عن سؤال الخادوم.</translation>
     </message>
     <message>
         <location line="+1344"/>
         <source>Muted rooms never show it. With notifications on only, a room set to mentions and keywords, or following an account default of mentions only, shows no dot. Mention badges are always shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا تظهر في الغرف المكتومة أبدًا. مع خيار «الغرف التي إشعاراتها مفعّلة فقط»، لا تظهر نقطة للغرفة المضبوطة على الإشارات والكلمات المفتاحية، أو التي تتبع إعدادًا افتراضيًا للحساب بالإشارات فقط. تظهر شارات الإشارات دائمًا.</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Every 15 minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>كل 15 دقيقة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Every 30 minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>كل 30 دقيقة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Every hour</source>
-        <translation type="unfinished"></translation>
+        <translation>كل ساعة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom</source>
-        <translation type="unfinished">مخصص</translation>
+        <translation>مخصص</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>دقائق</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Minutes between automatic mark-read passes</source>
-        <translation type="unfinished"></translation>
+        <translation>الدقائق بين مرات التعليم التلقائي كمقروء</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Sends read receipts for every unread room except the one you have open, as Mark all as read does, following your read receipt privacy. Custom takes 5 to 1440 minutes.</source>
-        <translation type="unfinished"></translation>
+        <translation>يرسل إيصالات القراءة لكل غرفة غير مقروءة باستثناء المفتوحة لديك، كما يفعل «تعليم الكل كمقروء»، مع اتباع خصوصية إيصالات القراءة لديك. يقبل «مخصص» من 5 إلى 1440 دقيقة.</translation>
     </message>
     <message>
         <location line="+1042"/>
         <location line="+48"/>
         <source>Time zone</source>
-        <translation type="unfinished"></translation>
+        <translation>المنطقة الزمنية</translation>
     </message>
     <message>
         <location line="-37"/>
         <source>Your profile shows your local time. Your time zone and pronouns are public: anyone can read them.</source>
-        <translation type="unfinished"></translation>
+        <translation>يعرض ملفك الشخصي وقتك المحلي. منطقتك الزمنية وضمائرك عامة: يمكن لأي أحد قراءتها.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This device has no time zone list, so your time zone cannot be set here and local times are not shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا تتوفر على هذا الجهاز قائمة بالمناطق الزمنية، لذا لا يمكن ضبط منطقتك الزمنية هنا ولا تُعرض الأوقات المحلية.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Search time zones</source>
-        <translation type="unfinished"></translation>
+        <translation>البحث في المناطق الزمنية</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Use %1</source>
-        <translation type="unfinished">استخدام %1</translation>
+        <translation>استخدام %1</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Pronouns</source>
-        <translation type="unfinished"></translation>
+        <translation>الضمائر</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>she/her, they/them</source>
-        <translation type="unfinished"></translation>
+        <translation>هي/لها، هم/لهم</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Your homeserver does not allow these profile fields.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يسمح خادومك المنزلي بحقول الملف الشخصي هذه.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Could not update your profile (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر تحديث ملفك الشخصي (%1).</translation>
     </message>
     <message>
         <location line="+485"/>
@@ -27055,7 +27061,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+23"/>
         <source>Updates are handled by your distribution&apos;s package manager.</source>
-        <translation type="unfinished"></translation>
+        <translation>يتولى مدير الحزم في توزيعتك التحديثات.</translation>
     </message>
     <message>
         <location line="+32"/>
@@ -27107,71 +27113,71 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-3571"/>
         <source>On hover</source>
-        <translation type="unfinished"></translation>
+        <translation>عند التمرير</translation>
     </message>
     <message>
         <location line="+162"/>
         <location line="+4677"/>
         <source>Avatars in messages</source>
-        <translation type="unfinished"></translation>
+        <translation>الصور الرمزية في الرسائل</translation>
     </message>
     <message>
         <location line="-4676"/>
         <source>avatar avatars picture profile sender hide hover gutter declutter</source>
-        <translation type="unfinished"></translation>
+        <translation>صورة رمزية صور رمزية ملف شخصي مرسل إخفاء تمرير هامش تبسيط</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+4699"/>
         <source>Reactions</source>
-        <translation type="unfinished">التفاعلات</translation>
+        <translation>التفاعلات</translation>
     </message>
     <message>
         <location line="-4698"/>
         <source>reaction reactions emoji chips hide hover declutter</source>
-        <translation type="unfinished"></translation>
+        <translation>تفاعل تفاعلات رمز تعبيري شارات إخفاء تمرير تبسيط</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>read receipts seen faces avatars hide hover declutter</source>
-        <translation type="unfinished"></translation>
+        <translation>إيصالات القراءة مقروء وجوه صور رمزية إخفاء تمرير تبسيط</translation>
     </message>
     <message>
         <location line="+8"/>
         <location line="+2071"/>
         <location line="+2714"/>
         <source>Show emoji-only messages large</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار الرسائل المكوّنة من رموز تعبيرية فقط بحجم كبير</translation>
     </message>
     <message>
         <location line="-4784"/>
         <source>big large emoji jumbo size</source>
-        <translation type="unfinished"></translation>
+        <translation>كبير ضخم رمز تعبيري حجم</translation>
     </message>
     <message>
         <location line="+4681"/>
         <source>Show sender pictures beside messages, only on the message under the pointer, or not at all</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار صور المرسلين بجانب الرسائل، أو على الرسالة تحت المؤشر فقط، أو عدم إظهارها إطلاقًا</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Show reactions under messages, only on the message under the pointer, or not at all</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار التفاعلات أسفل الرسائل، أو على الرسالة تحت المؤشر فقط، أو عدم إظهارها إطلاقًا</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Show who has read up to a message, only on the message under the pointer, or not at all</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار من قرأ حتى رسالة ما، أو على الرسالة تحت المؤشر فقط، أو عدم إظهار ذلك إطلاقًا</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Applies to rooms, threads and jump-to-message views. &quot;On hover&quot; also shows them on the message selected with the keyboard. Hiding read receipts here does not stop sending your own; that is under Privacy.</source>
-        <translation type="unfinished"></translation>
+        <translation>ينطبق على الغرف والخيوط وعروض الانتقال إلى رسالة. يُظهرها &quot;عند التمرير&quot; أيضًا على الرسالة المحددة بلوحة المفاتيح. إخفاء إيصالات القراءة هنا لا يوقف إرسال إيصالاتك؛ فذلك ضمن الخصوصية.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Draw a message of one to three emoji at a larger size</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض الرسالة المكوّنة من رمز تعبيري واحد إلى ثلاثة بحجم أكبر</translation>
     </message>
 </context>
 <context>
@@ -27455,7 +27461,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+2"/>
         <source>Echo cancellation stopped working and is off for this call. Others can still hear you.</source>
-        <translation type="unfinished"></translation>
+        <translation>توقف إلغاء الصدى عن العمل وأصبح متوقفًا لهذه المكالمة. لا يزال الآخرون يسمعونك.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27603,12 +27609,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+500"/>
         <source>You</source>
-        <translation type="unfinished">أنت</translation>
+        <translation>أنت</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Participant</source>
-        <translation type="unfinished">مشارك</translation>
+        <translation>مشارك</translation>
     </message>
     <message>
         <location line="-4505"/>
@@ -27777,7 +27783,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+136"/>
         <source>closing the find bar, room information, a thread or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>إغلاق شريط البحث أو معلومات الغرفة أو خيط أو الإعدادات</translation>
     </message>
     <message>
         <location line="+307"/>
@@ -27887,32 +27893,32 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Go to the next conversation in the list</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى المحادثة التالية في القائمة</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Go to the previous conversation in the list</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى المحادثة السابقة في القائمة</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Go to the next unread conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى المحادثة غير المقروءة التالية</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Go to the previous unread conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى المحادثة غير المقروءة السابقة</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Switch to the next account</source>
-        <translation type="unfinished"></translation>
+        <translation>التبديل إلى الحساب التالي</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Switch to the previous account</source>
-        <translation type="unfinished"></translation>
+        <translation>التبديل إلى الحساب السابق</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -28032,17 +28038,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Extend the selection to the older message</source>
-        <translation type="unfinished"></translation>
+        <translation>توسيع التحديد إلى الرسالة الأقدم</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Extend the selection to the newer message</source>
-        <translation type="unfinished"></translation>
+        <translation>توسيع التحديد إلى الرسالة الأحدث</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copy the selected messages with sender and time</source>
-        <translation type="unfinished"></translation>
+        <translation>نسخ الرسائل المحددة مع المرسل والوقت</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -28072,7 +28078,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Jump to the latest message and focus the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى أحدث رسالة والتركيز على مربع الرسالة</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -28102,7 +28108,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+4"/>
         <source>Show or hide Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>إظهار معلومات البث أو إخفاؤها</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -28212,7 +28218,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>the emoji picker is open</source>
-        <translation type="unfinished"></translation>
+        <translation>يكون منتقي الرموز التعبيرية مفتوحًا</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -28229,7 +28235,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+2"/>
         <location line="+2"/>
         <source>a message&apos;s menu is open</source>
-        <translation type="unfinished"></translation>
+        <translation>تكون قائمة رسالة مفتوحة</translation>
     </message>
     <message>
         <location line="-3"/>
@@ -28340,17 +28346,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+13"/>
         <source>No key: %1 now runs “%2”. Choose another key for this one.</source>
-        <translation type="unfinished"></translation>
+        <translation>بلا مفتاح: %1 يشغّل الآن «%2». اختر مفتاحًا آخر لهذا الإجراء.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Also the default key for “%1”, which has no key while this one uses it.</source>
-        <translation type="unfinished"></translation>
+        <translation>وهو أيضًا المفتاح الافتراضي لـ «%1»، الذي يبقى بلا مفتاح ما دام هذا الإجراء يستخدمه.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>While %1, %2 is used for %3 instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>حين %1، يُستخدم %2 لـ %3 بدلًا من ذلك.</translation>
     </message>
     <message>
         <location line="-808"/>
@@ -28648,7 +28654,7 @@ Note: importing keys does not verify this session.</source>
         <location filename="../qml/SpaceLobby.qml" line="-60"/>
         <location line="+265"/>
         <source>Loading rooms…</source>
-        <translation type="unfinished">جارٍ تحميل الغرف…</translation>
+        <translation>جارٍ تحميل الغرف…</translation>
     </message>
     <message>
         <location line="-227"/>
@@ -29148,12 +29154,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-422"/>
         <source>Default order saved. Your personal room order still takes precedence.</source>
-        <translation type="unfinished"></translation>
+        <translation>حُفظ الترتيب الافتراضي. لا يزال ترتيبك الشخصي للغرف هو المقدَّم.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Could not save the complete order. Some rooms may have moved; save again to retry, or reload the order.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر حفظ الترتيب كاملًا. ربما انتقلت بعض الغرف؛ احفظ مجددًا لإعادة المحاولة، أو أعد تحميل الترتيب.</translation>
     </message>
     <message>
         <location line="+120"/>
@@ -29304,37 +29310,37 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+30"/>
         <source>Default room order</source>
-        <translation type="unfinished"></translation>
+        <translation>الترتيب الافتراضي للغرف</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The starting order for everyone in this space. Personal room arrangements and sort choices take precedence.</source>
-        <translation type="unfinished"></translation>
+        <translation>الترتيب الأولي للجميع في هذا الفضاء. ترتيبات الغرف الشخصية وخيارات الفرز مقدَّمة عليه.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Move room up</source>
-        <translation type="unfinished"></translation>
+        <translation>نقل الغرفة لأعلى</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Move room down</source>
-        <translation type="unfinished"></translation>
+        <translation>نقل الغرفة لأسفل</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Saving…</source>
-        <translation type="unfinished">جارٍ الحفظ…</translation>
+        <translation>جارٍ الحفظ…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Save default order</source>
-        <translation type="unfinished"></translation>
+        <translation>حفظ الترتيب الافتراضي</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Reload order</source>
-        <translation type="unfinished"></translation>
+        <translation>إعادة تحميل الترتيب</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -29415,12 +29421,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+31"/>
         <source>Leave Space</source>
-        <translation type="unfinished">مغادرة الفضاء</translation>
+        <translation>مغادرة الفضاء</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Leaving does not remove the rooms inside it.</source>
-        <translation type="unfinished">المغادرة لا تزيل الغرف التي بداخله.</translation>
+        <translation>المغادرة لا تزيل الغرف التي بداخله.</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -29765,7 +29771,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+5"/>
         <source>Only Space admins can change this.</source>
-        <translation type="unfinished"></translation>
+        <translation>مشرفو الفضاء وحدهم يمكنهم تغيير هذا.</translation>
     </message>
     <message>
         <location line="+74"/>
@@ -30061,12 +30067,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpoilerCover.qml" line="+85"/>
         <source>Spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>حرق</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Spoiler, press to reveal</source>
-        <translation type="unfinished"></translation>
+        <translation>حرق، اضغط للكشف</translation>
     </message>
 </context>
 <context>
@@ -30519,12 +30525,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>Confirm empty</source>
-        <translation type="unfinished"></translation>
+        <translation>تأكيد الإفراغ</translation>
     </message>
     <message>
         <location line="+129"/>
         <source>This deletes the pack from the room for everyone and turns it off for you. Messages already sent keep their images, and the images themselves are not deleted from the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>يحذف هذا الحزمة من الغرفة للجميع ويوقفها لديك. تحتفظ الرسائل المرسلة سابقًا بصورها، ولا تُحذف الصور نفسها من الخادوم.</translation>
     </message>
     <message>
         <location line="-128"/>
@@ -30534,7 +30540,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+17"/>
         <source>Remove pack</source>
-        <translation type="unfinished"></translation>
+        <translation>إزالة الحزمة</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -31059,12 +31065,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+21"/>
         <source>Search stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>ابحث في الملصقات</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search stickers by name or description</source>
-        <translation type="unfinished"></translation>
+        <translation>ابحث عن الملصقات بالاسم أو الوصف</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -31134,7 +31140,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+48"/>
         <source>No stickers match “%1”</source>
-        <translation type="unfinished"></translation>
+        <translation>لا ملصقات تطابق «%1»</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -31164,7 +31170,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>Try another word, or clear the search to browse your packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>جرّب كلمة أخرى، أو امسح البحث لتصفح حزمك.</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -31179,7 +31185,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+30"/>
         <source>Results from all your packs</source>
-        <translation type="unfinished"></translation>
+        <translation>نتائج من كل حزمك</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -31202,77 +31208,77 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/StreamInfoOverlay.qml" line="+49"/>
         <source>Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>معلومات البث</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>No video streams</source>
-        <translation type="unfinished"></translation>
+        <translation>لا بثوث فيديو</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 · outgoing share</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · مشاركة صادرة</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>%1 · outgoing camera</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · كاميرا صادرة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 · received share</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · مشاركة واردة</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>%1 · received camera</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · كاميرا واردة</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 · %2 × %3 · %4 FPS · %5 kbps</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · %2 × %3 · %4 FPS · %5 kbps</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Encryption on</source>
-        <translation type="unfinished"></translation>
+        <translation>التعمية مفعّلة</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Encryption off</source>
-        <translation type="unfinished"></translation>
+        <translation>التعمية متوقفة</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encoder: %1 · Scaling: %2 · Capture: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>المرمّز: %1 · التحجيم: %2 · الالتقاط: %3</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>RTP packets sent: %1 · Lost on the way to the server: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>حزم RTP المرسلة: %1 · المفقودة في الطريق إلى الخادوم: %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Keyframes encoded: %1 · Keyframe requests: %2 · Resend requests: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>الإطارات المفتاحية المرمّزة: %1 · طلبات الإطارات المفتاحية: %2 · طلبات إعادة الإرسال: %3</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Decoder: %1 · RTP packets: %2 · Lost: %3 · Jitter: %4 ms</source>
-        <translation type="unfinished"></translation>
+        <translation>فك الترميز: %1 · حزم RTP: %2 · المفقودة: %3 · التذبذب: %4 ms</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Keyframes: %1 · Keyframes asked for: %2 · Resend requests: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>الإطارات المفتاحية: %1 · الإطارات المفتاحية المطلوبة: %2 · طلبات إعادة الإرسال: %3</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Frames decrypted: %1 · Dropped: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>الإطارات المفكوكة التعمية: %1 · المُسقطة: %2</translation>
     </message>
 </context>
 <context>
@@ -32973,18 +32979,18 @@ Note: importing keys does not verify this session.</source>
         <location line="+655"/>
         <location line="+1"/>
         <source>Collapse thread root</source>
-        <translation type="unfinished"></translation>
+        <translation>طي جذر الخيط</translation>
     </message>
     <message>
         <location line="+67"/>
         <location line="+1"/>
         <source>Expand thread root</source>
-        <translation type="unfinished"></translation>
+        <translation>توسيع جذر الخيط</translation>
     </message>
     <message>
         <location line="+74"/>
         <source>Loading the original message…</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ تحميل الرسالة الأصلية…</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -33088,17 +33094,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <source>Mark %1 as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>تعليم %1 كحرق</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Marked as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>معلَّم كحرق</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mark as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>تعليم كحرق</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -33124,7 +33130,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+228"/>
         <source>Reply…</source>
-        <translation type="unfinished">رد…</translation>
+        <translation>رد…</translation>
     </message>
     <message>
         <location line="+522"/>
@@ -33496,12 +33502,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+1"/>
         <source>Not encrypted</source>
-        <translation type="unfinished"></translation>
+        <translation>غير معمّاة</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Public room</source>
-        <translation type="unfinished"></translation>
+        <translation>غرفة عامة</translation>
     </message>
     <message>
         <location line="+87"/>
@@ -33514,7 +33520,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+1"/>
         <location line="+199"/>
         <source>Call options</source>
-        <translation type="unfinished"></translation>
+        <translation>خيارات المكالمة</translation>
     </message>
     <message>
         <location line="-166"/>
@@ -33659,32 +33665,32 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+78"/>
         <source>Joining adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room&apos;s info panel.</source>
-        <translation type="unfinished"></translation>
+        <translation>يضيف الانضمام الفضاء إلى شريطك الجانبي ويتيح لك رؤية غرفه. لا يضمك إلى أي من غرفه الأخرى. يمكن لأعضاء الفضاء الآخرين رؤية أنك انضممت إليه. يمكنك المغادرة في أي وقت، ويمكنك أيضًا الانضمام لاحقًا من لوحة معلومات هذه الغرفة.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Could not join: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر الانضمام: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This room is in %1. Joining adds the Space to your sidebar; you can leave at any time.</source>
-        <translation type="unfinished"></translation>
+        <translation>هذه الغرفة في %1. يضيف الانضمام الفضاء إلى شريطك الجانبي؛ ويمكنك المغادرة في أي وقت.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This room is in a Space you have not joined. Joining adds the Space to your sidebar; you can leave at any time.</source>
-        <translation type="unfinished"></translation>
+        <translation>هذه الغرفة في فضاء لم تنضم إليه. يضيف الانضمام الفضاء إلى شريطك الجانبي؛ ويمكنك المغادرة في أي وقت.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Joining…</source>
-        <translation type="unfinished">جارٍ الانضمام…</translation>
+        <translation>جارٍ الانضمام…</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Dismiss this notice for this Space</source>
-        <translation type="unfinished"></translation>
+        <translation>إخفاء هذا التنبيه لهذا الفضاء</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -34013,7 +34019,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+571"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
+        <translation>أنت المدير الوحيد. إذا غادرت، فلن يتمكن أحد من تغيير إعدادات هذا الفضاء أو إدارة غرفه وأعضائه. اجعل شخصًا آخر مديرًا أولًا.</translation>
     </message>
     <message numerus="yes">
         <location filename="../qml/SpaceLobby.qml" line="+129"/>
@@ -34032,13 +34038,13 @@ Note: importing keys does not verify this session.</source>
         <location filename="../qml/TimelinePane.qml" line="-514"/>
         <source>%n joined room(s)</source>
         <comment>joined rooms inside a Space</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n غرفة انضممت إليها</numerusform>
+            <numerusform>غرفة واحدة انضممت إليها</numerusform>
+            <numerusform>غرفتان انضممت إليهما</numerusform>
+            <numerusform>%n غرف انضممت إليها</numerusform>
+            <numerusform>%n غرفة انضممت إليها</numerusform>
+            <numerusform>%n غرفة انضممت إليها</numerusform>
         </translation>
     </message>
     <message>
@@ -34345,7 +34351,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+39"/>
         <source>Only Space admins can change this.</source>
-        <translation type="unfinished"></translation>
+        <translation>مشرفو الفضاء وحدهم يمكنهم تغيير هذا.</translation>
     </message>
     <message>
         <location line="+344"/>
@@ -34610,28 +34616,28 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
         <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
-        <translation type="unfinished"></translation>
+        <translation>يظهر هنا النشاط من حساباتك الأخرى ما دامت مسجّلة الدخول. اختر أيها من الإعدادات، ضمن Labs.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Open Labs</source>
-        <translation type="unfinished"></translation>
+        <translation>فتح Labs</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+17"/>
         <source>From your other accounts</source>
-        <translation type="unfinished"></translation>
+        <translation>من حساباتك الأخرى</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Encrypted message</source>
-        <translation type="unfinished">رسالة معمّاة</translation>
+        <translation>رسالة معمّاة</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 account, %2: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>حساب %1، %2: %3</translation>
     </message>
 </context>
 <context>
@@ -34977,42 +34983,42 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/UserClientsInfo.qml" line="+40"/>
         <source>Session</source>
-        <translation type="unfinished"></translation>
+        <translation>الجلسة</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Sessions</source>
-        <translation type="unfinished">الجلسات</translation>
+        <translation>الجلسات</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Looking up...</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ البحث...</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unknown: sessions could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>غير معروف: تعذّرت قراءة الجلسات.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Unknown: this device has no record of session %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>غير معروف: لا يملك هذا الجهاز سجلًا للجلسة %1.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unknown: this device has no session list for this user.</source>
-        <translation type="unfinished"></translation>
+        <translation>غير معروف: لا يملك هذا الجهاز قائمة جلسات لهذا المستخدم.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>(no name set)</source>
-        <translation type="unfinished"></translation>
+        <translation>(لم يُعيَّن اسم)</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Names are chosen by the account&apos;s owner and are not checked. Lightning does not guess which app a session is.</source>
-        <translation type="unfinished"></translation>
+        <translation>يختار صاحب الحساب الأسماء ولا يُتحقق منها. لا يخمّن Lightning التطبيق الذي تمثله الجلسة.</translation>
     </message>
 </context>
 <context>
@@ -35500,18 +35506,18 @@ Note: importing keys does not verify this session.</source>
         <location filename="../qml/VimModeBadge.qml" line="+12"/>
         <source>NORMAL</source>
         <comment>Vim editing mode</comment>
-        <translation type="unfinished"></translation>
+        <translation>عادي</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>INSERT</source>
         <comment>Vim editing mode</comment>
-        <translation type="unfinished"></translation>
+        <translation>إدراج</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Editing mode: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>وضع التحرير: %1</translation>
     </message>
 </context>
 <context>
@@ -36056,7 +36062,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+5"/>
         <source>Could not archive or unarchive this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّرت أرشفة هذه الغرفة أو إلغاء أرشفتها.</translation>
     </message>
     <message>
         <location line="+4"/>
