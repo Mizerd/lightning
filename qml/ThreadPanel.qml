@@ -118,6 +118,7 @@ Rectangle {
     readonly property string rootBodyHtml: rootIsPlaceholder ? ""
         : (rootData.formattedBody || "") !== "" ? rootData.formattedBody
         : app.linkPreviews.linkifiedBody(rootData.body || "")
+    signal openInRoomRequested(string eventId)
     function openRootLink(link) {
         if (link === "spoiler:toggle") {
             app.thread.model.toggleSpoilers(rootData.eventId || "")
@@ -785,7 +786,7 @@ Rectangle {
                         ToolTip.visible: rootHeaderRow.compactOpen
                                          && (hovered || visualFocus)
                         ToolTip.delay: 500
-                        onClicked: app.pagination.jumpToEvent(
+                        onClicked: panel.openInRoomRequested(
                             panel.rootData.eventId || "")
                     }
                     IconButton {

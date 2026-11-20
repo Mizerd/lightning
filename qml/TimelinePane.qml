@@ -414,6 +414,17 @@ Rectangle {
             app.thread.close()
         app.thread.closeList()
     }
+    // A thread that covers the room column would hide the jump, so it gives
+    // the column back; beside it, the panel stays.
+    function openThreadRootInRoom(eventId) {
+        if (!eventId)
+            eventId = app.thread.rootEventId
+        if (!eventId)
+            return
+        if (threadSurfaceOpen && !sideSurface.threadBeside)
+            closeThreadSurface()
+        app.pagination.jumpToEvent(eventId)
+    }
 
     function rememberMemberPanel() {
         app.settings.memberPanelOpen =
@@ -5896,6 +5907,7 @@ Rectangle {
         onCloseRequested: {
             root.closeThreadSurface()
         }
+        onOpenInRoomRequested: (eventId) => root.openThreadRootInRoom(eventId)
         openImage: function(mediaKey, httpUrl) {
             imageViewer.openFor(mediaKey || "", httpUrl)
         }

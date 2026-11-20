@@ -321,7 +321,7 @@ Item {
         }
         enabled: app.loggedIn && app.thread.active
                  && app.thread.rootEventId !== "" && !quickSwitcher.visible
-        onActivated: app.pagination.jumpToEvent(app.thread.rootEventId)
+        onActivated: timelinePane.openThreadRootInRoom(app.thread.rootEventId)
     }
 
     Shortcut {

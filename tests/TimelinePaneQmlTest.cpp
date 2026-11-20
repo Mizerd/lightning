@@ -4566,6 +4566,68 @@ false);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    void openInRoomRevealsTheRootInBothThreadPlacements()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        const int placementBefore = controller.settings()->threadPlacement();
+        const auto restore = qScopeGuard([&] {
+            controller.settings()->setThreadPlacement(placementBefore);
+        });
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        root->setProperty("width", 1200);
+        root->setProperty("height", 800);
+        QObject *roomColumn = root->findChild<QObject *>(
+            QStringLiteral("roomColumn"));
+        QVERIFY(roomColumn != nullptr);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        QVERIFY(!rootId.isEmpty());
+
+        // 1: the thread fills the pane; 0: it sits beside the room.
+        for (const int placement : {1, 0}) {
+            controller.settings()->setThreadPlacement(placement);
+            controller.thread()->openThread(roomId, rootId);
+            QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                      ThreadController::Ready,
+                                      kSignalTimeoutMs);
+            QCOMPARE(roomColumn->property("visible").toBool(), placement == 0);
+
+            QObject *button = root->findChild<QObject *>(
+                QStringLiteral("threadOpenInRoomButton"));
+            QVERIFY(button != nullptr);
+            QSignalSpy located(controller.pagination(),
+                               &PaginationController::targetLocated);
+            QVERIFY(QMetaObject::invokeMethod(button, "click"));
+
+            QTRY_VERIFY_WITH_TIMEOUT(!located.isEmpty(), kSignalTimeoutMs);
+            QCOMPARE(controller.pagination()->highlightedEventId(), rootId);
+            QTRY_VERIFY_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
+                                     kSignalTimeoutMs);
+            QCOMPARE(controller.thread()->state(),
+                     placement == 0 ? ThreadController::Ready
+                                    : ThreadController::Closed);
+            controller.thread()->close();
+        }
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
     void threadComposerSendsThreadReply()
     {
         AppController controller(AppController::MockBackend);
