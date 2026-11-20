@@ -9,6 +9,9 @@ import MatrixClient
 // name) would be rendered as markup and an <img> in it fetched on hover.
 ToolTip {
     id: control
+    // Centred on the actual width: the Basic style centres the unwrapped one,
+    // which pushes a capped, wrapping tooltip far off its anchor.
+    x: parent ? Math.round((parent.width - width) / 2) : 0
     // The same chrome SharedToolTipGuard gives the attached tooltips.
     Component.onCompleted: {
         if (background && background.radius !== undefined)

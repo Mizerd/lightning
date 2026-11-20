@@ -41,6 +41,10 @@ Item {
                 && shared.contentItem.wrapMode !== undefined)
             shared.contentItem.wrapMode = Text.Wrap
         applyToolTipChrome()
+        // The width is capped below, so centre on the capped width.
+        if (shared)
+            shared.x = Qt.binding(() => shared.parent
+                                  ? Math.round((shared.parent.width - shared.width) / 2) : 0)
     }
 
     function capToolTipWidth() {
