@@ -6971,9 +6971,16 @@ true);
         const auto video = SfuMediaEngine::receiveJitterbuffer(QStringLiteral("video"));
         QVERIFY(video.retransmit);
         QVERIFY(video.latencyMs > 100 + 100);
+        // LiveKit ignores a NACK within 100 ms of the send: retries must
+        // keep coming, several of them past that, inside the latency.
+        QVERIFY(video.retryTimeoutMs > 0 && video.retryTimeoutMs < 100);
+        QVERIFY(video.maxRetries > 0);
+        QVERIFY(video.retryTimeoutMs * video.maxRetries > 100 + 100);
+        QVERIFY(video.retryTimeoutMs * video.maxRetries < video.latencyMs);
         const auto audio = SfuMediaEngine::receiveJitterbuffer(QStringLiteral("audio"));
         QVERIFY(!audio.retransmit);
         QCOMPARE(audio.latencyMs, -1);
+        QCOMPARE(audio.retryTimeoutMs, -1);
         const auto unknown = SfuMediaEngine::receiveJitterbuffer(QString());
         QVERIFY(unknown.retransmit);
         QCOMPARE(unknown.latencyMs, -1);
@@ -6992,11 +6999,13 @@ true);
         QVERIFY(!answerTo(engine, videoThenAudioOffer()).isEmpty());
         GstElement *rtpbin = gst_bin_get_by_name(GST_BIN(engine.m_subscriber.webrtc), "rtpbin");
         QVERIFY(rtpbin);
-        struct Want { guint ssrc; bool retransmit; guint latency; };
-        const QList<Want> wants{{2000, true, SfuMediaEngine::kVideoJitterbufferMs},
-                                {3000, true, SfuMediaEngine::kVideoJitterbufferMs},
-                                {1000, false, 100}, {4000, false, 100},
-                                {7777, true, 100}};
+        struct Want { guint ssrc; bool retransmit; guint latency; gint retryTimeout; gint maxRetries; };
+        const gint videoRetry = SfuMediaEngine::kVideoRtxRetryTimeoutMs;
+        const gint videoMax = SfuMediaEngine::kVideoRtxMaxRetries;
+        const QList<Want> wants{{2000, true, SfuMediaEngine::kVideoJitterbufferMs, videoRetry, videoMax},
+                                {3000, true, SfuMediaEngine::kVideoJitterbufferMs, videoRetry, videoMax},
+                                {1000, false, 100, -1, -1}, {4000, false, 100, -1, -1},
+                                {7777, true, 100, -1, -1}};
         for (const Want &want : wants) {
             GstElement *jitterbuffer = gst_element_factory_make("rtpjitterbuffer", nullptr);
             QVERIFY(jitterbuffer);
@@ -7005,9 +7014,14 @@ true);
             g_signal_emit_by_name(rtpbin, "new-jitterbuffer", jitterbuffer, 0u, want.ssrc);
             gboolean retransmit = !want.retransmit;
             guint latency = 0;
+            gint retryTimeout = 0;
+            gint maxRetries = 0;
             g_object_get(jitterbuffer, "do-retransmission", &retransmit,
-                         "latency", &latency, nullptr);
+                         "latency", &latency, "rtx-retry-timeout", &retryTimeout,
+                         "rtx-max-retries", &maxRetries, nullptr);
             gst_object_unref(jitterbuffer);
+            QVERIFY2(retryTimeout == want.retryTimeout, qPrintable(QString::number(want.ssrc)));
+            QVERIFY2(maxRetries == want.maxRetries, qPrintable(QString::number(want.ssrc)));
             QVERIFY2(bool(retransmit) == want.retransmit, qPrintable(QString::number(want.ssrc)));
             QVERIFY2(latency == want.latency, qPrintable(QString::number(want.ssrc)));
         }

@@ -6360,8 +6360,11 @@ SfuMediaEngine::JitterbufferChoice SfuMediaEngine::receiveJitterbuffer(
         return {false, -1};
     // LiveKit resends nothing within 100 ms (or two RTTs) of the original
     // send, so a video jitterbuffer must wait past that plus the resend's RTT.
+    // The automatic retry interval follows a measured RTT, which late
+    // originals at join push to ~300 ms: one NACK per gap, inside that gate.
     if (kind == QLatin1String("video"))
-        return {true, kVideoJitterbufferMs};
+        return {true, kVideoJitterbufferMs, kVideoRtxRetryTimeoutMs,
+                kVideoRtxMaxRetries};
     // An unsignalled ssrc: asking costs nothing, but its latency stays, since
     // it may be a voice.
     return {true, -1};
@@ -6393,10 +6396,19 @@ void SfuMediaEngine::onNewJitterbuffer(GstElement *rtpbin,
     if (choice.latencyMs > 0 && g_object_class_find_property(klass, "latency"))
         g_object_set(jitterbuffer, "latency",
                      static_cast<guint>(choice.latencyMs), nullptr);
+    if (choice.retryTimeoutMs > 0
+        && g_object_class_find_property(klass, "rtx-retry-timeout"))
+        g_object_set(jitterbuffer, "rtx-retry-timeout", choice.retryTimeoutMs,
+                     nullptr);
+    if (choice.maxRetries > 0
+        && g_object_class_find_property(klass, "rtx-max-retries"))
+        g_object_set(jitterbuffer, "rtx-max-retries", choice.maxRetries, nullptr);
     qCInfo(lcSfuMedia) << "receive jitterbuffer ssrc=" << ssrc << "kind="
                        << (kind.isEmpty() ? QStringLiteral("unknown") : kind)
                        << "retransmission=" << choice.retransmit
-                       << "latencyMs=" << choice.latencyMs;
+                       << "latencyMs=" << choice.latencyMs
+                       << "rtxRetryTimeoutMs=" << choice.retryTimeoutMs
+                       << "rtxMaxRetries=" << choice.maxRetries;
 }
 
 void SfuMediaEngine::enablePublishRetransmission(GstPad *webrtcSinkPad)

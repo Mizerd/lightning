@@ -743,8 +743,12 @@ private:
     struct JitterbufferChoice {
         bool retransmit = true;
         int latencyMs = -1; // -1 keeps webrtcbin's latency
+        int retryTimeoutMs = -1; // -1 keeps rtpjitterbuffer's automatic one
+        int maxRetries = -1;
     };
     static constexpr int kVideoJitterbufferMs = 400;
+    static constexpr int kVideoRtxRetryTimeoutMs = 40;
+    static constexpr int kVideoRtxMaxRetries = 8;
     static QHash<quint32, QString> ssrcKindsFromSdp(const QString &sdp);
     static JitterbufferChoice receiveJitterbuffer(const QString &kind);
     static void onNewJitterbuffer(GstElement *rtpbin, GstElement *jitterbuffer,
