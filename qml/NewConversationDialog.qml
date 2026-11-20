@@ -366,25 +366,35 @@ Dialog {
         }
 
         RowLayout {
+            objectName: "creationFooter"
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            ConversationChip {
-                objectName: "newConversationDmChip"
-                text: qsTr("New DM")
-                iconName: "chat_bubble"
-                onClicked: root.switchMode("dm")
-            }
-            ConversationChip {
-                objectName: "newConversationRoomChip"
-                text: qsTr("New room")
-                iconName: "tag"
-                onClicked: root.switchMode("room")
-            }
-            ConversationChip {
-                objectName: "newConversationSpaceChip"
-                text: qsTr("New space")
-                iconName: "workspaces"
-                onClicked: root.switchMode("space")
+            // A Flow, not more RowLayout cells: a layout never shrinks below
+            // its children's widths, and long translations then pushed the
+            // whole content column past the dialog's frame.
+            Flow {
+                objectName: "creationModeChips"
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                spacing: AppTheme.spacing8
+                ConversationChip {
+                    objectName: "newConversationDmChip"
+                    text: qsTr("New DM")
+                    iconName: "chat_bubble"
+                    onClicked: root.switchMode("dm")
+                }
+                ConversationChip {
+                    objectName: "newConversationRoomChip"
+                    text: qsTr("New room")
+                    iconName: "tag"
+                    onClicked: root.switchMode("room")
+                }
+                ConversationChip {
+                    objectName: "newConversationSpaceChip"
+                    text: qsTr("New space")
+                    iconName: "workspaces"
+                    onClicked: root.switchMode("space")
+                }
             }
             // A static label beside a spinner: a looping opacity animation on
             // text repaints every frame for as long as a (possibly federated,
@@ -400,11 +410,13 @@ Dialog {
             Label {
                 objectName: "creationBusyLabel"
                 visible: root.busy
+                Layout.fillWidth: true
+                Layout.maximumWidth: implicitWidth
+                elide: Text.ElideRight
                 text: qsTr("Working…")
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textBody
             }
-            Item { Layout.fillWidth: true }
             AppButton {
                 storm: true
                 objectName: "creationCancelButton"
@@ -597,6 +609,8 @@ Dialog {
             Label {
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length > 0
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
                 text: qsTr("You already share a direct message with this user")
                 color: AppTheme.stormTextSecondary
                 font.pixelSize: AppTheme.textBody
@@ -892,6 +906,7 @@ Dialog {
                     spacing: AppTheme.spacing2
                     Label {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("End-to-end encryption")
                         color: root.roomIsPublic ? AppTheme.stormTextFaint
                                                  : AppTheme.stormText
@@ -971,6 +986,7 @@ Dialog {
                 }
                 Label {
                     Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
                     text: qsTr("Add to the current Space")
                     color: AppTheme.stormText
                     font.pixelSize: AppTheme.textBody
@@ -1261,6 +1277,7 @@ Dialog {
                     }
                     Label {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Add to the current Space")
                         color: AppTheme.stormText
                         font.pixelSize: AppTheme.textBody

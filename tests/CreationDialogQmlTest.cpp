@@ -18,8 +18,10 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QTranslator>
 
 #include "app/AppController.h"
 #include "app/ConversationController.h"
@@ -117,6 +119,23 @@ QVariantMap searchRow(const QString &userId, const QString &name = {})
     row.insert(QStringLiteral("avatarUrl"), QString());
     return row;
 }
+
+// Stands in for a long-worded language (the Russian chips overflowed the
+// dialog): every string grows to at least twice its length.
+class LongWordsTranslator final : public QTranslator
+{
+public:
+    bool isEmpty() const override { return false; }
+    QString translate(const char *, const char *source, const char *,
+                      int) const override
+    {
+        const QString text = QString::fromUtf8(source);
+        if (text.isEmpty())
+            return text;
+        const int pad = qMax<qsizetype>(text.size(), 10);
+        return text + QLatin1Char(' ') + QString(pad - 1, QChar(0x0416));
+    }
+};
 
 const char *kScene = R"QML(
 import QtQuick
@@ -688,6 +707,111 @@ private slots:
         QCOMPARE(m_fake->createDmCalls, before);
         m_fake->profileLookupSupported = false;
         closeDialog();
+    }
+
+    QStringList overflowingItems() const
+    {
+        auto *content = m_dialog->property("contentItem").value<QQuickItem *>();
+        const qreal available = m_dialog->property("availableWidth").toReal();
+        QStringList out;
+        if (!content)
+            return { QStringLiteral("no contentItem") };
+        if (content->width() > available + 0.5)
+            out << QStringLiteral("contentItem %1 > %2")
+                       .arg(content->width()).arg(available);
+        QList<QQuickItem *> all;
+        collectItems(content, &all);
+        for (QQuickItem *it : std::as_const(all)) {
+            if (!it->isVisible() || it->width() <= 0)
+                continue;
+            // An unwrapped, unelided Text paints past its own width.
+            const qreal drawn = it->inherits("QQuickText")
+                ? qMax(it->width(), it->property("contentWidth").toReal())
+                : it->width();
+            const QRectF r = it->mapRectToItem(
+                content, QRectF(0, 0, drawn, it->height()));
+            if (r.left() < -0.5 || r.right() > available + 0.5)
+                out << QStringLiteral("%1 %2 [%3, %4] outside [0, %5]")
+                           .arg(QString::fromLatin1(it->metaObject()->className()),
+                                it->objectName())
+                           .arg(r.left()).arg(r.right()).arg(available);
+        }
+        return out;
+    }
+
+    void longLabelsStayInsideTheDialog()
+    {
+        m_warnings.clear();
+        LongWordsTranslator translator;
+        QCoreApplication::installTranslator(&translator);
+        m_engine->retranslate();
+        auto restore = qScopeGuard([&] {
+            QMetaObject::invokeMethod(m_dialog, "close");
+            QCoreApplication::removeTranslator(&translator);
+            m_engine->retranslate();
+        });
+
+        auto check = [&](const char *step) {
+            QCoreApplication::processEvents();
+            const QStringList bad = overflowingItems();
+            QVERIFY2(bad.isEmpty(),
+                     qPrintable(QLatin1String(step) + QStringLiteral(": ")
+                                + bad.join(QStringLiteral("; "))));
+        };
+
+        openDialog("dm");
+        QTRY_VERIFY(item("dmTab"));
+        check("dm");
+        if (QTest::currentTestFailed())
+            return;
+        closeDialog();
+
+        QVariantMap dm;
+        dm.insert(QStringLiteral("roomId"), QStringLiteral("!dm:example.org"));
+        dm.insert(QStringLiteral("name"), QStringLiteral("Bob Builder"));
+        m_fake->dmRooms = { dm };
+        openDialog("dm");
+        selectUserFromSearch(QStringLiteral("@bob:example.org"),
+                             QStringLiteral("Bob Builder"));
+        m_fake->dmRooms.clear();
+        if (QTest::currentTestFailed())
+            return;
+        QTRY_VERIFY(item("existingDmRow_0"));
+        check("dm existing");
+        if (QTest::currentTestFailed())
+            return;
+        closeDialog();
+
+        openDialog("space");
+        QTRY_VERIFY(item("spaceTab"));
+        check("space");
+        if (QTest::currentTestFailed())
+            return;
+        closeDialog();
+
+        openDialog("room");
+        QTRY_VERIFY(item("roomTab"));
+        check("room");
+        if (QTest::currentTestFailed())
+            return;
+        item("roomNameField")->setProperty("text", QStringLiteral("Test room"));
+        m_dialog->setProperty("roomIsPublic", true);
+        QTRY_VERIFY(item("roomAliasField")->isVisible());
+        check("room public");
+        if (QTest::currentTestFailed())
+            return;
+        auto *create = item("roomCreateButton");
+        QTRY_VERIFY(create->property("enabled").toBool());
+        QMetaObject::invokeMethod(create, "click");
+        QTRY_VERIFY(item("creationBusyLabel")->isVisible());
+        check("room busy");
+        if (QTest::currentTestFailed())
+            return;
+        Q_EMIT m_fake->roomCreateFinished(m_fake->lastOpId, false, QString(),
+                                          QStringLiteral("network"), QString());
+        QTRY_VERIFY(!conversations()->busy());
+        closeDialog();
+        QCOMPARE(m_warnings, QStringList{});
     }
 
     void omniboxSuggestsCreatingARoomForNonAtText()
