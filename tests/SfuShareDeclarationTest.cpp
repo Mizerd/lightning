@@ -119,6 +119,49 @@ private slots:
         engine.stop();
     }
 
+    void aClosedSourceNoticeIsWithdrawnByTheNextShareOrAStop()
+    {
+        useHardware(false);
+        DeclaringClient client;
+        SfuCallController call;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        call.setClient(&client);
+        call.setMediaEngine(&engine);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        engine.start();
+        QSignalSpy notices(&call, &SfuCallController::callFailed);
+        const QString closed = QStringLiteral("screen_share_source_closed");
+        auto failShare = [&] {
+            client.calls.clear();
+            QVERIFY(call.startScreenShare(0));
+            QTRY_VERIFY_WITH_TIMEOUT(client.calls.contains(QStringLiteral("offer")),
+                                     10000);
+            QVERIFY(client.calls.first().startsWith(QLatin1String("add:")));
+            Q_EMIT engine.publishFailed(client.calls.first().mid(4), closed);
+            QVERIFY(!call.screenSharing());
+            QVERIFY(!notices.isEmpty());
+            QVERIFY(!notices.last().first().toString().isEmpty());
+        };
+        failShare();
+        if (QTest::currentTestFailed())
+            return;
+        notices.clear();
+        QVERIFY(call.startScreenShare(0));
+        QVERIFY(!notices.isEmpty());
+        QCOMPARE(notices.first().first().toString(), QString());
+
+        call.stopScreenShare();
+        failShare();
+        if (QTest::currentTestFailed())
+            return;
+        notices.clear();
+        call.stopScreenShare();
+        QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices.first().first().toString(), QString());
+        engine.stop();
+    }
+
     // A failure inside publishVideo() must not re-enter startScreenShare().
     void aBackupThatCannotStartDeclaresNothingAndEndsTheShareAfterwards()
     {

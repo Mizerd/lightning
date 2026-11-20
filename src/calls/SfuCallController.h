@@ -979,6 +979,7 @@ private:
     bool m_playbackLostAnnounced = false;
     QString m_shownNotice;
     QString m_announcedFailure;
+    QString m_shareNotice;
     QString m_cameraNoticeCategory;
     QString m_cameraNoticeCid;
     void announceCameraNotice(const QString &category, const QString &cid);

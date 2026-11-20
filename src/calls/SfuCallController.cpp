@@ -3222,7 +3222,8 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
         announceCameraNotice(noticeCategory, cid);
         return;
     }
-    Q_EMIT callFailed(userFacingError(category));
+    m_shareNotice = userFacingError(category);
+    Q_EMIT callFailed(m_shareNotice);
 }
 
 void SfuCallController::expireParkedKeys()
@@ -4709,6 +4710,7 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
         return false;
     if (m_screenSharing)
         stopScreenShare();
+    withdrawNotice(m_shareNotice);
 #ifdef Q_OS_LINUX
     m_shareSourceReusable = pipewireFd < 0
         && (windowHandle != 0 || captureRect.isValid());
@@ -5254,6 +5256,7 @@ QString SfuCallController::shareAudioStatusText(const ShareAudioStatusInput &in)
 void SfuCallController::stopScreenShare()
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
+    withdrawNotice(m_shareNotice);
     if (!m_screenSharing || m_engine.isNull())
         return;
     unpublishTrack(m_screenCid);
