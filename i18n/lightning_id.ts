@@ -5347,12 +5347,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="-39"/>
         <source>Spaces rail</source>
-        <translation>Rel luar angkasa</translation>
+        <translation>Rel Space</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The narrow strip of Spaces down the far edge</source>
-        <translation>Jalur sempit Spaces di ujung terjauh</translation>
+        <translation>Jalur sempit Space di ujung terjauh</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -5802,7 +5802,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+1"/>
         <source>The general selected colour: the open Space, and every selected row that has no colour of its own</source>
-        <translation>Warna pilihan umum: space yang terbuka, dan setiap baris terpilih yang tidak memiliki warnanya sendiri</translation>
+        <translation>Warna pilihan umum: Space yang terbuka, dan setiap baris terpilih yang tidak memiliki warnanya sendiri</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -6167,7 +6167,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+3"/>
         <source>Spaces rail tile</source>
-        <translation>Kotak space di rel Space</translation>
+        <translation>Kotak di rel Space</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -21718,7 +21718,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+2348"/>
         <location line="+12"/>
         <source>Show Space banners</source>
-        <translation>Tampilkan spanduk Luar Angkasa</translation>
+        <translation>Tampilkan spanduk Space</translation>
     </message>
     <message>
         <location line="-4403"/>
@@ -27467,7 +27467,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+3"/>
         <source>Show or hide the Spaces rail</source>
-        <translation>Menampilkan atau menyembunyikan rel Spaces</translation>
+        <translation>Menampilkan atau menyembunyikan rel Space</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -28112,7 +28112,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+2"/>
         <source>Explore Spaces</source>
-        <translation>Jelajahi Luar Angkasa</translation>
+        <translation>Jelajahi Space</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -28571,12 +28571,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+4"/>
         <source>Space profile</source>
-        <translation>Profil luar angkasa</translation>
+        <translation>Profil Space</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Space avatar</source>
-        <translation>Avatar luar angkasa</translation>
+        <translation>Avatar Space</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -28648,7 +28648,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+15"/>
         <source>Choose space avatar</source>
-        <translation>Pilih avatar luar angkasa</translation>
+        <translation>Pilih avatar Space</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -28859,7 +28859,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+23"/>
         <source>Space access</source>
-        <translation>Akses ruang</translation>
+        <translation>Akses Space</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -29142,12 +29142,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+16"/>
         <source>Space ID</source>
-        <translation>ID Ruang</translation>
+        <translation>ID Space</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Space version</source>
-        <translation>Versi luar angkasa</translation>
+        <translation>Versi Space</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -33238,7 +33238,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+16"/>
         <source>Hide space banners</source>
-        <translation>Sembunyikan spanduk luar angkasa</translation>
+        <translation>Sembunyikan spanduk Space</translation>
     </message>
     <message>
         <location line="+18"/>
