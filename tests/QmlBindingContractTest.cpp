@@ -1157,7 +1157,7 @@ private Q_SLOTS:
         const QRegularExpression call(QStringLiteral(
             "setMentionStyle\\(\\s*accent\\s*,\\s*soft\\s*,\\s*code\\s*,"
             "\\s*linkInk\\s*,\\s*AppTheme\\.underlineLinks\\s*\\)"));
-        QCOMPARE(shell.count(call), 2);
+        QCOMPARE(shell.count(call), 3);
         QVERIFY2(shell.contains(QStringLiteral("AppTheme.link")),
                  "the link ink must come from the theme, not a literal");
         QVERIFY2(shell.contains(QStringLiteral("function onLinkChanged()")),
