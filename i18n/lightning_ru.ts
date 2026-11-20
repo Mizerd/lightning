@@ -580,7 +580,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>New direct message</source>
-        <translation type="unfinished"></translation>
+        <translation>Новое личное сообщение</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -620,40 +620,40 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+11"/>
         <source>Activity options</source>
-        <translation type="unfinished"></translation>
+        <translation>Параметры активности</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Hide read activity older than</source>
-        <translation type="unfinished"></translation>
+        <translation>Скрывать прочитанную активность старше</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Never hide</source>
-        <translation type="unfinished"></translation>
+        <translation>Никогда не скрывать</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n year(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n год</numerusform>
+            <numerusform>%n года</numerusform>
+            <numerusform>%n лет</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n day(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n день</numerusform>
+            <numerusform>%n дня</numerusform>
+            <numerusform>%n дней</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Unread rows are always shown</source>
-        <translation type="unfinished"></translation>
+        <translation>Непрочитанные строки показываются всегда</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -668,7 +668,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <source>Everything addressed to you, newest first</source>
-        <translation type="unfinished"></translation>
+        <translation>Всё, что адресовано вам, сначала новое</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -729,32 +729,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+64"/>
         <source>Unseen only</source>
-        <translation type="unfinished"></translation>
+        <translation>Только непросмотренное</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Showing unseen activity only</source>
-        <translation type="unfinished"></translation>
+        <translation>Показана только непросмотренная активность</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show unseen activity only</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать только непросмотренную активность</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Favourites only</source>
-        <translation type="unfinished"></translation>
+        <translation>Только избранное</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Showing activity from favourite rooms only</source>
-        <translation type="unfinished"></translation>
+        <translation>Показана активность только из избранных комнат</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show activity from favourite rooms only</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать активность только из избранных комнат</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -764,17 +764,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+17"/>
         <source>No loaded activity matches your search.</source>
-        <translation type="unfinished"></translation>
+        <translation>Загруженная активность не соответствует вашему запросу.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing new.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ничего нового.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No activity from favourite rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет активности в избранных комнатах.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -819,7 +819,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="-103"/>
         <source>Search loaded activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Поиск по загруженной активности</translation>
     </message>
     <message>
         <location line="+316"/>
@@ -903,7 +903,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location filename="../src/models/ActivityModel.cpp" line="+836"/>
         <location line="+140"/>
         <source>Encrypted message</source>
-        <translation type="unfinished">Зашифрованное сообщение</translation>
+        <translation>Зашифрованное сообщение</translation>
     </message>
 </context>
 <context>
@@ -1344,12 +1344,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+941"/>
         <source>Joined the space</source>
-        <translation type="unfinished"></translation>
+        <translation>Вы вступили в пространство</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Joined %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Вы вступили в %1</translation>
     </message>
     <message>
         <location line="+854"/>
@@ -1389,7 +1389,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+155"/>
         <source>Your camera couldn&apos;t be started. The call goes on without it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось включить камеру. Звонок продолжается без неё.</translation>
     </message>
     <message>
         <location line="+149"/>
@@ -2133,7 +2133,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>Your system keyring is locked, and Lightning keeps your sign-in there. Unlock it when asked, then try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ваша системная связка ключей заблокирована, а Lightning хранит в ней ваш вход. Разблокируйте её, когда будет предложено, и повторите попытку.</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -2146,7 +2146,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AvatarViewAction.qml" line="+27"/>
         <source>View picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Посмотреть изображение</translation>
     </message>
 </context>
 <context>
@@ -2431,46 +2431,46 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="-3"/>
         <source>Deleting %1 of %n message(s)…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Удаление %1 из %n сообщения…</numerusform>
+            <numerusform>Удаление %1 из %n сообщений…</numerusform>
+            <numerusform>Удаление %1 из %n сообщений…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+7"/>
         <source>Stopped after %1 of %n message(s); %2 failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Остановлено после %1 из %n сообщения; не удалось: %2.</numerusform>
+            <numerusform>Остановлено после %1 из %n сообщений; не удалось: %2.</numerusform>
+            <numerusform>Остановлено после %1 из %n сообщений; не удалось: %2.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Stopped after %1 of %n message(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Остановлено после %1 из %n сообщения.</numerusform>
+            <numerusform>Остановлено после %1 из %n сообщений.</numerusform>
+            <numerusform>Остановлено после %1 из %n сообщений.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Deleted %n message(s); %1 failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Удалено %n сообщение; не удалось: %1.</numerusform>
+            <numerusform>Удалено %n сообщения; не удалось: %1.</numerusform>
+            <numerusform>Удалено %n сообщений; не удалось: %1.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Deleted %n message(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Удалено %n сообщение.</numerusform>
+            <numerusform>Удалено %n сообщения.</numerusform>
+            <numerusform>Удалено %n сообщений.</numerusform>
         </translation>
     </message>
     <message>
@@ -2570,22 +2570,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/calls/CallController.cpp" line="+1367"/>
         <source>The call ended because the connection was lost.</source>
-        <translation type="unfinished">Звонок прервался, поскольку связь была потеряна.</translation>
+        <translation>Звонок завершён: соединение потеряно.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The call ended because its audio or video stopped working.</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонок завершён: перестали работать звук или видео.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The call could not connect.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось подключиться к звонку.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The call ended because its audio or video could not be set up.</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонок завершён: не удалось настроить звук или видео.</translation>
     </message>
 </context>
 <context>
@@ -2972,92 +2972,92 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallFormatMenu.qml" line="+26"/>
         <source>This homeserver has no MatrixRTC call service.</source>
-        <translation type="unfinished"></translation>
+        <translation>На этом домашнем сервере нет службы звонков MatrixRTC.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The homeserver&apos;s call service did not answer.</source>
-        <translation type="unfinished"></translation>
+        <translation>Служба звонков домашнего сервера не ответила.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking whether calling is available…</source>
-        <translation type="unfinished"></translation>
+        <translation>Проверка доступности звонков…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t start calls in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вы не можете начинать звонки в этой комнате.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished">Звонки недоступны, пока эта учётная запись использует прокси.</translation>
+        <translation>Звонки недоступны, пока эта учётная запись использует прокси.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encrypted calls aren&apos;t available in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>Зашифрованные звонки недоступны в этой сборке.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>MatrixRTC calls aren&apos;t available here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонки MatrixRTC здесь недоступны.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>MatrixRTC</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Прямой</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not available here</source>
-        <translation type="unfinished"></translation>
+        <translation>здесь недоступно</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Voice call</source>
-        <translation type="unfinished">Голосовой вызов</translation>
+        <translation>Голосовой звонок</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Video call</source>
-        <translation type="unfinished"></translation>
+        <translation>Видеозвонок</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Call type</source>
-        <translation type="unfinished"></translation>
+        <translation>Тип звонка</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Automatic (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>Автоматически (%1)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>MatrixRTC (through a call server)</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC (через сервер звонков)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Direct (1:1 peer-to-peer)</source>
-        <translation type="unfinished"></translation>
+        <translation>Прямой (1:1, напрямую между участниками)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>MatrixRTC: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Direct: only in a chat with one other person.</source>
-        <translation type="unfinished"></translation>
+        <translation>Прямой: только в чате с одним собеседником.</translation>
     </message>
 </context>
 <context>
@@ -3087,7 +3087,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+3"/>
         <source>Video call</source>
-        <translation type="unfinished"></translation>
+        <translation>Видеозвонок</translation>
     </message>
     <message>
         <location line="+152"/>
@@ -3171,7 +3171,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+55"/>
         <location line="+3"/>
         <source>More reactions</source>
-        <translation type="unfinished">Другие реакции</translation>
+        <translation>Другие реакции</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -3196,22 +3196,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="-111"/>
         <source>MatrixRTC</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Прямой</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>MatrixRTC call: media goes through a call server</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонок MatrixRTC: медиаданные идут через сервер звонков</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct call (m.call): media goes straight to the other person</source>
-        <translation type="unfinished"></translation>
+        <translation>Прямой звонок (m.call): медиаданные идут напрямую собеседнику</translation>
     </message>
     <message>
         <location line="+108"/>
@@ -3298,7 +3298,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>Can&apos;t play this video: %1 isn&apos;t supported by this build</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удаётся воспроизвести это видео: %1 не поддерживается этой сборкой</translation>
     </message>
     <message>
         <location line="+118"/>
@@ -3494,7 +3494,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
-        <translation type="unfinished"></translation>
+        <translation>«Авто» — это 720p для камеры и 1080p при 30 кадр/с для демонстрации экрана. Ограничение битрейта может только снизить качество демонстрации, что помогает при медленном соединении. Новая частота кадров применяется сразу; остальные изменения — к следующей запущенной камере или демонстрации.</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -3673,12 +3673,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>%1 isn&apos;t supported by this build</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 не поддерживается этой сборкой</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Can&apos;t play this stream: %1 isn&apos;t supported by this build</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удаётся воспроизвести этот поток: %1 не поддерживается этой сборкой</translation>
     </message>
     <message>
         <location line="+202"/>
@@ -3734,12 +3734,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>MatrixRTC</source>
-        <translation type="unfinished"></translation>
+        <translation>MatrixRTC</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>MatrixRTC call: media goes through a call server</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонок MatrixRTC: медиаданные идут через сервер звонков</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -3790,13 +3790,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+99"/>
         <location line="+310"/>
         <source>Hide Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>Скрыть сведения о потоке</translation>
     </message>
     <message>
         <location line="-310"/>
         <location line="+310"/>
         <source>Show Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>Показать сведения о потоке</translation>
     </message>
     <message>
         <location line="-300"/>
@@ -4745,7 +4745,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="-229"/>
         <location line="+1"/>
         <source>Dismiss</source>
-        <translation type="unfinished">Скрыть</translation>
+        <translation>Скрыть</translation>
     </message>
     <message>
         <location line="+197"/>
@@ -4852,7 +4852,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CoverArtButton.qml" line="+9"/>
         <source>View cover art</source>
-        <translation type="unfinished"></translation>
+        <translation>Посмотреть обложку</translation>
     </message>
 </context>
 <context>
@@ -7126,7 +7126,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Hide (Ctrl+Alt+Shift+D restores)</source>
-        <translation type="unfinished"></translation>
+        <translation>Скрыть (Ctrl+Alt+Shift+D — вернуть)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -7223,37 +7223,37 @@ Size: %3</source>
     <message>
         <location line="+11"/>
         <source>Shows read-only views of what the homeserver reports and what your account stores, and adds each person&apos;s sessions to their profile card. Nothing here changes your account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывает только для чтения то, что сообщает домашний сервер и что хранит ваша учётная запись, и добавляет сеансы каждого человека в его карточку профиля. Ничто здесь не изменяет вашу учётную запись.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This session</source>
-        <translation type="unfinished">Этот сеанс</translation>
+        <translation>Этот сеанс</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Device ID: %1</source>
-        <translation type="unfinished">Идентификатор устройства: %1</translation>
+        <translation>Идентификатор устройства: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>unknown</source>
-        <translation type="unfinished">неизвестно</translation>
+        <translation>неизвестно</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Call media: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Медиа звонков: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Call media: not built into this package</source>
-        <translation type="unfinished"></translation>
+        <translation>Медиа звонков: не встроены в этот пакет</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Room ID, room version and each event&apos;s source are on the room&apos;s info panel and a message&apos;s menu. Logs are under Troubleshooting below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Идентификатор комнаты, версия комнаты и исходный код каждого события находятся на информационной панели комнаты и в меню сообщения. Журналы — в разделе «Устранение неполадок» ниже.</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -7406,17 +7406,17 @@ Size: %3</source>
     <message>
         <location line="+9"/>
         <source>Your server</source>
-        <translation type="unfinished"></translation>
+        <translation>Ваш сервер</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Other server…</source>
-        <translation type="unfinished"></translation>
+        <translation>Другой сервер…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room directory</source>
-        <translation type="unfinished"></translation>
+        <translation>Каталог комнат</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -7426,7 +7426,7 @@ Size: %3</source>
     <message>
         <location line="+11"/>
         <source>matrixrooms.info is a third-party directory: your homeserver sends it your search terms.</source>
-        <translation type="unfinished"></translation>
+        <translation>matrixrooms.info — сторонний каталог: ваш домашний сервер отправляет ему ваши поисковые запросы.</translation>
     </message>
     <message>
         <location line="+69"/>
@@ -8808,7 +8808,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>This spoiler can&apos;t be forwarded with its cover.</source>
-        <translation type="unfinished"></translation>
+        <translation>Этот спойлер нельзя переслать вместе с его обложкой.</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -10057,7 +10057,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Video call — connecting…</source>
-        <translation type="unfinished"></translation>
+        <translation>Видеозвонок — подключение…</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10072,12 +10072,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+0"/>
         <source>Video call</source>
-        <translation type="unfinished"></translation>
+        <translation>Видеозвонок</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Incoming video call</source>
-        <translation type="unfinished">Входящий видеозвонок</translation>
+        <translation>Входящий видеозвонок</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10112,12 +10112,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+10"/>
         <source>%1 is calling with video.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 звонит с видео.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Incoming video call.</source>
-        <translation type="unfinished"></translation>
+        <translation>Входящий видеозвонок.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -10152,7 +10152,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+13"/>
         <source>Audio only</source>
-        <translation type="unfinished"></translation>
+        <translation>Только звук</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -10308,7 +10308,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <source>View %1&apos;s profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Посмотреть профиль %1</translation>
     </message>
     <message>
         <location line="+34"/>
@@ -10604,7 +10604,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+46"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вы единственный администратор. Если вы выйдете, никто не сможет изменять настройки этой комнаты или управлять её участниками. Сначала назначьте администратором кого-то другого.</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -10622,7 +10622,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/LegacyCallVideo.qml" line="+31"/>
         <source>Their camera is off</source>
-        <translation type="unfinished"></translation>
+        <translation>Камера собеседника выключена</translation>
     </message>
 </context>
 <context>
@@ -11296,12 +11296,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>Your keyring isn&apos;t returning this sign-in</source>
-        <translation type="unfinished"></translation>
+        <translation>Связка ключей не возвращает этот вход</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning saved the sign-in for %1 in your system keyring, and the keyring isn&apos;t returning it. It may be locked, it may have been reset, or a Flatpak or snap may have started using a different keyring. Nothing on this device has been deleted, and its encryption keys are intact. Unlock your keyring and try again, or sign in with your password to continue as this same device.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning сохранил вход для %1 в системной связке ключей, но связка ключей его не возвращает. Возможно, она заблокирована или была сброшена, или Flatpak либо snap начал использовать другую связку ключей. На этом устройстве ничего не удалено, и его ключи шифрования целы. Разблокируйте связку ключей и повторите попытку или войдите с паролем, чтобы продолжить как это же устройство.</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -12218,27 +12218,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-541"/>
         <source>%1 with %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 с %2</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Is %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Это %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Has %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Есть %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, give %2!</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, дайте %2!</translation>
     </message>
     <message>
         <location line="+437"/>
         <source>Pronouns: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Местоимения: %1</translation>
     </message>
     <message>
         <location line="+65"/>
@@ -12248,7 +12248,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Local time %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Местное время %1</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -12258,7 +12258,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+227"/>
         <source>Creator</source>
-        <translation type="unfinished">Создатель</translation>
+        <translation>Создатель</translation>
     </message>
     <message>
         <location line="+71"/>
@@ -12679,17 +12679,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+15"/>
         <source>Mark %1 as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Отметить %1 как спойлер</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Marked as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Отмечено как спойлер</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mark as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Отметить как спойлер</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -13350,12 +13350,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+606"/>
         <source>%1 • not sent: you&apos;re no longer in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 • не отправлено: вы больше не в этой комнате</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
-        <translation type="unfinished">Вы больше не состоите в этой комнате. Возможно, она была удалена на сервере. Используйте «Покинуть комнату», чтобы убрать её из списка.</translation>
+        <translation>Вы больше не состоите в этой комнате. Возможно, она была удалена на сервере. Используйте «Покинуть комнату», чтобы убрать её из списка.</translation>
     </message>
     <message numerus="yes">
         <location line="+484"/>
@@ -13399,7 +13399,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Copy messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Копировать сообщения</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -13485,12 +13485,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+836"/>
         <source>Remove from the GIF picker</source>
-        <translation type="unfinished"></translation>
+        <translation>Убрать из выбора GIF</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Save to the GIF picker</source>
-        <translation type="unfinished"></translation>
+        <translation>Сохранить в выбор GIF</translation>
     </message>
     <message>
         <location line="+69"/>
@@ -15162,32 +15162,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>Test sent. If no notification appeared, your desktop is not showing them.</source>
-        <translation type="unfinished"></translation>
+        <translation>Тестовое уведомление отправлено. Если оно не появилось, ваш рабочий стол не показывает уведомления.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>1 problem found. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Найдена 1 проблема. Подробности ниже.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 problems found. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Найдено проблем: %1. Подробности ниже.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>1 thing to check. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>1 пункт для проверки. Подробности ниже.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 things to check. Details below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Пунктов для проверки: %1. Подробности ниже.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing wrong that Lightning can see. Send a test notification to be sure.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning не видит никаких проблем. Отправьте тестовое уведомление, чтобы убедиться.</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -15566,12 +15566,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PackChipStrip.qml" line="+72"/>
         <source>All</source>
-        <translation type="unfinished">Все</translation>
+        <translation>Все</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Untitled pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Набор без названия</translation>
     </message>
 </context>
 <context>
@@ -15589,7 +15589,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+6"/>
         <source>Your earlier place is too far back to restore.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ваше прежнее место слишком далеко в истории, чтобы его восстановить.</translation>
     </message>
 </context>
 <context>
@@ -16220,17 +16220,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Direct messages</source>
-        <translation type="unfinished">Личные сообщения</translation>
+        <translation>Личные сообщения</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct messages and private rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Личные сообщения и частные комнаты</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>All rooms</source>
-        <translation type="unfinished">Все комнаты</translation>
+        <translation>Все комнаты</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -16964,12 +16964,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <source>Unarchive</source>
-        <translation type="unfinished"></translation>
+        <translation>Вернуть из архива</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Archive</source>
-        <translation type="unfinished">Архив</translation>
+        <translation>В архив</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -17067,12 +17067,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomActivityDelegate.qml" line="+61"/>
         <source>Today</source>
-        <translation type="unfinished">Сегодня</translation>
+        <translation>Сегодня</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Yesterday</source>
-        <translation type="unfinished">Вчера</translation>
+        <translation>Вчера</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -17093,10 +17093,10 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>%n room update(s) since %1</source>
         <comment>collapsed state-event group spanning days</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n обновление комнаты с %1</numerusform>
+            <numerusform>%n обновления комнаты с %1</numerusform>
+            <numerusform>%n обновлений комнаты с %1</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -17168,7 +17168,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t reach this homeserver&apos;s call service, so calling isn&apos;t available</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось связаться со службой звонков этого домашнего сервера, поэтому звонки недоступны</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -17218,7 +17218,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+32"/>
         <source>Try again</source>
-        <translation type="unfinished">Повторить</translation>
+        <translation>Повторить</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -17259,7 +17259,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>No archived chats in this view.</source>
-        <translation type="unfinished"></translation>
+        <translation>В этом представлении нет архивных чатов.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -17858,7 +17858,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>View %1&apos;s profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Посмотреть профиль %1</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -17908,17 +17908,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+58"/>
         <source>Accept invitation</source>
-        <translation type="unfinished">Принять приглашение</translation>
+        <translation>Принять приглашение</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reject invitation</source>
-        <translation type="unfinished">Отклонить приглашение</translation>
+        <translation>Отклонить приглашение</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>View inviter&apos;s profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Посмотреть профиль пригласившего</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -17931,7 +17931,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/JoinErrorText.cpp" line="+8"/>
         <source>Joining a room by address is not supported by this backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вступление в комнату по адресу не поддерживается этим бэкендом.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -18197,29 +18197,29 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+27"/>
         <source>No rooms in common</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет общих комнат</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n room(s) in common</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n общая комната</numerusform>
+            <numerusform>%n общие комнаты</numerusform>
+            <numerusform>%n общих комнат</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No known rooms in common</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет известных общих комнат</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>At least %n room(s) in common</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Не менее %n общей комнаты</numerusform>
+            <numerusform>Не менее %n общих комнат</numerusform>
+            <numerusform>Не менее %n общих комнат</numerusform>
         </translation>
     </message>
 </context>
@@ -19208,7 +19208,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-130"/>
         <source>Archived</source>
-        <translation type="unfinished"></translation>
+        <translation>Архив</translation>
     </message>
     <message>
         <location line="+132"/>
@@ -19248,7 +19248,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>No archived chats</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет архивных чатов</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19293,7 +19293,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Archive a chat from its menu to keep it out of your other lists.</source>
-        <translation type="unfinished"></translation>
+        <translation>Отправьте чат в архив через его меню, чтобы он не попадал в другие списки.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19380,32 +19380,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-10"/>
         <source>Rooms stay in their groups. Within each group: current call, favourites, other rooms, then low priority.</source>
-        <translation type="unfinished"></translation>
+        <translation>Комнаты остаются в своих группах. Внутри каждой группы: текущий звонок, избранное, другие комнаты, затем низкий приоритет.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Current call first, then invitations, favourites, other conversations, and low priority.</source>
-        <translation type="unfinished"></translation>
+        <translation>Сначала текущий звонок, затем приглашения, избранное, другие беседы и низкий приоритет.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Within each section: alphabetical order.</source>
-        <translation type="unfinished"></translation>
+        <translation>Внутри каждого раздела: по алфавиту.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Within each section: unread rooms first, then newest activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>Внутри каждого раздела: сначала непрочитанные комнаты, затем по новизне активности.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Within each section: your room arrangement, then the space&apos;s default order.</source>
-        <translation type="unfinished"></translation>
+        <translation>Внутри каждого раздела: ваше расположение комнат, затем порядок пространства по умолчанию.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Within each section: newest activity first. Unread status does not change the order.</source>
-        <translation type="unfinished"></translation>
+        <translation>Внутри каждого раздела: сначала самая новая активность. Непрочитанность не влияет на порядок.</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -19624,21 +19624,21 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-518"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>Архив (%1)</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n archived chat(s) with unread messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n архивный чат с непрочитанными сообщениями</numerusform>
+            <numerusform>%n архивных чата с непрочитанными сообщениями</numerusform>
+            <numerusform>%n архивных чатов с непрочитанными сообщениями</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Archived chats stay joined and keep notifying as usual</source>
-        <translation type="unfinished"></translation>
+        <translation>Архивные чаты остаются присоединёнными и уведомляют как обычно</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -19695,12 +19695,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Archive</source>
-        <translation type="unfinished">Архив</translation>
+        <translation>В архив</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unarchive</source>
-        <translation type="unfinished"></translation>
+        <translation>Вернуть из архива</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -19741,10 +19741,10 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="-31"/>
         <source>%n room(s) updated</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Обновлена %n комната</numerusform>
+            <numerusform>Обновлены %n комнаты</numerusform>
+            <numerusform>Обновлено %n комнат</numerusform>
         </translation>
     </message>
     <message>
@@ -20049,7 +20049,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+109"/>
         <source>You signed in, but your system keyring is locked or did not accept the sign-in, so Lightning did not keep it. Unlock the keyring and sign in again. The server now lists an unused session from this attempt; you can sign it out under Sessions.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вы вошли, но системная связка ключей заблокирована или не приняла вход, поэтому Lightning его не сохранил. Разблокируйте связку ключей и войдите снова. Теперь на сервере есть неиспользуемый сеанс от этой попытки; его можно завершить в разделе «Сеансы».</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -20558,7 +20558,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+61"/>
         <source>Attachment</source>
-        <translation type="unfinished">Вложение</translation>
+        <translation>Вложение</translation>
     </message>
     <message>
         <location line="+64"/>
@@ -20578,7 +20578,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>The attachment could not be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось отправить вложение.</translation>
     </message>
 </context>
 <context>
@@ -20762,80 +20762,80 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SearchIndexEmptyState.qml" line="+27"/>
         <source>just now</source>
-        <translation type="unfinished"></translation>
+        <translation>только что</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n minute(s) ago</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n минуту назад</numerusform>
+            <numerusform>%n минуты назад</numerusform>
+            <numerusform>%n минут назад</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n hour(s) ago</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n час назад</numerusform>
+            <numerusform>%n часа назад</numerusform>
+            <numerusform>%n часов назад</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n day(s) ago</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n день назад</numerusform>
+            <numerusform>%n дня назад</numerusform>
+            <numerusform>%n дней назад</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>No messages found</source>
-        <translation type="unfinished">Сообщения не найдены</translation>
+        <translation>Сообщения не найдены</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Indexing older messages… %1 of %2 rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Индексация старых сообщений… %1 из %2 комнат</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Indexing older messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>Индексация старых сообщений…</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3"/>
         <source>Results may be incomplete.</source>
-        <translation type="unfinished"></translation>
+        <translation>Результаты могут быть неполными.</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Indexing new messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>Индексация новых сообщений…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Older messages last indexed %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Старые сообщения последний раз проиндексированы %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Older messages are not indexed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Старые сообщения ещё не проиндексированы.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Resume indexing</source>
-        <translation type="unfinished"></translation>
+        <translation>Продолжить индексацию</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Index older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Проиндексировать старые сообщения</translation>
     </message>
 </context>
 <context>
@@ -21017,22 +21017,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+24"/>
         <source>Indexing this room&apos;s history…</source>
-        <translation type="unfinished">Индексация истории этой комнаты…</translation>
+        <translation>Индексация истории этой комнаты…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Searching %1 messages Lightning has indexed, including encrypted ones.</source>
-        <translation type="unfinished">Поиск по %1 сообщениям, которые проиндексировал Lightning, включая зашифрованные.</translation>
+        <translation>Поиск по %1 сообщениям, которые проиндексировал Lightning, включая зашифрованные.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Index this room</source>
-        <translation type="unfinished">Проиндексировать эту комнату</translation>
+        <translation>Проиндексировать эту комнату</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Fetch this room&apos;s older messages so they can be searched</source>
-        <translation type="unfinished">Загрузить старые сообщения этой комнаты, чтобы их можно было искать</translation>
+        <translation>Загрузить старые сообщения этой комнаты, чтобы их можно было искать</translation>
     </message>
     <message>
         <location line="+155"/>
@@ -21151,7 +21151,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+25"/>
         <source>With the attachments in the composer. They are uploaded now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вместе с вложениями из поля ввода. Они загружаются сейчас.</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -21252,12 +21252,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+9"/>
         <source>Uploading %1…</source>
-        <translation type="unfinished"></translation>
+        <translation>Загрузка %1…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Attachment: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Вложение: %1</translation>
     </message>
     <message>
         <location line="+42"/>
@@ -22054,7 +22054,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7203"/>
         <location line="+10"/>
         <source>Album art</source>
-        <translation type="unfinished"></translation>
+        <translation>Обложка альбома</translation>
     </message>
     <message>
         <location line="-7208"/>
@@ -24571,12 +24571,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4224"/>
         <location line="+29"/>
         <source>Use bubbles in</source>
-        <translation type="unfinished"></translation>
+        <translation>Использовать пузырьки в</translation>
     </message>
     <message>
         <location line="-4252"/>
         <source>bubbles bubble scope direct messages private public group rooms all rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>пузырьки пузырёк область личные сообщения частные публичные групповые комнаты все комнаты</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -24605,12 +24605,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2177"/>
         <location line="+2161"/>
         <source>Collapse the thread&apos;s first message</source>
-        <translation type="unfinished"></translation>
+        <translation>Сворачивать первое сообщение обсуждения</translation>
     </message>
     <message>
         <location line="-4337"/>
         <source>thread threads root first message original header card collapse collapsed compact one line expand</source>
-        <translation type="unfinished"></translation>
+        <translation>обсуждение обсуждения корень первое сообщение исходное заголовок карточка свернуть свёрнутое компактно одна строка развернуть</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -24626,7 +24626,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+62"/>
         <source>room activity membership joins leaves profile routine</source>
-        <translation type="unfinished"></translation>
+        <translation>активность комнаты участие вступления выходы профиль рутина</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -24654,24 +24654,24 @@ Signing out and signing in again is the only fix.</source>
         <location line="+34"/>
         <location line="+4745"/>
         <source>Message actions on hover</source>
-        <translation type="unfinished"></translation>
+        <translation>Действия с сообщением при наведении</translation>
     </message>
     <message>
         <location line="-4744"/>
         <source>message actions hover bar toolbar react reply thread popup hide declutter irc</source>
-        <translation type="unfinished"></translation>
+        <translation>действия с сообщением наведение панель инструментов реакция ответ обсуждение всплывающее скрыть упростить irc</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+2074"/>
         <location line="+2715"/>
         <source>Go to the newest message when I send</source>
-        <translation type="unfinished"></translation>
+        <translation>Переходить к новейшему сообщению при отправке</translation>
     </message>
     <message>
         <location line="-4788"/>
         <source>send jump scroll bottom latest newest stay place history</source>
-        <translation type="unfinished"></translation>
+        <translation>отправка переход прокрутка вниз последнее новейшее остаться место история</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -24730,12 +24730,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+3762"/>
         <source>Show profile colours from other users</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать цвета профиля других пользователей</translation>
     </message>
     <message>
         <location line="-3761"/>
         <source>profile card colour color background name sable theme</source>
-        <translation type="unfinished"></translation>
+        <translation>профиль карточка цвет фон имя sable тема</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24763,12 +24763,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2025"/>
         <location line="+2814"/>
         <source>Vim-style editing in the composer</source>
-        <translation type="unfinished"></translation>
+        <translation>Редактирование в стиле Vim в поле ввода</translation>
     </message>
     <message>
         <location line="-4838"/>
         <source>vim modal normal insert mode keys editor composer message box hjkl</source>
-        <translation type="unfinished"></translation>
+        <translation>vim модальный обычный вставка режим клавиши редактор поле ввода сообщение hjkl</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -24817,12 +24817,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>Сведения о потоке</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>call video screen share codec encoder bitrate FPS debug overlay</source>
-        <translation type="unfinished"></translation>
+        <translation>звонок видео демонстрация экрана кодек кодировщик битрейт FPS отладка оверлей</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -24854,45 +24854,45 @@ Signing out and signing in again is the only fix.</source>
         <location line="+507"/>
         <location line="+6387"/>
         <source>Unread dot</source>
-        <translation type="unfinished"></translation>
+        <translation>Точка непрочитанного</translation>
     </message>
     <message>
         <location line="-6893"/>
         <source>unread dot badge indicator room list bold muted mentions hide</source>
-        <translation type="unfinished"></translation>
+        <translation>непрочитанное точка значок индикатор список комнат жирный без звука упоминания скрыть</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+6922"/>
         <source>Mark all rooms read automatically</source>
-        <translation type="unfinished"></translation>
+        <translation>Автоматически отмечать все комнаты прочитанными</translation>
     </message>
     <message>
         <location line="-6921"/>
         <source>mark all read automatically auto timer interval minutes unread clear</source>
-        <translation type="unfinished"></translation>
+        <translation>отметить все прочитанными автоматически авто таймер интервал минуты непрочитанное очистить</translation>
     </message>
     <message>
         <location line="+106"/>
         <location line="+5436"/>
         <source>Show online status dots</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать точки статуса в сети</translation>
     </message>
     <message>
         <location line="-5435"/>
         <source>presence online idle offline status dot show hide matrix.org</source>
-        <translation type="unfinished"></translation>
+        <translation>присутствие в сети отошёл не в сети статус точка показать скрыть matrix.org</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+5736"/>
         <source>Index older messages in the background</source>
-        <translation type="unfinished"></translation>
+        <translation>Индексировать старые сообщения в фоне</translation>
     </message>
     <message>
         <location line="-5735"/>
         <source>message search index background automatic startup older messages encrypted history</source>
-        <translation type="unfinished"></translation>
+        <translation>сообщение поиск индекс фон автоматически запуск старые сообщения зашифрованные история</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -24936,12 +24936,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+6034"/>
         <source>Spoiler blur</source>
-        <translation type="unfinished"></translation>
+        <translation>Размытие спойлеров</translation>
     </message>
     <message>
         <location line="-6033"/>
         <source>spoiler blur hidden image video msc4193</source>
-        <translation type="unfinished"></translation>
+        <translation>спойлер размытие скрытое изображение видео msc4193</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -25171,13 +25171,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+561"/>
         <location line="+1"/>
         <source>Show settings names and search</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать названия разделов и поиск</translation>
     </message>
     <message>
         <location line="+30"/>
         <location line="+1"/>
         <source>Show icons only</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать только значки</translation>
     </message>
     <message>
         <location line="+150"/>
@@ -25204,17 +25204,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+849"/>
         <source>Scales message, list and Settings text, and the Spaces rail with it, so its nesting levels stay readable at any size. Icons and the window layout keep their size — Interface zoom below scales the whole window.</source>
-        <translation type="unfinished"></translation>
+        <translation>Масштабирует текст сообщений, списков и настроек, а вместе с ним и панель пространств, чтобы её уровни вложенности оставались читаемыми при любом размере. Значки и раскладка окна сохраняют свой размер — «Масштаб интерфейса» ниже масштабирует всё окно.</translation>
     </message>
     <message>
         <location line="+698"/>
         <source>Use the card and name colours people set on their profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Использовать цвета карточки и имени, заданные в профиле</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Some clients let people colour their profile card and name. When off, profiles use your theme only.</source>
-        <translation type="unfinished"></translation>
+        <translation>Некоторые клиенты позволяют раскрашивать карточку профиля и имя. Когда выключено, профили используют только вашу тему.</translation>
     </message>
     <message>
         <location line="+185"/>
@@ -25525,17 +25525,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+14"/>
         <source>How the cover of an audio file is shown: a small tile beside the play button, a larger tile beside the title and controls, or a big square above the controls. A file with no cover, or a narrow message, always gets the small tile.</source>
-        <translation type="unfinished"></translation>
+        <translation>Как показывается обложка аудиофайла: маленькая плитка рядом с кнопкой воспроизведения, плитка побольше рядом с названием и элементами управления или большой квадрат над элементами управления. Файл без обложки или узкое сообщение всегда получает маленькую плитку.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Card</source>
-        <translation type="unfinished"></translation>
+        <translation>Карточка</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Large</source>
-        <translation type="unfinished"></translation>
+        <translation>Крупная</translation>
     </message>
     <message>
         <location line="+1146"/>
@@ -25956,12 +25956,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+39"/>
         <source>Show the message a thread started from as one line at the top of the thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать сообщение, с которого началось обсуждение, одной строкой вверху обсуждения</translation>
     </message>
     <message>
         <location line="+147"/>
         <source>Room list</source>
-        <translation type="unfinished">Список комнат</translation>
+        <translation>Список комнат</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -25971,7 +25971,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+50"/>
         <source>Banners and side panel</source>
-        <translation type="unfinished"></translation>
+        <translation>Баннеры и боковая панель</translation>
     </message>
     <message>
         <location line="+120"/>
@@ -25981,17 +25981,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+201"/>
         <source>Show the react, reply and thread buttons on the message under the pointer, or not at all. The right-click menu offers every action either way</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать кнопки реакции, ответа и обсуждения на сообщении под указателем или не показывать совсем. Меню по правому щелчку в любом случае предлагает все действия</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>When off, sending from up in history keeps your place. A reply always keeps your place.</source>
-        <translation type="unfinished"></translation>
+        <translation>Когда выключено, отправка из глубины истории сохраняет ваше место. Ответ всегда сохраняет ваше место.</translation>
     </message>
     <message>
         <location line="+156"/>
         <source>Esc switches to Normal mode for hjkl, w b e, d c y with counts, p, u and Ctrl+R; i or a returns to typing, and Enter in Normal mode sends.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esc переключает в режим Normal для hjkl, w b e, d c y со счётчиками, p, u и Ctrl+R; i или a возвращают к набору текста, а Enter в режиме Normal отправляет.</translation>
     </message>
     <message>
         <location line="+469"/>
@@ -26006,12 +26006,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+682"/>
         <source>Index encrypted rooms fetches older history for every encrypted room you are in, one room at a time and up to the same per-room limit as Index this room, so you can search it here. It can take a long time and uses bandwidth, and like the rest of the index it stores the decrypted message text on this device. Messages that cannot be decrypted yet are skipped until their keys arrive — run it again then and they are added. It pauses during calls and continues after a restart. With background indexing on, it runs by itself shortly after start-up and walks only rooms not yet indexed.</source>
-        <translation type="unfinished"></translation>
+        <translation>«Индексировать зашифрованные комнаты» загружает старую историю каждой зашифрованной комнаты, в которой вы состоите, по одной комнате за раз и до того же лимита на комнату, что и «Проиндексировать эту комнату», чтобы по ней можно было искать здесь. Это может занять много времени и расходует трафик, и, как и остальной индекс, хранит расшифрованный текст сообщений на этом устройстве. Сообщения, которые пока нельзя расшифровать, пропускаются до получения ключей — тогда запустите снова, и они будут добавлены. Индексация приостанавливается во время звонков и продолжается после перезапуска. При включённой фоновой индексации она запускается сама вскоре после старта и обходит только ещё не проиндексированные комнаты.</translation>
     </message>
     <message>
         <location line="+337"/>
         <source>Spoiler blur strength</source>
-        <translation type="unfinished"></translation>
+        <translation>Сила размытия спойлеров</translation>
     </message>
     <message>
         <location line="+623"/>
@@ -26027,33 +26027,33 @@ Signing out and signing in again is the only fix.</source>
         <location line="-2999"/>
         <location line="+3048"/>
         <source>All rooms</source>
-        <translation type="unfinished">Все комнаты</translation>
+        <translation>Все комнаты</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only rooms with notifications on</source>
-        <translation type="unfinished"></translation>
+        <translation>Только комнаты с включёнными уведомлениями</translation>
     </message>
     <message>
         <location line="-1344"/>
         <location line="+1345"/>
         <source>Never</source>
-        <translation type="unfinished">Никогда</translation>
+        <translation>Никогда</translation>
     </message>
     <message>
         <location line="-3053"/>
         <source>Direct messages</source>
-        <translation type="unfinished">Личные сообщения</translation>
+        <translation>Личные сообщения</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct messages and private rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Личные сообщения и частные комнаты</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Bubbles applies to the rooms chosen under “Use bubbles in”; other rooms keep the Modern rows. Compact tightens every timeline. Small avatars puts a small avatar beside each sender&apos;s name, above their messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>«Пузырьки» применяются к комнатам, выбранным в «Использовать пузырьки в»; остальные комнаты сохраняют строки «Современное». «Компактное» уплотняет каждую ленту. «Маленькие аватары» добавляет маленький аватар рядом с именем каждого отправителя над его сообщениями.</translation>
     </message>
     <message>
         <location line="+1411"/>
@@ -26064,109 +26064,115 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape and a few keys Lightning uses itself are reserved. A key another action has by default can be taken: that action then has no key until you give it one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Глобальное сочетание может состоять из одной клавиши, например буквы, F5 или клавиши цифрового блока; цифровой блок считается отдельно от основной клавиатуры. Одиночная буква, цифра или символ работает, только когда вы не печатаете в текстовом поле, поэтому набор текста всегда в приоритете.
+
+Действия страницы настроек также принимают Tab и Shift+Tab; эти привязки заменяют обычный переход фокуса только в настройках.
+
+Клавиши форматирования сообщения действуют, только когда поле сообщения в фокусе. Везде в остальных местах та же клавиша выполняет свою обычную функцию.
+
+Escape и несколько клавиш, которые использует сам Lightning, зарезервированы. Клавишу, которая по умолчанию принадлежит другому действию, можно занять: у того действия не будет клавиши, пока вы её не назначите.</translation>
     </message>
     <message>
         <location line="+269"/>
         <source>Automatic — only if my server provides it</source>
-        <translation type="unfinished"></translation>
+        <translation>Автоматически — только если мой сервер это предоставляет</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Always</source>
-        <translation type="unfinished">Всегда</translation>
+        <translation>Всегда</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Online, away and offline dots next to people. Some servers, such as matrix.org, never share anyone&apos;s status, so everyone would look offline; Automatic hides the dots there. Never also stops asking the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>Точки «в сети», «отошёл» и «не в сети» рядом с людьми. Некоторые серверы, например matrix.org, никогда не передают чей-либо статус, поэтому все выглядели бы не в сети; «Автоматически» скрывает там точки. «Никогда» также перестаёт запрашивать сервер.</translation>
     </message>
     <message>
         <location line="+1344"/>
         <source>Muted rooms never show it. With notifications on only, a room set to mentions and keywords, or following an account default of mentions only, shows no dot. Mention badges are always shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>Комнаты без звука никогда её не показывают. При «Только с включёнными уведомлениями» комната, настроенная на упоминания и ключевые слова или следующая общему для учётной записи значению «только упоминания», не показывает точку. Значки упоминаний показываются всегда.</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Every 15 minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>Каждые 15 минут</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Every 30 minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>Каждые 30 минут</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Every hour</source>
-        <translation type="unfinished"></translation>
+        <translation>Каждый час</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom</source>
-        <translation type="unfinished">Свой</translation>
+        <translation>Свой</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>Минуты</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Minutes between automatic mark-read passes</source>
-        <translation type="unfinished"></translation>
+        <translation>Минуты между автоматическими отметками прочтения</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Sends read receipts for every unread room except the one you have open, as Mark all as read does, following your read receipt privacy. Custom takes 5 to 1440 minutes.</source>
-        <translation type="unfinished"></translation>
+        <translation>Отправляет отчёты о прочтении для каждой непрочитанной комнаты, кроме открытой, как это делает «Отметить все как прочитанные», с учётом ваших настроек конфиденциальности отчётов о прочтении. «Свой» принимает от 5 до 1440 минут.</translation>
     </message>
     <message>
         <location line="+1042"/>
         <location line="+48"/>
         <source>Time zone</source>
-        <translation type="unfinished"></translation>
+        <translation>Часовой пояс</translation>
     </message>
     <message>
         <location line="-37"/>
         <source>Your profile shows your local time. Your time zone and pronouns are public: anyone can read them.</source>
-        <translation type="unfinished"></translation>
+        <translation>В вашем профиле показывается ваше местное время. Ваш часовой пояс и местоимения публичны: их может прочитать кто угодно.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This device has no time zone list, so your time zone cannot be set here and local times are not shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>На этом устройстве нет списка часовых поясов, поэтому здесь нельзя задать часовой пояс, а местное время не показывается.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Search time zones</source>
-        <translation type="unfinished"></translation>
+        <translation>Поиск часовых поясов</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Use %1</source>
-        <translation type="unfinished">Использовать %1</translation>
+        <translation>Использовать %1</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Pronouns</source>
-        <translation type="unfinished"></translation>
+        <translation>Местоимения</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>she/her, they/them</source>
-        <translation type="unfinished"></translation>
+        <translation>она/её, они/их</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Your homeserver does not allow these profile fields.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ваш домашний сервер не разрешает эти поля профиля.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Could not update your profile (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось обновить профиль (%1).</translation>
     </message>
     <message>
         <location line="+485"/>
@@ -26764,7 +26770,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+23"/>
         <source>Updates are handled by your distribution&apos;s package manager.</source>
-        <translation type="unfinished"></translation>
+        <translation>Обновлениями занимается менеджер пакетов вашего дистрибутива.</translation>
     </message>
     <message>
         <location line="+32"/>
@@ -26816,71 +26822,71 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-3571"/>
         <source>On hover</source>
-        <translation type="unfinished"></translation>
+        <translation>При наведении</translation>
     </message>
     <message>
         <location line="+162"/>
         <location line="+4677"/>
         <source>Avatars in messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Аватары в сообщениях</translation>
     </message>
     <message>
         <location line="-4676"/>
         <source>avatar avatars picture profile sender hide hover gutter declutter</source>
-        <translation type="unfinished"></translation>
+        <translation>аватар аватары изображение профиль отправитель скрыть наведение поле упростить</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+4699"/>
         <source>Reactions</source>
-        <translation type="unfinished">Реакции</translation>
+        <translation>Реакции</translation>
     </message>
     <message>
         <location line="-4698"/>
         <source>reaction reactions emoji chips hide hover declutter</source>
-        <translation type="unfinished"></translation>
+        <translation>реакция реакции эмодзи значки скрыть наведение упростить</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>read receipts seen faces avatars hide hover declutter</source>
-        <translation type="unfinished"></translation>
+        <translation>отчёты о прочтении просмотрено лица аватары скрыть наведение упростить</translation>
     </message>
     <message>
         <location line="+8"/>
         <location line="+2071"/>
         <location line="+2714"/>
         <source>Show emoji-only messages large</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать сообщения только из эмодзи крупно</translation>
     </message>
     <message>
         <location line="-4784"/>
         <source>big large emoji jumbo size</source>
-        <translation type="unfinished"></translation>
+        <translation>большие крупные эмодзи огромные размер</translation>
     </message>
     <message>
         <location line="+4681"/>
         <source>Show sender pictures beside messages, only on the message under the pointer, or not at all</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать изображения отправителей рядом с сообщениями, только на сообщении под указателем или не показывать совсем</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Show reactions under messages, only on the message under the pointer, or not at all</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать реакции под сообщениями, только на сообщении под указателем или не показывать совсем</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Show who has read up to a message, only on the message under the pointer, or not at all</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать, кто прочитал до сообщения, только на сообщении под указателем или не показывать совсем</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Applies to rooms, threads and jump-to-message views. &quot;On hover&quot; also shows them on the message selected with the keyboard. Hiding read receipts here does not stop sending your own; that is under Privacy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Применяется к комнатам, обсуждениям и представлениям перехода к сообщению. «При наведении» также показывает их на сообщении, выбранном с клавиатуры. Скрытие отчётов о прочтении здесь не отключает отправку ваших собственных; это настраивается в разделе «Конфиденциальность».</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Draw a message of one to three emoji at a larger size</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать сообщение из одного–трёх эмодзи в увеличенном размере</translation>
     </message>
 </context>
 <context>
@@ -27164,7 +27170,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+2"/>
         <source>Echo cancellation stopped working and is off for this call. Others can still hear you.</source>
-        <translation type="unfinished"></translation>
+        <translation>Подавление эха перестало работать и отключено для этого звонка. Остальные по-прежнему вас слышат.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -27312,12 +27318,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+500"/>
         <source>You</source>
-        <translation type="unfinished">ты</translation>
+        <translation>Вы</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Participant</source>
-        <translation type="unfinished">Участник</translation>
+        <translation>Участник</translation>
     </message>
     <message>
         <location line="-4505"/>
@@ -27486,7 +27492,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+136"/>
         <source>closing the find bar, room information, a thread or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>закрытие строки поиска, сведений о комнате, обсуждения или настроек</translation>
     </message>
     <message>
         <location line="+307"/>
@@ -27596,32 +27602,32 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Go to the next conversation in the list</source>
-        <translation type="unfinished"></translation>
+        <translation>Перейти к следующей беседе в списке</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Go to the previous conversation in the list</source>
-        <translation type="unfinished"></translation>
+        <translation>Перейти к предыдущей беседе в списке</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Go to the next unread conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>Перейти к следующей непрочитанной беседе</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Go to the previous unread conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>Перейти к предыдущей непрочитанной беседе</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Switch to the next account</source>
-        <translation type="unfinished"></translation>
+        <translation>Переключиться на следующую учётную запись</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Switch to the previous account</source>
-        <translation type="unfinished"></translation>
+        <translation>Переключиться на предыдущую учётную запись</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27741,17 +27747,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Extend the selection to the older message</source>
-        <translation type="unfinished"></translation>
+        <translation>Расширить выделение до более старого сообщения</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Extend the selection to the newer message</source>
-        <translation type="unfinished"></translation>
+        <translation>Расширить выделение до более нового сообщения</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copy the selected messages with sender and time</source>
-        <translation type="unfinished"></translation>
+        <translation>Копировать выбранные сообщения с отправителем и временем</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27781,7 +27787,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Jump to the latest message and focus the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Перейти к последнему сообщению и перевести фокус в поле сообщения</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27811,7 +27817,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+4"/>
         <source>Show or hide Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>Показать или скрыть сведения о потоке</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27921,7 +27927,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>the emoji picker is open</source>
-        <translation type="unfinished"></translation>
+        <translation>открыт выбор эмодзи</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27938,7 +27944,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+2"/>
         <location line="+2"/>
         <source>a message&apos;s menu is open</source>
-        <translation type="unfinished"></translation>
+        <translation>открыто меню сообщения</translation>
     </message>
     <message>
         <location line="-3"/>
@@ -28049,17 +28055,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+13"/>
         <source>No key: %1 now runs “%2”. Choose another key for this one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет клавиши: %1 теперь выполняет «%2». Выберите для этого действия другую клавишу.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Also the default key for “%1”, which has no key while this one uses it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Также клавиша по умолчанию для «%1», у которого нет клавиши, пока её использует это действие.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>While %1, %2 is used for %3 instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Пока %1, %2 используется вместо этого для %3.</translation>
     </message>
     <message>
         <location line="-808"/>
@@ -28357,7 +28363,7 @@ Note: importing keys does not verify this session.</source>
         <location filename="../qml/SpaceLobby.qml" line="-60"/>
         <location line="+265"/>
         <source>Loading rooms…</source>
-        <translation type="unfinished">Загрузка комнат…</translation>
+        <translation>Загрузка комнат…</translation>
     </message>
     <message>
         <location line="-227"/>
@@ -28857,12 +28863,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-422"/>
         <source>Default order saved. Your personal room order still takes precedence.</source>
-        <translation type="unfinished"></translation>
+        <translation>Порядок по умолчанию сохранён. Ваш личный порядок комнат по-прежнему имеет приоритет.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Could not save the complete order. Some rooms may have moved; save again to retry, or reload the order.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось сохранить порядок полностью. Некоторые комнаты могли переместиться; сохраните снова, чтобы повторить, или перезагрузите порядок.</translation>
     </message>
     <message>
         <location line="+120"/>
@@ -29013,37 +29019,37 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+30"/>
         <source>Default room order</source>
-        <translation type="unfinished"></translation>
+        <translation>Порядок комнат по умолчанию</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The starting order for everyone in this space. Personal room arrangements and sort choices take precedence.</source>
-        <translation type="unfinished"></translation>
+        <translation>Начальный порядок для всех в этом пространстве. Личное расположение комнат и выбранная сортировка имеют приоритет.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Move room up</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить комнату вверх</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Move room down</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить комнату вниз</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Saving…</source>
-        <translation type="unfinished">Сохранение…</translation>
+        <translation>Сохранение…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Save default order</source>
-        <translation type="unfinished"></translation>
+        <translation>Сохранить порядок по умолчанию</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Reload order</source>
-        <translation type="unfinished"></translation>
+        <translation>Перезагрузить порядок</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -29124,12 +29130,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+31"/>
         <source>Leave Space</source>
-        <translation type="unfinished">Покинуть пространство</translation>
+        <translation>Покинуть пространство</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Leaving does not remove the rooms inside it.</source>
-        <translation type="unfinished">Выход не удаляет комнаты внутри него.</translation>
+        <translation>Выход не удаляет комнаты внутри него.</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -29471,7 +29477,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+5"/>
         <source>Only Space admins can change this.</source>
-        <translation type="unfinished"></translation>
+        <translation>Изменить это могут только администраторы пространства.</translation>
     </message>
     <message>
         <location line="+74"/>
@@ -29761,12 +29767,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpoilerCover.qml" line="+85"/>
         <source>Spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Спойлер</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Spoiler, press to reveal</source>
-        <translation type="unfinished"></translation>
+        <translation>Спойлер, нажмите, чтобы показать</translation>
     </message>
 </context>
 <context>
@@ -30192,12 +30198,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>Confirm empty</source>
-        <translation type="unfinished"></translation>
+        <translation>Подтвердить очистку</translation>
     </message>
     <message>
         <location line="+129"/>
         <source>This deletes the pack from the room for everyone and turns it off for you. Messages already sent keep their images, and the images themselves are not deleted from the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>Это удалит набор из комнаты для всех и отключит его для вас. Уже отправленные сообщения сохранят свои изображения, а сами изображения не удаляются с сервера.</translation>
     </message>
     <message>
         <location line="-128"/>
@@ -30207,7 +30213,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+17"/>
         <source>Remove pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Удалить набор</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -30696,12 +30702,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+21"/>
         <source>Search stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>Поиск стикеров</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search stickers by name or description</source>
-        <translation type="unfinished"></translation>
+        <translation>Поиск стикеров по названию или описанию</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -30771,7 +30777,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+48"/>
         <source>No stickers match “%1”</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет стикеров по запросу «%1»</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -30801,7 +30807,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>Try another word, or clear the search to browse your packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>Попробуйте другое слово или очистите поиск, чтобы просмотреть свои наборы.</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -30816,7 +30822,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+30"/>
         <source>Results from all your packs</source>
-        <translation type="unfinished"></translation>
+        <translation>Результаты из всех ваших наборов</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -30839,77 +30845,77 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/StreamInfoOverlay.qml" line="+49"/>
         <source>Stream Info</source>
-        <translation type="unfinished"></translation>
+        <translation>Сведения о потоке</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>No video streams</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет видеопотоков</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 · outgoing share</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · исходящая демонстрация</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>%1 · outgoing camera</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · исходящая камера</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 · received share</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · полученная демонстрация</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>%1 · received camera</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · полученная камера</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 · %2 × %3 · %4 FPS · %5 kbps</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · %2 × %3 · %4 FPS · %5 кбит/с</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Encryption on</source>
-        <translation type="unfinished"></translation>
+        <translation>Шифрование включено</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Encryption off</source>
-        <translation type="unfinished"></translation>
+        <translation>Шифрование выключено</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encoder: %1 · Scaling: %2 · Capture: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>Кодировщик: %1 · Масштабирование: %2 · Захват: %3</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>RTP packets sent: %1 · Lost on the way to the server: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Отправлено RTP-пакетов: %1 · Потеряно по пути на сервер: %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Keyframes encoded: %1 · Keyframe requests: %2 · Resend requests: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>Закодировано ключевых кадров: %1 · Запросов ключевых кадров: %2 · Запросов повторной отправки: %3</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Decoder: %1 · RTP packets: %2 · Lost: %3 · Jitter: %4 ms</source>
-        <translation type="unfinished"></translation>
+        <translation>Декодер: %1 · RTP-пакетов: %2 · Потеряно: %3 · Джиттер: %4 мс</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Keyframes: %1 · Keyframes asked for: %2 · Resend requests: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>Ключевых кадров: %1 · Запрошено ключевых кадров: %2 · Запросов повторной отправки: %3</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Frames decrypted: %1 · Dropped: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Расшифровано кадров: %1 · Отброшено: %2</translation>
     </message>
 </context>
 <context>
@@ -32538,18 +32544,18 @@ Note: importing keys does not verify this session.</source>
         <location line="+655"/>
         <location line="+1"/>
         <source>Collapse thread root</source>
-        <translation type="unfinished"></translation>
+        <translation>Свернуть начало обсуждения</translation>
     </message>
     <message>
         <location line="+67"/>
         <location line="+1"/>
         <source>Expand thread root</source>
-        <translation type="unfinished"></translation>
+        <translation>Развернуть начало обсуждения</translation>
     </message>
     <message>
         <location line="+74"/>
         <source>Loading the original message…</source>
-        <translation type="unfinished"></translation>
+        <translation>Загрузка исходного сообщения…</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -32650,17 +32656,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <source>Mark %1 as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Отметить %1 как спойлер</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Marked as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Отмечено как спойлер</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mark as spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Отметить как спойлер</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -32686,7 +32692,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+228"/>
         <source>Reply…</source>
-        <translation type="unfinished">Ответить…</translation>
+        <translation>Ответить…</translation>
     </message>
     <message>
         <location line="+522"/>
@@ -33049,12 +33055,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+1"/>
         <source>Not encrypted</source>
-        <translation type="unfinished"></translation>
+        <translation>Не зашифровано</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Public room</source>
-        <translation type="unfinished"></translation>
+        <translation>Публичная комната</translation>
     </message>
     <message>
         <location line="+87"/>
@@ -33067,7 +33073,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+1"/>
         <location line="+199"/>
         <source>Call options</source>
-        <translation type="unfinished"></translation>
+        <translation>Параметры звонка</translation>
     </message>
     <message>
         <location line="-166"/>
@@ -33212,32 +33218,32 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+78"/>
         <source>Joining adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room&apos;s info panel.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вступление добавит пространство на вашу боковую панель и позволит видеть его комнаты. Вы не вступите ни в какие другие его комнаты. Другие участники пространства увидят, что вы в него вступили. Вы можете выйти в любой момент, а также вступить позже из информационной панели этой комнаты.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Could not join: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось вступить: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This room is in %1. Joining adds the Space to your sidebar; you can leave at any time.</source>
-        <translation type="unfinished"></translation>
+        <translation>Эта комната находится в %1. Вступление добавит пространство на вашу боковую панель; выйти можно в любой момент.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This room is in a Space you have not joined. Joining adds the Space to your sidebar; you can leave at any time.</source>
-        <translation type="unfinished"></translation>
+        <translation>Эта комната находится в пространстве, в которое вы не вступили. Вступление добавит пространство на вашу боковую панель; выйти можно в любой момент.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Joining…</source>
-        <translation type="unfinished">Вступление…</translation>
+        <translation>Вступление…</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Dismiss this notice for this Space</source>
-        <translation type="unfinished"></translation>
+        <translation>Скрыть это уведомление для этого пространства</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -33563,7 +33569,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+571"/>
         <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Вы единственный администратор. Если вы выйдете, никто не сможет изменять настройки этого пространства или управлять его комнатами и участниками. Сначала назначьте администратором кого-то другого.</translation>
     </message>
     <message numerus="yes">
         <location filename="../qml/SpaceLobby.qml" line="+129"/>
@@ -33579,10 +33585,10 @@ Note: importing keys does not verify this session.</source>
         <location filename="../qml/TimelinePane.qml" line="-514"/>
         <source>%n joined room(s)</source>
         <comment>joined rooms inside a Space</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n комната, в которую вы вступили</numerusform>
+            <numerusform>%n комнаты, в которые вы вступили</numerusform>
+            <numerusform>%n комнат, в которые вы вступили</numerusform>
         </translation>
     </message>
     <message>
@@ -33874,7 +33880,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+39"/>
         <source>Only Space admins can change this.</source>
-        <translation type="unfinished"></translation>
+        <translation>Изменить это могут только администраторы пространства.</translation>
     </message>
     <message>
         <location line="+344"/>
@@ -34136,28 +34142,28 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/UnifiedInboxSection.qml" line="+70"/>
         <source>Activity from your other accounts shows up here while they stay signed in. Choose which ones in Settings, under Labs.</source>
-        <translation type="unfinished"></translation>
+        <translation>Активность из других ваших учётных записей появляется здесь, пока они остаются в системе. Выберите, какие именно, в настройках, в разделе Labs.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Open Labs</source>
-        <translation type="unfinished"></translation>
+        <translation>Открыть Labs</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+17"/>
         <source>From your other accounts</source>
-        <translation type="unfinished"></translation>
+        <translation>Из других ваших учётных записей</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Encrypted message</source>
-        <translation type="unfinished">Зашифрованное сообщение</translation>
+        <translation>Зашифрованное сообщение</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 account, %2: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>Учётная запись %1, %2: %3</translation>
     </message>
 </context>
 <context>
@@ -34503,42 +34509,42 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/UserClientsInfo.qml" line="+40"/>
         <source>Session</source>
-        <translation type="unfinished"></translation>
+        <translation>Сеанс</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Sessions</source>
-        <translation type="unfinished">Сеансы</translation>
+        <translation>Сеансы</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Looking up...</source>
-        <translation type="unfinished"></translation>
+        <translation>Поиск...</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unknown: sessions could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Неизвестно: не удалось прочитать сеансы.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Unknown: this device has no record of session %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Неизвестно: на этом устройстве нет записи о сеансе %1.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unknown: this device has no session list for this user.</source>
-        <translation type="unfinished"></translation>
+        <translation>Неизвестно: на этом устройстве нет списка сеансов этого пользователя.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>(no name set)</source>
-        <translation type="unfinished"></translation>
+        <translation>(имя не задано)</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Names are chosen by the account&apos;s owner and are not checked. Lightning does not guess which app a session is.</source>
-        <translation type="unfinished"></translation>
+        <translation>Имена выбирает владелец учётной записи, и они не проверяются. Lightning не угадывает, каким приложением является сеанс.</translation>
     </message>
 </context>
 <context>
@@ -35026,18 +35032,18 @@ Note: importing keys does not verify this session.</source>
         <location filename="../qml/VimModeBadge.qml" line="+12"/>
         <source>NORMAL</source>
         <comment>Vim editing mode</comment>
-        <translation type="unfinished"></translation>
+        <translation>NORMAL</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>INSERT</source>
         <comment>Vim editing mode</comment>
-        <translation type="unfinished"></translation>
+        <translation>INSERT</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Editing mode: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Режим редактирования: %1</translation>
     </message>
 </context>
 <context>
@@ -35582,7 +35588,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+5"/>
         <source>Could not archive or unarchive this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось отправить комнату в архив или вернуть её из архива.</translation>
     </message>
     <message>
         <location line="+4"/>
