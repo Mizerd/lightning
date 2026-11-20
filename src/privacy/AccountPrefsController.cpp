@@ -4,6 +4,7 @@
 #include "models/EmojiCatalog.h"
 
 #include <algorithm>
+#include <utility>
 
 #include <QLoggingCategory>
 
@@ -142,6 +143,8 @@ void AccountPrefsController::reset()
     m_inviteWriteFailed = false;
     m_inviteReadFailed = false;
     m_mediaInFlight.clear();
+    m_mediaWriting = false;
+    m_mediaQueued = false;
     m_mediaHeld.clear();
     m_mediaHolding = false;
     m_mediaHeldMisses = 0;
@@ -284,6 +287,14 @@ void AccountPrefsController::writeMedia(const MediaPreview &next, bool retry)
         m_mediaRetried = false;
     m_media = next;
     m_writeFailed = false;
+    // One write at a time: the next is composed from what this one leaves.
+    if (m_mediaWriting) {
+        m_mediaQueued = true;
+        Q_EMIT changed();
+        return;
+    }
+    m_mediaWriting = true;
+    m_mediaSending = next;
     m_mediaInFlight = composeMediaPreview(m_mediaContent, next.mediaPreviews,
                                           next.inviteAvatars,
                                           next.privateMeansNonPublic);
@@ -411,8 +422,10 @@ void AccountPrefsController::onWritten(const QString &type, bool ok,
     }
     if (type != QLatin1String(kMediaPreviewType))
         return;
+    m_mediaWriting = false;
+    const bool queued = std::exchange(m_mediaQueued, false);
     if (ok) {
-        m_mediaConfirmed = m_media;
+        m_mediaConfirmed = m_mediaSending;
         m_mediaContent = m_mediaInFlight;
         m_mediaKnown = true;
         m_mediaHeld = m_mediaInFlight;
@@ -430,6 +443,8 @@ void AccountPrefsController::onWritten(const QString &type, bool ok,
     if (m_client)
         m_client->readAccountPref(type);
     Q_EMIT changed();
+    if (ok && queued)
+        writeMedia(m_mediaDesired, true);
 }
 
 void AccountPrefsController::onEmojiUsed(const QString &emoji)

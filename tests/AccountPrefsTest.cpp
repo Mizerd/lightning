@@ -515,6 +515,38 @@ private Q_SLOTS:
         QCOMPARE(client.writes.size(), 2);
     }
 
+    void aSecondChoiceWaitsForTheFirstWriteAndKeepsBoth()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        const QString type = QStringLiteral("m.media_preview_config");
+        Q_EMIT client.accountPrefRead(type, false, {});
+        c.setMediaPreviews(QStringLiteral("off"));
+        c.setInviteAvatars(false);
+        QCOMPARE(client.writes.size(), 1);
+        QCOMPARE(c.mediaPreviews(), QStringLiteral("off"));
+        QVERIFY(!c.inviteAvatars());
+        Q_EMIT client.accountPrefWritten(type, false, QStringLiteral("stale_absence"));
+        QCOMPARE(client.writes.size(), 1);
+        Q_EMIT client.accountPrefRead(type, true, { { "org.other_client.flag", 7 } });
+        QCOMPARE(client.writes.size(), 2);
+        const QVariantMap merged = client.writes.at(1).second;
+        QCOMPARE(merged.value("org.other_client.flag").toInt(), 7);
+        QCOMPARE(merged.value("media_previews").toString(), QStringLiteral("off"));
+        QCOMPARE(merged.value("invite_avatars").toString(), QStringLiteral("off"));
+
+        c.setMediaPreviews(QStringLiteral("private"));
+        c.setMediaPreviews(QStringLiteral("on"));
+        QCOMPARE(client.writes.size(), 2);
+        Q_EMIT client.accountPrefWritten(type, true, {});
+        QCOMPARE(client.writes.size(), 3);
+        QCOMPARE(client.writes.at(2).second.value("media_previews").toString(),
+                 QStringLiteral("on"));
+        QCOMPARE(client.writes.at(2).second.value("org.other_client.flag").toInt(), 7);
+        QCOMPARE(c.mediaPreviews(), QStringLiteral("on"));
+    }
+
     void aWriteBeforeTheAccountsCopyWasReadIsRefused()
     {
         FakePrefsClient client;

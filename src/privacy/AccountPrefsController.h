@@ -118,6 +118,9 @@ private:
     bool m_inviteWriteFailed = false;
     bool m_inviteReadFailed = false;
     QVariantMap m_mediaInFlight;
+    AccountPrefs::MediaPreview m_mediaSending;
+    bool m_mediaWriting = false;
+    bool m_mediaQueued = false;
     QVariantMap m_mediaHeld;
     bool m_mediaHolding = false;
     int m_mediaHeldMisses = 0;

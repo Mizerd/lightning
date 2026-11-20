@@ -202,6 +202,7 @@ pub(crate) fn write(
 }
 
 async fn put(client: &Client, event_type: &str, content: &Value) -> Result<(), String> {
+    let _turn = crate::optprobe::write_turn(client, event_type).await;
     crate::optprobe::guard_write(client, event_type).await?;
     crate::optprobe::note_write(client, event_type, Some(content));
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
@@ -423,6 +424,101 @@ mod tests {
         let empty = read_payload(MEDIA_PREVIEW_TYPE, Some(json!({})));
         assert_eq!(empty["present"], json!(true));
         assert_eq!(empty["pref_type"], json!("m.media_preview_config"));
+    }
+
+    fn serve_existing_media_config() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let puts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = Arc::clone(&puts);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let seen = Arc::clone(&seen);
+                std::thread::spawn(move || {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match stream.read(&mut chunk) {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&buf).to_string();
+                    let line = head.lines().next().unwrap_or("").to_owned();
+                    let body = if line.contains("/versions") {
+                        r#"{"versions":["v1.1","v1.11"]}"#
+                    } else if line.starts_with("PUT") {
+                        seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        "{}"
+                    } else if line.contains("/account_data/") {
+                        std::thread::sleep(Duration::from_millis(300));
+                        r#"{"media_previews":"off","org.other_client.flag":7}"#
+                    } else {
+                        "{}"
+                    };
+                    let _ = stream.write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                             Connection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    );
+                });
+            }
+        });
+        (format!("http://{addr}"), puts)
+    }
+
+    #[tokio::test]
+    async fn a_second_write_cannot_pass_while_the_first_verifies_an_inferred_absence() {
+        use matrix_sdk::{
+            authentication::matrix::MatrixSession,
+            ruma::{api::client::sync::sync_events::v5, OwnedDeviceId, OwnedUserId},
+            store::RoomLoadSettings,
+            SessionMeta, SessionTokens,
+        };
+        let (homeserver, puts) = serve_existing_media_config();
+        let client = Client::builder().homeserver_url(&homeserver).build().await.expect("client");
+        client
+            .matrix_auth()
+            .restore_session(
+                MatrixSession {
+                    meta: SessionMeta {
+                        user_id: OwnedUserId::try_from("@prefsrace:example.org").unwrap(),
+                        device_id: OwnedDeviceId::from("TESTDEVICE"),
+                    },
+                    tokens: SessionTokens { access_token: "access-0".to_owned(), refresh_token: None },
+                },
+                RoomLoadSettings::default(),
+            )
+            .await
+            .expect("restore");
+        let mut response = v5::Response::new("pos-1".to_owned());
+        response.extensions.account_data.global = vec![Raw::from_json_string(
+            json!({ "type": "m.push_rules", "content": { "global": {
+                "override": [], "content": [], "room": [], "sender": [], "underride": [] } } })
+            .to_string(),
+        )
+        .unwrap()];
+        client
+            .process_sliding_sync_test_helper(&response, &matrix_sdk_base::RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+        crate::optprobe::settle(&client).await;
+        let read = crate::optprobe::read_global(&client, MEDIA_PREVIEW_TYPE, None, false).await;
+        assert_eq!(read, Ok(None), "the store inferred absence");
+
+        let (first, second) = tokio::join!(
+            put(&client, MEDIA_PREVIEW_TYPE, &json!({"media_previews": "on"})),
+            put(&client, MEDIA_PREVIEW_TYPE, &json!({"media_previews": "on", "invite_avatars": "off"})),
+        );
+        crate::optprobe::forget_account_id("@prefsrace:example.org");
+        assert_eq!(puts.load(std::sync::atomic::Ordering::SeqCst), 0, "a write replaced the server's copy");
+        assert_eq!(first, Err("stale_absence".to_owned()));
+        assert_eq!(second, Err("stale_absence".to_owned()));
     }
 
     #[test]

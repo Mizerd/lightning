@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use matrix_sdk::{
@@ -32,6 +32,7 @@ static SETTLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static UNPROVEN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static PROVED: Mutex<Option<HashSet<(String, String)>>> = Mutex::new(None);
 static NEXT_SLOT: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+static WRITE_TURNS: Mutex<Option<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>> = Mutex::new(None);
 static FRESH: Freshness = Freshness::new();
 
 fn with<T: Default, R>(slot: &Mutex<Option<T>>, f: impl FnOnce(&mut T) -> R) -> R {
@@ -122,6 +123,7 @@ pub(crate) fn forget_account_id(account: &str) {
     with(&UNPROVEN, |s| s.remove(account));
     with(&PROVED, |p| p.retain(|(a, _)| a != account));
     with(&NEXT_SLOT, |n| n.remove(account));
+    with(&WRITE_TURNS, |t| t.retain(|(a, _), _| a != account));
     FRESH.forget_account(account);
     absent_answers().forget_prefix(account, "");
 }
@@ -148,11 +150,20 @@ pub(crate) fn proves_absent(client: &Client, event_type: &str) -> bool {
         && !FRESH.is_fresh(&account_key(client), event_type, &None, Instant::now())
 }
 
+/// One check-and-write at a time per account and type: a second write must
+/// not pass the absence check while the first is still verifying it.
+pub(crate) async fn write_turn(client: &Client, event_type: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    let key = (account_key(client), event_type.to_owned());
+    let turn = with(&WRITE_TURNS, |t| Arc::clone(t.entry(key).or_default()));
+    turn.lock_owned().await
+}
+
 /// A write composed from a read that only inferred absence must not replace
 /// something the server holds: check, and refuse the write if it is there.
+/// The mark stays until a write proceeds (`note_write`) or a read answers.
 pub(crate) async fn guard_write(client: &Client, event_type: &str) -> Result<(), String> {
     let account = account_key(client);
-    let proved = with(&PROVED, |p| p.remove(&(account.clone(), event_type.to_owned())));
+    let proved = with(&PROVED, |p| p.contains(&(account.clone(), event_type.to_owned())));
     let verdict = check_inferred_absence(proved, server_get(client, event_type, None)).await;
     if verdict == Err("stale_absence".to_owned()) {
         FRESH.note(&account, event_type, None, Instant::now());
