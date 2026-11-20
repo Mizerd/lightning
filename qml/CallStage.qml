@@ -677,11 +677,14 @@ Rectangle {
                                 onClicked: root.enterFullScreen()
                             }
 
-                            AppButton {
+                            // Filled like its neighbours: an outlined label
+                            // over live video is unreadable on a dark share.
+                            CallControlButton {
                                 objectName: "callBackToGridButton"
-                                storm: true
-                                size: "sm"
-                                text: qsTr("Back to grid")
+                                iconName: "grid_view"
+                                diameter: 30
+                                glyphSize: 16
+                                tooltip: qsTr("Back to grid")
                                 onClicked: root.leaveSpotlight()
                             }
                         }
