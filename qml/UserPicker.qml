@@ -235,6 +235,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 0
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: suggestionRow.shownName.length > 0
@@ -248,6 +249,7 @@ ColumnLayout {
                         elide: Label.ElideRight
                     }
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: suggestionRow.modelData.userId
@@ -313,6 +315,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 0
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         Layout.fillWidth: true
                         textFormat: Text.StyledText
                         text: root.highlightedName(
@@ -329,6 +332,7 @@ ColumnLayout {
                         elide: Label.ElideRight
                     }
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         visible: model.displayName && model.displayName.length > 0

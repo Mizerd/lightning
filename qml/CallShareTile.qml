@@ -375,7 +375,9 @@ Item {
                     radius: AppTheme.radiusPill
                     color: AppTheme.stormInset
                     Rectangle {
-                        width: shareVolumeSlider.visualPosition * parent.width
+                        x: shareVolumeSlider.mirrored ? parent.width - width : 0
+                        width: (shareVolumeSlider.mirrored ? 1 - shareVolumeSlider.visualPosition : shareVolumeSlider.visualPosition)
+                               * parent.width
                         height: parent.height
                         radius: AppTheme.radiusPill
                         color: AppTheme.bolt

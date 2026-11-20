@@ -452,7 +452,9 @@ ColumnLayout {
                     radius: AppTheme.radiusPill
                     color: AppTheme.editorInset
                     Rectangle {
-                        width: angleSlider.visualPosition * parent.width
+                        x: angleSlider.mirrored ? parent.width - width : 0
+                        width: (angleSlider.mirrored ? 1 - angleSlider.visualPosition : angleSlider.visualPosition)
+                               * parent.width
                         height: parent.height
                         radius: AppTheme.radiusPill
                         color: AppTheme.editorAccent

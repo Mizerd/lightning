@@ -109,7 +109,7 @@ Slider {
             readonly property real barWidth: count > 0
                 ? Math.max(1, (width - (count - 1)) / count) : 0
             readonly property int lit:
-                Math.max(0, Math.min(count, Math.ceil(root.visualPosition * count)))
+                Math.max(0, Math.min(count, Math.ceil(root.position * count)))
             // One painted item, not a Rectangle per bar: voice-heavy rooms stay cheap.
             function bars() {
                 var out = []
@@ -117,14 +117,17 @@ Slider {
                 for (var i = 0; i < count; ++i) {
                     var at = Math.floor(i * wf.length / count)
                     var h = height * Math.max(0.12, Math.min(1, wf[at] / 100))
-                    out.push({ x: i * (barWidth + 1), y: (height - h) / 2,
+                    // Time runs from the leading edge, so RTL mirrors the bars.
+                    var bx = i * (barWidth + 1)
+                    out.push({ x: root.mirrored ? width - bx - barWidth : bx,
+                               y: (height - h) / 2,
                                width: barWidth, height: h, lit: i < lit })
                 }
                 return out
             }
             readonly property var look: [root.waveform, root.fillColor,
                                          root.trackColor, lit, count, width,
-                                         height]
+                                         height, root.mirrored]
             onLookChanged: requestPaint()
             onVisibleChanged: if (visible) requestPaint()
             onPaint: {
@@ -157,7 +160,9 @@ Slider {
             color: root.trackColor
             Rectangle {
                 objectName: "voiceSeekFill"
-                width: root.visualPosition * parent.width
+                x: root.mirrored ? parent.width - width : 0
+                width: (root.mirrored ? 1 - root.visualPosition : root.visualPosition)
+                       * parent.width
                 height: parent.height
                 radius: parent.radius
                 color: root.fillColor

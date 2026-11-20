@@ -598,7 +598,9 @@ Item {
                     color: AppTheme.stormInset
 
                     Rectangle {
-                        width: volumeSlider.visualPosition * parent.width
+                        x: volumeSlider.mirrored ? parent.width - width : 0
+                        width: (volumeSlider.mirrored ? 1 - volumeSlider.visualPosition : volumeSlider.visualPosition)
+                               * parent.width
                         height: parent.height
                         radius: AppTheme.radiusPill
                         color: AppTheme.bolt

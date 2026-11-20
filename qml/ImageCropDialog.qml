@@ -543,7 +543,9 @@ AppDialog {
                     radius: AppTheme.radiusPill
                     color: AppTheme.stormInset
                     Rectangle {
-                        width: zoomSlider.visualPosition * parent.width
+                        x: zoomSlider.mirrored ? parent.width - width : 0
+                        width: (zoomSlider.mirrored ? 1 - zoomSlider.visualPosition : zoomSlider.visualPosition)
+                               * parent.width
                         height: parent.height
                         radius: AppTheme.radiusPill
                         color: AppTheme.bolt

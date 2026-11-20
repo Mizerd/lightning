@@ -179,6 +179,8 @@ Item {
                     Layout.fillWidth: true
                     spacing: 2
                     Label {
+                        // Explicit, so RTL mirrors it: an implicit left follows the text.
+                        horizontalAlignment: Text.AlignLeft
                         visible: root.hasIdentity
                         Layout.fillWidth: true
                         elide: Text.ElideRight
@@ -189,6 +191,7 @@ Item {
                         font.weight: AppTheme.weightStrong
                     }
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         objectName: "homeWelcomeName"
                         Layout.fillWidth: true
                         elide: Text.ElideRight
@@ -231,6 +234,7 @@ Item {
                     spacing: AppTheme.spacing10
                     Icon { name: "warning"; size: 18; color: AppTheme.warning }
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         objectName: "homeConnectionNoticeText"
                         Layout.fillWidth: true
                         text: root.connectionNotice
@@ -260,6 +264,7 @@ Item {
                     spacing: AppTheme.spacing10
                     Icon { name: "key"; size: 18; color: AppTheme.accent }
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         Layout.fillWidth: true
                         text: app.cryptoBootstrap
                               ? app.cryptoBootstrap.statusMessage : ""
@@ -425,6 +430,7 @@ Item {
                                 circle: recentRow.modelData.isDirect === true
                             }
                             Label {
+                                horizontalAlignment: Text.AlignLeft
                                 Layout.fillWidth: true
                                 text: recentRow.modelData.name
                                       || qsTr("Conversation")
@@ -580,6 +586,7 @@ Item {
                                     colorKey: spacePill.modelData.roomId || ""
                                 }
                                 Label {
+                                    horizontalAlignment: Text.AlignLeft
                                     id: spacePillLabel
                                     objectName: "homeSpacePillLabel"
                                     Layout.fillWidth: true
@@ -672,6 +679,7 @@ Item {
                     anchors.margins: AppTheme.spacing16
                     spacing: AppTheme.spacingXS
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         objectName: "homeOnboardingTitle"
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
@@ -683,6 +691,7 @@ Item {
                         font.weight: AppTheme.weightBold
                     }
                     Label {
+                        horizontalAlignment: Text.AlignLeft
                         objectName: "homeOnboardingBody"
                         Layout.fillWidth: true
                         text: homeOnboarding.filtered

@@ -400,7 +400,9 @@ FocusScope {
                 radius: 2
                 color: AppTheme.scrimSurfaceHover
                 Rectangle {
-                    width: seekSlider.visualPosition * parent.width
+                    x: seekSlider.mirrored ? parent.width - width : 0
+                    width: (seekSlider.mirrored ? 1 - seekSlider.visualPosition : seekSlider.visualPosition)
+                           * parent.width
                     height: parent.height
                     radius: 2
                     color: AppTheme.accent

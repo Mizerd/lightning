@@ -572,6 +572,7 @@ Dialog {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing2
                         Label {
+                            horizontalAlignment: Text.AlignLeft
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: root.selectedDisplayName.length > 0
@@ -582,6 +583,7 @@ Dialog {
                             elide: Label.ElideRight
                         }
                         Label {
+                            horizontalAlignment: Text.AlignLeft
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: root.selectedDisplayName.length > 0
@@ -663,6 +665,7 @@ Dialog {
                             colorKey: root.selectedUserId
                         }
                         Label {
+                            horizontalAlignment: Text.AlignLeft
                             objectName: "existingDmName_" + existingRow.index
                             textFormat: Text.PlainText
                             Layout.fillWidth: true

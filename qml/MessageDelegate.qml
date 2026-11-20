@@ -3420,10 +3420,14 @@ Item {
             Row {
                 id: receiptRow
                 objectName: "readReceiptRow"
+                // Mirrored layouts move the body's receipt margin to its
+                // leading side, beside the avatar, so the pile goes there too.
                 x: root.ownBubbleReceiptFooter
                    ? bubble.x + bubble.width - width
-                   : Math.max(root.avatarGutterWidth,
-                              readReceiptStrip.width - width)
+                   : readReceiptStrip.LayoutMirroring.enabled
+                     ? root.avatarGutterWidth
+                     : Math.max(root.avatarGutterWidth,
+                                readReceiptStrip.width - width)
                 y: root.ownBubbleReceiptFooter ? 0 : -height
                 spacing: -6
 

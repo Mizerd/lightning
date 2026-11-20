@@ -221,7 +221,9 @@ AppMenu {
                     color: AppTheme.stormInset
 
                     Rectangle {
-                        width: micGain.visualPosition * parent.width
+                        x: micGain.mirrored ? parent.width - width : 0
+                        width: (micGain.mirrored ? 1 - micGain.visualPosition : micGain.visualPosition)
+                               * parent.width
                         height: parent.height
                         radius: AppTheme.radiusPill
                         color: AppTheme.bolt

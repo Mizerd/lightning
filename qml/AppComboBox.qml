@@ -206,8 +206,8 @@ ComboBox {
     hoverEnabled: true
 
     contentItem: Label {
-        leftPadding: AppTheme.buttonPaddingH
-        rightPadding: 28
+        leftPadding: root.mirrored ? 28 : AppTheme.buttonPaddingH
+        rightPadding: root.mirrored ? AppTheme.buttonPaddingH : 28
         text: root.displayText
         font: root.font
         color: root.storm
@@ -218,7 +218,7 @@ ComboBox {
     }
 
     indicator: Icon {
-        x: root.width - width - 8
+        x: root.mirrored ? 8 : root.width - width - 8
         anchors.verticalCenter: parent.verticalCenter
         name: "expand_more"
         size: 18

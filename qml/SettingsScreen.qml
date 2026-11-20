@@ -1310,7 +1310,9 @@ Item {
             radius: AppTheme.radiusPill
             color: AppTheme.stormInset
             Rectangle {
-                width: styledSlider.visualPosition * parent.width
+                x: styledSlider.mirrored ? parent.width - width : 0
+                width: (styledSlider.mirrored ? 1 - styledSlider.visualPosition : styledSlider.visualPosition)
+                       * parent.width
                 height: parent.height
                 radius: AppTheme.radiusPill
                 color: AppTheme.bolt
@@ -1460,6 +1462,7 @@ Item {
                                           : AppTheme.stormTextMuted
             }
             Label {
+                horizontalAlignment: Text.AlignLeft
                 id: navRowText
                 // not-body-copy: body leading would lift the letters off the icon's centre line
                 objectName: "navRowLabel_" + navRow.sectionKey
@@ -2877,6 +2880,7 @@ Item {
                                                 }
                                             }
                                             Label {
+                                                horizontalAlignment: Text.AlignLeft
                                                 text: themeCard.modelData.name
                                                 textFormat: Text.PlainText
                                                 color: AppTheme.stormText
@@ -3297,7 +3301,8 @@ Item {
                                     radius: AppTheme.radiusPill
                                     color: AppTheme.stormInset
                                     Rectangle {
-                                        width: textScaleSlider.visualPosition
+                                        x: textScaleSlider.mirrored ? parent.width - width : 0
+                                        width: (textScaleSlider.mirrored ? 1 - textScaleSlider.visualPosition : textScaleSlider.visualPosition)
                                                * parent.width
                                         height: parent.height
                                         radius: AppTheme.radiusPill
@@ -3386,7 +3391,8 @@ Item {
                                     radius: AppTheme.radiusPill
                                     color: AppTheme.stormInset
                                     Rectangle {
-                                        width: interfaceZoomSlider.visualPosition
+                                        x: interfaceZoomSlider.mirrored ? parent.width - width : 0
+                                        width: (interfaceZoomSlider.mirrored ? 1 - interfaceZoomSlider.visualPosition : interfaceZoomSlider.visualPosition)
                                                * parent.width
                                         height: parent.height
                                         radius: AppTheme.radiusPill

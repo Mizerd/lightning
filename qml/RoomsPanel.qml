@@ -701,7 +701,10 @@ Rectangle {
                     Icon {
                         anchors.centerIn: parent
                         opacity: chipEdge.more ? 1 : 0.35
-                        name: chipEdge.leftEdge ? "chevron_left" : "chevron_right"
+                        // The glyph is mirrored in RTL text, so pick the
+                        // opposite one there to keep pointing outwards.
+                        name: chipEdge.leftEdge !== app.localization.rightToLeft
+                              ? "chevron_left" : "chevron_right"
                         size: 16
                         color: AppTheme.textSecondary
                     }

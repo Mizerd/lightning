@@ -255,7 +255,9 @@ ColumnLayout {
             radius: AppTheme.radiusPill
             color: AppTheme.stormInset
             Rectangle {
-                width: tone.visualPosition * parent.width
+                x: tone.mirrored ? parent.width - width : 0
+                width: (tone.mirrored ? 1 - tone.visualPosition : tone.visualPosition)
+                       * parent.width
                 height: parent.height
                 radius: AppTheme.radiusPill
                 color: tone.enabled ? AppTheme.accent : AppTheme.textDisabled

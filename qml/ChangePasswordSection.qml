@@ -196,7 +196,9 @@ ColumnLayout {
             text: qsTr("Sign out of all other devices")
             indicator: Rectangle {
                 objectName: "signOutOtherDevicesIndicator"
-                x: signOutOthers.leftPadding
+                x: signOutOthers.mirrored
+                   ? signOutOthers.width - width - signOutOthers.rightPadding
+                   : signOutOthers.leftPadding
                 y: signOutOthers.topPadding
                    + (signOutOthers.availableHeight - height) / 2
                 implicitWidth: 18
