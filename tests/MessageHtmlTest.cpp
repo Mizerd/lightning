@@ -652,6 +652,80 @@ private Q_SLOTS:
                      .contains(QStringLiteral("</table>")));
     }
 
+    void quotesShareTheTableDepthAndCellBounds()
+    {
+        const auto depthOf = [](const QString &out) {
+            static const QRegularExpression tag(
+                QStringLiteral("<(/?)table\\b"));
+            int depth = 0;
+            int deepest = 0;
+            auto it = tag.globalMatch(out);
+            while (it.hasNext()) {
+                depth += it.next().captured(1).isEmpty() ? 1 : -1;
+                deepest = qMax(deepest, depth);
+            }
+            return deepest;
+        };
+        const auto cellsOf = [](const QString &out) {
+            return out.count(QStringLiteral("<td"))
+                + out.count(QStringLiteral("<th"));
+        };
+
+        QString deep;
+        for (int i = 0; i < 60; ++i)
+            deep += QStringLiteral("<blockquote>q%1 ").arg(i);
+        deep += QStringLiteral("end");
+        deep += QStringLiteral("</blockquote>").repeated(60);
+        const QString deepOut = sanitize(deep);
+        QVERIFY2(depthOf(deepOut) <= 3, qPrintable(deepOut.left(400)));
+        QCOMPARE(deepOut.count(QStringLiteral("<table")),
+                 deepOut.count(QStringLiteral("</table>")));
+        QVERIFY2(tagLeavingItsTable(deepOut).isEmpty(),
+                 qPrintable(tagLeavingItsTable(deepOut)));
+        for (int i = 0; i < 60; ++i)
+            QVERIFY(deepOut.contains(QStringLiteral("q%1 ").arg(i)));
+        QVERIFY(deepOut.contains(QStringLiteral("end")));
+
+        const QString siblings = sanitize(
+            QStringLiteral("<blockquote>Z</blockquote>").repeated(2000));
+        QVERIFY2(cellsOf(siblings) <= 400, qPrintable(siblings.left(200)));
+        QCOMPARE(siblings.count(QLatin1Char('Z')), 2000);
+        QVERIFY(tagLeavingItsTable(siblings).isEmpty());
+
+        QString row16 = QStringLiteral("<tr>")
+            + QStringLiteral("<td>x</td>").repeated(16) + QStringLiteral("</tr>");
+        const QString fullTableThenQuotes = sanitize(
+            QStringLiteral("<table>") + row16.repeated(25)
+            + QStringLiteral("</table>")
+            + QStringLiteral("<blockquote>s</blockquote>").repeated(5));
+        QVERIFY2(cellsOf(fullTableThenQuotes) <= 400,
+                 qPrintable(fullTableThenQuotes.right(200)));
+
+        QString mixed;
+        for (int i = 0; i < 30; ++i) {
+            mixed += i % 2 ? QStringLiteral("<table><tr><td>t%1 ").arg(i)
+                           : QStringLiteral("<blockquote>q%1 ").arg(i);
+        }
+        for (int i = 29; i >= 0; --i) {
+            mixed += i % 2 ? QStringLiteral("</td></tr></table>")
+                           : QStringLiteral("</blockquote>");
+        }
+        const QString mixedOut = sanitize(mixed);
+        QVERIFY2(depthOf(mixedOut) <= 3, qPrintable(mixedOut.left(400)));
+        QVERIFY2(tagLeavingItsTable(mixedOut).isEmpty(),
+                 qPrintable(tagLeavingItsTable(mixedOut)));
+        QCOMPARE(mixedOut.count(QStringLiteral("<table")),
+                 mixedOut.count(QStringLiteral("</table>")));
+        QVERIFY(mixedOut.contains(QStringLiteral("t29 ")));
+
+        const QString misnested = sanitize(QStringLiteral(
+            "<table><tr><td><blockquote>a</td></tr></table>b</blockquote>c"));
+        QVERIFY2(tagLeavingItsTable(misnested).isEmpty(),
+                 qPrintable(misnested));
+        QCOMPARE(misnested.count(QStringLiteral("<table")),
+                 misnested.count(QStringLiteral("</table>")));
+    }
+
     void unknownTagsAreDroppedButTextKept()
     {
         QCOMPARE(sanitize(QStringLiteral("<marquee>hello</marquee>")),

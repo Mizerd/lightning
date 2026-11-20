@@ -57,6 +57,9 @@ const QSet<QString> &tableTags()
     return s;
 }
 constexpr int kMaxTableDepth = 2;
+// Quotes are emitted as tables too, so they share the cell budget and count
+// towards this nesting bound with the tables around them.
+constexpr int kMaxFrameDepth = 3;
 constexpr int kMaxTableColumns = 16;
 constexpr int kMaxTableCells = 400;
 
@@ -837,21 +840,50 @@ QString MessageHtml::sanitize(
     QList<bool> anchorEmitted;
     QList<bool> spanIsSpoiler;
     int codeDepth = 0;
-    QList<bool> tableEmitted;
-    QList<qsizetype> openTableStarts;
-    int quoteDepth = 0;
+    struct Frame {
+        qsizetype start;
+        bool quote;
+        int id;
+    };
+    QList<Frame> frames;
+    int nextFrameId = 0;
+    QList<int> tableEmitted;
+    QList<int> quoteEmitted;
     qint64 tableCellsKept = 0;
-    const auto closeEmittedTable = [&out, &openTableStarts, &tableCellsKept]() {
-        const qsizetype start = openTableStarts.takeLast();
-        const EmittedTableShape shape = measureEmittedTable(out, start);
+    const auto closeTopFrame = [&out, &frames, &tableCellsKept]() {
+        const Frame frame = frames.takeLast();
+        if (frame.quote)
+            out += QStringLiteral("</td></tr>");
+        const EmittedTableShape shape = measureEmittedTable(out, frame.start);
         if (!shape.wellFormed || shape.columns > kMaxTableColumns
             || tableCellsKept + shape.cells > kMaxTableCells) {
-            flattenEmittedTables(out, start);
+            flattenEmittedTables(out, frame.start);
             return;
         }
         out += QStringLiteral("</table>");
-        if (openTableStarts.isEmpty())
+        if (frames.isEmpty())
             tableCellsKept += shape.cells;
+    };
+    // A frame closed out of order closes everything opened inside it first.
+    const auto closeFrame = [&frames, &closeTopFrame](int id) {
+        qsizetype at = frames.size() - 1;
+        while (at >= 0 && frames[at].id != id)
+            --at;
+        if (at < 0)
+            return;
+        while (frames.size() > at)
+            closeTopFrame();
+    };
+    const auto tableFrames = [&frames]() {
+        int count = 0;
+        for (const Frame &f : frames)
+            count += f.quote ? 0 : 1;
+        return count;
+    };
+    const auto separateFlattened = [&out]() {
+        if (!out.isEmpty() && !out.endsWith(QLatin1Char(' '))
+            && !out.endsWith(QLatin1String("<br>")))
+            out += QLatin1Char(' ');
     };
 
     const qsizetype n = in.size();
@@ -1112,16 +1144,15 @@ QString MessageHtml::sanitize(
         if (tableTags().contains(name)) {
             if (name == QLatin1String("table")) {
                 if (!t.closing) {
-                    const bool withinBound =
-                        openTableStarts.size() < kMaxTableDepth;
-                    tableEmitted.append(withinBound);
+                    const bool withinBound = tableFrames() < kMaxTableDepth
+                        && frames.size() < kMaxFrameDepth;
                     if (!withinBound) {
-                        if (!out.isEmpty() && !out.endsWith(QLatin1Char(' '))
-                            && !out.endsWith(QLatin1String("<br>")))
-                            out += QLatin1Char(' ');
+                        tableEmitted.append(-1);
+                        separateFlattened();
                         continue;
                     }
-                    openTableStarts.append(out.size());
+                    tableEmitted.append(nextFrameId);
+                    frames.append(Frame{out.size(), false, nextFrameId++});
                     out += QStringLiteral("<table border=\"1\" cellspacing=\"0\" "
                                           "cellpadding=\"6\" style=\"border-collapse:"
                                           "collapse");
@@ -1131,12 +1162,11 @@ QString MessageHtml::sanitize(
                     }
                     out += QStringLiteral("\">");
                 } else if (!tableEmitted.isEmpty()) {
-                    if (tableEmitted.takeLast())
-                        closeEmittedTable();
+                    closeFrame(tableEmitted.takeLast());
                 }
                 continue;
             }
-            if (tableEmitted.isEmpty() || !tableEmitted.last()) {
+            if (tableEmitted.isEmpty() || tableEmitted.last() < 0) {
                 if (t.closing && (name == QLatin1String("td")
                                   || name == QLatin1String("th")))
                     out += QLatin1Char(' ');
@@ -1155,9 +1185,12 @@ QString MessageHtml::sanitize(
                 // whatever was opened right after the <br>/<hr> (see
                 // measureEmittedTable), so they are never emitted.
                 if (name == QLatin1String("blockquote")) {
-                    if (quoteDepth > 0) {
-                        --quoteDepth;
-                        out += QStringLiteral("</td></tr></table>");
+                    if (!quoteEmitted.isEmpty()) {
+                        const int id = quoteEmitted.takeLast();
+                        if (id < 0)
+                            out += QStringLiteral("<br>");
+                        else
+                            closeFrame(id);
                     }
                 } else if (name != QLatin1String("br")
                            && name != QLatin1String("hr")) {
@@ -1185,7 +1218,13 @@ QString MessageHtml::sanitize(
                 // Quick's text paints no border, so QuoteBars draws the bar
                 // from the table's border-color; an empty bar cell would add
                 // a blank line to every copied selection.
-                ++quoteDepth;
+                if (frames.size() >= kMaxFrameDepth) {
+                    quoteEmitted.append(-1);
+                    separateFlattened();
+                    continue;
+                }
+                quoteEmitted.append(nextFrameId);
+                frames.append(Frame{out.size(), true, nextFrameId++});
                 out += QStringLiteral("<table border=\"0\" cellspacing=\"0\" "
                                       "cellpadding=\"0\" style=\"border-color:")
                     + (mentionStyle.quoteBar.isEmpty()
@@ -1212,10 +1251,8 @@ QString MessageHtml::sanitize(
         if (anchorEmitted.takeLast())
             out += QLatin1String("</a>");
     }
-    while (quoteDepth-- > 0)
-        out += QStringLiteral("</td></tr></table>");
-    while (!openTableStarts.isEmpty())
-        closeEmittedTable();
+    while (!frames.isEmpty())
+        closeTopFrame();
     return markEmoji(out);
 }
 
