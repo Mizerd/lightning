@@ -13054,12 +13054,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+91"/>
         <location line="+917"/>
-        <location line="+1120"/>
+        <location line="+1118"/>
         <source>Reply</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-2022"/>
+        <location line="-2020"/>
         <source>(original message not loaded)</source>
         <translation>(মূল বার্তা লোড হয়নি)</translation>
     </message>
@@ -13160,30 +13160,30 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2280"/>
+        <location line="+2278"/>
         <location line="+1031"/>
         <source>Retry</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="-3294"/>
-        <location line="+1217"/>
+        <location line="-3292"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-1212"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>এই বার্তা পাঠানো বাতিল করুন</translation>
     </message>
     <message>
         <location line="+182"/>
-        <location line="+1377"/>
+        <location line="+1375"/>
         <source>Hide image</source>
         <translation>ছবি লুকান</translation>
     </message>
     <message>
-        <location line="-1373"/>
+        <location line="-1371"/>
         <source>Hide</source>
         <translation>লুকান</translation>
     </message>
@@ -13218,32 +13218,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>আরও</translation>
     </message>
     <message>
-        <location line="+133"/>
-        <source>%1 and 1 other</source>
-        <translation>%1 এবং আরও ১ জন</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>%1 and %2 others</source>
-        <translation>%1 এবং আরও %2 জন</translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="+135"/>
         <source>%1 and %2</source>
         <translation>%1 এবং %2</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>%1, %2 and 1 other</source>
-        <translation>%1, %2 এবং আরও ১ জন</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>%1, %2 and %3 others</source>
-        <translation>%1, %2 এবং আরও %3 জন</translation>
-    </message>
-    <message>
-        <location line="+16"/>
+        <location line="+21"/>
         <source>custom emoji</source>
         <translation>কাস্টম ইমোজি</translation>
     </message>
@@ -13299,14 +13279,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>বার্তা · %1 · %2</translation>
     </message>
     <message>
-        <location line="-993"/>
+        <location line="-991"/>
         <location line="+4"/>
-        <location line="+1105"/>
+        <location line="+1103"/>
         <source>Reply in thread</source>
         <translation>থ্রেডে উত্তর দিন</translation>
     </message>
     <message>
-        <location line="-2034"/>
+        <location line="-2032"/>
         <source>Original message removed</source>
         <translation>মূল বার্তা সরানো হয়েছে</translation>
     </message>
@@ -13320,8 +13300,16 @@ Signing out and signing in again is the only fix.</source>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
         <translation type="unfinished">আপনি আর এই রুমে নেই। এটি সার্ভারে মুছে ফেলা হয়ে থাকতে পারে। আপনার তালিকা থেকে সরাতে “রুম ছাড়ুন” ব্যবহার করুন।</translation>
     </message>
+    <message numerus="yes">
+        <location line="+484"/>
+        <source>%1 and %n other(s)</source>
+        <translation>
+            <numerusform>%1 এবং আরও ১ জন</numerusform>
+            <numerusform>%1 এবং আরও %n জন</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+1422"/>
+        <location line="+936"/>
         <source>Open in room</source>
         <translation>রুমে খুলুন</translation>
     </message>
@@ -13523,13 +13511,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="-3690"/>
-        <location line="+1103"/>
+        <location line="-3688"/>
+        <location line="+1101"/>
         <source>Edit</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-3644"/>
+        <location line="-3642"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13563,22 +13551,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3612"/>
+        <location line="+3610"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5097"/>
+        <location line="-5095"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4161"/>
+        <location line="+4159"/>
         <source>Image</source>
         <translation>ছবি</translation>
     </message>
     <message>
-        <location line="-4720"/>
+        <location line="-4718"/>
         <source>Attachment</source>
         <translation>সংযুক্তি</translation>
     </message>
@@ -13644,7 +13632,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>(সম্পাদিত)</translation>
     </message>
     <message>
-        <location line="+1589"/>
+        <location line="+1587"/>
         <source>Add :%1: to my emoji</source>
         <translation>আমার ইমোজিতে :%1: যোগ করুন</translation>
     </message>
@@ -13782,12 +13770,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>উত্তরের লক্ষ্য</translation>
     </message>
     <message>
-        <location line="-1936"/>
+        <location line="-1934"/>
         <source>Show preview</source>
         <translation>প্রাকদর্শন দেখান</translation>
     </message>
     <message>
-        <location line="+1794"/>
+        <location line="+1792"/>
         <source>Remove edits?</source>
         <translation>সম্পাদনা সরাবেন?</translation>
     </message>
@@ -13899,10 +13887,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="-5512"/>
+        <location line="-5510"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4159"/>
+        <location line="+4157"/>
         <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13915,9 +13903,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-5893"/>
+        <location line="-5891"/>
         <location line="+564"/>
-        <location line="+4262"/>
+        <location line="+4260"/>
         <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -14450,7 +14438,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>একটি নাম, একটি @ব্যবহারকারী আইডি, বা একটি #রুম ঠিকানা লিখুন — বাকিটা Lightning বুঝে নেবে।</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+103"/>
         <source>New DM</source>
         <translation>নতুন DM</translation>
     </message>
@@ -14465,19 +14453,19 @@ Signing out and signing in again is the only fix.</source>
         <translation>নতুন স্পেস</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+22"/>
         <source>Working…</source>
         <translation>কাজ চলছে…</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+7"/>
         <location line="+1"/>
-        <location line="+312"/>
+        <location line="+314"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-259"/>
+        <location line="-261"/>
         <source>Create room %1</source>
         <translation>রুম %1 তৈরি করুন</translation>
     </message>
@@ -14507,7 +14495,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>অন্য ব্যবহারকারী বেছে নিন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>You already share a direct message with this user</source>
         <translation>এই ব্যবহারকারীর সঙ্গে আপনার ইতিমধ্যেই সরাসরি বার্তা আছে</translation>
     </message>
@@ -14604,24 +14592,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+368"/>
+        <location line="+370"/>
         <source>Visibility</source>
         <translation>দৃশ্যমানতা</translation>
     </message>
     <message>
-        <location line="-359"/>
-        <location line="+368"/>
+        <location line="-361"/>
+        <location line="+370"/>
         <source>Private</source>
         <translation>ব্যক্তিগত</translation>
     </message>
     <message>
-        <location line="-367"/>
-        <location line="+368"/>
+        <location line="-369"/>
+        <location line="+370"/>
         <source>Public</source>
         <translation>সর্বজনীন</translation>
     </message>
     <message>
-        <location line="-359"/>
+        <location line="-361"/>
         <source>Anyone can find and join this room.</source>
         <translation>যে কেউ এই রুম খুঁজে পেয়ে যোগ দিতে পারে।</translation>
     </message>
@@ -14632,7 +14620,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>End-to-end encryption</source>
         <translation>প্রান্ত-থেকে-প্রান্ত এনক্রিপশন</translation>
     </message>
@@ -14668,14 +14656,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+29"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <location line="+285"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Add to the current Space</source>
         <translation>বর্তমান স্পেসে যোগ করুন</translation>
     </message>
     <message>
-        <location line="-278"/>
+        <location line="-279"/>
         <source>Invite people (optional)</source>
         <translation>লোক আমন্ত্রণ করুন (ঐচ্ছিক)</translation>
     </message>
@@ -14766,7 +14754,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কেবল আপনি যাদের আমন্ত্রণ জানাবেন তারাই এই স্পেস দেখতে পাবেন।</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+46"/>
         <source>Create Space</source>
         <translation>স্পেস তৈরি করুন</translation>
     </message>

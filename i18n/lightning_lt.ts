@@ -13110,12 +13110,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+91"/>
         <location line="+917"/>
-        <location line="+1120"/>
+        <location line="+1118"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-2022"/>
+        <location line="-2020"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
@@ -13217,30 +13217,30 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2280"/>
+        <location line="+2278"/>
         <location line="+1031"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-3294"/>
-        <location line="+1217"/>
+        <location line="-3292"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-1212"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>Atšaukti šios žinutės siuntimą</translation>
     </message>
     <message>
         <location line="+182"/>
-        <location line="+1377"/>
+        <location line="+1375"/>
         <source>Hide image</source>
         <translation>Slėpti vaizdą</translation>
     </message>
     <message>
-        <location line="-1373"/>
+        <location line="-1371"/>
         <source>Hide</source>
         <translation>Slėpti</translation>
     </message>
@@ -13275,32 +13275,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Daugiau</translation>
     </message>
     <message>
-        <location line="+133"/>
-        <source>%1 and 1 other</source>
-        <translation>%1 ir dar 1</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>%1 and %2 others</source>
-        <translation>%1 ir %2 kiti</translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="+135"/>
         <source>%1 and %2</source>
         <translation>%1 ir %2</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>%1, %2 and 1 other</source>
-        <translation>%1, %2 ir dar 1</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>%1, %2 and %3 others</source>
-        <translation>%1, %2 ir %3 kiti</translation>
-    </message>
-    <message>
-        <location line="+16"/>
+        <location line="+21"/>
         <source>custom emoji</source>
         <translation>pasirinktiniai jaustukai</translation>
     </message>
@@ -13351,9 +13331,9 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Žinutė · %1 · %2</translation>
     </message>
     <message>
-        <location line="-993"/>
+        <location line="-991"/>
         <location line="+4"/>
-        <location line="+1105"/>
+        <location line="+1103"/>
         <source>Reply in thread</source>
         <translation>Atsakyti gijoje</translation>
     </message>
@@ -13439,13 +13419,13 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Peržiūrėti šaltinį</translation>
     </message>
     <message>
-        <location line="-1355"/>
-        <location line="+1103"/>
+        <location line="-1353"/>
+        <location line="+1101"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="-3644"/>
+        <location line="-3642"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13479,22 +13459,22 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3612"/>
+        <location line="+3610"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5097"/>
+        <location line="-5095"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4161"/>
+        <location line="+4159"/>
         <source>Image</source>
         <translation>Paveikslėlis</translation>
     </message>
     <message>
-        <location line="-4720"/>
+        <location line="-4718"/>
         <source>Attachment</source>
         <translation>Priedas</translation>
     </message>
@@ -13562,7 +13542,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>(redaguota)</translation>
     </message>
     <message>
-        <location line="+730"/>
+        <location line="+728"/>
         <source>Sent</source>
         <translation>Išsiųsta</translation>
     </message>
@@ -13639,7 +13619,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Ištrinti</translation>
     </message>
     <message>
-        <location line="-2568"/>
+        <location line="-2566"/>
         <source>Open this thread</source>
         <translation>Atverti šią giją</translation>
     </message>
@@ -13658,8 +13638,17 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
         <translation type="unfinished">Nebepriklausote šiam kambariui. Jis galėjo būti ištrintas serveryje. Naudokite „Palikite kambarį“, kad pašalintumėte jį iš savo sąrašo.</translation>
     </message>
+    <message numerus="yes">
+        <location line="+484"/>
+        <source>%1 and %n other(s)</source>
+        <translation>
+            <numerusform>%1 ir dar %n</numerusform>
+            <numerusform>%1 ir %n kiti</numerusform>
+            <numerusform>%1 ir %n kiti</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+1111"/>
+        <location line="+625"/>
         <source>Delete message?</source>
         <translation>Ištrinti žinutę?</translation>
     </message>
@@ -13944,10 +13933,10 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Bandyti dar kartą</translation>
     </message>
     <message>
-        <location line="-6208"/>
+        <location line="-6206"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4159"/>
+        <location line="+4157"/>
         <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13960,9 +13949,9 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>vaizdo įrašą</translation>
     </message>
     <message>
-        <location line="-5893"/>
+        <location line="-5891"/>
         <location line="+564"/>
-        <location line="+4262"/>
+        <location line="+4260"/>
         <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -14513,7 +14502,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įveskite vardą, @user ID arba #kambario adresą – Lightning nustato visa kita.</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+103"/>
         <source>New DM</source>
         <translation>Naujas DM</translation>
     </message>
@@ -14528,19 +14517,19 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nauja erdvė</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+22"/>
         <source>Working…</source>
         <translation>Dirba…</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+7"/>
         <location line="+1"/>
-        <location line="+312"/>
+        <location line="+314"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-259"/>
+        <location line="-261"/>
         <source>Create room %1</source>
         <translation>Sukurti kambarį %1</translation>
     </message>
@@ -14570,7 +14559,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Pasirinkite kitą vartotoją</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>You already share a direct message with this user</source>
         <translation>Jau turite tiesioginį pokalbį su šiuo naudotoju</translation>
     </message>
@@ -14667,24 +14656,24 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+368"/>
+        <location line="+370"/>
         <source>Visibility</source>
         <translation>Matomumas</translation>
     </message>
     <message>
-        <location line="-359"/>
-        <location line="+368"/>
+        <location line="-361"/>
+        <location line="+370"/>
         <source>Private</source>
         <translation>Privatus</translation>
     </message>
     <message>
-        <location line="-367"/>
-        <location line="+368"/>
+        <location line="-369"/>
+        <location line="+370"/>
         <source>Public</source>
         <translation>Viešas</translation>
     </message>
     <message>
-        <location line="-359"/>
+        <location line="-361"/>
         <source>Anyone can find and join this room.</source>
         <translation>Kiekvienas gali rasti šį kambarį ir prie jo prisijungti.</translation>
     </message>
@@ -14695,7 +14684,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>End-to-end encryption</source>
         <translation>Visiškas šifravimas</translation>
     </message>
@@ -14731,14 +14720,14 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+29"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <location line="+285"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Add to the current Space</source>
         <translation>Pridėti prie dabartinės erdvės</translation>
     </message>
     <message>
-        <location line="-278"/>
+        <location line="-279"/>
         <source>Invite people (optional)</source>
         <translation>Pakviesti žmonių (neprivaloma)</translation>
     </message>
@@ -14829,7 +14818,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Tik jūsų pakviesti žmonės gali matyti šią erdvę.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+46"/>
         <source>Create Space</source>
         <translation>Sukurkite erdvę</translation>
     </message>

@@ -13063,12 +13063,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+91"/>
         <location line="+917"/>
-        <location line="+1120"/>
+        <location line="+1118"/>
         <source>Reply</source>
         <translation>Répondre</translation>
     </message>
     <message>
-        <location line="-2022"/>
+        <location line="-2020"/>
         <source>(original message not loaded)</source>
         <translation>(message d&apos;origine non chargé)</translation>
     </message>
@@ -13169,30 +13169,30 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2280"/>
+        <location line="+2278"/>
         <location line="+1031"/>
         <source>Retry</source>
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-3294"/>
-        <location line="+1217"/>
+        <location line="-3292"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1212"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>Annuler l&apos;envoi de ce message</translation>
     </message>
     <message>
         <location line="+182"/>
-        <location line="+1377"/>
+        <location line="+1375"/>
         <source>Hide image</source>
         <translation>Masquer l&apos;image</translation>
     </message>
     <message>
-        <location line="-1373"/>
+        <location line="-1371"/>
         <source>Hide</source>
         <translation>Masquer</translation>
     </message>
@@ -13227,32 +13227,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Plus</translation>
     </message>
     <message>
-        <location line="+133"/>
-        <source>%1 and 1 other</source>
-        <translation>%1 et 1 autre</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>%1 and %2 others</source>
-        <translation>%1 et %2 autres</translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="+135"/>
         <source>%1 and %2</source>
         <translation>%1 et %2</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>%1, %2 and 1 other</source>
-        <translation>%1, %2 et 1 autre</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>%1, %2 and %3 others</source>
-        <translation>%1, %2 et %3 autres</translation>
-    </message>
-    <message>
-        <location line="+16"/>
+        <location line="+21"/>
         <source>custom emoji</source>
         <translation>émoji personnalisé</translation>
     </message>
@@ -13308,14 +13288,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Message · %1 · %2</translation>
     </message>
     <message>
-        <location line="-993"/>
+        <location line="-991"/>
         <location line="+4"/>
-        <location line="+1105"/>
+        <location line="+1103"/>
         <source>Reply in thread</source>
         <translation>Répondre dans un fil</translation>
     </message>
     <message>
-        <location line="-2034"/>
+        <location line="-2032"/>
         <source>Original message removed</source>
         <translation>Message d&apos;origine supprimé</translation>
     </message>
@@ -13329,8 +13309,16 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <source>You&apos;re no longer in this room. It may have been deleted on the server. Use Leave room to remove it from your list.</source>
         <translation type="unfinished">Vous ne faites plus partie de ce salon. Il a peut-être été supprimé sur le serveur. Utilisez « Quitter le salon » pour le retirer de votre liste.</translation>
     </message>
+    <message numerus="yes">
+        <location line="+484"/>
+        <source>%1 and %n other(s)</source>
+        <translation>
+            <numerusform>%1 et %n autre</numerusform>
+            <numerusform>%1 et %n autres</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+1422"/>
+        <location line="+936"/>
         <source>Open in room</source>
         <translation>Ouvrir dans le salon</translation>
     </message>
@@ -13532,13 +13520,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-3690"/>
-        <location line="+1103"/>
+        <location line="-3688"/>
+        <location line="+1101"/>
         <source>Edit</source>
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-3644"/>
+        <location line="-3642"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -13572,22 +13560,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3612"/>
+        <location line="+3610"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5097"/>
+        <location line="-5095"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4161"/>
+        <location line="+4159"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-4720"/>
+        <location line="-4718"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
@@ -13653,7 +13641,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>(modifié)</translation>
     </message>
     <message>
-        <location line="+1589"/>
+        <location line="+1587"/>
         <source>Add :%1: to my emoji</source>
         <translation>Ajouter :%1: à mes emoji</translation>
     </message>
@@ -13791,12 +13779,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cible de la réponse</translation>
     </message>
     <message>
-        <location line="-1936"/>
+        <location line="-1934"/>
         <source>Show preview</source>
         <translation>Afficher l&apos;aperçu</translation>
     </message>
     <message>
-        <location line="+1794"/>
+        <location line="+1792"/>
         <source>Remove edits?</source>
         <translation>Supprimer les modifications ?</translation>
     </message>
@@ -13908,10 +13896,10 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-5512"/>
+        <location line="-5510"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4159"/>
+        <location line="+4157"/>
         <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
@@ -13924,9 +13912,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-5893"/>
+        <location line="-5891"/>
         <location line="+564"/>
-        <location line="+4262"/>
+        <location line="+4260"/>
         <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -14459,7 +14447,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Saisissez un nom, un identifiant @utilisateur ou une adresse #salon — Lightning se charge du reste.</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+103"/>
         <source>New DM</source>
         <translation>Nouvelle conversation privée</translation>
     </message>
@@ -14474,19 +14462,19 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Nouvel espace</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+22"/>
         <source>Working…</source>
         <translation>Traitement…</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+7"/>
         <location line="+1"/>
-        <location line="+312"/>
+        <location line="+314"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-259"/>
+        <location line="-261"/>
         <source>Create room %1</source>
         <translation>Créer le salon %1</translation>
     </message>
@@ -14516,7 +14504,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Choisir un autre utilisateur</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>You already share a direct message with this user</source>
         <translation>Vous avez déjà une conversation privée avec cet utilisateur</translation>
     </message>
@@ -14613,24 +14601,24 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+8"/>
-        <location line="+368"/>
+        <location line="+370"/>
         <source>Visibility</source>
         <translation>Visibilité</translation>
     </message>
     <message>
-        <location line="-359"/>
-        <location line="+368"/>
+        <location line="-361"/>
+        <location line="+370"/>
         <source>Private</source>
         <translation>Privé</translation>
     </message>
     <message>
-        <location line="-367"/>
-        <location line="+368"/>
+        <location line="-369"/>
+        <location line="+370"/>
         <source>Public</source>
         <translation>Public</translation>
     </message>
     <message>
-        <location line="-359"/>
+        <location line="-361"/>
         <source>Anyone can find and join this room.</source>
         <translation>N&apos;importe qui peut trouver et rejoindre ce salon.</translation>
     </message>
@@ -14641,7 +14629,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+18"/>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>End-to-end encryption</source>
         <translation>Chiffrement de bout en bout</translation>
     </message>
@@ -14677,14 +14665,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+29"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <location line="+285"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Add to the current Space</source>
         <translation>Ajouter à l&apos;espace actuel</translation>
     </message>
     <message>
-        <location line="-278"/>
+        <location line="-279"/>
         <source>Invite people (optional)</source>
         <translation>Inviter des personnes (facultatif)</translation>
     </message>
@@ -14775,7 +14763,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Seules les personnes que vous invitez peuvent voir cet espace.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+46"/>
         <source>Create Space</source>
         <translation>Créer l&apos;espace</translation>
     </message>

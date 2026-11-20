@@ -13038,14 +13038,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-571"/>
         <location line="+57"/>
         <location line="+511"/>
-        <location line="+4159"/>
+        <location line="+4157"/>
         <location line="+1062"/>
         <location line="+93"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-5880"/>
+        <location line="-5878"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -13058,24 +13058,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-564"/>
         <location line="+562"/>
-        <location line="+3612"/>
+        <location line="+3610"/>
         <location line="+405"/>
         <location line="+518"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5097"/>
+        <location line="-5095"/>
         <location line="+53"/>
         <location line="+508"/>
-        <location line="+4161"/>
+        <location line="+4159"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-4721"/>
+        <location line="-4719"/>
         <location line="+564"/>
-        <location line="+4262"/>
+        <location line="+4260"/>
         <location line="+1265"/>
         <location line="+2"/>
         <location line="+29"/>
@@ -13083,7 +13083,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-6121"/>
+        <location line="-6119"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -13189,12 +13189,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+91"/>
         <location line="+917"/>
-        <location line="+1120"/>
+        <location line="+1118"/>
         <source>Reply</source>
         <translation>Antworten</translation>
     </message>
     <message>
-        <location line="-2024"/>
+        <location line="-2022"/>
         <source>Original message removed</source>
         <translation>Ursprüngliche Nachricht entfernt</translation>
     </message>
@@ -13319,30 +13319,30 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+2280"/>
+        <location line="+2278"/>
         <location line="+1031"/>
         <source>Retry</source>
         <translation>Wiederholen</translation>
     </message>
     <message>
-        <location line="-3294"/>
-        <location line="+1217"/>
+        <location line="-3292"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location line="-1212"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>Senden dieser Nachricht abbrechen</translation>
     </message>
     <message>
         <location line="+182"/>
-        <location line="+1377"/>
+        <location line="+1375"/>
         <source>Hide image</source>
         <translation>Bild ausblenden</translation>
     </message>
     <message>
-        <location line="-1373"/>
+        <location line="-1371"/>
         <source>Hide</source>
         <translation>Ausblenden</translation>
     </message>
@@ -13364,23 +13364,23 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+25"/>
         <location line="+4"/>
-        <location line="+1105"/>
+        <location line="+1103"/>
         <source>Reply in thread</source>
         <translation>Im Thread antworten</translation>
     </message>
     <message>
-        <location line="-1088"/>
+        <location line="-1086"/>
         <source>Edit message</source>
         <translation>Nachricht bearbeiten</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1103"/>
+        <location line="+1101"/>
         <source>Edit</source>
         <translation>Bearbeiten</translation>
     </message>
     <message>
-        <location line="-1082"/>
+        <location line="-1080"/>
         <source>More message actions</source>
         <translation>Weitere Nachrichtenaktionen</translation>
     </message>
@@ -13390,32 +13390,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Mehr</translation>
     </message>
     <message>
-        <location line="+133"/>
-        <source>%1 and 1 other</source>
-        <translation>%1 und 1 weitere Person</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>%1 and %2 others</source>
-        <translation>%1 und %2 weitere</translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="+135"/>
         <source>%1 and %2</source>
         <translation>%1 und %2</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>%1, %2 and 1 other</source>
-        <translation>%1, %2 und 1 weitere Person</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>%1, %2 and %3 others</source>
-        <translation>%1, %2 und %3 weitere</translation>
-    </message>
-    <message>
-        <location line="+16"/>
+        <location line="+21"/>
         <source>custom emoji</source>
         <translation>Benutzerdefiniertes Emoji</translation>
     </message>
@@ -13653,12 +13633,20 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2568"/>
+        <location line="-2566"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
+    <message numerus="yes">
+        <location line="+1273"/>
+        <source>%1 and %n other(s)</source>
+        <translation>
+            <numerusform>%1 und %n weitere Person</numerusform>
+            <numerusform>%1 und %n weitere</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+1900"/>
+        <location line="+625"/>
         <source>Delete message?</source>
         <translation>Nachricht löschen?</translation>
     </message>
@@ -14459,7 +14447,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Gib einen Namen, eine @Benutzer-ID oder eine #Raumadresse ein – den Rest erledigt Lightning.</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+103"/>
         <source>New DM</source>
         <translation>Neue DM</translation>
     </message>
@@ -14474,19 +14462,19 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Neuer Space</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+22"/>
         <source>Working…</source>
         <translation>In Arbeit …</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+7"/>
         <location line="+1"/>
-        <location line="+312"/>
+        <location line="+314"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location line="-259"/>
+        <location line="-261"/>
         <source>Create room %1</source>
         <translation>Raum %1 erstellen</translation>
     </message>
@@ -14516,7 +14504,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Anderen Benutzer wählen</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>You already share a direct message with this user</source>
         <translation>Du hast mit diesem Benutzer bereits eine Direktnachricht</translation>
     </message>
@@ -14613,24 +14601,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+368"/>
+        <location line="+370"/>
         <source>Visibility</source>
         <translation>Sichtbarkeit</translation>
     </message>
     <message>
-        <location line="-359"/>
-        <location line="+368"/>
+        <location line="-361"/>
+        <location line="+370"/>
         <source>Private</source>
         <translation>Privat</translation>
     </message>
     <message>
-        <location line="-367"/>
-        <location line="+368"/>
+        <location line="-369"/>
+        <location line="+370"/>
         <source>Public</source>
         <translation>Öffentlich</translation>
     </message>
     <message>
-        <location line="-359"/>
+        <location line="-361"/>
         <source>Anyone can find and join this room.</source>
         <translation>Jeder kann diesen Raum finden und ihm beitreten.</translation>
     </message>
@@ -14641,7 +14629,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>End-to-end encryption</source>
         <translation>Ende-zu-Ende-Verschlüsselung</translation>
     </message>
@@ -14677,14 +14665,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+29"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <location line="+285"/>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Add to the current Space</source>
         <translation>Zum aktuellen Space hinzufügen</translation>
     </message>
     <message>
-        <location line="-278"/>
+        <location line="-279"/>
         <source>Invite people (optional)</source>
         <translation>Personen einladen (optional)</translation>
     </message>
@@ -14775,7 +14763,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nur Personen, die du einlädst, können diesen Space sehen.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+46"/>
         <source>Create Space</source>
         <translation>Space erstellen</translation>
     </message>
