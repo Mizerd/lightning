@@ -1088,6 +1088,42 @@ async fn redactions_of_a_root_and_its_edits_reach_the_thread_list() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn redacting_a_never_edited_root_reaches_the_thread_list() {
+    let server = MatrixMockServer::new().await;
+    let client = threaded_client(&server).await;
+    let mut root = message("$root", "original", 1000);
+    sync(&client, vec![root.clone()], "1").await;
+    root["room_id"] = json!(ROOM);
+    server
+        .mock_room_threads()
+        .ok(vec![Raw::from_json_string(root.to_string()).unwrap()], None)
+        .mount()
+        .await;
+    let (events, task) = open_list(&client).await;
+    listed_preview(&events, "original").await;
+    sync(&client, vec![redaction("$r", "$root", 2000)], "2").await;
+    listed_preview(&events, "[message deleted]").await;
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_root_already_redacted_when_listed_is_shown_deleted() {
+    let server = MatrixMockServer::new().await;
+    let client = threaded_client(&server).await;
+    let mut root = message("$root", "original", 1000);
+    sync(&client, vec![root.clone(), redaction("$r", "$root", 2000)], "1").await;
+    root["room_id"] = json!(ROOM);
+    server
+        .mock_room_threads()
+        .ok(vec![Raw::from_json_string(root.to_string()).unwrap()], None)
+        .mount()
+        .await;
+    let (events, task) = open_list(&client).await;
+    listed_preview(&events, "[message deleted]").await;
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_thread_list_shows_the_latest_edit_of_its_root() {
     use matrix_sdk::deserialized_responses::TimelineEvent;
     let server = MatrixMockServer::new().await;

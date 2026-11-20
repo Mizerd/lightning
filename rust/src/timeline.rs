@@ -4005,6 +4005,7 @@ async fn look_up_root_edits(
     let mut changed = false;
     for (root, found) in found {
         let Some((record, edit)) = found else { continue };
+        changed |= record.redacted;
         tally.roots.insert(root.clone(), record);
         if let Some(edit) = edit {
             changed |= tally.edit_root(&root, edit);
@@ -4071,7 +4072,8 @@ async fn apply_live_root_edits(
                     if let Some(record) = tally.roots.get_mut(&id) {
                         if !record.redacted {
                             record.redacted = true;
-                            changed |= tally.root_edits.remove(&id).is_some();
+                            tally.root_edits.remove(&id);
+                            changed = true;
                         }
                     } else if let Some(root) = tally
                         .root_edits
