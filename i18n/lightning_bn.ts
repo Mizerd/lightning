@@ -192,7 +192,7 @@
         <source> and %n more (see Developer tools)</source>
         <translation>
             <numerusform> এবং আরও %n টি (ডেভেলপার টুলস দেখুন)</numerusform>
-            <numerusform>এবং আরও %n টি (ডেভেলপার টুলস দেখুন)</numerusform>
+            <numerusform> এবং আরও %n টি (ডেভেলপার টুলস দেখুন)</numerusform>
         </translation>
     </message>
     <message>
@@ -235,7 +235,9 @@
         <source>This clears three things on this device: the event cache (messages stored for quick opening), the media cache, and the search index. Rooms reload from the server and media downloads again, and searching your history stops working until Lightning has indexed it again.
 
 It does not touch your encryption keys, your sign-in or any message on the server, and it does not sign you out.</source>
-        <translation>এটি এই ডিভাইসে তিনটি জিনিস মোছে: ইভেন্ট ক্যাশ (দ্রুত খোলার জন্য জমানো বার্তা), মিডিয়া ক্যাশ এবং সার্চ ইনডেক্স। রুমগুলো সার্ভার থেকে আবার লোড হবে, মিডিয়া আবার ডাউনলোড হবে, এবং Lightning আবার ইনডেক্স না করা পর্যন্ত আপনার ইতিহাসে খোঁজা কাজ করবে না।\n\nএটি আপনার এনক্রিপশন কী, সাইন-ইন বা সার্ভারের কোনো বার্তা স্পর্শ করে না, এবং আপনাকে সাইন আউট করে না।</translation>
+        <translation>এটি এই ডিভাইসে তিনটি জিনিস মোছে: ইভেন্ট ক্যাশ (দ্রুত খোলার জন্য জমানো বার্তা), মিডিয়া ক্যাশ এবং সার্চ ইনডেক্স। রুমগুলো সার্ভার থেকে আবার লোড হবে, মিডিয়া আবার ডাউনলোড হবে, এবং Lightning আবার ইনডেক্স না করা পর্যন্ত আপনার ইতিহাসে খোঁজা কাজ করবে না।
+
+এটি আপনার এনক্রিপশন কী, সাইন-ইন বা সার্ভারের কোনো বার্তা স্পর্শ করে না, এবং আপনাকে সাইন আউট করে না।</translation>
     </message>
 </context>
 <context>
@@ -7808,7 +7810,9 @@ Size: %3</source>
         <source>The encryption keys this session published no longer match the ones it holds, so nothing sent to it can be unlocked. Encrypted messages stay on &quot;Waiting for keys&quot;, and in a call others hear you while you hear nothing. Sending is unaffected, so everything looks normal from your side.
 
 Signing out and signing in again is the only fix.</source>
-        <translation>এই সেশন যে এনক্রিপশন কী প্রকাশ করেছে তা আর তার কাছে থাকা কীগুলোর সাথে মেলে না, তাই এর কাছে পাঠানো কিছুই আনলক করা যায় না। এনক্রিপ্টেড বার্তা &quot;কীয়ের অপেক্ষায়&quot; থেকে যায়, আর কলে অন্যরা আপনাকে শোনে কিন্তু আপনি কিছুই শোনেন না। পাঠানো ঠিকঠাক চলে, তাই আপনার দিক থেকে সব স্বাভাবিক দেখায়।\n\nসাইন আউট করে আবার সাইন ইন করাই একমাত্র সমাধান।</translation>
+        <translation>এই সেশন যে এনক্রিপশন কী প্রকাশ করেছে তা আর তার কাছে থাকা কীগুলোর সাথে মেলে না, তাই এর কাছে পাঠানো কিছুই আনলক করা যায় না। এনক্রিপ্টেড বার্তা &quot;কীয়ের অপেক্ষায়&quot; থেকে যায়, আর কলে অন্যরা আপনাকে শোনে কিন্তু আপনি কিছুই শোনেন না। পাঠানো ঠিকঠাক চলে, তাই আপনার দিক থেকে সব স্বাভাবিক দেখায়।
+
+সাইন আউট করে আবার সাইন ইন করাই একমাত্র সমাধান।</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -7830,25 +7834,30 @@ Signing out and signing in again is the only fix.</source>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
 </source>
-        <translation>আবার সাইন ইন করলে নতুন কী সহ একটি নতুন সেশন তৈরি হয়, যা এটি মেরামত করে। এর মূল্য জেনে রাখুন:\n\n</translation>
+        <translation>আবার সাইন ইন করলে নতুন কী সহ একটি নতুন সেশন তৈরি হয়, যা এটি মেরামত করে। এর মূল্য জেনে রাখুন:
+
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• Encrypted messages you have already received come back only if they are in your key backup. Anything not backed up is not recoverable on this computer.
 </source>
-        <translation>• আপনার ইতিমধ্যে পাওয়া এনক্রিপ্টেড বার্তা কেবল তখনই ফিরে আসবে যদি সেগুলো আপনার কী ব্যাকআপে থাকে। ব্যাকআপ করা নেই এমন কিছু এই কম্পিউটারে পুনরুদ্ধার করা যাবে না।\n</translation>
+        <translation>• আপনার ইতিমধ্যে পাওয়া এনক্রিপ্টেড বার্তা কেবল তখনই ফিরে আসবে যদি সেগুলো আপনার কী ব্যাকআপে থাকে। ব্যাকআপ করা নেই এমন কিছু এই কম্পিউটারে পুনরুদ্ধার করা যাবে না।
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• KEY BACKUP IS NOT SET UP on this account, so encrypted messages already on this computer will NOT come back. This is not reversible.
 </source>
-        <translation>• এই অ্যাকাউন্টে কী ব্যাকআপ সেট করা নেই, তাই এই কম্পিউটারে থাকা এনক্রিপ্টেড বার্তা ফিরে আসবে না। এটি ফেরানো যায় না।\n</translation>
+        <translation>• এই অ্যাকাউন্টে কী ব্যাকআপ সেট করা নেই, তাই এই কম্পিউটারে থাকা এনক্রিপ্টেড বার্তা ফিরে আসবে না। এটি ফেরানো যায় না।
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
 • Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
-        <translation>• নতুন সেশন অযাচাইকৃত অবস্থায় শুরু হয়, তাই অন্য ডিভাইস বা আপনার পুনরুদ্ধার কী দিয়ে এটি যাচাই করতে হবে।\n• এই কম্পিউটারে এই অ্যাকাউন্টের Lightning-এর স্থানীয় ডেটা মুছে যায়। আপনার বার্তা সার্ভারে থেকে যায়।</translation>
+        <translation>• নতুন সেশন অযাচাইকৃত অবস্থায় শুরু হয়, তাই অন্য ডিভাইস বা আপনার পুনরুদ্ধার কী দিয়ে এটি যাচাই করতে হবে।
+• এই কম্পিউটারে এই অ্যাকাউন্টের Lightning-এর স্থানীয় ডেটা মুছে যায়। আপনার বার্তা সার্ভারে থেকে যায়।</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -10965,7 +10974,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="-135"/>
         <source>Or continue with</source>
         <extracomment>Separates the password form from the sign-in-with-your-browser buttons below it. The longer form introduces a grid of provider names.</extracomment>
-        <translation>অথবা চালিয়ে যান এভাবে </translation>
+        <translation>অথবা চালিয়ে যান এভাবে</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -11367,12 +11376,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 অপঠিত, %2 ●)</translation>
+        <translation>(%1 অপঠিত, %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 অপঠিত)</translation>
+        <translation>(%1 অপঠিত) </translation>
     </message>
     <message>
         <location line="+3"/>

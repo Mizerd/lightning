@@ -191,8 +191,8 @@
         <location line="+3"/>
         <source> and %n more (see Developer tools)</source>
         <translation>
-            <numerusform>y %n más (consulta Herramientas de desarrollo)</numerusform>
-            <numerusform>y %n más (consulta Herramientas de desarrollo)</numerusform>
+            <numerusform> y %n más (consulta Herramientas de desarrollo)</numerusform>
+            <numerusform> y %n más (consulta Herramientas de desarrollo)</numerusform>
         </translation>
     </message>
     <message>
@@ -11376,12 +11376,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 no leído, %2 ●)</translation>
+        <translation>(%1 no leído, %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 no leído)</translation>
+        <translation>(%1 no leído) </translation>
     </message>
     <message>
         <location line="+3"/>
@@ -17353,7 +17353,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+88"/>
         <source> · you stayed: rooms inside it are not fully closed</source>
-        <translation>· te quedaste: las salas que contiene no se cierran del todo</translation>
+        <translation> · te quedaste: las salas que contiene no se cierran del todo</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -17523,7 +17523,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+12"/>
         <source> · its history stays readable by anyone</source>
-        <translation>· su historial sigue siendo legible para cualquiera</translation>
+        <translation> · su historial sigue siendo legible para cualquiera</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -17553,12 +17553,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+3"/>
         <source> · %1 stay</source>
-        <translation>· %1 se quedan</translation>
+        <translation> · %1 se quedan</translation>
     </message>
     <message>
         <location line="+1"/>
         <source> · %1 stay: %2</source>
-        <translation>· %1 se quedan: %2</translation>
+        <translation> · %1 se quedan: %2</translation>
     </message>
     <message>
         <location line="+8"/>

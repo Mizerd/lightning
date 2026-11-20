@@ -191,8 +191,8 @@
         <location line="+3"/>
         <source> and %n more (see Developer tools)</source>
         <translation>
-            <numerusform>और %n अन्य (डेवलपर टूल देखें)</numerusform>
-            <numerusform>और %n अन्य (डेवलपर टूल देखें)</numerusform>
+            <numerusform> और %n अन्य (डेवलपर टूल देखें)</numerusform>
+            <numerusform> और %n अन्य (डेवलपर टूल देखें)</numerusform>
         </translation>
     </message>
     <message>
@@ -11376,12 +11376,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 अपठित, %2 ●)</translation>
+        <translation>(%1 अपठित, %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 अपठित)</translation>
+        <translation>(%1 अपठित) </translation>
     </message>
     <message>
         <location line="+3"/>
@@ -24097,12 +24097,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+24"/>
         <source>Per-room notification modes (set from Room information) are saved to your account&apos;s notification settings (server push rules). </source>
-        <translation>हर रूम के लिए सूचना मोड (रूम जानकारी से सेट किए गए) आपके खाते की सूचना सेटिंग्स (सर्वर पुश नियम) में सहेजे जाते हैं।</translation>
+        <translation>हर रूम के लिए सूचना मोड (रूम जानकारी से सेट किए गए) आपके खाते की सूचना सेटिंग्स (सर्वर पुश नियम) में सहेजे जाते हैं। </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Per-room notification modes (set from Room information) apply to this device only — they are not server push rules. </source>
-        <translation>हर रूम के लिए सूचना मोड (रूम जानकारी से सेट किए गए) सिर्फ़ इसी डिवाइस पर लागू होते हैं — ये सर्वर पुश नियम नहीं हैं।</translation>
+        <translation>हर रूम के लिए सूचना मोड (रूम जानकारी से सेट किए गए) सिर्फ़ इसी डिवाइस पर लागू होते हैं — ये सर्वर पुश नियम नहीं हैं। </translation>
     </message>
     <message>
         <location line="+575"/>

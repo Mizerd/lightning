@@ -239,7 +239,9 @@
         <source>This clears three things on this device: the event cache (messages stored for quick opening), the media cache, and the search index. Rooms reload from the server and media downloads again, and searching your history stops working until Lightning has indexed it again.
 
 It does not touch your encryption keys, your sign-in or any message on the server, and it does not sign you out.</source>
-        <translation>سيمسح هذا ثلاثة أشياء على هذا الجهاز: ذاكرة الأحداث المؤقتة (الرسائل المخزّنة للفتح السريع)، وذاكرة الوسائط المؤقتة، وفهرس البحث. ستُعاد الغرف من الخادوم وتُنزَّل الوسائط من جديد، ويتوقف البحث في سجلّك إلى أن يفهرسه Lightning مرة أخرى.\n\nلا يمسّ هذا مفاتيح التعمية ولا تسجيل دخولك ولا أي رسالة على الخادوم، ولا يُسجّل خروجك.</translation>
+        <translation>سيمسح هذا ثلاثة أشياء على هذا الجهاز: ذاكرة الأحداث المؤقتة (الرسائل المخزّنة للفتح السريع)، وذاكرة الوسائط المؤقتة، وفهرس البحث. ستُعاد الغرف من الخادوم وتُنزَّل الوسائط من جديد، ويتوقف البحث في سجلّك إلى أن يفهرسه Lightning مرة أخرى.
+
+لا يمسّ هذا مفاتيح التعمية ولا تسجيل دخولك ولا أي رسالة على الخادوم، ولا يُسجّل خروجك.</translation>
     </message>
 </context>
 <context>
@@ -7936,7 +7938,9 @@ Size: %3</source>
         <source>The encryption keys this session published no longer match the ones it holds, so nothing sent to it can be unlocked. Encrypted messages stay on &quot;Waiting for keys&quot;, and in a call others hear you while you hear nothing. Sending is unaffected, so everything looks normal from your side.
 
 Signing out and signing in again is the only fix.</source>
-        <translation>لم تعد مفاتيح التعمية التي نشرتها هذه الجلسة مطابقة لتلك التي تحملها، فلا يمكن فتح أي شيء يُرسل إليها. تبقى الرسائل المعمّاة على «بانتظار المفاتيح»، وفي المكالمة يسمعك الآخرون بينما لا تسمع شيئًا. الإرسال غير متأثر، فيبدو كل شيء طبيعيًا من جانبك.\n\nتسجيل الخروج ثم الدخول مجددًا هو الحل الوحيد.</translation>
+        <translation>لم تعد مفاتيح التعمية التي نشرتها هذه الجلسة مطابقة لتلك التي تحملها، فلا يمكن فتح أي شيء يُرسل إليها. تبقى الرسائل المعمّاة على «بانتظار المفاتيح»، وفي المكالمة يسمعك الآخرون بينما لا تسمع شيئًا. الإرسال غير متأثر، فيبدو كل شيء طبيعيًا من جانبك.
+
+تسجيل الخروج ثم الدخول مجددًا هو الحل الوحيد.</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -7958,25 +7962,30 @@ Signing out and signing in again is the only fix.</source>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
 </source>
-        <translation>تسجيل الدخول مجددًا ينشئ جلسة جديدة بمفاتيح جديدة، وهذا ما يصلح المشكلة. انتبه إلى الثمن:\n\n</translation>
+        <translation>تسجيل الدخول مجددًا ينشئ جلسة جديدة بمفاتيح جديدة، وهذا ما يصلح المشكلة. انتبه إلى الثمن:
+
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• Encrypted messages you have already received come back only if they are in your key backup. Anything not backed up is not recoverable on this computer.
 </source>
-        <translation>• لا تعود الرسائل المعمّاة التي تلقيتها بالفعل إلا إذا كانت في نسخة مفاتيحك الاحتياطية. وما لم يُحفظ احتياطيًا لا يمكن استرجاعه على هذا الحاسوب.\n</translation>
+        <translation>• لا تعود الرسائل المعمّاة التي تلقيتها بالفعل إلا إذا كانت في نسخة مفاتيحك الاحتياطية. وما لم يُحفظ احتياطيًا لا يمكن استرجاعه على هذا الحاسوب.
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• KEY BACKUP IS NOT SET UP on this account, so encrypted messages already on this computer will NOT come back. This is not reversible.
 </source>
-        <translation>• النسخ الاحتياطي للمفاتيح غير مُعدّ على هذا الحساب، لذا لن تعود الرسائل المعمّاة الموجودة على هذا الحاسوب. ولا يمكن التراجع عن ذلك.\n</translation>
+        <translation>• النسخ الاحتياطي للمفاتيح غير مُعدّ على هذا الحساب، لذا لن تعود الرسائل المعمّاة الموجودة على هذا الحاسوب. ولا يمكن التراجع عن ذلك.
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
 • Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
-        <translation>• تبدأ الجلسة الجديدة غير موثّقة، فعليك توثيقها من جهاز آخر أو بمفتاح الاستعادة.\n• تُزال بيانات Lightning المحلية لهذا الحساب على هذا الحاسوب. أما رسائلك فتبقى على الخادوم.</translation>
+        <translation>• تبدأ الجلسة الجديدة غير موثّقة، فعليك توثيقها من جهاز آخر أو بمفتاح الاستعادة.
+• تُزال بيانات Lightning المحلية لهذا الحساب على هذا الحاسوب. أما رسائلك فتبقى على الخادوم.</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -11539,12 +11548,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 غير مقروء، %2 ●)</translation>
+        <translation>(%1 غير مقروء، %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 غير مقروء)</translation>
+        <translation>(%1 غير مقروء) </translation>
     </message>
     <message>
         <location line="+3"/>

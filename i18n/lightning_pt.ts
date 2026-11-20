@@ -11376,12 +11376,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 não lido, %2 ●)</translation>
+        <translation>(%1 não lido, %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 não lido)</translation>
+        <translation>(%1 não lido) </translation>
     </message>
     <message>
         <location line="+3"/>

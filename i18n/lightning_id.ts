@@ -191,7 +191,7 @@
         <location line="+3"/>
         <source> and %n more (see Developer tools)</source>
         <translation>
-            <numerusform>  dan %n lainnya (lihat Alat pengembang)</numerusform>
+            <numerusform> dan %n lainnya (lihat Alat pengembang)</numerusform>
         </translation>
     </message>
     <message>
@@ -11333,12 +11333,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 belum dibaca, %2 ●)</translation>
+        <translation>(%1 belum dibaca, %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 belum dibaca)</translation>
+        <translation>(%1 belum dibaca) </translation>
     </message>
     <message>
         <location line="+3"/>

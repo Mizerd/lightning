@@ -11376,12 +11376,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 non lu, %2 ●)</translation>
+        <translation>(%1 non lu, %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 non lu)</translation>
+        <translation>(%1 non lu) </translation>
     </message>
     <message>
         <location line="+3"/>

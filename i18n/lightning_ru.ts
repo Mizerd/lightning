@@ -11419,12 +11419,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 непрочитано, %2 ●)</translation>
+        <translation>(%1 непрочитано, %2 ●) </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 непрочитано)</translation>
+        <translation>(%1 непрочитано) </translation>
     </message>
     <message>
         <location line="+3"/>

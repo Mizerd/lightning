@@ -191,7 +191,7 @@
         <location line="+3"/>
         <source> and %n more (see Developer tools)</source>
         <translation>
-            <numerusform>，另有 %n 项（参见开发者工具）</numerusform>
+            <numerusform> 另有 %n 项（参见开发者工具）</numerusform>
         </translation>
     </message>
     <message>
@@ -11333,12 +11333,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/Main.qml" line="+49"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>（%1 条未读，%2 ●）</translation>
+        <translation>（%1 条未读，%2 ●） </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>（%1 条未读）</translation>
+        <translation>（%1 条未读） </translation>
     </message>
     <message>
         <location line="+3"/>
