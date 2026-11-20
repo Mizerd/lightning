@@ -7231,6 +7231,10 @@ void RustSdkMatrixClient::flushHighlightGaps()
                        << matrix::e2ee::redactId(gap.first)
                        << "count=" << gap.second;
         Q_EMIT roomHighlightsUnnotified(gap.first, gap.second);
+        if (m_rustHandle) {
+            const QByteArray room = gap.first.toUtf8();
+            takeRustString(mx_rust_fetch_unread_events(m_rustHandle, room.constData()));
+        }
     }
     const qint64 due = m_highlightGaps.nextDueMs();
     if (due > 0)

@@ -7696,6 +7696,74 @@ pub unsafe extern "C" fn mx_rust_request_activity_seed_page(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn mx_rust_fetch_unread_events(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = OwnedRoomId::try_from(unsafe { cstr_arg(room_id) }?)
+            .map_err(|_| "invalid_room_id".to_owned())?;
+        fetch_unread_events(bridge, room_id).map(|_| String::new())
+    })
+}
+
+/// Messages after `stop_at` (or after our own newest message), oldest first.
+fn unread_tail(
+    newest_first: Vec<matrix_sdk::deserialized_responses::TimelineEvent>,
+    stop_at: Option<&EventId>,
+    own: &UserId,
+) -> Vec<matrix_sdk::deserialized_responses::TimelineEvent> {
+    let mut out: Vec<_> = newest_first
+        .into_iter()
+        .take_while(|event| {
+            event.event_id().as_deref() != stop_at
+                && event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
+                    != Some(own)
+        })
+        .collect();
+    out.reverse();
+    out
+}
+
+// The room list syncs one event per room, so messages that arrived together
+// with a newer one never reach the sync handlers; fetch them so Activity sees them.
+fn fetch_unread_events(bridge: &RustClient, room_id: OwnedRoomId) -> Result<(), String> {
+    use matrix_sdk::room::MessagesOptions;
+    let client = rooms::require_client(bridge)?;
+    let room = client.get_room(&room_id).ok_or_else(|| "room_not_found".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let mut options = MessagesOptions::backward();
+        options.limit = 30u32.into();
+        options.filter = previewbackfill::conversation_filter();
+        let Ok(Ok(messages)) =
+            tokio::time::timeout(std::time::Duration::from_secs(20), room.messages(options)).await
+        else {
+            return;
+        };
+        let receipt = room.read_receipts().latest_active.map(|r| r.event_id);
+        let verdicts = push_verdict::SyncVerdicts::default();
+        for held in unread_tail(messages.chunk, receipt.as_deref(), room.own_user_id()) {
+            let Some(event) = held_event_json(&room, &held, true, &verdicts).await else {
+                continue;
+            };
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            enqueue(&events, json!({
+                "type": "timeline_event",
+                "room_id": room.room_id().to_string(),
+                "event": event,
+            }));
+        }
+    });
+    Ok(())
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn mx_rust_request_edit_history(
     ptr: *mut c_void,
     room_id: *const c_char,
@@ -11277,12 +11345,22 @@ async fn decrypted_event_json(
     backlog: bool,
     verdicts: &push_verdict::SyncVerdicts,
 ) -> Option<serde_json::Value> {
-    use matrix_sdk::ruma::events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
-    };
     let (cache, _drop_handles) = room.event_cache().await.ok()?;
     let cached = cache.find_event(event_id).await.ok()??;
     cached.encryption_info()?;
+    held_event_json(room, &cached, backlog, verdicts).await
+}
+
+async fn held_event_json(
+    room: &Room,
+    cached: &matrix_sdk::deserialized_responses::TimelineEvent,
+    backlog: bool,
+    verdicts: &push_verdict::SyncVerdicts,
+) -> Option<serde_json::Value> {
+    use matrix_sdk::ruma::events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+    };
+    let encrypted = cached.encryption_info().is_some();
     let raw = cached.raw().clone();
     let mut event = match raw.deserialize().ok()? {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
@@ -11293,7 +11371,7 @@ async fn decrypted_event_json(
             &ev.sender,
             u64::from(ev.origin_server_ts.get()),
             room.own_user_id(),
-            true,
+            encrypted,
         )?,
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(
             SyncMessageLikeEvent::Original(ev),
@@ -11302,7 +11380,7 @@ async fn decrypted_event_json(
             &ev.event_id,
             &ev.sender,
             u64::from(ev.origin_server_ts.get()),
-            true,
+            encrypted,
         ),
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::PollStart(
             SyncMessageLikeEvent::Original(ev),
@@ -11311,7 +11389,7 @@ async fn decrypted_event_json(
             &ev.event_id,
             &ev.sender,
             u64::from(ev.origin_server_ts.get()),
-            true,
+            encrypted,
         ),
         _ => return None,
     };
@@ -13929,6 +14007,60 @@ fn unread_in_threads_only(
     (true, server_highlight_count > 0)
 }
 
+// A sync limited to the newest event leaves the client's counts at zero
+// whatever it skipped, so only a thread backlog we hold can explain the server's.
+fn thread_only_held(
+    claim: (bool, bool),
+    held_thread_unread: u64,
+    server_notification_count: u64,
+    server_highlight_count: u64,
+) -> (bool, bool) {
+    if claim.0 && held_thread_unread >= server_notification_count.max(server_highlight_count) {
+        claim
+    } else {
+        (false, false)
+    }
+}
+
+async fn held_unread_thread_messages(room: &Room) -> u64 {
+    let Some(receipt) = room.read_receipts().latest_active.map(|r| r.event_id) else {
+        return 0;
+    };
+    let Ok((cache, _drop_handles)) = room.event_cache().await else {
+        return 0;
+    };
+    let own = room.own_user_id().to_owned();
+    let mut held = 0u64;
+    let mut walked = 0usize;
+    let reached = cache
+        .rfind_map_event_in_memory_by(|event| {
+            walked += 1;
+            if event.event_id().as_deref() == Some(&*receipt) {
+                return Some(true);
+            }
+            if walked > 500 {
+                return Some(false);
+            }
+            let raw = event.raw();
+            let notifying = raw.get_field::<String>("type").ok().flatten().is_some_and(|t| {
+                matches!(t.as_str(), "m.room.message" | "m.room.encrypted" | "m.sticker"
+                    | "m.poll.start" | "org.matrix.msc3381.poll.start")
+            });
+            if notifying
+                && raw.get_field::<OwnedUserId>("sender").ok().flatten().as_deref() != Some(&*own)
+                && matrix_sdk::serde_helpers::extract_thread_root(raw).is_some()
+            {
+                held += 1;
+            }
+            None
+        })
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    if reached { held } else { 0 }
+}
+
 pub(crate) fn redact_matrix_id(id: &str) -> String {
     use sha2::{Digest, Sha256};
     if id.is_empty() {
@@ -13974,7 +14106,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
             highlight_count,
         );
     }
-    let (unread_threads_only, mention_in_threads) = unread_in_threads_only(
+    let mut thread_claim = unread_in_threads_only(
         room.encryption_state().is_encrypted(),
         room.read_receipts().latest_active.is_some(),
         room.num_unread_notifications(),
@@ -13982,6 +14114,15 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         notifications.notification_count,
         notifications.highlight_count,
     );
+    if thread_claim.0 {
+        thread_claim = thread_only_held(
+            thread_claim,
+            held_unread_thread_messages(room).await,
+            notifications.notification_count,
+            notifications.highlight_count,
+        );
+    }
+    let (unread_threads_only, mention_in_threads) = thread_claim;
     let (inviter_user_id, inviter_display_name) = if membership == "invited" {
         match room.invite_details().await {
             Ok(invite) => (
@@ -15908,6 +16049,15 @@ mod tests {
     }
 
     #[test]
+    fn a_skipped_main_mention_is_not_called_a_thread_mention() {
+        let claim = super::unread_in_threads_only(false, true, 0, 0, 2, 2);
+        assert_eq!(super::thread_only_held(claim, 0, 2, 2), (false, false));
+        assert_eq!(super::thread_only_held(claim, 1, 2, 2), (false, false));
+        assert_eq!(super::thread_only_held(claim, 2, 2, 2), (true, true));
+        assert_eq!(super::thread_only_held((false, false), 9, 2, 2), (false, false));
+    }
+
+    #[test]
     fn a_synced_spoiler_does_not_reach_the_ui_in_its_body() {
         use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
         let content = RoomMessageEventContent::text_html(
@@ -15935,6 +16085,33 @@ mod tests {
             r#"{"content":{"msgtype":"m.image","body":"caption","m.spoiler":{}}}"#,
         );
         assert_eq!(image["body"], "");
+    }
+
+    #[test]
+    fn the_unread_tail_stops_at_the_receipt_or_our_own_message() {
+        use matrix_sdk::deserialized_responses::TimelineEvent;
+        use matrix_sdk::ruma::serde::Raw;
+        let ev = |id: &str, sender: &str| {
+            TimelineEvent::from_plaintext(
+                Raw::from_json_string(
+                    serde_json::json!({
+                        "type": "m.room.message", "event_id": id, "sender": sender,
+                        "origin_server_ts": 1, "content": {"msgtype": "m.text", "body": "x"},
+                    })
+                    .to_string(),
+                )
+                .unwrap(),
+            )
+        };
+        let own = matrix_sdk::ruma::user_id!("@me:x");
+        let ids = |events: Vec<TimelineEvent>| -> Vec<String> {
+            events.iter().map(|e| e.event_id().unwrap().to_string()).collect()
+        };
+        let newest_first =
+            || vec![ev("$4", "@b:x"), ev("$3", "@b:x"), ev("$2", "@me:x"), ev("$1", "@b:x")];
+        assert_eq!(ids(super::unread_tail(newest_first(), None, own)), ["$3", "$4"]);
+        let receipt = matrix_sdk::ruma::event_id!("$3");
+        assert_eq!(ids(super::unread_tail(newest_first(), Some(receipt), own)), ["$4"]);
     }
 
     #[test]
