@@ -106,11 +106,41 @@ Rectangle {
     function setRootCollapsed(collapsed) {
         app.settings.threadRootCollapsed = collapsed
     }
+    readonly property bool rootIsPlaceholder: rootData.redacted === true
+                                              || rootData.undecryptable === true
     readonly property string rootBodyText: rootData.redacted === true
         ? qsTr("Message deleted")
         : rootData.undecryptable === true
           ? qsTr("Unable to decrypt this message")
           : (rootData.body || "")
+    // Sanitised by the model, as in the timeline; a plain body is escaped and
+    // linkified the same way MessageDelegate does it.
+    readonly property string rootBodyHtml: rootIsPlaceholder ? ""
+        : (rootData.formattedBody || "") !== "" ? rootData.formattedBody
+        : app.linkPreviews.linkifiedBody(rootData.body || "")
+    function openRootLink(link) {
+        if (link === "spoiler:toggle") {
+            app.thread.model.toggleSpoilers(rootData.eventId || "")
+            return
+        }
+        var linkUser = link.indexOf("mention:") === 0
+            ? link.substring(8) : app.userIdFromMatrixLink(link)
+        if (linkUser.length > 0) {
+            threadSenderProfile.openFor({ userId: linkUser, displayName: "",
+                                          avatarUrl: "" }, rootBody)
+            return
+        }
+        var lower = link.toLowerCase()
+        var isMatrixLink = link.indexOf("matrix:") === 0
+            || link.indexOf("matrix.to/#/") !== -1
+        var isUserLink = link.indexOf("#/@") !== -1
+            || lower.indexOf("#/%40") !== -1 || link.indexOf("matrix:u/") === 0
+        if (isMatrixLink && !isUserLink) {
+            app.openMatrixLink(link)
+            return
+        }
+        app.media.openWebUrl(link)
+    }
 
     readonly property string panelRoomId:
         app.thread.active ? app.thread.roomId : app.currentRoomId
@@ -816,7 +846,12 @@ Rectangle {
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
-                                text: panel.rootBodyText.split("\n")[0]
+                                // The rendered root's text, not its Markdown
+                                // source; reading rootBody.text re-runs this
+                                // when the document changes.
+                                text: (rootBody.text, rootBody.getText(
+                                           0, rootBody.length)
+                                       .split(/[\n\u2028\u2029]/)[0])
                                 font.italic: panel.rootData.redacted === true
                                              || panel.rootData.undecryptable === true
                                 color: AppTheme.textMuted
@@ -889,9 +924,11 @@ Rectangle {
                         selectByMouse: true
                         selectionColor: AppTheme.textSelection
                         selectedTextColor: AppTheme.text
-                        textFormat: Text.PlainText
+                        textFormat: panel.rootIsPlaceholder ? Text.PlainText
+                                                            : Text.RichText
                         width: rootBodyFlick.width
-                        text: panel.rootBodyText
+                        text: panel.rootIsPlaceholder ? panel.rootBodyText
+                                                      : panel.rootBodyHtml
                         font.italic: panel.rootData.redacted === true
                                      || panel.rootData.undecryptable === true
                         color: (panel.rootData.redacted === true
@@ -899,7 +936,13 @@ Rectangle {
                                ? AppTheme.textMuted : AppTheme.text
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                         wrapMode: Text.Wrap
-                        Accessible.name: text
+                        Accessible.name: panel.rootBodyText
+                        // Qt shows the pointing hand only while linkHovered
+                        // is connected.
+                        onLinkHovered: function(link) {}
+                        onLinkActivated: function(link) {
+                            panel.openRootLink(link)
+                        }
                     }
                     ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 }

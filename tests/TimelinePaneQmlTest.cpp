@@ -4494,6 +4494,78 @@ false);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    void threadRootRendersItsFormattedBody()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(roomId, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+
+        const QString threadId = MatrixClient::threadTimelineId(roomId, rootId);
+        const auto thread = mock->timeline(threadId);
+        int rootIndex = -1;
+        for (int i = 0; i < thread.size(); ++i) {
+            if (thread.at(i).eventId == rootId)
+                rootIndex = i;
+        }
+        QVERIFY2(rootIndex >= 0, "fixture assumption: the root is a thread row");
+        TimelineEvent formatted = thread.at(rootIndex);
+        formatted.body = QStringLiteral("**bold** and `code`");
+        formatted.formattedBody = QStringLiteral(
+            "<strong>bold</strong> and <code>code</code>"
+            "<script>alert(1)</script>");
+        mock->changeEventAtForTest(threadId, rootIndex, formatted);
+
+        auto *body = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootBody"));
+        QVERIFY(body != nullptr);
+        QTRY_COMPARE_WITH_TIMEOUT(body->property("textFormat").toInt(),
+                                  int(Qt::RichText), kSignalTimeoutMs);
+        QString plain;
+        QVERIFY(QMetaObject::invokeMethod(
+            body, "getText", Q_RETURN_ARG(QString, plain), Q_ARG(int, 0),
+            Q_ARG(int, body->property("length").toInt())));
+        QCOMPARE(plain.trimmed(), QStringLiteral("bold and code"));
+        QVERIFY(!body->property("text").toString().contains(
+            QStringLiteral("alert")));
+
+        auto *collapsed = root->findChild<QObject *>(
+            QStringLiteral("threadRootCollapsedBody"));
+        QVERIFY(collapsed != nullptr);
+        QCOMPARE(collapsed->property("text").toString().trimmed(),
+                 QStringLiteral("bold and code"));
+
+        TimelineEvent redacted = formatted;
+        redacted.redacted = true;
+        mock->changeEventAtForTest(threadId, rootIndex, redacted);
+        QTRY_COMPARE_WITH_TIMEOUT(body->property("textFormat").toInt(),
+                                  int(Qt::PlainText), kSignalTimeoutMs);
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
     void threadComposerSendsThreadReply()
     {
         AppController controller(AppController::MockBackend);

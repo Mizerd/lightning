@@ -1095,6 +1095,8 @@ QVariantMap ThreadController::rootInfo() const
         info.insert(QStringLiteral("senderAvatarMxc"),
                     data(TimelineModel::SenderAvatarMxcRole));
         info.insert(QStringLiteral("body"), data(TimelineModel::BodyRole));
+        info.insert(QStringLiteral("formattedBody"),
+                    data(TimelineModel::FormattedBodyRole));
         info.insert(QStringLiteral("timestamp"),
                     data(TimelineModel::TimestampRole));
         info.insert(QStringLiteral("redacted"),
@@ -1131,6 +1133,9 @@ QVariantMap ThreadController::rootInfo() const
             info.insert(QStringLiteral("senderAvatarMxc"),
                         event.senderAvatarUrl);
             info.insert(QStringLiteral("body"), event.body);
+            if (!event.redacted)
+                info.insert(QStringLiteral("formattedBody"),
+                            m_model.sanitizeHtml(event.formattedBody));
             info.insert(QStringLiteral("timestamp"), event.timestamp);
             info.insert(QStringLiteral("redacted"), event.redacted);
             info.insert(QStringLiteral("undecryptable"), event.undecryptable);
