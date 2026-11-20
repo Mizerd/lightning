@@ -2681,7 +2681,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>Más información en Ajustes → Laboratorio…</translation>
+        <translation>Más información en Ajustes → Labs…</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -25408,12 +25408,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+198"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation>%1 · un experimento, activado en Laboratorio o desde el menú del micrófono de la llamada</translation>
+        <translation>%1 · un experimento, activado en Labs o desde el menú del micrófono de la llamada</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation>Cambia la supresión de ruido en Laboratorio</translation>
+        <translation>Cambia la supresión de ruido en Labs</translation>
     </message>
     <message>
         <location line="+68"/>

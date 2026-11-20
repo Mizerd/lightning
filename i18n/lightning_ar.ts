@@ -2765,7 +2765,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>المزيد عن هذه في الإعدادات ← المختبر…</translation>
+        <translation>المزيد عن هذه في الإعدادات ← Labs…</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -25796,12 +25796,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+198"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation>%1 · تجربة، تُضبط في المختبر أو من قائمة ميكروفون المكالمة</translation>
+        <translation>%1 · تجربة، تُضبط في Labs أو من قائمة ميكروفون المكالمة</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation>غيّر كتم الضوضاء في المختبر</translation>
+        <translation>غيّر كتم الضوضاء في Labs</translation>
     </message>
     <message>
         <location line="+68"/>

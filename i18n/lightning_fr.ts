@@ -2681,7 +2681,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>Plus d&apos;informations dans Paramètres → Labo…</translation>
+        <translation>Plus d&apos;informations dans Paramètres → Labs…</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -25408,7 +25408,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+198"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation>%1 · une expérience, réglée dans Labo ou depuis le menu du microphone de l&apos;appel</translation>
+        <translation>%1 · une expérience, réglée dans Labs ou depuis le menu du microphone de l&apos;appel</translation>
     </message>
     <message>
         <location line="+15"/>

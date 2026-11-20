@@ -2681,7 +2681,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>इनके बारे में और जानें: सेटिंग्स → Labs…</translation>
+        <translation>इनके बारे में और जानें: सेटिंग्स → लैब्स…</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -25408,12 +25408,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+198"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation>%1 · एक प्रयोग, Labs में या कॉल के माइक्रोफ़ोन मेनू से सेट होता है</translation>
+        <translation>%1 · एक प्रयोग, लैब्स में या कॉल के माइक्रोफ़ोन मेनू से सेट होता है</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation>Labs में शोर दमन बदलें</translation>
+        <translation>लैब्स में शोर दमन बदलें</translation>
     </message>
     <message>
         <location line="+68"/>

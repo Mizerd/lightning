@@ -2702,7 +2702,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>Подробнее об этом в Настройки → Лаборатория…</translation>
+        <translation>Подробнее об этом в Настройки → Labs…</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -25505,12 +25505,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+198"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation>%1 · эксперимент, настраивается в «Лаборатории» или в меню микрофона звонка</translation>
+        <translation>%1 · эксперимент, настраивается в разделе Labs или в меню микрофона звонка</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation>Изменить подавление шума в «Лаборатории»</translation>
+        <translation>Изменить подавление шума в разделе Labs</translation>
     </message>
     <message>
         <location line="+68"/>

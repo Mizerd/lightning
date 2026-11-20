@@ -2702,7 +2702,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>Daugiau apie tai – Nustatymai → Laboratorija…</translation>
+        <translation>Daugiau apie tai – Nustatymai → Laboratorijos…</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -24736,12 +24736,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+198"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation>%1 · eksperimentas, nustatomas skiltyje Laboratorija arba skambučio mikrofono meniu</translation>
+        <translation>%1 · eksperimentas, nustatomas skiltyje Laboratorijos arba skambučio mikrofono meniu</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation>Keisti triukšmo slopinimą skiltyje Laboratorija</translation>
+        <translation>Keisti triukšmo slopinimą skiltyje Laboratorijos</translation>
     </message>
     <message>
         <location line="+186"/>

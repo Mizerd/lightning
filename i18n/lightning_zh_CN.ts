@@ -2660,7 +2660,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>关于这些功能的详情，请参见“设置 → 实验性功能”…</translation>
+        <translation>关于这些功能的详情，请参见“设置 → 实验室”…</translation>
     </message>
     <message>
         <location line="+9"/>

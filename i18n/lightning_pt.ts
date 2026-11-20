@@ -2681,7 +2681,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation>Mais sobre estas em Definições → Laboratório…</translation>
+        <translation>Mais sobre estas em Definições → Labs…</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -25408,12 +25408,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+198"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation>%1 · uma experiência, definida em Laboratório ou no menu do microfone da chamada</translation>
+        <translation>%1 · uma experiência, definida em Labs ou no menu do microfone da chamada</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation>Altere a supressão de ruído em Laboratório</translation>
+        <translation>Altere a supressão de ruído em Labs</translation>
     </message>
     <message>
         <location line="+68"/>
