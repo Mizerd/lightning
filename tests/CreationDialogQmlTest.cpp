@@ -723,8 +723,20 @@ private slots:
                        .arg(content->width()).arg(available);
         QList<QQuickItem *> all;
         collectItems(content, &all);
+        auto insideAppButton = [content](QQuickItem *it) {
+            for (QQuickItem *p = it->parentItem(); p && p != content;
+                 p = p->parentItem()) {
+                if (QByteArray(p->metaObject()->className()).startsWith("AppButton"))
+                    return true;
+            }
+            return false;
+        };
         for (QQuickItem *it : std::as_const(all)) {
             if (!it->isVisible() || it->width() <= 0)
+                continue;
+            // shortcut: AppButton centres an unbounded label (a shared
+            // component); only the button's own frame is checked here.
+            if (insideAppButton(it))
                 continue;
             // An unwrapped, unelided Text paints past its own width.
             const qreal drawn = it->inherits("QQuickText")

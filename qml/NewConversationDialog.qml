@@ -167,6 +167,8 @@ Dialog {
                 color: AppTheme.stormTextMuted
             }
             Label {
+                Layout.fillWidth: true
+                elide: Text.ElideRight
                 text: chip.text
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
@@ -369,32 +371,31 @@ Dialog {
             objectName: "creationFooter"
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            // A Flow, not more RowLayout cells: a layout never shrinks below
-            // its children's widths, and long translations then pushed the
-            // whole content column past the dialog's frame.
-            Flow {
-                objectName: "creationModeChips"
+            // Fixed-width cells would hold the row at its full width, and a
+            // RowLayout wider than the dialog drags the whole column past it.
+            ConversationChip {
                 Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                spacing: AppTheme.spacing8
-                ConversationChip {
-                    objectName: "newConversationDmChip"
-                    text: qsTr("New DM")
-                    iconName: "chat_bubble"
-                    onClicked: root.switchMode("dm")
-                }
-                ConversationChip {
-                    objectName: "newConversationRoomChip"
-                    text: qsTr("New room")
-                    iconName: "tag"
-                    onClicked: root.switchMode("room")
-                }
-                ConversationChip {
-                    objectName: "newConversationSpaceChip"
-                    text: qsTr("New space")
-                    iconName: "workspaces"
-                    onClicked: root.switchMode("space")
-                }
+                Layout.maximumWidth: implicitWidth
+                objectName: "newConversationDmChip"
+                text: qsTr("New DM")
+                iconName: "chat_bubble"
+                onClicked: root.switchMode("dm")
+            }
+            ConversationChip {
+                Layout.fillWidth: true
+                Layout.maximumWidth: implicitWidth
+                objectName: "newConversationRoomChip"
+                text: qsTr("New room")
+                iconName: "tag"
+                onClicked: root.switchMode("room")
+            }
+            ConversationChip {
+                Layout.fillWidth: true
+                Layout.maximumWidth: implicitWidth
+                objectName: "newConversationSpaceChip"
+                text: qsTr("New space")
+                iconName: "workspaces"
+                onClicked: root.switchMode("space")
             }
             // A static label beside a spinner: a looping opacity animation on
             // text repaints every frame for as long as a (possibly federated,
@@ -417,6 +418,7 @@ Dialog {
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textBody
             }
+            Item { Layout.fillWidth: true }
             AppButton {
                 storm: true
                 objectName: "creationCancelButton"
