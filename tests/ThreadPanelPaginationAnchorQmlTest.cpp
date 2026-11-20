@@ -847,6 +847,23 @@ private Q_SLOTS:
         QTRY_VERIFY(!body->isVisible());
         QVERIFY(line->isVisible());
         QVERIFY(expand->isVisible());
+        auto *sender = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootCollapsedSender"));
+        auto *lineBody = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootCollapsedBody"));
+        QVERIFY(sender && lineBody);
+        QTRY_VERIFY2(!sender->property("truncated").toBool() && sender->width() > 0,
+                     qPrintable(QStringLiteral("a short sender name is elided to %1 of %2 px")
+                                    .arg(sender->width())
+                                    .arg(sender->implicitWidth())));
+        for (QQuickItem *part : { sender, lineBody }) {
+            const QRectF r = part->mapRectToItem(line, QRectF(0, 0, part->width(),
+                                                              part->height()));
+            QVERIFY2(r.left() >= -0.5 && r.right() <= line->width() + 0.5,
+                     qPrintable(QStringLiteral("%1 spans %2..%3 in a %4 px line")
+                                    .arg(part->objectName()).arg(r.left())
+                                    .arg(r.right()).arg(line->width())));
+        }
         QTRY_VERIFY2(card->height() < expandedHeight,
                      qPrintable(QStringLiteral("collapsed %1 px, expanded %2 px")
                                     .arg(card->height()).arg(expandedHeight)));

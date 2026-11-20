@@ -126,6 +126,26 @@ private Q_SLOTS:
         QVERIFY(h.contains(QStringLiteral("color:#00aa00;text-decoration:underline")));
     }
 
+    void htmlMarksWordsNotTheirSpaces()
+    {
+        const QString added = QStringLiteral("#00aa00");
+        const QString removed = QStringLiteral("#aa0000");
+        const QString ins = QStringLiteral("<span style=\"color:#00aa00;text-decoration:underline\">");
+        const QString del = QStringLiteral("<span style=\"color:#aa0000;text-decoration:line-through\">");
+        QCOMPARE(textdiff::html(QStringLiteral("a quick fox."), QStringLiteral("a fox."), added, removed),
+                 QStringLiteral("<div style=\"white-space:pre-wrap\">a %1quick</span> fox.</div>").arg(del));
+        const QString swap = textdiff::html(QStringLiteral("see you tomorrow!"),
+                                            QStringLiteral("see you today!"), added, removed);
+        QVERIFY2(swap.contains(QStringLiteral("tomorrow</span>") + QChar(0x2009) + ins
+                               + QStringLiteral("today</span>")),
+                 qPrintable(swap));
+        const QString ws = textdiff::html(QStringLiteral("one two"), QStringLiteral("one  two"),
+                                          added, removed);
+        QVERIFY2(ws.contains(QRegularExpression(QRegularExpression::escape(ins)
+                                                + QStringLiteral(" +</span>"))),
+                 qPrintable(ws));
+    }
+
     void htmlRejectsAnythingButAHexColour()
     {
         const QString h = textdiff::html(QStringLiteral("a"), QStringLiteral("b"),

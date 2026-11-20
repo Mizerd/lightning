@@ -893,6 +893,35 @@ private Q_SLOTS:
         QCOMPARE(checked, 46);
     }
 
+    void theThreadSummaryClearsTheReceiptPile()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isThreadRoot"), true);
+        f.insert(QStringLiteral("threadReplyCount"), 3);
+        f.insert(QStringLiteral("threadLatestSender"), QStringLiteral("@c:mock.local"));
+        f.insert(QStringLiteral("threadLatestSenderDisplayName"),
+                 QStringLiteral("Chiara Lindqvist-Montgomery"));
+        f.insert(QStringLiteral("threadLatestPreview"), longParagraph());
+        f.insert(QStringLiteral("threadLatestTimestamp"), QDateTime::currentDateTimeUtc());
+        f.insert(QStringLiteral("readReceipts"), receipts(3));
+        f.insert(QStringLiteral("readReceiptsTotal"), 3);
+        Delegate d;
+        QVERIFY(build(app, f, d, 440));
+        auto *card = findVisual(d.root, QStringLiteral("threadSummaryCard"));
+        auto *pile = d.root->findChild<QQuickItem *>(QStringLiteral("readReceiptRow"));
+        QVERIFY2(card && card->width() > 0, "no thread summary card in the row");
+        QVERIFY2(pile && pile->width() > 0, "no receipt facepile in the row");
+        const qreal cardRight = rightEdgeIn(card, d.root);
+        const qreal pileLeft = leftEdgeIn(pile, d.root);
+        QVERIFY2(cardRight <= pileLeft + 0.5,
+                 qPrintable(QStringLiteral("the thread summary ends at %1 and the receipt "
+                                           "facepile starts at %2")
+                                .arg(cardRight).arg(pileLeft)));
+    }
+
     void aLongSenderNameElidesInsideTheHeaderCap_data()
     {
         QTest::addColumn<bool>("own");
