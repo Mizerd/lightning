@@ -812,12 +812,35 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
         ? withoutWriterEscapes(box) : box;
 }
 
-QString RichComposition::plainTextOfSanitizedHtml(const QString &sanitizedHtml)
+static QString withImageAlts(QString html)
 {
     static const QRegularExpression image(
         QStringLiteral("<img\\b[^>]*?\\balt=\"([^\"]*)\"[^>]*>"));
+    html.replace(image, QStringLiteral("\\1"));
+    return html;
+}
+
+bool RichComposition::markdownShowsAs(const QString &markdown,
+                                      const QString &sanitizedHtml)
+{
+    // A custom emoji is its :shortcode: in the body and an image in the HTML.
+    static const QRegularExpression image(QStringLiteral(
+        "<img\\b[^>]*?\\btitle=\"([^\"]*)\"[^>]*>"));
     QString html = sanitizedHtml;
     html.replace(image, QStringLiteral("\\1"));
+    QTextDocument fromMarkdown;
+    fromMarkdown.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+    QTextDocument fromHtml;
+    fromHtml.setHtml(withImageAlts(html));
+    const auto words = [](const QTextDocument &document) {
+        return comparableText(compose(document).plainBody).remove(QLatin1Char(':'));
+    };
+    return words(fromMarkdown) == words(fromHtml);
+}
+
+QString RichComposition::plainTextOfSanitizedHtml(const QString &sanitizedHtml)
+{
+    const QString html = withImageAlts(sanitizedHtml);
     QTextDocument document;
     document.setHtml(html);
     QString text = document.toPlainText();

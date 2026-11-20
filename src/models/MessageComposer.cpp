@@ -879,6 +879,24 @@ void MessageComposer::sendInternal(bool allowCommands)
             setCommandError(emptyEditError());
             return;
         }
+        const SlashCommands::Parse parsed = SlashCommands::parse(body);
+        if (parsed.kind == SlashCommands::Parse::Known
+            && parsed.name == QLatin1String("spoiler")) {
+            SlashCommands::Actions actions;
+            actions.send = [this](const QString &b, const QStringList &ids,
+                                  const QVariantMap &spec) {
+                m_client->editMessage(editTargetTimelineId(), m_editingEventId,
+                                      b, ids, spec);
+            };
+            const SlashCommands::Outcome outcome =
+                SlashCommands::execute(parsed, mentionIds, actions);
+            if (!outcome.error.isEmpty()) {
+                setCommandError(outcome.error);
+                return;
+            }
+            finishSuccessfulSend();
+            return;
+        }
         QString editBody = body;
         QVariantMap editSpec;
         applyOutgoingEmojiWith(editBody, editSpec, selectedEmoticonMap());
@@ -1750,11 +1768,40 @@ void MessageComposer::beginReply(const QString &eventId,
         m_draftDebounce.start();
 }
 
+namespace {
+// A message that is one /spoiler span reopens as "/spoiler <text>" so saving
+// keeps it hidden; a partly hidden one has no editable form here.
+enum class SpoilerShape { None, Whole, Partial };
+
+SpoilerShape spoilerShapeOf(const QString &sanitizedHtml, QString *inner)
+{
+    static const QRegularExpression open(
+        QStringLiteral("<a href=\"spoiler:toggle\"[^>]*><span[^>]*>"));
+    static const QString close = QStringLiteral("</span></a>");
+    const QString html = sanitizedHtml.trimmed();
+    const qsizetype count = html.count(open);
+    if (count == 0)
+        return SpoilerShape::None;
+    const QRegularExpressionMatch m = open.match(html);
+    if (count > 1 || m.capturedStart() != 0 || !html.endsWith(close))
+        return SpoilerShape::Partial;
+    *inner = html.mid(m.capturedEnd(), html.size() - m.capturedEnd() - close.size());
+    return SpoilerShape::Whole;
+}
+}
+
 void MessageComposer::beginEdit(const QString &eventId,
                                  const QString &currentBody,
                                  const QString &sanitizedHtml,
                                  const QString &timelineId)
 {
+    QString spoilerInner;
+    const SpoilerShape spoiler = spoilerShapeOf(sanitizedHtml, &spoilerInner);
+    if (spoiler == SpoilerShape::Partial) {
+        setCommandError(tr("Part of this message is hidden as a spoiler, so it "
+                           "cannot be edited here."));
+        return;
+    }
     const bool wasEditing = !m_editingEventId.isEmpty();
     if (!wasEditing) {
         m_draftDebounce.stop();
@@ -1773,23 +1820,39 @@ void MessageComposer::beginEdit(const QString &eventId,
     Q_EMIT threadStateChanged();
     m_editingEventId = eventId;
     const QScopedValueRollback<bool> seeding(m_seedingEdit, true);
-    const mention::Recovery recovered = mention::recoverFromBody(currentBody);
-    const QString formatted = RichComposition::markdownFromSanitizedHtml(
-        sanitizedHtml, recovered.text);
+    // The formatted body is the message; the plain body may be a fallback
+    // ("[Spoiler]", another client's summary) that would replace it.
+    QString seedBody = currentBody;
+    QString seedHtml = sanitizedHtml;
+    QString prefix;
+    if (spoiler == SpoilerShape::Whole) {
+        prefix = QStringLiteral("/spoiler ");
+        seedHtml = spoilerInner;
+        seedBody = RichComposition::plainTextOfSanitizedHtml(spoilerInner);
+    } else if (!sanitizedHtml.isEmpty()
+               && !RichComposition::markdownShowsAs(currentBody, sanitizedHtml)) {
+        seedBody = RichComposition::plainTextOfSanitizedHtml(sanitizedHtml);
+    }
+    const mention::Recovery recovered = mention::recoverFromBody(seedBody);
+    // A /spoiler's text is sent verbatim, so it is never seeded as Markdown.
+    const QString formatted = prefix.isEmpty()
+        ? RichComposition::markdownFromSanitizedHtml(seedHtml, recovered.text)
+        : QString();
     m_text = formatted.isEmpty() ? recovered.text : formatted;
+    m_mentionRefs = recovered.refs;
+    if (m_mentionRefs.isEmpty() && !seedHtml.isEmpty())
+        m_mentionRefs = mention::refsFromSanitizedHtml(m_text, seedHtml);
+    m_text.prepend(prefix);
+    for (mention::MentionRef &ref : m_mentionRefs)
+        ref.start += prefix.size();
     m_editSeedText = m_text;
     m_editSeedHtml = sanitizedHtml;
     m_editPreview = sanitizedHtml.isEmpty()
         ? recovered.text
         : RichComposition::plainTextOfSanitizedHtml(sanitizedHtml);
-    m_mentionRefs = recovered.refs;
-    if (m_mentionRefs.isEmpty() && !sanitizedHtml.isEmpty()) {
-        m_mentionRefs =
-            mention::refsFromSanitizedHtml(m_text, sanitizedHtml);
-    }
     if (!wasEditing && !m_roomId.isEmpty() && !m_emoticonRefs.isEmpty())
         m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
-    m_emoticonRefs = emoticonRefsFromHtml(m_text, sanitizedHtml);
+    m_emoticonRefs = emoticonRefsFromHtml(m_text, seedHtml);
     Q_EMIT editStateChanged();
     // Text first: ranges announced over the editor's old text made it write
     // that text (empty) back over the seed.

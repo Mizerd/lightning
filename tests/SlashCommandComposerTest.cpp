@@ -1,6 +1,7 @@
 
 #include "matrix/MatrixClient.h"
 #include "models/MessageComposer.h"
+#include "models/MessageHtml.h"
 
 #include <QtTest/QtTest>
 
@@ -401,6 +402,49 @@ private Q_SLOTS:
         QVERIFY(m_client->sends.isEmpty());
     }
 
+    // The spec's spoiler fallback body omits the hidden text; reopening the
+    // edit from it and saving would destroy that text.
+    void editingAWholeSpoilerReopensAsASpoilerAndStaysOne()
+    {
+        m_composer->beginEdit(
+            QStringLiteral("$s"), QStringLiteral("[Spoiler]"),
+            shown(QStringLiteral("<span data-mx-spoiler>the secret</span>")));
+        QVERIFY(m_composer->isEditing());
+        QCOMPARE(m_composer->text(), QStringLiteral("/spoiler the secret"));
+        m_composer->setText(QStringLiteral("/spoiler the new secret"));
+        m_composer->send();
+        QCOMPARE(m_client->sends.size(), 1);
+        const SendRecord &s = m_client->sends.first();
+        QCOMPARE(s.kind, QStringLiteral("edit"));
+        QCOMPARE(s.target, QStringLiteral("$s"));
+        QCOMPARE(s.spec.value(QStringLiteral("html")).toString(),
+                 QStringLiteral("<span data-mx-spoiler>the new secret</span>"));
+    }
+
+    void aPartlyHiddenMessageRefusesToOpenForEditing()
+    {
+        m_composer->beginEdit(
+            QStringLiteral("$p"), QStringLiteral("look [Spoiler]"),
+            shown(QStringLiteral("look <span data-mx-spoiler>here</span>")));
+        QVERIFY(!m_composer->isEditing());
+        QVERIFY(!m_composer->commandError().isEmpty());
+        QCOMPARE(m_composer->text(), QString());
+    }
+
+    void aBodyThatDiffersFromTheFormattedTextIsNotTheSeed()
+    {
+        m_composer->beginEdit(QStringLiteral("$f"),
+                              QStringLiteral("fallback words"),
+                              shown(QStringLiteral("<em>real</em> text")));
+        QCOMPARE(m_composer->text(), QStringLiteral("*real* text"));
+
+        m_composer->cancelReplyOrEdit();
+        m_composer->beginEdit(
+            QStringLiteral("$l"), QStringLiteral("- a\n- **b**"),
+            shown(QStringLiteral("<ul>\n<li>a</li>\n<li><strong>b</strong></li>\n</ul>")));
+        QCOMPARE(m_composer->text(), QStringLiteral("- a\n- **b**"));
+    }
+
     void markdownTogglesTheModeAndKeepsNothingToSend()
     {
         QSignalSpy asked(m_composer,
@@ -621,6 +665,16 @@ private Q_SLOTS:
     }
 
 private:
+    static QString shown(const QString &html)
+    {
+        return MessageHtml::sanitize(
+            html, {}, QString(),
+            MessageHtml::MentionStyle{ QStringLiteral("#111111"),
+                                       QStringLiteral("#222222"),
+                                       QStringLiteral("#333333") },
+            true);
+    }
+
     RecordingClient *m_client = nullptr;
     MessageComposer *m_composer = nullptr;
 };

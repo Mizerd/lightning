@@ -41,6 +41,10 @@ QString plainTextOfSanitizedHtml(const QString &sanitizedHtml);
 QString markdownFromSanitizedHtml(const QString &sanitizedHtml,
                                   const QString &plainBody);
 
+// Whether a body, read as Markdown, shows the same words as the formatted
+// body. A body that does not is a fallback, never the message's source.
+bool markdownShowsAs(const QString &markdown, const QString &sanitizedHtml);
+
 QVariantList spellSkipRanges(const QTextDocument &document);
 bool documentIsBlank(const QTextDocument &document);
 void replaceRange(QTextDocument *document, int start, int length,
