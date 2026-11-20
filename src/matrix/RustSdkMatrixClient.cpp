@@ -3823,7 +3823,10 @@ void RustSdkMatrixClient::setRoomArchived(const QString &roomId, bool archived)
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(mx_rust_set_room_archived(
         m_rustHandle, room.constData(), archived ? 1 : 0));
-    if (!result.isEmpty()) qCWarning(lcRust) << "archive command rejected";
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "archive command rejected";
+        Q_EMIT roomActionFailed(QStringLiteral("archive"), roomId);
+    }
 }
 
 void RustSdkMatrixClient::markRoomRead(const QString &roomId)

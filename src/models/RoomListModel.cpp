@@ -117,6 +117,11 @@ void RoomListModel::setClient(MatrixClient *client)
         });
         connect(m_client, &MatrixClient::markRoomReadFailed, this,
                 [this](const QString &roomId) { m_pendingMarkRead.remove(roomId); });
+        connect(m_client, &MatrixClient::roomActionFailed, this,
+                [this](const QString &action, const QString &roomId) {
+            if (action == QLatin1String("archive"))
+                m_unarchiveRequested.remove(roomId);
+        });
     }
     m_pendingMarkRead.clear();
     m_unreadBaseline.clear();
@@ -1183,8 +1188,17 @@ void RoomListModel::unarchiveOnNewUnread(const RoomInfo &room, bool counts)
     if (!fresh)
         return;
     m_unarchiveRequested.insert(room.id);
-    QMetaObject::invokeMethod(this, [this, id = room.id] { setRoomArchived(id, false); },
-                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, [this, id = room.id, uid = m_client->currentUserId()] {
+        if (!m_client || m_client->currentUserId() != uid || !m_unarchiveRequested.contains(id))
+            return;
+        for (const RoomInfo &r : m_client->rooms()) {
+            if (r.id == id && r.isArchived && r.membership == RoomInfo::Joined) {
+                setRoomArchived(id, false);
+                return;
+            }
+        }
+        m_unarchiveRequested.remove(id);
+    }, Qt::QueuedConnection);
 }
 
 void RoomListModel::updateFavouritesBoundary()

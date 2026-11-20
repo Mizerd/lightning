@@ -35,12 +35,18 @@ public:
 
     QStringList archiveCalls;
     bool initialDone = true;
+    bool failArchive = false;
+    QString userId = kAliceId;
 
     void announce() { Q_EMIT roomsChanged(); }
     bool initialSyncDone() const override { return initialDone; }
     void setRoomArchived(const QString &id, bool archived) override
     {
         archiveCalls << id;
+        if (failArchive) {
+            Q_EMIT roomActionFailed(QStringLiteral("archive"), id);
+            return;
+        }
         for (RoomInfo &r : roomList)
             if (r.id == id) r.isArchived = archived;
         Q_EMIT roomsChanged();
@@ -50,7 +56,7 @@ public:
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
     bool isLoggedIn() const override { return true; }
-    QString currentUserId() const override { return kAliceId; }
+    QString currentUserId() const override { return userId; }
     QString homeserverUrl() const override { return {}; }
     void startSync() override {}
     void stopSync() override {}
@@ -1340,6 +1346,44 @@ private Q_SLOTS:
         fake->announce();
         QCoreApplication::processEvents();
         QCOMPARE(fake->archiveCalls, QStringList{loud});
+    }
+
+    void anAutoUnarchiveStaysWithItsAccountAndIsRetriedAfterAFailure()
+    {
+        QSettings().remove(QStringLiteral("archivedUnreadMarks"));
+        const QString loud = QStringLiteral("!loud:example.org");
+        auto archivedRoom = [&](SpaceFakeClient *f) -> RoomInfo & {
+            RoomInfo r = joinedRoom(loud);
+            r.isArchived = true;
+            r.unreadCount = 3;
+            f->roomList << r;
+            f->announce();
+            QCoreApplication::processEvents();
+            return f->roomList.last();
+        };
+        {
+            SpaceFakeClient fake;
+            RoomListModel model;
+            model.setClient(&fake);
+            archivedRoom(&fake).unreadCount = 4;
+            fake.announce();
+            fake.userId = QStringLiteral("@bob:example.org");
+            QCoreApplication::processEvents();
+            QVERIFY2(fake.archiveCalls.isEmpty(), "the next account's room was unarchived");
+        }
+        QSettings().remove(QStringLiteral("archivedUnreadMarks"));
+        SpaceFakeClient fake;
+        RoomListModel model;
+        model.setClient(&fake);
+        fake.failArchive = true;
+        archivedRoom(&fake).unreadCount = 4;
+        fake.announce();
+        QTRY_COMPARE(fake.archiveCalls, QStringList{loud});
+        fake.failArchive = false;
+        fake.roomList.last().unreadCount = 5;
+        fake.announce();
+        QTRY_COMPARE(fake.archiveCalls, (QStringList{loud, loud}));
+        QVERIFY(!fake.roomList.last().isArchived);
     }
 
     void anArchivedRoomReturnsForAnUnreadFromWhileTheAppWasClosed()
