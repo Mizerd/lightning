@@ -192,6 +192,15 @@ private:
         return body->mapToScene(QPointF(x, y)).toPoint();
     }
 
+    // Beside a message's text, where a click lands on the view itself.
+    QPoint besideText(QQuickItem *body) const
+    {
+        auto *list = item("timelineListView");
+        const qreal right = list->mapToScene(QPointF(list->width() - 160, 0)).x();
+        const QPointF p = body->mapToScene(QPointF(body->width() + 30, body->height() / 2));
+        return QPoint(int(std::min(p.x(), right)), int(p.y()));
+    }
+
 private slots:
     void initTestCase()
     {
@@ -1191,7 +1200,7 @@ ApplicationWindow {
         auto *editor = item("composerInput");
         const QList<QQuickItem *> bodies = bodiesOnScreen();
         QVERIFY(bodies.size() >= 2);
-        QTest::mouseClick(m_window, Qt::LeftButton, {}, scenePoint(bodies.at(1), 4, 4));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, besideText(bodies.at(1)));
         QTRY_VERIFY(list->hasActiveFocus());
         QVERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
         for (const Qt::Key key : { Qt::Key_J, Qt::Key_U, Qt::Key_S, Qt::Key_T })
@@ -1230,7 +1239,7 @@ ApplicationWindow {
         QTRY_COMPARE(editor->property("text").toString(), QStringLiteral("do"));
 
         // Deliberate entry from a click-focused view still navigates.
-        QTest::mouseClick(m_window, Qt::LeftButton, {}, scenePoint(bodies.at(1), 4, 4));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, besideText(bodies.at(1)));
         QTRY_VERIFY(list->hasActiveFocus());
         QTest::keyClick(m_window, Qt::Key_Space, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());

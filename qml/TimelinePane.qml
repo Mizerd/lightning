@@ -140,6 +140,13 @@ Rectangle {
         return messageComposer.focusForTyping()
     }
 
+    function leaveKeyboardSelection() {
+        timeline.stopEntrySelection()
+        if (root.keyboardSelectedEventId === "")
+            return
+        root.resumeSelectedEventId = root.keyboardSelectedEventId
+        root.keyboardSelectedEventId = ""
+    }
     property string keyboardSelectedEventId: ""
     property string resumeSelectedEventId: ""
     property string selectionRoomId: ""
@@ -4413,8 +4420,7 @@ Rectangle {
                     }
                     if (event.key === Qt.Key_Escape && root.keyboardSelectedEventId !== ""
                             && event.modifiers === Qt.NoModifier) {
-                        root.resumeSelectedEventId = root.keyboardSelectedEventId
-                        root.keyboardSelectedEventId = ""
+                        root.leaveKeyboardSelection()
                         root.focusComposerForTyping()
                         event.accepted = true
                         return
@@ -4463,12 +4469,8 @@ Rectangle {
                                 return
                         }
                         messageComposer.cancelPendingFocus()
-                        timeline.stopEntrySelection()
-                        if (root.keyboardSelectedEventId !== ""
-                                && !(point.modifiers & Qt.ShiftModifier)) {
-                            root.resumeSelectedEventId = root.keyboardSelectedEventId
-                            root.keyboardSelectedEventId = ""
-                        }
+                        if (!(point.modifiers & Qt.ShiftModifier))
+                            root.leaveKeyboardSelection()
                         timeline.forceActiveFocus()
                         timeline.focusedByClick = true
                     }
@@ -5265,6 +5267,20 @@ Rectangle {
                     return timeline.itemAtViewRow(timeline.viewRowForSourceRow(row))
                 }
                 scrollBy: timeline.dragScrollBy
+                // A click on message text focuses that read-only TextEdit,
+                // which would swallow typing; hand it back to the view.
+                onReleased: (modifiers) => {
+                    if (!(modifiers & Qt.ShiftModifier))
+                        root.leaveKeyboardSelection()
+                    var focused = timeline.Window.activeFocusItem
+                    if (focused && (focused.objectName === "messageBody"
+                                    || focused.objectName === "messageSegmentText")
+                            && focused.selectedText === "") {
+                        messageComposer.cancelPendingFocus()
+                        timeline.forceActiveFocus()
+                        timeline.focusedByClick = true
+                    }
+                }
             }
 
             Loader {

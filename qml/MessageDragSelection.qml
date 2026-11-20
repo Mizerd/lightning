@@ -181,14 +181,21 @@ Item {
         }
     }
 
+    // Every left-button release over the view, a drag or a plain click.
+    signal released(int modifiers)
+    property int pressModifiers: 0
+
     PointHandler {
         id: pointer
         acceptedButtons: Qt.LeftButton
         onActiveChanged: {
-            if (pointer.active)
+            if (pointer.active) {
+                root.pressModifiers = pointer.point.modifiers
                 root.begin(pointer.point.scenePressPosition)
-            else
+            } else {
                 root.finish()
+                root.released(root.pressModifiers)
+            }
         }
         onPointChanged: if (pointer.active) root.update(pointer.point.scenePosition)
     }
