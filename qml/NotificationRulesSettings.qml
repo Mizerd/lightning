@@ -301,7 +301,8 @@ ColumnLayout {
                     id: keywordLevel
                     storm: true
                     objectName: "pushKeywordLevelCombo"
-                    Layout.preferredWidth: 120
+                    implicitContentWidthPolicy: ComboBox.WidestText
+                    Layout.preferredWidth: Math.max(120, implicitWidth)
                     model: [qsTr("Off"), qsTr("Notify"), qsTr("Loud")]
                     currentIndex: 1
                     Accessible.name: qsTr("Level for the new keyword")
