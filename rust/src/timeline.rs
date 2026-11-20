@@ -4208,6 +4208,7 @@ async fn adopt_new_threads(
                 num_replies,
             };
             lock_tally(tally).fresh.insert(0, (item, counted));
+            changed = true;
         }
         let mut guard = lock_tally(tally);
         let Some((item, counted)) =
