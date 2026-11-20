@@ -1913,7 +1913,7 @@ Item {
                                 && !model.redacted
                         visible: active
                         Layout.fillWidth: true
-                        Layout.maximumWidth: root.contentInnerCap
+                        Layout.maximumWidth: root.bodyTextCap
                         Layout.bottomMargin: 2
                         sourceComponent: Rectangle {
                             id: replyBox
