@@ -2251,6 +2251,30 @@ private Q_SLOTS:
         QCOMPARE(shown, expected);
     }
 
+    void anUnchangedThreadListDoesNotResetTheView()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.openList(kGeneral);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.listLoading(), false,
+                                  kSignalTimeoutMs);
+        QVariantMap entry;
+        entry.insert(QStringLiteral("rootEventId"), QStringLiteral("$a"));
+        entry.insert(QStringLiteral("rootTimestamp"),
+                     QDateTime::fromMSecsSinceEpoch(1'700'000'000'000, QTimeZone::UTC));
+        const QVariantList threads{ entry };
+        Q_EMIT client.threadListUpdated(kGeneral, threads, true, false);
+        QSignalSpy changed(&controller, &ThreadController::listStateChanged);
+        Q_EMIT client.threadListUpdated(kGeneral, threads, true, false);
+        QCOMPARE(changed.count(), 0);
+        entry.insert(QStringLiteral("rootEventId"), QStringLiteral("$b"));
+        Q_EMIT client.threadListUpdated(kGeneral, threads + QVariantList{ entry },
+                                        true, false);
+        QCOMPARE(changed.count(), 1);
+    }
+
     void theThreadListNamesARootTheTimelinesHaveNotReached()
     {
         MockMatrixClient client;

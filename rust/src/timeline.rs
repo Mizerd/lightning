@@ -428,6 +428,8 @@ struct ThreadTally {
     root_edits: HashMap<OwnedEventId, RootEdit>,
     /// Roots whose edits were looked up, kept to validate live edits.
     roots: HashMap<OwnedEventId, RootRecord>,
+    /// Threads started while the list is open: the SDK only updates listed ones.
+    fresh: Vec<(ThreadListItem, HashSet<OwnedEventId>)>,
 }
 
 struct RootRecord {
@@ -3780,6 +3782,7 @@ async fn open_thread_list_task(
         Err(_) => None,
     };
     let service = Arc::new(ThreadListService::new(room.clone()));
+    let opened_ms = thread_list_now_ms();
     let tally = {
         let Ok(mut guard) = registry.active_thread_list.lock() else { return };
         match guard.as_mut() {
@@ -3810,8 +3813,9 @@ async fn open_thread_list_task(
         let diffs = tokio::select! {
             diffs = stream.next() => diffs,
             news = next_cache_update(&mut live_edits) => {
+                let mut replies = Vec::new();
                 let (mut changed, relook) = match news {
-                    Some(update) => apply_live_root_edits(&room, update, &tally).await,
+                    Some(update) => apply_live_root_edits(&room, update, &tally, &mut replies).await,
                     None => {
                         // A missed update may have deleted the edit in use.
                         let mut tally = lock_tally(&tally);
@@ -3821,6 +3825,7 @@ async fn open_thread_list_task(
                         (had_edits, true)
                     }
                 };
+                changed |= adopt_new_threads(&room, &service, replies, &tally, opened_ms).await;
                 if relook {
                     changed |= look_up_root_edits(&room, &service, &tally).await;
                 }
@@ -4035,6 +4040,7 @@ async fn apply_live_root_edits(
     room: &matrix_sdk::Room,
     update: matrix_sdk::event_cache::RoomEventCacheUpdate,
     tally: &Mutex<ThreadTally>,
+    replies: &mut Vec<matrix_sdk::deserialized_responses::TimelineEvent>,
 ) -> (bool, bool) {
     let matrix_sdk::event_cache::RoomEventCacheUpdate::UpdateTimelineEvents(update) = update
     else {
@@ -4055,6 +4061,9 @@ async fn apply_live_root_edits(
         };
         for event in added {
             let Some(id) = event.event_id() else { continue };
+            if matrix_sdk::serde_helpers::extract_thread_root(event.raw()).is_some() {
+                replies.push(event.clone());
+            }
             let candidate = {
                 let mut guard = lock_tally(tally);
                 let tally = &mut *guard;
@@ -4101,6 +4110,86 @@ async fn apply_live_root_edits(
     (changed, relook)
 }
 
+async fn list_event(
+    room: &matrix_sdk::Room,
+    event: &matrix_sdk::deserialized_responses::TimelineEvent,
+) -> Option<ThreadListItemEvent> {
+    let raw = event.raw();
+    let sender = raw.get_field::<OwnedUserId>("sender").ok()??;
+    let timestamp = raw
+        .get_field::<matrix_sdk::ruma::MilliSecondsSinceUnixEpoch>("origin_server_ts")
+        .ok()??;
+    let sender_profile = match room.get_member_no_sync(&sender).await {
+        Ok(Some(member)) => TimelineDetails::Ready(matrix_sdk_ui::timeline::Profile {
+            display_name: member.display_name().map(str::to_owned),
+            display_name_ambiguous: member.name_ambiguous(),
+            avatar_url: member.avatar_url().map(ToOwned::to_owned),
+        }),
+        _ => TimelineDetails::Unavailable,
+    };
+    Some(ThreadListItemEvent {
+        event_id: event.event_id()?,
+        timestamp,
+        is_own: sender == room.own_user_id(),
+        sender,
+        sender_profile,
+        content: TimelineItemContent::from_event(room, event.clone()).await,
+    })
+}
+
+/// Lists threads whose first replies arrive while the list is open.
+async fn adopt_new_threads(
+    room: &matrix_sdk::Room,
+    service: &ThreadListService,
+    replies: Vec<matrix_sdk::deserialized_responses::TimelineEvent>,
+    tally: &Mutex<ThreadTally>,
+    opened_ms: u64,
+) -> bool {
+    if replies.is_empty() {
+        return false;
+    }
+    let listed: HashSet<OwnedEventId> =
+        service.items().into_iter().map(|item| item.root_event.event_id).collect();
+    let mut changed = false;
+    for reply in replies {
+        let Some(root) = matrix_sdk::serde_helpers::extract_thread_root(reply.raw()) else {
+            continue;
+        };
+        let (Some(reply_id), Some(ts)) = (
+            reply.event_id(),
+            reply.raw().get_field::<u64>("origin_server_ts").ok().flatten(),
+        ) else {
+            continue;
+        };
+        // Older replies are history being paginated, not a new thread.
+        if listed.contains(&root) || ts.saturating_add(60_000) < opened_ms {
+            continue;
+        }
+        let Some(latest) = list_event(room, &reply).await else { continue };
+        let known = lock_tally(tally).fresh.iter().any(|(item, _)| item.root_event.event_id == root);
+        if !known {
+            let Ok(root_event) = room.load_or_fetch_event(&root, None).await else { continue };
+            let Some(root_item) = list_event(room, &root_event).await else { continue };
+            let item = ThreadListItem { root_event: root_item, latest_event: None, num_replies: 0 };
+            lock_tally(tally).fresh.insert(0, (item, HashSet::new()));
+        }
+        let mut guard = lock_tally(tally);
+        let Some((item, counted)) =
+            guard.fresh.iter_mut().find(|(item, _)| item.root_event.event_id == root)
+        else {
+            continue;
+        };
+        if counted.insert(reply_id) {
+            item.num_replies = item.num_replies.saturating_add(1);
+            if item.latest_event.as_ref().map_or(true, |known| latest.timestamp >= known.timestamp) {
+                item.latest_event = Some(latest);
+            }
+            changed = true;
+        }
+    }
+    changed
+}
+
 fn emit_thread_list_snapshot(
     events: &EventQueue,
     room_id: &str,
@@ -4125,6 +4214,15 @@ fn emit_thread_list_snapshot(
             json
         })
         .collect();
+    let listed: HashSet<OwnedEventId> =
+        service.items().into_iter().map(|item| item.root_event.event_id).collect();
+    let fresh: Vec<serde_json::Value> = tally
+        .fresh
+        .iter()
+        .filter(|(item, _)| !listed.contains(&item.root_event.event_id))
+        .map(|(item, _)| thread_list_item_to_json(item))
+        .collect();
+    let items: Vec<serde_json::Value> = fresh.into_iter().chain(items).collect();
     drop(tally);
     let end_reached = matches!(
         service.pagination_state(),

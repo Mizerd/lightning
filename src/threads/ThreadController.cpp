@@ -360,6 +360,10 @@ void ThreadController::setClient(MatrixClient *client)
                                            .toString()));
                         entry = map;
                     }
+                    // A new list resets the view to its top.
+                    if (sorted == m_threadList && !m_listLoading
+                        && m_listEndReached == endReached && m_listFailed == failed)
+                        return;
                     m_threadList = sorted;
                     m_listLoading = false;
                     m_listEndReached = endReached;
