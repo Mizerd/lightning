@@ -312,6 +312,7 @@ private:
     void unparkAttachments();
     bool finishParkedAttachment(quint64 opId, bool ok);
     bool takeTextAsCaption(const QString &body, const QStringList &mentionIds);
+    QString emptyEditError() const;
 
     MatrixClient *m_client = nullptr;
     bool m_preparingForSchedule = false;
@@ -397,4 +398,5 @@ private:
     class DraftStore *m_drafts = nullptr;
     QTimer m_draftDebounce;
     bool m_restoringDraft = false;
+    bool m_seedingEdit = false;
 };

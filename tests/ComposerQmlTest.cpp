@@ -2785,6 +2785,71 @@ private slots:
         m_controller->composer()->cancelReplyOrEdit();
     }
 
+    void editingAMessageWithAMentionLoadsItsText_data() { modeColumn(); }
+    void editingAMessageWithAMentionLoadsItsText()
+    {
+        QFETCH(QString, mode);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(mode);
+        QVERIFY(editor);
+        auto *composer = m_controller->composer();
+        composer->beginEdit(
+            QStringLiteral("$mention"), QStringLiteral("yo @Bob there"),
+            QStringLiteral("yo <a href=\"mention:@bob:mock.local\" "
+                           "style=\"color:#00796b;font-weight:600;"
+                           "text-decoration:none\">@Bob</a> there"));
+        QTest::qWait(30);
+        QCOMPARE(composer->text(), QStringLiteral("yo @Bob there"));
+        QCOMPARE(editorText(editor, mode), QStringLiteral("yo @Bob there"));
+        composer->cancelReplyOrEdit();
+    }
+
+    // An editor that writes its previous (empty) text back while the edit is
+    // being loaded must not erase it: saving would replace the message.
+    void anEditorEchoWhileAnEditLoadsCannotEraseIt()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *composer = m_controller->composer();
+        composer->clear();
+        const auto echo = connect(composer, &MessageComposer::mentionRangesChanged,
+                                  composer, [composer] { composer->setText(QString()); });
+        composer->beginEdit(
+            QStringLiteral("$mention"), QStringLiteral("yo @Bob there"),
+            QStringLiteral("yo <a href=\"mention:@bob:mock.local\">@Bob</a> there"));
+        disconnect(echo);
+        QCOMPARE(composer->text(), QStringLiteral("yo @Bob there"));
+        QCOMPARE(composer->mentionRanges().size(), 1);
+        composer->cancelReplyOrEdit();
+    }
+
+    void anEmptyEditIsRefusedOutLoud_data() { modeColumn(); }
+    void anEmptyEditIsRefusedOutLoud()
+    {
+        QFETCH(QString, mode);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(mode);
+        QVERIFY(editor);
+        auto *composer = m_controller->composer();
+        composer->beginEdit(QStringLiteral("$e"), QStringLiteral("original"));
+        QTest::qWait(30);
+        QCOMPARE(editorText(editor, mode), QStringLiteral("original"));
+        QVERIFY(QMetaObject::invokeMethod(editor, "selectAll"));
+        QTest::keyClick(m_window, Qt::Key_Delete);
+        QTest::qWait(30);
+        QCOMPARE(editorText(editor, mode), QString());
+        QVERIFY(QMetaObject::invokeMethod(item("composerBar"), "submitComposer"));
+        QVERIFY2(!composer->commandError().isEmpty(),
+                 "an empty edit was dropped without a word");
+        QVERIFY(composer->isEditing());
+        composer->cancelReplyOrEdit();
+    }
+
     void tabLeavesTheEditorAndInsertsNoTab_data() { modeColumn(); }
     void tabLeavesTheEditorAndInsertsNoTab()
     {
@@ -2949,6 +3014,14 @@ private:
             QTest::qWait(60);
         }
     };
+
+    QString editorText(QQuickItem *editor, const QString &mode)
+    {
+        return mode == QStringLiteral("rich")
+            ? editor->property("textDocument").value<QQuickTextDocument *>()
+                  ->textDocument()->toPlainText()
+            : editor->property("text").toString();
+    }
 
     QQuickItem *editorFor(const QString &mode)
     {

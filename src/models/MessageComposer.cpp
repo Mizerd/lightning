@@ -1,5 +1,7 @@
 #include "models/MessageComposer.h"
 
+#include <QScopedValueRollback>
+
 #include <QRegularExpression>
 #include <QSet>
 
@@ -766,7 +768,9 @@ void MessageComposer::discardAllAttachments()
 
 void MessageComposer::setText(const QString &t)
 {
-    if (m_text == t)
+    // While an edit is seeded, an editor echoing its previous text back must
+    // not overwrite the message being loaded.
+    if (m_text == t || m_seedingEdit)
         return;
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, t);
     m_emoticonRefs = shiftEmoticonRefs(m_emoticonRefs, m_text, t);
@@ -829,8 +833,17 @@ void MessageComposer::sendBypassingCommands()
     sendInternal(false);
 }
 
+QString MessageComposer::emptyEditError() const
+{
+    return tr("An edit cannot be empty. Delete the message instead.");
+}
+
 void MessageComposer::sendInternal(bool allowCommands)
 {
+    if (!m_editingEventId.isEmpty() && m_text.trimmed().isEmpty()) {
+        setCommandError(emptyEditError());
+        return;
+    }
     if (!m_canSend || !m_client) return;
     if (!m_editingEventId.isEmpty() && m_text == m_editSeedText) {
         finishSuccessfulSend();
@@ -862,7 +875,10 @@ void MessageComposer::sendInternal(bool allowCommands)
     if (refuseIfTooLarge(body, QString()))
         return;
     if (!m_editingEventId.isEmpty()) {
-        if (body.isEmpty()) return;
+        if (body.isEmpty()) {
+            setCommandError(emptyEditError());
+            return;
+        }
         QString editBody = body;
         QVariantMap editSpec;
         applyOutgoingEmojiWith(editBody, editSpec, selectedEmoticonMap());
@@ -885,8 +901,13 @@ void MessageComposer::sendInternal(bool allowCommands)
 void MessageComposer::sendPrepared(const QString &body, const QString &html,
                                    const QStringList &mentionUserIds)
 {
-    if (!m_client || m_roomId.isEmpty() || body.trimmed().isEmpty())
+    if (!m_client || m_roomId.isEmpty())
         return;
+    if (body.trimmed().isEmpty()) {
+        if (!m_editingEventId.isEmpty())
+            setCommandError(emptyEditError());
+        return;
+    }
     if (!m_editingEventId.isEmpty()
         && m_text.trimmed() == m_editSeedText.trimmed()) {
         finishSuccessfulSend();
@@ -1751,6 +1772,7 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_threadPreview.clear();
     Q_EMIT threadStateChanged();
     m_editingEventId = eventId;
+    const QScopedValueRollback<bool> seeding(m_seedingEdit, true);
     const mention::Recovery recovered = mention::recoverFromBody(currentBody);
     const QString formatted = RichComposition::markdownFromSanitizedHtml(
         sanitizedHtml, recovered.text);
@@ -1769,8 +1791,10 @@ void MessageComposer::beginEdit(const QString &eventId,
         m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
     m_emoticonRefs = emoticonRefsFromHtml(m_text, sanitizedHtml);
     Q_EMIT editStateChanged();
-    Q_EMIT mentionRangesChanged();
+    // Text first: ranges announced over the editor's old text made it write
+    // that text (empty) back over the seed.
     Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
     updateCanSend();
 }
 

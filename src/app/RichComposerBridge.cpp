@@ -35,6 +35,8 @@ void RichComposerBridge::sendDocument(QQuickTextDocument *document)
     if (plain.isEmpty() && composed.html.isEmpty()) {
         if (m_composer->hasAttachments())
             m_composer->send();
+        else if (m_composer->isEditing())
+            m_composer->sendPrepared(QString(), QString(), {}); // refuses, visibly
         return;
     }
     // Commands are checked before formatting, so a formatted "/spoiler" or
