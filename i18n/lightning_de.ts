@@ -531,7 +531,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ActivityCenterPanel</name>
     <message>
-        <location filename="../qml/ActivityCenterPanel.qml" line="+160"/>
+        <location filename="../qml/ActivityCenterPanel.qml" line="+166"/>
         <source>custom emoji</source>
         <translation>Benutzerdefiniertes Emoji</translation>
     </message>
@@ -597,12 +597,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+47"/>
-        <location line="+293"/>
+        <location line="+314"/>
         <source>Activity</source>
         <translation>Aktivität</translation>
     </message>
     <message numerus="yes">
-        <location line="-283"/>
+        <location line="-304"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n neu</numerusform>
@@ -707,12 +707,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+1"/>
-        <location line="+453"/>
+        <location line="+474"/>
         <source>Following</source>
         <translation>Nachfolgend</translation>
     </message>
     <message>
-        <location line="-452"/>
+        <location line="-473"/>
         <source>All known</source>
         <translation>Alles bekannt</translation>
     </message>
@@ -733,6 +733,21 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+44"/>
+        <source>Unseen only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Showing unseen activity only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show unseen activity only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Favourites only</source>
         <translation type="unfinished"></translation>
     </message>
@@ -754,6 +769,11 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+17"/>
         <source>No loaded activity matches your search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Nothing new.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -807,12 +827,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Noch nichts da. Erwähnungen, Antworten und Reaktionen auf dich erscheinen hier, sobald sie eintreffen.</translation>
     </message>
     <message>
-        <location line="-82"/>
+        <location line="-103"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+261"/>
+        <location line="+282"/>
         <location line="+83"/>
         <location line="+33"/>
         <source>Encrypted message</source>
@@ -870,8 +890,8 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+829"/>
-        <location line="+118"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+836"/>
+        <location line="+140"/>
         <source>Encrypted message</source>
         <translation type="unfinished">Verschlüsselte Nachricht</translation>
     </message>
@@ -1014,7 +1034,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6357"/>
+        <location filename="../src/app/AppController.cpp" line="+6361"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -19559,6 +19579,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message numerus="yes">
         <location line="+15"/>
+        <location line="+634"/>
         <source>Activity, %n unseen</source>
         <translation>
             <numerusform>Aktivität, %n ungesehen</numerusform>
@@ -19566,13 +19587,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         </translation>
     </message>
     <message>
+        <location line="-633"/>
         <location line="+1"/>
-        <location line="+1"/>
+        <location line="+633"/>
         <source>Activity</source>
         <translation>Aktivität</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="-501"/>
         <location line="+5"/>
         <location line="+4"/>
         <source>All</source>
@@ -27215,7 +27237,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Der Anruf wurde abgelehnt.</translation>
     </message>
     <message>
-        <location line="+499"/>
+        <location line="+500"/>
         <source>You</source>
         <translation type="unfinished">Du</translation>
     </message>

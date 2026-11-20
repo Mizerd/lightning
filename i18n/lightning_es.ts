@@ -531,7 +531,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>ActivityCenterPanel</name>
     <message>
-        <location filename="../qml/ActivityCenterPanel.qml" line="+160"/>
+        <location filename="../qml/ActivityCenterPanel.qml" line="+166"/>
         <source>custom emoji</source>
         <translation>emoji personalizado</translation>
     </message>
@@ -592,12 +592,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+47"/>
-        <location line="+293"/>
+        <location line="+314"/>
         <source>Activity</source>
         <translation>Actividad</translation>
     </message>
     <message numerus="yes">
-        <location line="-283"/>
+        <location line="-304"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n nueva</numerusform>
@@ -702,12 +702,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+1"/>
-        <location line="+453"/>
+        <location line="+474"/>
         <source>Following</source>
         <translation>Siguiendo</translation>
     </message>
     <message>
-        <location line="-452"/>
+        <location line="-473"/>
         <source>All known</source>
         <translation>Todos conocidos</translation>
     </message>
@@ -718,6 +718,21 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+64"/>
+        <source>Unseen only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Showing unseen activity only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show unseen activity only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Favourites only</source>
         <translation type="unfinished"></translation>
     </message>
@@ -739,6 +754,11 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+17"/>
         <source>No loaded activity matches your search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Nothing new.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -787,12 +807,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Nada por aquí todavía. Las menciones, respuestas y reacciones dirigidas a ti aparecerán cuando lleguen.</translation>
     </message>
     <message>
-        <location line="-82"/>
+        <location line="-103"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+295"/>
+        <location line="+316"/>
         <source>Threads activity</source>
         <translation>Actividad de los hilos</translation>
     </message>
@@ -835,7 +855,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Mención</translation>
     </message>
     <message>
-        <location line="-664"/>
+        <location line="-685"/>
         <source>encrypted message</source>
         <translation>mensaje cifrado</translation>
     </message>
@@ -850,7 +870,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Abrir ajustes de palabras clave</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+121"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>No hay palabras clave. Añade algunas en Ajustes, en Notificaciones.</translation>
     </message>
@@ -870,8 +890,8 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+829"/>
-        <location line="+118"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+836"/>
+        <location line="+140"/>
         <source>Encrypted message</source>
         <translation type="unfinished">Mensaje cifrado</translation>
     </message>
@@ -1013,7 +1033,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7320"/>
+        <location filename="../src/app/AppController.cpp" line="+7324"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -19524,6 +19544,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message numerus="yes">
         <location line="+126"/>
+        <location line="+634"/>
         <source>Activity, %n unseen</source>
         <translation>
             <numerusform>Actividad, %n sin ver</numerusform>
@@ -19531,13 +19552,14 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         </translation>
     </message>
     <message>
+        <location line="-633"/>
         <location line="+1"/>
-        <location line="+1"/>
+        <location line="+633"/>
         <source>Activity</source>
         <translation>Actividad</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="-518"/>
         <source>Archived (%1)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27200,7 +27222,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Se rechazó la llamada.</translation>
     </message>
     <message>
-        <location line="+499"/>
+        <location line="+500"/>
         <source>You</source>
         <translation type="unfinished">tu</translation>
     </message>
@@ -27210,7 +27232,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation type="unfinished">Participante</translation>
     </message>
     <message>
-        <location line="-4504"/>
+        <location line="-4505"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Esta sala está cifrada y las llamadas cifradas aún no están disponibles en esta compilación.</translation>
     </message>

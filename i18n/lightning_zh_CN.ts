@@ -524,7 +524,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ActivityCenterPanel</name>
     <message>
-        <location filename="../qml/ActivityCenterPanel.qml" line="+160"/>
+        <location filename="../qml/ActivityCenterPanel.qml" line="+166"/>
         <source>custom emoji</source>
         <translation>自定义表情</translation>
     </message>
@@ -585,12 +585,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+47"/>
-        <location line="+293"/>
+        <location line="+314"/>
         <source>Activity</source>
         <translation>动态</translation>
     </message>
     <message numerus="yes">
-        <location line="-283"/>
+        <location line="-304"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n 条新消息</numerusform>
@@ -692,12 +692,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+1"/>
-        <location line="+453"/>
+        <location line="+474"/>
         <source>Following</source>
         <translation>正在关注</translation>
     </message>
     <message>
-        <location line="-452"/>
+        <location line="-473"/>
         <source>All known</source>
         <translation>众所周知</translation>
     </message>
@@ -708,6 +708,21 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+64"/>
+        <source>Unseen only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Showing unseen activity only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show unseen activity only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Favourites only</source>
         <translation type="unfinished"></translation>
     </message>
@@ -729,6 +744,11 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+17"/>
         <source>No loaded activity matches your search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Nothing new.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -777,12 +797,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>这里还没有内容。提及你、回复你以及对你的表情回应到达时会显示在这里。</translation>
     </message>
     <message>
-        <location line="-82"/>
+        <location line="-103"/>
         <source>Search loaded activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+295"/>
+        <location line="+316"/>
         <source>Threads activity</source>
         <translation>话题活动</translation>
     </message>
@@ -825,7 +845,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>提及</translation>
     </message>
     <message>
-        <location line="-664"/>
+        <location line="-685"/>
         <source>encrypted message</source>
         <translation>加密消息</translation>
     </message>
@@ -840,7 +860,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>打开关键词设置</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+121"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>尚未设置关键词。请在“设置”的“通知”中添加。</translation>
     </message>
@@ -860,8 +880,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+829"/>
-        <location line="+118"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+836"/>
+        <location line="+140"/>
         <source>Encrypted message</source>
         <translation type="unfinished">加密消息</translation>
     </message>
@@ -1003,7 +1023,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7320"/>
+        <location filename="../src/app/AppController.cpp" line="+7324"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -19451,19 +19471,21 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message numerus="yes">
         <location line="+126"/>
+        <location line="+634"/>
         <source>Activity, %n unseen</source>
         <translation>
             <numerusform>活动，%n 条未查看</numerusform>
         </translation>
     </message>
     <message>
+        <location line="-633"/>
         <location line="+1"/>
-        <location line="+1"/>
+        <location line="+633"/>
         <source>Activity</source>
         <translation>活动</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="-518"/>
         <source>Archived (%1)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27101,7 +27123,7 @@ Note: importing keys does not verify this session.</source>
         <translation>通话已被拒绝。</translation>
     </message>
     <message>
-        <location line="+499"/>
+        <location line="+500"/>
         <source>You</source>
         <translation type="unfinished">你</translation>
     </message>
@@ -27111,7 +27133,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">参加者</translation>
     </message>
     <message>
-        <location line="-4504"/>
+        <location line="-4505"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
