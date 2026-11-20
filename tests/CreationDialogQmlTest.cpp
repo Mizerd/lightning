@@ -132,8 +132,10 @@ public:
         const QString text = QString::fromUtf8(source);
         if (text.isEmpty())
             return text;
-        const int pad = qMax<qsizetype>(text.size(), 10);
-        return text + QLatin1Char(' ') + QString(pad - 1, QChar(0x0416));
+        QString padded = text;
+        while (padded.size() < qMax<qsizetype>(text.size() * 2, text.size() + 10))
+            padded += QStringLiteral(" Жжжжж");
+        return padded;
     }
 };
 
