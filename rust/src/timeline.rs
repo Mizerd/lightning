@@ -4655,7 +4655,7 @@ async fn annotate_room_gone_slots(room: &matrix_sdk::Room, mut slots: Vec<&mut s
         else {
             continue;
         };
-        crate::spoiler::learn_replied_spoiler(room, &id).await;
+        crate::spoiler::learn_cached_spoiler(room, &id).await;
         if crate::spoiler::replied_spoiler_state(id.as_str()) != Some(false) {
             if let Some(slot) = slot.as_object_mut() {
                 slot.remove("reply_to_media_key");

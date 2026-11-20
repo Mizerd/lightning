@@ -695,6 +695,35 @@ mod tests {
         assert!(value["items"][0].get("send_forbidden").is_none());
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn annotating_a_quote_never_waits_on_the_network() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                thread::spawn(move || {
+                    if read_request_line(&mut stream).contains("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK", r#"{"versions":["v1.1","v1.11"]}"#);
+                    } else {
+                        thread::sleep(Duration::from_secs(60));
+                    }
+                });
+            }
+        });
+        let (_client, room) = client_with_room(&format!("http://{addr}")).await;
+        let mut rows = vec![json!({
+            "reply_to_event_id": "$quoted:example.org", "reply_to_media_key": "k",
+        })];
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            crate::timeline::annotate_room_gone_rows(&room, &mut rows),
+        )
+        .await
+        .expect("a row emission must not wait on a server lookup");
+        assert!(rows[0].get("reply_to_media_key").is_none(), "unknown keeps the thumbnail hidden");
+    }
+
     #[tokio::test]
     async fn the_unread_mark_survives_one_dropped_connection() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");

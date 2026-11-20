@@ -77,29 +77,32 @@ pub(crate) fn forget_replied_spoiler(event_id: &str) {
     }
 }
 
-/// `EmbeddedEvent` carries no raw JSON, so a quote of an event the timeline
-/// has not loaded reads the marker from the event and its latest valid edit.
-/// A failed read stays unknown and is retried.
-pub(crate) async fn learn_replied_spoiler(room: &Room, event_id: &matrix_sdk::ruma::EventId) {
-    use matrix_sdk::ruma::events::relation::RelationType;
-    if replied_spoiler_state(event_id.as_str()).is_some() {
-        return;
+const FAILED_LOOKUPS_KEPT: usize = 512;
+const LOOKUP_RETRY: std::time::Duration = std::time::Duration::from_secs(300);
+const LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+static FAILED_LOOKUPS: Mutex<VecDeque<(String, std::time::Instant)>> = Mutex::new(VecDeque::new());
+
+fn lookup_failed_recently(event_id: &str) -> bool {
+    FAILED_LOOKUPS.lock().is_ok_and(|failed| {
+        failed.iter().any(|(k, at)| k == event_id && at.elapsed() < LOOKUP_RETRY)
+    })
+}
+
+fn note_lookup_failed(event_id: &str) {
+    if let Ok(mut failed) = FAILED_LOOKUPS.lock() {
+        failed.retain(|(k, _)| k != event_id);
+        if failed.len() >= FAILED_LOOKUPS_KEPT {
+            failed.pop_front();
+        }
+        failed.push_back((event_id.to_owned(), std::time::Instant::now()));
     }
-    let cached = match room.event_cache().await {
-        Ok((cache, _handles)) => cache
-            .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
-            .await
-            .ok()
-            .flatten(),
-        Err(_) => None,
-    };
-    let (event, edits) = match cached {
-        Some(found) => found,
-        None => match room.load_or_fetch_event(event_id, None).await {
-            Ok(event) => (event, Vec::new()),
-            Err(_) => return,
-        },
-    };
+}
+
+fn note_from_event(
+    event_id: &matrix_sdk::ruma::EventId,
+    event: &matrix_sdk::deserialized_responses::TimelineEvent,
+    edits: &[matrix_sdk::deserialized_responses::TimelineEvent],
+) {
     let latest_edit = edits
         .iter()
         .filter(|edit| {
@@ -122,6 +125,37 @@ pub(crate) async fn learn_replied_spoiler(room: &Room, event_id: &matrix_sdk::ru
         event_id.as_str(),
         redacted || event_spoiler(json.as_ref(), latest_edit.as_ref()).is_some(),
     );
+}
+
+/// Resolves a quoted event from the event cache only, never the network:
+/// this runs on every row emission. `false` while it stays unknown.
+pub(crate) async fn learn_cached_spoiler(room: &Room, event_id: &matrix_sdk::ruma::EventId) -> bool {
+    use matrix_sdk::ruma::events::relation::RelationType;
+    if replied_spoiler_state(event_id.as_str()).is_some() {
+        return true;
+    }
+    let Ok((cache, _handles)) = room.event_cache().await else { return false };
+    let Ok(Some((event, edits))) = cache
+        .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
+        .await
+    else {
+        return false;
+    };
+    note_from_event(event_id, &event, &edits);
+    true
+}
+
+/// `EmbeddedEvent` carries no raw JSON, so a quote of an event the timeline
+/// has not loaded reads the marker from the event and its latest valid edit.
+/// Background only: a failed fetch stays unknown and backs off.
+pub(crate) async fn learn_replied_spoiler(room: &Room, event_id: &matrix_sdk::ruma::EventId) {
+    if learn_cached_spoiler(room, event_id).await || lookup_failed_recently(event_id.as_str()) {
+        return;
+    }
+    match tokio::time::timeout(LOOKUP_TIMEOUT, room.load_or_fetch_event(event_id, None)).await {
+        Ok(Ok(event)) => note_from_event(event_id, &event, &[]),
+        _ => note_lookup_failed(event_id.as_str()),
+    }
 }
 
 pub(crate) const UNSTABLE_SPOILER: &str = "page.codeberg.everypizza.msc4193.spoiler";
