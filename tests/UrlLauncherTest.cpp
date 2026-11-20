@@ -112,6 +112,14 @@ private Q_SLOTS:
         QTest::newRow("search-ms") << "search-ms:query=x&crumb=location:\\\\evil" << false;
         QTest::newRow("ftp") << "ftp://example.org/" << false;
         QTest::newRow("empty mailto") << "mailto:" << false;
+        QTest::newRow("matrix media") << "https://hs.example/_matrix/media/v3/download/hs.example/abc" << false;
+        QTest::newRow("authenticated media") << "https://hs.example/_matrix/client/v1/media/download/hs.example/abc" << false;
+        QTest::newRow("media encoded") << "https://hs.example/%5Fmatrix/MEDIA/v3/thumbnail/x" << false;
+        QTest::newRow("access token query") << "https://example.org/x?a=1&access_token=syt_secret" << false;
+        QTest::newRow("access token encoded") << "https://example.org/x?access%5Ftoken=syt_secret" << false;
+        QTest::newRow("matrix client api") << "https://hs.example/_matrix/client/versions" << true;
+        QTest::newRow("media in word") << "https://example.org/docs/_matrix/mediawiki" << true;
+        QTest::newRow("query mentions token") << "https://example.org/search?q=access_token" << true;
     }
     void onlyWebAndMailSchemesAreOpenable()
     {

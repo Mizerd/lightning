@@ -2,6 +2,8 @@
 
 #include <QDesktopServices>
 #include <QProcess>
+#include <QRegularExpression>
+#include <QUrlQuery>
 
 namespace lightning::urls {
 
@@ -38,6 +40,28 @@ QProcessEnvironment childEnvironment()
     return env;
 }
 
+namespace {
+
+// A Matrix media URL may carry a credential (an access_token query, or an
+// authenticated media endpoint) that must not leave through the browser.
+bool isCredentialBearingMatrixUrl(const QUrl &url)
+{
+    static const QRegularExpression mediaPath(
+        QStringLiteral("/_matrix/(?:media|client/[^/]*/media)(?:/|$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (mediaPath.match(url.path(QUrl::FullyDecoded)).hasMatch())
+        return true;
+    const QUrlQuery query(url);
+    for (const auto &item : query.queryItems(QUrl::FullyDecoded)) {
+        if (item.first.compare(QLatin1String("access_token"),
+                               Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
+}
+
 bool isOpenableExternally(const QUrl &url)
 {
     if (!url.isValid() || url.isEmpty())
@@ -47,7 +71,8 @@ bool isOpenableExternally(const QUrl &url)
     // here, at the single exit to ShellExecute / xdg-open.
     const QString scheme = url.scheme().toLower();
     if (scheme == QLatin1String("http") || scheme == QLatin1String("https"))
-        return !url.host().isEmpty() && url.userInfo().isEmpty();
+        return !url.host().isEmpty() && url.userInfo().isEmpty()
+            && !isCredentialBearingMatrixUrl(url);
     if (scheme == QLatin1String("mailto"))
         return !url.path().isEmpty();
     return false;
