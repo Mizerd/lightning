@@ -19292,12 +19292,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Arsip</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">Terarsip (%1)</translation>
+        <translation>Terarsip (%1)</translation>
     </message>
 </context>
 <context>
@@ -32269,7 +32269,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[Spoiler]</translation>
     </message>
     <message>
         <location line="+14"/>

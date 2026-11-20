@@ -19366,12 +19366,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Arquivo</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">Arquivadas (%1)</translation>
+        <translation>Arquivadas (%1)</translation>
     </message>
 </context>
 <context>
@@ -32417,7 +32417,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[Spoiler]</translation>
     </message>
     <message>
         <location line="+14"/>

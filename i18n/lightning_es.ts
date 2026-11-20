@@ -19366,12 +19366,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Archivados</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">Archivados (%1)</translation>
+        <translation>Archivados (%1)</translation>
     </message>
 </context>
 <context>
@@ -32417,7 +32417,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[Spoiler]</translation>
     </message>
     <message>
         <location line="+14"/>

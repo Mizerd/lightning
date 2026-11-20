@@ -19440,12 +19440,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Архив</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">Архив (%1)</translation>
+        <translation>Архив (%1)</translation>
     </message>
 </context>
 <context>
@@ -32565,7 +32565,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[Спойлер]</translation>
     </message>
     <message>
         <location line="+14"/>

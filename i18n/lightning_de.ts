@@ -19366,12 +19366,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Archiv</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">Archiviert (%1)</translation>
+        <translation>Archiviert (%1)</translation>
     </message>
 </context>
 <context>
@@ -32417,7 +32417,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[Spoiler]</translation>
     </message>
     <message>
         <location line="+14"/>

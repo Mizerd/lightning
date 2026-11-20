@@ -19366,12 +19366,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished">আর্কাইভ</translation>
+        <translation>আর্কাইভ</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">আর্কাইভ করা (%1)</translation>
+        <translation>আর্কাইভ করা (%1)</translation>
     </message>
 </context>
 <context>
@@ -32417,7 +32417,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[স্পয়লার]</translation>
     </message>
     <message>
         <location line="+14"/>

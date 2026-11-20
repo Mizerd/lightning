@@ -19440,12 +19440,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Archyvas</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">Archyvuoti (%1)</translation>
+        <translation>Archyvuoti (%1)</translation>
     </message>
 </context>
 <context>
@@ -32565,7 +32565,7 @@ Pastaba: importavus raktus šis seansas nepatvirtinamas.</translation>
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[Spoileris]</translation>
     </message>
     <message>
         <location line="+14"/>

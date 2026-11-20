@@ -19366,12 +19366,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+11"/>
         <source>Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Archive</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Archived (%1)</source>
-        <translation type="unfinished">Archivés (%1)</translation>
+        <translation>Archivés (%1)</translation>
     </message>
 </context>
 <context>
@@ -32417,7 +32417,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+72"/>
         <source>[spoiler]</source>
-        <translation type="unfinished"></translation>
+        <translation>[Spoiler]</translation>
     </message>
     <message>
         <location line="+14"/>
