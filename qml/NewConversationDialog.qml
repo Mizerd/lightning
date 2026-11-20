@@ -381,6 +381,7 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth
                 objectName: "newConversationDmChip"
+                visible: root.mode !== "dm"
                 text: qsTr("New DM")
                 iconName: "chat_bubble"
                 onClicked: root.switchMode("dm")
@@ -389,6 +390,7 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth
                 objectName: "newConversationRoomChip"
+                visible: root.mode !== "room"
                 text: qsTr("New room")
                 iconName: "tag"
                 onClicked: root.switchMode("room")
@@ -397,6 +399,7 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth
                 objectName: "newConversationSpaceChip"
+                visible: root.mode !== "space"
                 text: qsTr("New space")
                 iconName: "workspaces"
                 onClicked: root.switchMode("space")
