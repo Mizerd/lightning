@@ -140,6 +140,23 @@ private slots:
         QVERIFY(plain.userIds.isEmpty());
     }
 
+    void expandEscapesMarkdownInDisplayNames()
+    {
+        const InsertResult r = buildInsertion(
+            QStringLiteral("hi @bo"), 3, 6, QStringLiteral("@bob:hs"),
+            QStringLiteral("Bob [away] `x` <y> & *z*"));
+        const Expansion e = expand(r.text, { r.ref });
+        QCOMPARE(e.body,
+                 QStringLiteral("hi [@Bob \\[away\\] \\`x\\` \\<y\\> \\& \\*z\\*]"
+                                "(https://matrix.to/#/%40bob%3Ahs) "));
+
+        const Recovery back = recoverFromBody(e.body);
+        QCOMPARE(back.text, r.text);
+        QCOMPARE(back.refs.size(), 1);
+        QCOMPARE(back.refs.at(0).displayText,
+                 QStringLiteral("@Bob [away] `x` <y> & *z*"));
+    }
+
     // Only a PICKED member becomes a ref. Typed "@name" text, even one that
     // equals a member's display name, carries no ref, so it expands to itself:
     // no matrix.to link and no m.mentions id (Element's behaviour).

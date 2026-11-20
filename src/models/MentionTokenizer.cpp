@@ -72,7 +72,10 @@ QString escapeLinkLabel(const QString &label)
     QString out;
     out.reserve(label.size());
     for (const QChar c : label) {
-        if (c == QLatin1Char('\\') || c == QLatin1Char(']'))
+        // A display name is not Markdown: an unescaped '[', '`' or '<' in it
+        // breaks the link and leaves part of the name outside the mention.
+        if (c.unicode() < 0x80 && (c.isPunct() || c.isSymbol())
+            && c != QLatin1Char('@'))
             out += QLatin1Char('\\');
         out += c;
     }
@@ -258,9 +261,10 @@ Recovery recoverFromBody(const QString &body)
             continue;
         }
 
+        static const QRegularExpression escaped(
+            QStringLiteral("\\\\([!-/:-@\\[-`{-~])"));
         QString label = m.captured(1);
-        label.replace(QLatin1String("\\]"), QLatin1String("]"));
-        label.replace(QLatin1String("\\\\"), QLatin1String("\\"));
+        label.replace(escaped, QStringLiteral("\\1"));
 
         text += body.mid(cursor, m.capturedStart() - cursor);
         MentionRef ref;
