@@ -3806,8 +3806,12 @@ async fn open_thread_list_task(
                 let (mut changed, relook) = match news {
                     Some(update) => apply_live_root_edits(&room, update, &tally).await,
                     None => {
-                        lock_tally(&tally).roots.clear();
-                        (false, true)
+                        // A missed update may have deleted the edit in use.
+                        let mut tally = lock_tally(&tally);
+                        tally.roots.clear();
+                        let had_edits = !tally.root_edits.is_empty();
+                        tally.root_edits.clear();
+                        (had_edits, true)
                     }
                 };
                 if relook {
