@@ -181,10 +181,11 @@ Item {
 
                     Label {
                         objectName: "stateActivityDayLabel"
+                        // The first day is already the summary's "since" day.
                         visible: root.spansDays
                                  && root.validDate(entryBlock.modelData.timestamp)
-                                 && (entryBlock.index === 0
-                                     || !root.validDate(root.entriesWithoutCalls[entryBlock.index - 1].timestamp)
+                                 && entryBlock.index > 0
+                                 && (!root.validDate(root.entriesWithoutCalls[entryBlock.index - 1].timestamp)
                                      || !root.sameCalendarDay(
                                          root.entriesWithoutCalls[entryBlock.index - 1].timestamp,
                                          entryBlock.modelData.timestamp))
