@@ -9,6 +9,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QRegularExpression>
 #include <QPointingDevice>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -790,6 +791,69 @@ private Q_SLOTS:
         QCOMPARE(replyList->property("contentY").toReal(), before);
     }
 
+    void theReplyBannerDoesNotHideTheNewestReply()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        const QString timelineId = MatrixClient::threadTimelineId(kGeneral, rootId);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$banner%1:mock.local").arg(i);
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("reply %1").arg(i);
+            e.timestamp = QDateTime::currentDateTimeUtc().addSecs(-(100 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(timelineId, events, 0);
+        QTRY_VERIFY_WITH_TIMEOUT(controller.thread()->model()->rowCount() >= 30,
+                                 kSignalTimeoutMs);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"), QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(400, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, kSignalTimeoutMs));
+        auto *replyList = root->findChild<QQuickItem *>(QStringLiteral("threadReplyList"));
+        auto *banner = root->findChild<QQuickItem *>(QStringLiteral("threadReplyBanner"));
+        QVERIFY(replyList && banner);
+        QTRY_VERIFY_WITH_TIMEOUT(replyList->property("count").toInt() >= 30, kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(replyList->property("followLatest").toBool(), kSignalTimeoutMs);
+        QTest::qWait(300);
+        const auto distanceFromEnd = [replyList] {
+            return replyList->property("originY").toReal()
+                + replyList->property("contentHeight").toReal()
+                - replyList->property("contentY").toReal() - replyList->height();
+        };
+        QTRY_VERIFY(distanceFromEnd() <= 8.5);
+
+        controller.thread()->beginReply(QStringLiteral("$banner29:mock.local"));
+        QTRY_VERIFY(banner->isVisible() && banner->height() > 0);
+        QTRY_VERIFY2(distanceFromEnd() <= 8.5,
+                     qPrintable(QStringLiteral("the newest reply ends %1 px below the list "
+                                               "once the reply banner shows")
+                                    .arg(distanceFromEnd())));
+    }
+
     void theThreadRootCollapsesToOneLineAndRemembersIt()
     {
         QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
@@ -840,6 +904,21 @@ private Q_SLOTS:
         QVERIFY(collapse->isVisible());
         QVERIFY(collapse->property("focusPolicy").toInt() & Qt::TabFocus);
         const qreal expandedHeight = card->height();
+
+        auto *rootDate = root->findChild<QQuickItem *>(QStringLiteral("threadRootDate"));
+        QVERIFY(rootDate);
+        const int clock = controller.settings()->clockFormat();
+        const auto restoreClock = qScopeGuard([&] {
+            controller.settings()->setClockFormat(clock);
+        });
+        const QRegularExpression ampm(QStringLiteral("\\b(AM|PM)$"),
+                                      QRegularExpression::CaseInsensitiveOption);
+        controller.settings()->setClockFormat(SettingsManager::kClockFormat12Hour);
+        QTRY_VERIFY2(ampm.match(rootDate->property("text").toString()).hasMatch(),
+                     qPrintable(rootDate->property("text").toString()));
+        controller.settings()->setClockFormat(SettingsManager::kClockFormat24Hour);
+        QTRY_VERIFY2(!ampm.match(rootDate->property("text").toString()).hasMatch(),
+                     qPrintable(rootDate->property("text").toString()));
 
         collapse->forceActiveFocus(Qt::TabFocusReason);
         QTest::keyClick(&window, Qt::Key_Space);

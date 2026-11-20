@@ -11,6 +11,7 @@
 #include <QTcpServer>
 #include <QtTest>
 
+#include <cmath>
 #include <memory>
 
 class ToolTipPlainTextQmlTest : public QObject
@@ -165,6 +166,68 @@ private Q_SLOTS:
         QVERIFY(sharedBorder && plainBorder);
         QCOMPARE(plainBorder->property("color").value<QColor>(),
                  sharedBorder->property("color").value<QColor>());
+    }
+
+    void aCappedWrappingToolTipStaysCentredOnItsAnchor()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+            import QtQuick.Window
+            import MatrixClient
+            Window {
+                width: 1400; height: 300; visible: true
+                property string names: "Alexandria Ocasio-Fernandez, Bartholomew Featherstonehaugh, Ce, Dagny, Esperanza Villalobos de la Cruz, Fritz, Guinevere Pendragon-Smythe, H, Ignatius, Jo and 5 others"
+                SharedToolTipGuard { }
+                Item {
+                    id: chip
+                    objectName: "chip"
+                    x: 600; y: 200; width: 50; height: 24
+                    PlainToolTip {
+                        objectName: "plain"; text: names; visible: true; delay: 0
+                        width: Math.min(implicitWidth, 320)
+                    }
+                }
+                Item {
+                    id: row
+                    objectName: "row"
+                    x: 600; y: 100; width: 50; height: 24
+                }
+                function showShared() { row.ToolTip.show(names + " " + names) }
+            }
+        )QML", QUrl(QStringLiteral("tooltipcentre.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *chip = root->findChild<QQuickItem *>(QStringLiteral("chip"));
+        auto *plain = root->findChild<QObject *>(QStringLiteral("plain"));
+        auto *row = root->findChild<QQuickItem *>(QStringLiteral("row"));
+        QVERIFY(chip && plain && row);
+        QTRY_VERIFY(plain->property("visible").toBool());
+        QTRY_VERIFY(plain->property("implicitWidth").toReal() > 400);
+        const auto offCentre = [](QObject *tip, QQuickItem *anchor) {
+            return std::abs(tip->property("x").toReal() + tip->property("width").toReal() / 2
+                            - anchor->width() / 2);
+        };
+        QTRY_VERIFY2(offCentre(plain, chip) <= 1.0,
+                     qPrintable(QStringLiteral("explicit tooltip x %1 width %2")
+                                    .arg(plain->property("x").toReal())
+                                    .arg(plain->property("width").toReal())));
+
+        QMetaObject::invokeMethod(root.get(), "showShared");
+        QQmlExpression tipExpr(qmlContext(row), row, QStringLiteral("ToolTip.toolTip"));
+        auto *shared = tipExpr.evaluate().value<QObject *>();
+        QVERIFY(shared);
+        QTRY_VERIFY(shared->property("visible").toBool());
+        QTRY_VERIFY(shared->property("width").toReal() < shared->property("implicitWidth").toReal());
+        QTRY_VERIFY2(offCentre(shared, row) <= 1.0,
+                     qPrintable(QStringLiteral("shared tooltip x %1 width %2")
+                                    .arg(shared->property("x").toReal())
+                                    .arg(shared->property("width").toReal())));
     }
 
     void theApplicationWindowCarriesTheGuard()

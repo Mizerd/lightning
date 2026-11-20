@@ -309,6 +309,28 @@ private slots:
         QCOMPARE(m_warnings, QStringList{});
     }
 
+    void theFooterOffersOnlyTheOtherModes()
+    {
+        const struct { const char *mode; const char *hidden; } cases[] = {
+            { "dm", "newConversationDmChip" },
+            { "room", "newConversationRoomChip" },
+            { "space", "newConversationSpaceChip" },
+        };
+        for (const auto &c : cases) {
+            openDialog(c.mode);
+            for (const char *chip : { "newConversationDmChip", "newConversationRoomChip",
+                                      "newConversationSpaceChip" }) {
+                auto *i = item(chip);
+                QVERIFY2(i, chip);
+                const bool shouldShow = qstrcmp(chip, c.hidden) != 0;
+                QTRY_VERIFY2(i->isVisible() == shouldShow,
+                             qPrintable(QStringLiteral("%1 in mode %2").arg(QLatin1String(chip),
+                                                                          QLatin1String(c.mode))));
+            }
+            closeDialog();
+        }
+    }
+
     void spaceTabInstantiatesNoEncryptionControl()
     {
         openDialog("space");

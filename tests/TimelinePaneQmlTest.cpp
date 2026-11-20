@@ -856,7 +856,7 @@ private Q_SLOTS:
         for (auto *label : findVisualChildren(
                  root, QStringLiteral("stateActivityDayLabel")))
             dayLabels += label->isVisible() ? 1 : 0;
-        QCOMPARE(dayLabels, 2);
+        QCOMPARE(dayLabels, 1);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 

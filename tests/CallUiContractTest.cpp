@@ -2616,6 +2616,9 @@ Item {
         const int back =
             norm.indexOf(QStringLiteral("objectName: \"callBackToGridButton\""));
         QVERIFY2(back >= 0, "the Back to grid control is gone");
+        QVERIFY2(norm.mid(qMax<qsizetype>(0, back - 80), 80)
+                     .contains(QStringLiteral("CallControlButton {")),
+                 "Back to grid is not a filled call control over the video");
         QVERIFY2(norm.mid(back, 400)
                      .contains(QStringLiteral("onClicked: root.leaveSpotlight()")),
                  "Back to grid does not go through the dismiss path");

@@ -922,6 +922,70 @@ private Q_SLOTS:
                                 .arg(cardRight).arg(pileLeft)));
     }
 
+    void theReceiptPileClearsTheBodyInRightToLeft()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("body"), longParagraph());
+        f.insert(QStringLiteral("readReceipts"), receipts(3));
+        f.insert(QStringLiteral("readReceiptsTotal"), 3);
+        Delegate d;
+        QVERIFY(build(app, f, d, 600));
+        QVERIFY(QQmlProperty(d.root, QStringLiteral("LayoutMirroring.childrenInherit"),
+                             qmlContext(d.root)).write(true));
+        QVERIFY(QQmlProperty(d.root, QStringLiteral("LayoutMirroring.enabled"),
+                             qmlContext(d.root)).write(true));
+        for (int i = 0; i < 6; ++i)
+            QCoreApplication::processEvents();
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        auto *pile = d.root->findChild<QQuickItem *>(QStringLiteral("readReceiptRow"));
+        QVERIFY2(body && body->width() > 0, "no message body in the row");
+        QVERIFY2(pile && pile->width() > 0, "no receipt facepile in the row");
+        QRectF b, p;
+        const auto apart = [&] {
+            b = body->mapRectToItem(d.root, QRectF(0, 0, body->width(), body->height()));
+            p = pile->mapRectToItem(d.root, QRectF(0, 0, pile->width(), pile->height()));
+            return p.right() <= b.left() + 0.5 || p.left() >= b.right() - 0.5;
+        };
+        QTRY_VERIFY2(apart(),
+                     qPrintable(QStringLiteral("the facepile %1..%2 is drawn over the body %3..%4")
+                                    .arg(p.left()).arg(p.right()).arg(b.left()).arg(b.right())));
+    }
+
+    void anEditedRootKeepsItsThreadSummaryBesideTheEditedMark_data()
+    {
+        QTest::addColumn<int>("rowWidth");
+        QTest::newRow("700") << 700;
+        QTest::newRow("1400") << 1400;
+    }
+    void anEditedRootKeepsItsThreadSummaryBesideTheEditedMark()
+    {
+        QFETCH(int, rowWidth);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("edited"), true);
+        f.insert(QStringLiteral("isThreadRoot"), true);
+        f.insert(QStringLiteral("threadReplyCount"), 2);
+        f.insert(QStringLiteral("threadLatestSender"), QStringLiteral("@c:mock.local"));
+        f.insert(QStringLiteral("threadLatestSenderDisplayName"), QStringLiteral("Cy"));
+        f.insert(QStringLiteral("threadLatestPreview"), QStringLiteral("short"));
+        f.insert(QStringLiteral("threadLatestTimestamp"), QDateTime::currentDateTimeUtc());
+        Delegate d;
+        QVERIFY(build(app, f, d, rowWidth));
+        auto *edited = findVisual(d.root, QStringLiteral("messageStatusText"));
+        auto *card = findVisual(d.root, QStringLiteral("threadSummaryCard"));
+        QVERIFY2(edited && edited->width() > 0, "no (edited) mark in the row");
+        QVERIFY2(card && card->width() > 0, "no thread summary card in the row");
+        const qreal gap = leftEdgeIn(card, d.root) - rightEdgeIn(edited, d.root);
+        QVERIFY2(gap >= 0 && gap <= 12,
+                 qPrintable(QStringLiteral("%1 px between (edited) and the thread summary")
+                                .arg(gap)));
+    }
+
     void aLongSenderNameElidesInsideTheHeaderCap_data()
     {
         QTest::addColumn<bool>("own");

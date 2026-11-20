@@ -12,6 +12,7 @@
 #include <QQuickWindow>
 #include <QSignalSpy>
 
+#include <cmath>
 #include <memory>
 
 class ChannelListFixesQmlTest : public QObject
@@ -36,6 +37,13 @@ import QtQuick
 QtObject {
     property QtObject roomList: QtObject {
         property bool roomFavouritesSupported: false
+    }
+    property QtObject voicePlayback: QtObject {
+        property real position: 1000
+        property real duration: 4000
+        property bool active: true
+        property string fetchState: ""
+        function seek(ms) {}
     }
     property QtObject roomInfo: QtObject {
         property string roomId: ""
@@ -179,6 +187,62 @@ true));
         QVERIFY(n.left() >= r.left() - 0.5);
         QVERIFY(!n.intersects(c));
         QVERIFY(n.width() > 20);
+    }
+    void aComboChevronMirrorsInRightToLeft()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("AppComboBox { objectName: \"subject\"; width: 200; "
+                                        "model: [\"One\", \"Two\"] }"),
+                      true));
+        auto *chevron = h.row->property("indicator").value<QQuickItem *>();
+        auto *label = h.row->property("contentItem").value<QQuickItem *>();
+        QVERIFY(chevron && label);
+        const QRectF c = sceneRect(chevron), r = sceneRect(h.row);
+        QVERIFY2(c.center().x() < r.center().x(),
+                 qPrintable(QStringLiteral("the chevron sits at %1 in a %2..%3 combo")
+                                .arg(c.center().x()).arg(r.left()).arg(r.right())));
+        QVERIFY2(label->property("leftPadding").toReal()
+                     > label->property("rightPadding").toReal(),
+                 "the text does not leave room for the chevron on the left");
+    }
+    void aSliderFillsFromTheTrailingEdgeInRightToLeft_data()
+    {
+        QTest::addColumn<bool>("rtl");
+        QTest::newRow("ltr") << false;
+        QTest::newRow("rtl") << true;
+    }
+    void aSliderFillsFromTheTrailingEdgeInRightToLeft()
+    {
+        QFETCH(bool, rtl);
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("VoiceSeekBar { objectName: \"subject\"; width: 200 }"),
+                      rtl));
+        auto *fill = named(h.row, "voiceSeekFill");
+        QVERIFY(fill);
+        auto *track = fill->parentItem();
+        QVERIFY(track);
+        QTRY_VERIFY(fill->width() > 0);
+        const qreal tw = track->width();
+        QVERIFY2(std::abs(fill->width() - tw * 0.25) <= 1.0,
+                 qPrintable(QStringLiteral("a quarter fills %1 of %2").arg(fill->width()).arg(tw)));
+        const qreal expectedX = rtl ? tw - fill->width() : 0;
+        QVERIFY2(std::abs(fill->x() - expectedX) <= 1.0,
+                 qPrintable(QStringLiteral("the fill starts at %1, expected %2")
+                                .arg(fill->x()).arg(expectedX)));
+    }
+    void aSpoilerCoverIsClippedToItsMediaCorners()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("SpoilerCover { objectName: \"subject\"; covered: true; "
+                                        "width: 200; height: 100; radius: 7 }")));
+        auto *blur = named(h.row, "spoilerBlur");
+        QVERIFY(blur);
+        QVERIFY2(blur->property("maskEnabled").toBool(),
+                 "the blurred cover is a square over a rounded picture");
+        auto *mask = blur->property("maskSource").value<QQuickItem *>();
+        QVERIFY(mask);
+        QCOMPARE(mask->property("radius").toReal(), 7.0);
+        QCOMPARE(mask->width(), h.row->width());
     }
     void aChannelRowMirrorsInRightToLeft()
     {
