@@ -1,5 +1,11 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-11-20 — ACCEPTED FOLLOW-UPS from the review of `fix-data-0107`
+
+- The threads-only room badge confirms itself from the room's event cache, so a room the server reports unread (and that the client claims is threads-only) creates its event cache if none exists. Thread replies are counted against our per-thread read receipts by timestamp, not by event order.
+- A skipped mention is fetched only when the highlight-gap tracker reports it; the tracker's first count after start-up and a room with backlog in the window report nothing, so those mentions still miss Activity.
+- A real change to the thread list (a re-sort after new activity) still replaces the QVariantList model and scrolls the list to its top; keeping the place there needs a list model or a contentY restore in the thread list QML.
+
 ## 2026-11-18 — FIXED (GitHub #51): a deep saved position restores through `/context`
 
 `restoreScrollAnchor` still walks the 8 cached pages first (a walked page is a

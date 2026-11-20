@@ -14030,6 +14030,7 @@ fn thread_only_held(
 }
 
 async fn held_unread_thread_messages(room: &Room) -> u64 {
+    use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
     let Some(receipt) = room.read_receipts().latest_active.map(|r| r.event_id) else {
         return 0;
     };
@@ -14037,7 +14038,7 @@ async fn held_unread_thread_messages(room: &Room) -> u64 {
         return 0;
     };
     let own = room.own_user_id().to_owned();
-    let mut held = 0u64;
+    let mut held: Vec<(OwnedEventId, u64)> = Vec::new();
     let mut walked = 0usize;
     let reached = cache
         .rfind_map_event_in_memory_by(|event| {
@@ -14055,9 +14056,10 @@ async fn held_unread_thread_messages(room: &Room) -> u64 {
             });
             if notifying
                 && raw.get_field::<OwnedUserId>("sender").ok().flatten().as_deref() != Some(&*own)
-                && matrix_sdk::serde_helpers::extract_thread_root(raw).is_some()
             {
-                held += 1;
+                if let Some(root) = matrix_sdk::serde_helpers::extract_thread_root(raw) {
+                    held.push((root, raw.get_field::<u64>("origin_server_ts").ok().flatten().unwrap_or(0)));
+                }
             }
             None
         })
@@ -14065,7 +14067,28 @@ async fn held_unread_thread_messages(room: &Room) -> u64 {
         .ok()
         .flatten()
         .unwrap_or(false);
-    if reached { held } else { 0 }
+    if !reached {
+        return 0;
+    }
+    let mut read_until: HashMap<OwnedEventId, u64> = HashMap::new();
+    let mut unread = 0u64;
+    for (root, ts) in held {
+        if !read_until.contains_key(&root) {
+            let mut cover = 0u64;
+            for kind in [ReceiptType::Read, ReceiptType::ReadPrivate] {
+                if let Ok(Some((_, r))) =
+                    room.load_user_receipt(kind, ReceiptThread::Thread(root.clone()), &own).await
+                {
+                    cover = cover.max(r.ts.map_or(0, |t| u64::from(t.get())));
+                }
+            }
+            read_until.insert(root.clone(), cover);
+        }
+        if read_until[&root] < ts {
+            unread += 1;
+        }
+    }
+    unread
 }
 
 pub(crate) fn redact_matrix_id(id: &str) -> String {
