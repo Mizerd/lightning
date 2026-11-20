@@ -7679,7 +7679,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+82"/>
         <source>Edit history</source>
         <translation>История правок</translation>
     </message>
