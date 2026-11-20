@@ -2609,6 +2609,7 @@ Item {
                                  && (model.status === 1 || model.status === 2))
                                 || model.edited === true || model.isThreadRoot === true
                         Layout.fillWidth: true
+                        Layout.rightMargin: root.receiptRailReserve
                         sourceComponent: RowLayout {
                             id: metaRow
                             readonly property Item statusItem: metaLabel
