@@ -33,6 +33,7 @@
 #include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
 #include "matrix/MockMatrixClient.h"
+#include "models/ActivityModel.h"
 #include "models/RoomListModel.h"
 #include "spaces/SpaceManager.h"
 
@@ -984,6 +985,64 @@ RoomsPanel { width: 64; height: 700 }
         QTRY_COMPARE(f.controller->roomList()->rowCount(), 1);
         f.controller->settings()->setRoomFilterMode(filterBefore);
         f.controller->roomList()->setRoomArchived(roomId, false);
+    }
+
+    void theCompactColumnKeepsTheActivityButtonAndItsUnseenState()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: 64; height: 700 }
+)QML", 64, 700));
+        QVERIFY(f.item->property("compact").toBool());
+        auto *activity = qobject_cast<ActivityModel *>(f.controller->activity());
+        QVERIFY(activity);
+        auto *button = byName(f.item.get(), QStringLiteral("compactActivityCenterButton"));
+        QVERIFY2(button, "the compact column has no Activity button");
+        QVERIFY(button->isVisible());
+        const QRectF bounds(button->mapToItem(f.item.get(), QPointF()), button->size());
+        QVERIFY2(bounds.left() >= -0.1 && bounds.top() >= -0.1 && bounds.right() <= 64.1
+                     && bounds.bottom() <= 700.1,
+                 qPrintable(QStringLiteral("the Activity button %1,%2 %3x%4 escapes the column")
+                                .arg(bounds.x()).arg(bounds.y()).arg(bounds.width())
+                                .arg(bounds.height())));
+        auto *list = byName(f.item.get(), QStringLiteral("compactClassicList"));
+        QVERIFY(list);
+        QVERIFY2(bounds.bottom() <= list->mapToItem(f.item.get(), QPointF()).y() + 0.1,
+                 "the Activity button overlaps the room avatars");
+
+        auto *dot = byName(button, QStringLiteral("compactActivityCenterDot"));
+        QVERIFY(dot);
+        activity->markAllSeen();
+        QTRY_COMPARE(activity->unseenCount(), 0);
+        QTRY_VERIFY(!dot->isVisible());
+        QVERIFY(!button->property("active").toBool());
+
+        RoomListModel *rooms = f.controller->roomList();
+        TimelineEvent mention;
+        mention.eventId = QStringLiteral("$compact-activity-mention");
+        mention.roomId = rooms->data(rooms->index(0), RoomListModel::RoomIdRole).toString();
+        mention.sender = QStringLiteral("@bob:mock.local");
+        mention.senderDisplayName = QStringLiteral("bob");
+        mention.body = QStringLiteral("@alice look");
+        mention.type = TimelineEvent::TextMessage;
+        mention.timestamp = QDateTime::currentDateTime();
+        mention.mentionsMe = true;
+        QVERIFY(activity->ingest(mention, QStringLiteral("Room")));
+        QTRY_VERIFY(activity->unseenCount() > 0);
+        QTRY_VERIFY(dot->isVisible());
+        QVERIFY(button->property("active").toBool());
+        const QRectF dotIn(dot->mapToItem(button, QPointF()), dot->size());
+        QVERIFY(QRectF(0, 0, button->width(), button->height()).contains(dotIn));
+
+        auto *dialog = f.item->findChild<QObject *>(QStringLiteral("activityCenterDialog"));
+        QVERIFY(dialog);
+        QVERIFY(!dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY2(f.item->property("compact").toBool(), "opening Activity expanded the list");
+        QMetaObject::invokeMethod(dialog, "close");
     }
 
     void aCompactRowsRightClickOffersTheRoomMenuAndArchives()

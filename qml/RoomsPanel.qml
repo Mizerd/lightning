@@ -1132,6 +1132,33 @@ Rectangle {
                 border.color: AppTheme.unreadDotRing
             }
         }
+        IconButton {
+            objectName: "compactActivityCenterButton"
+            Layout.alignment: Qt.AlignHCenter
+            visible: app.loggedIn && !!app.activity
+            iconName: "notifications"
+            active: !!app.activity && app.activity.unseenCount > 0
+            Accessible.name: active
+                             ? qsTr("Activity, %n unseen", "", app.activity.unseenCount)
+                             : qsTr("Activity")
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered
+            onClicked: activityPanel.openPanel()
+            Rectangle {
+                objectName: "compactActivityCenterDot"
+                visible: parent.active
+                width: 8
+                height: 8
+                radius: 4
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: AppTheme.spacing4
+                anchors.rightMargin: AppTheme.spacing4
+                color: AppTheme.bolt
+                border.width: AppTheme.badgeDotRingWidth
+                border.color: AppTheme.unreadDotRing
+            }
+        }
         Rectangle {
             Layout.fillWidth: true
             Layout.topMargin: AppTheme.spacing8
