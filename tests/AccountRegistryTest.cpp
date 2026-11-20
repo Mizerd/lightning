@@ -319,8 +319,24 @@ private Q_SLOTS:
         saveAlice(settings);
         saveBob(settings);
         saveCarol(settings);
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("archivedUnreadMarks/") + kAliceId,
+                         QVariantMap{{QStringLiteral("!r:one.example"), QStringLiteral("1,0")}});
+            raw.setValue(QStringLiteral("archivedUnreadMarks/") + kBobId,
+                         QVariantMap{{QStringLiteral("!r:one.example"), QStringLiteral("2,0")}});
+            raw.setValue(QStringLiteral("archivedUnreadMarks/@gone:one.example"),
+                         QVariantMap{{QStringLiteral("!r:one.example"), QStringLiteral("3,0")}});
+        }
 
         QVERIFY(settings.clearSessionForAccount(kAliceId));
+        {
+            QSettings raw;
+            QVERIFY2(!raw.contains(QStringLiteral("archivedUnreadMarks/") + kAliceId),
+                     "a removed account's archived room ids survived it");
+            QVERIFY(!raw.contains(QStringLiteral("archivedUnreadMarks/@gone:one.example")));
+            QVERIFY(raw.contains(QStringLiteral("archivedUnreadMarks/") + kBobId));
+        }
         QVERIFY(!settings.hasSavedAccount(kAliceId));
         QVERIFY(settings.accessTokenFor(kAliceId).isEmpty());
         QVERIFY(settings.hasSavedAccount(kBobId));

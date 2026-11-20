@@ -5509,7 +5509,13 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
         m_store->beginGroup(QLatin1String(kAccountsGroup));
         m_store->remove(slug);
         m_store->endGroup();
-        if (savedAccountUserIds().isEmpty())
+        const QStringList saved = savedAccountUserIds();
+        m_store->beginGroup(QStringLiteral("archivedUnreadMarks"));
+        for (const QString &uid : m_store->childKeys())
+            if (!saved.contains(uid))
+                m_store->remove(uid);
+        m_store->endGroup();
+        if (saved.isEmpty())
             forgetDeviceGlobalAccountResidue();
         Q_EMIT accountsChanged();
     }
