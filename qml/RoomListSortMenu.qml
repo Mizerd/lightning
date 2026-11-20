@@ -99,4 +99,24 @@ AppMenu {
         text: qsTr("Keep important rooms visible")
         onTriggered: app.spaceChannels.keepImportantRoomsVisible = !app.spaceChannels.keepImportantRoomsVisible
     }
+
+    readonly property bool channelsLayout: app.settings.roomNavigationLayout === 1
+    readonly property int archivedCount: root.channelsLayout ? app.spaceChannels.archivedCount
+                                                             : app.roomList.archivedCount
+    readonly property int archivedUnread: root.channelsLayout
+        ? app.spaceChannels.archivedUnreadCount : app.roomList.archivedUnreadCount
+    MenuSectionLabel {
+        visible: root.archivedCount > 0
+        text: qsTr("Archive")
+    }
+    // The filter strip shows an Archived chip only while it is selected, so
+    // this is the way in.
+    AppMenuItem {
+        objectName: "roomListShowArchivedItem"
+        visible: root.archivedCount > 0
+        iconName: "archive"
+        text: qsTr("Archived (%1)").arg(root.archivedCount)
+              + (root.archivedUnread > 0 ? " \u2022" : "")
+        onTriggered: app.settings.roomFilterMode = 5
+    }
 }

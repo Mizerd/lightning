@@ -619,8 +619,9 @@ Rectangle {
                 readonly property int archivedUnread: channelsLayout
                     ? app.spaceChannels.archivedUnreadCount
                     : app.roomList.archivedUnreadCount
-                readonly property bool archivedShown:
-                    archivedCount > 0 || current === 5
+                // Only while selected: a sixth chip overflows the strip at
+                // the default width; the options menu is the way in.
+                readonly property bool archivedShown: current === 5
                 readonly property var archivedChip: ({
                     label: qsTr("Archived (%1)").arg(archivedCount)
                            + (archivedUnread > 0 ? " \u2022" : ""),
