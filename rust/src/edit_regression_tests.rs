@@ -955,3 +955,76 @@ fn media_keys_outlive_a_room_switch_and_keep_their_privacy() {
     assert!(!registry.media_from_encrypted_room("$public"));
     assert!(registry.media_from_encrypted_room("$secret"));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_thread_list_shows_the_latest_edit_of_its_root() {
+    use matrix_sdk::deserialized_responses::TimelineEvent;
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| {
+            b.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: false,
+            })
+        })
+        .build()
+        .await;
+    client.event_cache().subscribe().unwrap();
+    sync(&client, vec![message("$before", "before", 500)], "1").await;
+
+    let mut root = message("$root", "original", 1000);
+    root["room_id"] = json!(ROOM);
+    root["unsigned"] = json!({"m.relations": {
+        "m.replace": edit("$bundled", "$root", "bundled edit", 1500)}});
+    server
+        .mock_room_threads()
+        .ok(vec![Raw::from_json_string(root.to_string()).unwrap()], None)
+        .mount()
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(TimelineEvent::from_plaintext(Raw::from_json_string(root.to_string()).unwrap()))
+        .mount()
+        .await;
+
+    let events: EventQueue = Arc::new(Mutex::new(VecDeque::new()));
+    let registry = Arc::new(TimelineRegistry::new(Arc::clone(&events)));
+    registry.thread_list_gen.store(1, Ordering::SeqCst);
+    *registry.active_thread_list.lock().unwrap() = Some(ActiveThreadList {
+        room_id: ROOM.to_owned(),
+        list_gen: 1,
+        service: None,
+        tally: Arc::default(),
+        task: None,
+        pagination_busy: Arc::new(AtomicBool::new(false)),
+    });
+    let lifecycle = registry.lifecycle_gen.load(Ordering::SeqCst);
+    let task = tokio::spawn(open_thread_list_task(
+        Arc::clone(&registry), client.clone(), ROOM.to_owned(), 1, lifecycle,
+        Arc::clone(&events)));
+    let preview = |v: &serde_json::Value| {
+        let text = v.to_string();
+        assert!(!text.contains("forged"), "a forged edit was shown: {v}");
+        assert!(!text.contains("\"stale\""), "an older edit replaced a newer one: {v}");
+        v["type"] == "thread_list_reset"
+            && v["items"][0]["root_event_id"] == "$root"
+            && v["items"][0]["root_preview"].as_str().is_some()
+    };
+
+    next_event(&events, |v| preview(v) && v["items"][0]["root_preview"] == "bundled edit").await;
+
+    sync(&client, vec![edit("$closed", "$root", "closed: original", 3000)], "2").await;
+    next_event(&events, |v| preview(v) && v["items"][0]["root_preview"] == "closed: original")
+        .await;
+
+    let mut forged = edit("$forged", "$root", "forged", 4000);
+    forged["sender"] = json!("@mallory:localhost");
+    sync(&client, vec![forged], "3").await;
+    sync(&client, vec![edit("$stale", "$root", "stale", 2000)], "4").await;
+    sync(&client, vec![edit("$final", "$root", "final", 5000)], "5").await;
+    let last = next_event(&events, |v| preview(v) && v["items"][0]["root_preview"] == "final")
+        .await;
+    assert_eq!(last["items"][0]["root_sender"], SENDER);
+    task.abort();
+}

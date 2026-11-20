@@ -72,8 +72,18 @@ ThreadController::ThreadController(QObject *parent)
     connect(&m_model, &TimelineModel::dataChanged, this,
             [this](const QModelIndex &topLeft, const QModelIndex &bottomRight,
                    const QList<int> &roles) {
+                static const QList<int> rootRoles{
+                    TimelineModel::ThreadReplyCountRole,
+                    TimelineModel::BodyRole,
+                    TimelineModel::FormattedBodyRole,
+                    TimelineModel::EditedRole,
+                    TimelineModel::RedactedRole,
+                    TimelineModel::UndecryptableRole};
                 if (!roles.isEmpty()
-                    && !roles.contains(TimelineModel::ThreadReplyCountRole))
+                    && std::none_of(roles.cbegin(), roles.cend(),
+                                    [](int role) {
+                                        return rootRoles.contains(role);
+                                    }))
                     return;
                 const auto &events = m_model.events();
                 const int lo = qMax(0, topLeft.row());
@@ -199,8 +209,17 @@ void ThreadController::setClient(MatrixClient *client)
         // model has not loaded the root row.
         connect(m_client, &MatrixClient::eventChangedAt, this,
                 [this](const QString &roomId, int, const TimelineEvent &event) {
-                    if (roomId == m_roomId && event.eventId == m_rootEventId)
-                        notifyReplyCountIfChanged();
+                    if (roomId != m_roomId || event.eventId != m_rootEventId)
+                        return;
+                    notifyReplyCountIfChanged();
+                    if (m_model.rowForStableId(m_rootEventId) < 0)
+                        Q_EMIT rootInfoChanged();
+                });
+        connect(m_client, &MatrixClient::eventEdited, this,
+                [this](const QString &roomId, const QString &eventId) {
+                    if (roomId == m_roomId && eventId == m_rootEventId
+                        && m_model.rowForStableId(m_rootEventId) < 0)
+                        Q_EMIT rootInfoChanged();
                 });
         connect(m_client, &MatrixClient::roomsChanged, this,
                 &ThreadController::refreshRoomThreadUnread);

@@ -500,6 +500,27 @@ private Q_SLOTS:
         QCOMPARE(rootSpy.count(), 1);
     }
 
+    void anEditedRootAnnouncesItself()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        const QString composite =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        QVERIFY2(controller.model()->rowForStableId(rootId) >= 0,
+                 "fixture assumption: the root is a row");
+
+        QSignalSpy rootSpy(&controller, &ThreadController::rootInfoChanged);
+        client.editMessage(composite, rootId,
+                           QStringLiteral("closed: the root"));
+        QVERIFY(rootSpy.count() >= 1);
+        QCOMPARE(controller.rootInfo().value(QStringLiteral("body")).toString(),
+                 QStringLiteral("closed: the root"));
+    }
+
     void mockBackendSupportsThreadTimelines()
     {
         MockMatrixClient client;
