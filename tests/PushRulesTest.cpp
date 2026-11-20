@@ -810,6 +810,17 @@ Item {
               "troubleshooterRunButton", "troubleshooterTestButton"}) {
             QVERIFY2(find(name) != nullptr, name);
         }
+        auto *keywordLevel = qobject_cast<QQuickItem *>(find("pushKeywordLevelCombo"));
+        QVERIFY(keywordLevel != nullptr);
+        for (int i = 0; i < 3; ++i) {
+            keywordLevel->setProperty("currentIndex", i);
+            auto *label = keywordLevel->property("contentItem").value<QQuickItem *>();
+            QVERIFY(label != nullptr);
+            QTRY_VERIFY2(!label->property("truncated").toBool(),
+                         qPrintable(QStringLiteral("level %1 is elided in a %2 px combo")
+                                        .arg(i).arg(keywordLevel->width())));
+        }
+        keywordLevel->setProperty("currentIndex", 1);
         auto *username = find("pushMentionUsernameCombo");
         QVERIFY(username != nullptr);
         QVERIFY(!username->property("visible").toBool()
