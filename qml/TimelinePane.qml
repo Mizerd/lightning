@@ -3596,7 +3596,7 @@ Rectangle {
                     var previewText = timelineModel.replyPreviewForEvent(eventId)
                     app.composer.beginReply(eventId,
                         details.senderName || details.senderId,
-                        (previewText || "").substring(0, 80),
+                        (previewText || "").substring(0, 320),
                         timelineModel.mediaKeyForEvent(eventId),
                         timelineModel.threadRepliesInline === true
                             ? (details.threadRootId || "") : "")

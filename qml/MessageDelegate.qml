@@ -884,7 +884,7 @@ Item {
         }
         var previewText = root.timelineModel.replyPreviewForEvent(eventId)
         app.composer.beginReply(eventId, details.senderName || details.senderId,
-                                (previewText || "").substring(0, 80),
+                                (previewText || "").substring(0, 320),
                                 root.timelineModel.mediaKeyForEvent(eventId),
                                 root.threadInline ? (details.threadRootId || "")
                                                   : "")
