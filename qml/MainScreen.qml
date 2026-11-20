@@ -551,6 +551,10 @@ Item {
         if (app.thread && app.thread.model && app.thread.model.setMentionStyle)
             app.thread.model.setMentionStyle(accent, soft, code, linkInk,
                                              AppTheme.underlineLinks)
+        if (app.eventContext && app.eventContext.model
+                && app.eventContext.model.setMentionStyle)
+            app.eventContext.model.setMentionStyle(accent, soft, code, linkInk,
+                                                   AppTheme.underlineLinks)
         var bar = "" + AppTheme.borderStrong
         var ink = "" + AppTheme.textSecondary
         if (app.timeline && app.timeline.setQuoteStyle)
@@ -563,6 +567,12 @@ Item {
             app.timeline.setSpoilerStyle(spoiler)
         if (app.thread && app.thread.model && app.thread.model.setSpoilerStyle)
             app.thread.model.setSpoilerStyle(spoiler)
+        if (app.eventContext && app.eventContext.model
+                && app.eventContext.model.setQuoteStyle)
+            app.eventContext.model.setQuoteStyle(bar, ink)
+        if (app.eventContext && app.eventContext.model
+                && app.eventContext.model.setSpoilerStyle)
+            app.eventContext.model.setSpoilerStyle(spoiler)
     }
     Component.onCompleted: {
         applyDirection()

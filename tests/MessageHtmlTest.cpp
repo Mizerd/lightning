@@ -400,6 +400,17 @@ private Q_SLOTS:
         QVERIFY(out.contains(QStringLiteral("</span></a>")));
     }
 
+    void aSpoilerStaysCoveredWithoutAThemedCover()
+    {
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral("<span data-mx-spoiler>the twist</span>"),
+            nullptr, QString(), {}, false);
+        QVERIFY2(out.contains(QStringLiteral(
+                     "background-color:#808080;color:#808080")),
+                 qPrintable(out));
+        QVERIFY(out.contains(QStringLiteral("href=\"spoiler:toggle\"")));
+    }
+
     void aRevealedSpoilerKeepsTheBackgroundButShowsTheText()
     {
         const MessageHtml::MentionStyle style{

@@ -1116,10 +1116,14 @@ QString MessageHtml::sanitize(
                 out += QStringLiteral(
                     "<a href=\"spoiler:toggle\" "
                     "style=\"text-decoration:none\">");
-                if (!revealSpoilers && !hiddenCover.isEmpty()) {
+                if (!revealSpoilers) {
+                    // Concealment must not depend on a theme having been pushed.
+                    const QString slab = hiddenCover.isEmpty()
+                        ? QStringLiteral("#808080")
+                        : hiddenCover.toHtmlEscaped();
                     out += QStringLiteral("<span style=\"background-color:")
-                        + hiddenCover.toHtmlEscaped() + QStringLiteral(";color:")
-                        + hiddenCover.toHtmlEscaped() + QStringLiteral("\">");
+                        + slab + QStringLiteral(";color:") + slab
+                        + QStringLiteral("\">");
                 } else if (!cover.isEmpty()) {
                     out += QStringLiteral("<span style=\"background-color:")
                         + cover.toHtmlEscaped() + QStringLiteral("\">");
