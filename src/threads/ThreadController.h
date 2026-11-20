@@ -226,8 +226,11 @@ private:
     QString timelineId() const;
     bool dispatchAttachments();
     void dispatchAttachment(int row);
+    void dispatchEntry(AttachmentQueueModel::Entry &entry, const QString &roomId,
+                       const QString &rootEventId);
     void pumpAttachments();
     void parkAttachments();
+    void pumpParked(const QString &key);
 
     struct VoiceOp {
         QString localPath;
@@ -246,6 +249,7 @@ private:
     AttachmentQueueModel *m_attachments = nullptr;
     // Trays of the threads not on screen, by timelineId(); memory only.
     QHash<QString, QList<AttachmentQueueModel::Entry>> m_parkedAttachments;
+    QHash<QString, std::pair<QString, QString>> m_parkedTargets;
     State m_state = Closed;
     bool m_traceEnabled = false;
     quint64 m_traceGeneration = 0;

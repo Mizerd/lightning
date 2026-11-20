@@ -507,10 +507,11 @@ void AttachmentQueueModel::finishSvgConversion(
     const QString &tag, const lightning::svgraster::Result &result)
 {
     namespace svg = lightning::svgraster;
-    const int row = rowForPosterTag(tag);
-    if (row < 0)
+    int row = -1;
+    Entry *found = entryForTag(tag, &row);
+    if (!found)
         return;
-    Entry &entry = m_entries[row];
+    Entry &entry = *found;
     if (!entry.posterPending)
         return;
     entry.posterPending = false;
@@ -518,8 +519,7 @@ void AttachmentQueueModel::finishSvgConversion(
         entry.state = QStringLiteral("failed");
         entry.error = message;
         entry.retryable = retryable;
-        updateEntry(row);
-        Q_EMIT entryPrepared(row);
+        notifyPrepared(row);
     };
     if (!result.refusal.isEmpty()) {
         qCInfo(lcAttach) << "svg conversion refused reason="
@@ -562,8 +562,7 @@ void AttachmentQueueModel::finishSvgConversion(
     entry.animated = false;
     entry.error.clear();
     entry.retryable = true;
-    updateEntry(row);
-    Q_EMIT entryPrepared(row);
+    notifyPrepared(row);
 }
 
 int AttachmentQueueModel::rowForPosterTag(const QString &tag) const
@@ -575,16 +574,35 @@ int AttachmentQueueModel::rowForPosterTag(const QString &tag) const
     return -1;
 }
 
+AttachmentQueueModel::Entry *AttachmentQueueModel::entryForTag(const QString &tag, int *row)
+{
+    *row = rowForPosterTag(tag);
+    if (*row >= 0)
+        return &m_entries[*row];
+    return m_takenLookup ? m_takenLookup(tag) : nullptr;
+}
+
+void AttachmentQueueModel::notifyPrepared(int row)
+{
+    if (row < 0) {
+        Q_EMIT takenEntryPrepared();
+        return;
+    }
+    updateEntry(row);
+    Q_EMIT entryPrepared(row);
+}
+
 void AttachmentQueueModel::applyPoster(const QString &tag,
                                        const QByteArray &poster,
                                        const QSize &posterSize,
                                        const QSize &sourceSize,
                                        qint64 durationMs)
 {
-    const int row = rowForPosterTag(tag);
-    if (row < 0)
+    int row = -1;
+    Entry *found = entryForTag(tag, &row);
+    if (!found)
         return;
-    Entry &entry = m_entries[row];
+    Entry &entry = *found;
     if (!entry.posterPending)
         return;
     entry.posterPending = false;
@@ -599,7 +617,7 @@ void AttachmentQueueModel::applyPoster(const QString &tag,
     }
     if (durationMs > 0)
         entry.durationMs = durationMs;
-    Q_EMIT entryPrepared(row);
+    notifyPrepared(row);
 }
 
 QString AttachmentQueueModel::addImageData(const QByteArray &bytes,

@@ -147,10 +147,14 @@ public:
     void applyPoster(const QString &tag, const QByteArray &poster,
                      const QSize &posterSize, const QSize &sourceSize,
                      qint64 durationMs);
+    // Where a poster or conversion lands for an entry taken out by takeAll().
+    using TakenEntryLookup = std::function<Entry *(const QString &tag)>;
+    void setTakenEntryLookup(TakenEntryLookup lookup) { m_takenLookup = std::move(lookup); }
 
 Q_SIGNALS:
     void countChanged();
     void entryPrepared(int row);
+    void takenEntryPrepared();
 
 private:
     void startPosterJob(int row);
@@ -169,6 +173,9 @@ private:
     QList<Entry> m_entries;
     VideoPosterExtractor *m_posterExtractor = nullptr;
     PosterRequestHook m_posterHook;
+    TakenEntryLookup m_takenLookup;
+    Entry *entryForTag(const QString &tag, int *row);
+    void notifyPrepared(int row);
     quint64 m_nextPosterTag = 1;
     std::unique_ptr<QTemporaryDir> m_convertedDir;
     quint64 m_nextConverted = 1;

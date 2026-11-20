@@ -92,6 +92,28 @@ public:
     }
 };
 
+class OrderedThreadClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    QStringList sends;
+    quint64 next = 600;
+    quint64 sendThreadAttachment(const QString &, const QString &, const QString &,
+                                 const QString &mime, const QString &, int, int, bool,
+                                 qint64, const QString &) override
+    {
+        sends << mime;
+        return ++next;
+    }
+    quint64 sendThreadVideo(const QString &, const QString &, const QString &,
+                            const QString &mime, const QString &, int, int, qint64,
+                            const QByteArray &, int, int, const QString &) override
+    {
+        sends << mime;
+        return ++next;
+    }
+};
+
 class JoinOpClient final : public MockMatrixClient
 {
     Q_OBJECT
@@ -1552,6 +1574,43 @@ private Q_SLOTS:
             if (e.type == TimelineEvent::Image && e.threadRootId == rootId)
                 ++inThread;
         QVERIFY(inThread >= 3);
+    }
+
+    void aClosedThreadKeepsItsTrayOrderBehindAVideoAwaitingItsPoster()
+    {
+        OrderedThreadClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString tag;
+        controller.attachments()->setPosterRequestHook(
+            [&tag](const QString &t, const QString &) { tag = t; });
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QTemporaryDir dir;
+        QFile video(dir.filePath(QStringLiteral("clip.mp4")));
+        QVERIFY(video.open(QIODevice::WriteOnly));
+        video.write(QByteArray::fromHex(
+            "000000206674797069736f6d0000020069736f6d69736f32617663316d703431"));
+        video.close();
+        const QString still = dir.filePath(QStringLiteral("still.png"));
+        QVERIFY(QImage(4, 4, QImage::Format_RGB32).save(still, "PNG"));
+        controller.addAttachment(QUrl::fromLocalFile(video.fileName()));
+        controller.addAttachment(QUrl::fromLocalFile(still));
+        QCOMPARE(controller.attachments()->rowCount(), 2);
+        QVERIFY(!tag.isEmpty());
+
+        controller.sendText(QString{});
+        QVERIFY(client.sends.isEmpty());
+        controller.close();
+        QVERIFY2(client.sends.isEmpty(), "a later file overtook the video awaiting its poster");
+        controller.attachments()->applyPoster(tag, {}, {}, {}, 1000);
+        QCOMPARE(client.sends, QStringList{QStringLiteral("video/mp4")});
+        Q_EMIT client.attachmentQueueFinished(client.next, kGeneral, true, {});
+        QCOMPARE(client.sends,
+                 (QStringList{QStringLiteral("video/mp4"), QStringLiteral("image/png")}));
     }
 
     void aThreadPhotoLeavesWithoutItsLocation()

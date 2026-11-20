@@ -35,6 +35,19 @@ ThreadController::ThreadController(QObject *parent)
             [this] { Q_EMIT attachmentsChanged(); });
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
             this, &ThreadController::pumpAttachments);
+    m_attachments->setTakenEntryLookup(
+        [this](const QString &tag) -> AttachmentQueueModel::Entry * {
+            for (auto &entries : m_parkedAttachments)
+                for (auto &entry : entries)
+                    if (entry.posterTag == tag)
+                        return &entry;
+            return nullptr;
+        });
+    connect(m_attachments, &AttachmentQueueModel::takenEntryPrepared, this, [this] {
+        const QStringList keys = m_parkedAttachments.keys();
+        for (const QString &key : keys)
+            pumpParked(key);
+    });
     m_draftDebounce.setSingleShot(true);
     m_draftDebounce.setInterval(1000);
     connect(&m_draftDebounce, &QTimer::timeout, this,
@@ -822,14 +835,17 @@ void ThreadController::pumpAttachments()
 
 void ThreadController::dispatchAttachment(int row)
 {
-    if (!m_client || m_state != Ready || m_roomId.isEmpty()
-        || m_rootEventId.isEmpty())
+    if (m_state != Ready || row < 0 || row >= m_attachments->entries().size())
         return;
-    auto &entries = m_attachments->entries();
-    if (row < 0 || row >= entries.size())
-        return;
-    auto &entry = entries[row];
-    if (entry.state != QLatin1String("queued") || !entry.sendRequested
+    dispatchEntry(m_attachments->entries()[row], m_roomId, m_rootEventId);
+    m_attachments->updateEntry(row);
+}
+
+void ThreadController::dispatchEntry(AttachmentQueueModel::Entry &entry,
+                                     const QString &roomId, const QString &rootEventId)
+{
+    if (!m_client || roomId.isEmpty() || rootEventId.isEmpty()
+        || entry.state != QLatin1String("queued") || !entry.sendRequested
         || entry.posterPending)
         return;
     quint64 opId = 0;
@@ -845,30 +861,29 @@ void ThreadController::dispatchAttachment(int row)
         entry.error = tr("Photo details could not be removed from this image, "
                          "so it was not sent. You can change this under "
                          "Settings, Privacy.");
-        m_attachments->updateEntry(row);
         return;
     }
     if (entry.spoiler) {
         opId = entry.isSvg ? 0 : m_client->sendSpoilerMedia(
-            m_roomId, m_rootEventId,
+            roomId, rootEventId,
             entry.localPath.isEmpty() ? QString() : sendPath, sendData,
             entry.fileName, entry.mime, QString(), entry.width, entry.height,
             entry.durationMs, entry.animated, entry.poster, entry.posterWidth,
             entry.posterHeight, entry.replyToEventId);
     } else if (entry.localPath.isEmpty()) {
         opId = m_client->sendThreadAttachmentBytes(
-            m_roomId, m_rootEventId, sendData, entry.fileName, entry.mime,
+            roomId, rootEventId, sendData, entry.fileName, entry.mime,
             entry.width, entry.height, entry.replyToEventId);
     } else if (entry.isVideo) {
         opId = m_client->sendThreadVideo(
-            m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
+            roomId, rootEventId, entry.localPath, entry.mime, QString(),
             entry.width, entry.height, entry.durationMs, entry.poster,
             entry.posterWidth, entry.posterHeight, entry.replyToEventId);
     } else if (entry.isSvg) {
         opId = 0;
     } else {
         opId = m_client->sendThreadAttachment(
-            m_roomId, m_rootEventId, sendPath, entry.mime, QString(),
+            roomId, rootEventId, sendPath, entry.mime, QString(),
             entry.width, entry.height, entry.animated, entry.durationMs,
             entry.replyToEventId);
     }
@@ -880,10 +895,9 @@ void ThreadController::dispatchAttachment(int row)
         entry.state = QStringLiteral("dispatching");
         entry.opId = opId;
         entry.committed = true;
-        entry.threadRootId = m_rootEventId;
+        entry.threadRootId = rootEventId;
         m_imagePrep.track(opId, strippedSub);
     }
-    m_attachments->updateEntry(row);
 }
 
 void ThreadController::sendVoiceMessage(const QString &localPath,
@@ -973,6 +987,7 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
                     && MatrixClient::threadTimelineId(roomId, entry.threadRootId)
                            != it.key()))
                 continue;
+            const QString key = it.key();
             if (ok) {
                 m_attachments->discardEntries({entry});
                 it.value().removeAt(row);
@@ -983,6 +998,7 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
                 entry.error = tr("Upload failed. Retry or remove.");
                 entry.opId = 0;
             }
+            pumpParked(key);
             return;
         }
     }
@@ -990,19 +1006,37 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
 
 void ThreadController::parkAttachments()
 {
-    // Rows already sent go now, to the thread they were sent from.
-    auto &pending = m_attachments->entries();
-    for (int row = 0; row < pending.size(); ++row) {
-        if (pending[row].state == QLatin1String("queued")
-            && pending[row].sendRequested)
-            dispatchAttachment(row);
-    }
     const QList<AttachmentQueueModel::Entry> entries = m_attachments->takeAll();
     const QString key = timelineId();
-    if (key.isEmpty())
+    if (key.isEmpty()) {
         m_attachments->discardEntries(entries);
-    else if (!entries.isEmpty())
-        m_parkedAttachments[key].append(entries);
+        return;
+    }
+    if (entries.isEmpty())
+        return;
+    m_parkedAttachments[key].append(entries);
+    m_parkedTargets.insert(key, {m_roomId, m_rootEventId});
+    pumpParked(key);
+}
+
+// Rows already sent keep going while the thread is closed, in the same order.
+void ThreadController::pumpParked(const QString &key)
+{
+    const auto it = m_parkedAttachments.find(key);
+    if (it == m_parkedAttachments.end())
+        return;
+    const auto [roomId, rootEventId] = m_parkedTargets.value(key);
+    for (auto &entry : it.value()) {
+        if (entry.state == QLatin1String("dispatching"))
+            return;
+        if (entry.state != QLatin1String("queued") || !entry.sendRequested)
+            continue;
+        if (entry.posterPending)
+            return;
+        dispatchEntry(entry, roomId, rootEventId);
+        if (entry.state == QLatin1String("dispatching"))
+            return;
+    }
 }
 
 void ThreadController::discardAllAttachments()
@@ -1011,6 +1045,7 @@ void ThreadController::discardAllAttachments()
     for (const auto &entries : std::as_const(m_parkedAttachments))
         m_attachments->discardEntries(entries);
     m_parkedAttachments.clear();
+    m_parkedTargets.clear();
 }
 
 void ThreadController::beginReply(const QString &eventId)
