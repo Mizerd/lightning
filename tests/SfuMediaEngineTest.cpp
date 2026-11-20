@@ -7016,10 +7016,13 @@ true);
             guint latency = 0;
             gint retryTimeout = 0;
             gint maxRetries = 0;
+            gint minRetryTimeout = 0;
             g_object_get(jitterbuffer, "do-retransmission", &retransmit,
                          "latency", &latency, "rtx-retry-timeout", &retryTimeout,
+                         "rtx-min-retry-timeout", &minRetryTimeout,
                          "rtx-max-retries", &maxRetries, nullptr);
             gst_object_unref(jitterbuffer);
+            QVERIFY2(minRetryTimeout == want.retryTimeout, qPrintable(QString::number(want.ssrc)));
             QVERIFY2(retryTimeout == want.retryTimeout, qPrintable(QString::number(want.ssrc)));
             QVERIFY2(maxRetries == want.maxRetries, qPrintable(QString::number(want.ssrc)));
             QVERIFY2(bool(retransmit) == want.retransmit, qPrintable(QString::number(want.ssrc)));

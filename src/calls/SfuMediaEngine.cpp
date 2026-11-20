@@ -6400,6 +6400,12 @@ void SfuMediaEngine::onNewJitterbuffer(GstElement *rtpbin,
         && g_object_class_find_property(klass, "rtx-retry-timeout"))
         g_object_set(jitterbuffer, "rtx-retry-timeout", choice.retryTimeoutMs,
                      nullptr);
+    // Its automatic floor is the frame interval, which on a slow share would
+    // stretch the retries back past the retry period.
+    if (choice.retryTimeoutMs > 0
+        && g_object_class_find_property(klass, "rtx-min-retry-timeout"))
+        g_object_set(jitterbuffer, "rtx-min-retry-timeout", choice.retryTimeoutMs,
+                     nullptr);
     if (choice.maxRetries > 0
         && g_object_class_find_property(klass, "rtx-max-retries"))
         g_object_set(jitterbuffer, "rtx-max-retries", choice.maxRetries, nullptr);

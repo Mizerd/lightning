@@ -1426,7 +1426,11 @@ then never moves, because no resend arrives to correct it. With a 400 ms latency
 that leaves a retry window of about 100 ms: one NACK per gap, about 16 ms after
 it, which LiveKit always ignores. The video jitterbuffer now retries every 40 ms,
 at most eight times, so the fourth NACK, about 137 ms after the gap, is the first
-LiveKit answers.
+LiveKit answers (it resends one packet at most three times). Its minimum retry
+interval is pinned to the same 40 ms: left automatic it is the packet spacing,
+about the frame interval, so a slow share (a mostly static screen at a few fps)
+would stretch the retries past the retry window again. That pin is reasoned, not
+measured; the rig shares ran at 30 fps.
 
 Measured on a quiet host (1440p VP8 share, 1.5% SFU -> viewer loss, 60 s
 windows, fps counted at the video sink):
