@@ -1419,15 +1419,31 @@ jitterbuffer at once, so only a frame behind a gap waits longer. With the
 longer latency the existing keyframe request follows only a gap the
 jitterbuffer gave up on, after its resends.
 
-Measured on the rig at 1.5% SFU -> viewer loss (a 1440p VP8 share, host
-loaded): before, 331 packets lost in 60 s, 180 PLIs,
-no RTX on the wire, under 11 fps. After, two runs (audio section first) lost
-11-12, sent 8-9 PLIs, recovered 214-342 resends and ran at about 28 fps; a
-third (video section first) lost 105, sent 61 PLIs, recovered 224 and ran at
-about 15 fps, NOT explained, on the same loaded host. Received audio, measured
-end to end with tone bursts, stayed at 245-270 ms. Two later runs on a host
-saturated by another process lost packets even with no netem and are not
-comparable. A clean-host repeat is still owed.
+That turned retransmission on but did not make it work. The jitterbuffer's
+automatic retry interval is its measured resend RTT plus twice the jitter, and
+the late original packets around a join set that estimate to about 300 ms. It
+then never moves, because no resend arrives to correct it. With a 400 ms latency
+that leaves a retry window of about 100 ms: one NACK per gap, about 16 ms after
+it, which LiveKit always ignores. The video jitterbuffer now retries every 40 ms,
+at most eight times, so the fourth NACK, about 137 ms after the gap, is the first
+LiveKit answers.
+
+Measured on a quiet host (1440p VP8 share, 1.5% SFU -> viewer loss, 60 s
+windows, fps counted at the video sink):
+
+| Viewer build | fps | lost | PLIs | resends recovered |
+|---|---|---|---|---|
+| before, audio section first | 10.0 | 324 | 184 | 0 |
+| before, video section first | 11.1 | 326 | 176 | 0 (no NACKs) |
+| first fix, three sessions | 8.5-9.3 | 288-306 | 134-143 | 0 |
+| first fix, a fourth session whose RTT estimate settled at 90 ms | 29.0 | 7 | 6 | 307 |
+| retry pinned, audio first / video first / second session | 25.9 / 25.0 / 29.8 | 49 / 55 / 1 | 26 / 34 / 1 | 278 / 240 / 258 |
+| retry pinned, plus 40 ms delay each way | 27.3 | 19 | 15 | 266 |
+
+All runs reached 30 fps with no loss. Received audio, end to end with tone
+bursts, stayed at 245-265 ms (one later reading 290 ms). The gaps still lost
+cluster in time, which suggests LiveKit's NACK throttle after a PLI; that is
+not proven.
 
 Stream Info's "RTP packets sent" is webrtcbin's outbound `packets-sent` for the
 track's SSRC (an em dash until the first stats answer), not a counter upstream
