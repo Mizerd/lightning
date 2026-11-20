@@ -1431,6 +1431,46 @@ private Q_SLOTS:
                                 .arg(bubble->width())));
     }
 
+    void aReplyQuoteDoesNotWidenABubblePastItsText_data()
+    {
+        QTest::addColumn<bool>("own");
+        QTest::newRow("incoming") << false;
+        QTest::newRow("own") << true;
+    }
+    void aReplyQuoteDoesNotWidenABubblePastItsText()
+    {
+        QFETCH(bool, own);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), own);
+        f.insert(QStringLiteral("body"), longParagraph());
+        f.insert(QStringLiteral("replyToEventId"), QStringLiteral("$quoted"));
+        f.insert(QStringLiteral("replyToSender"), QStringLiteral("Quoted Sender"));
+        f.insert(QStringLiteral("replyToPreview"), longParagraph());
+        Delegate d;
+        QVERIFY(build(app, f, d, 1500, true));
+        d.window->resize(1540, 600);
+        QCoreApplication::processEvents();
+        QVERIFY(d.root->property("bubbleMode").toBool());
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        auto *quote = findVisual(d.root, QStringLiteral("replyNavigationTarget"));
+        QVERIFY2(bubble && body && quote, "bubble, body or reply quote missing");
+        const qreal inner = innerRight(d.root, bubble);
+        const qreal ink = leftEdgeIn(body, d.root)
+                          + body->property("contentWidth").toReal();
+        QVERIFY2(inner - ink <= 90,
+                 qPrintable(QStringLiteral("the wrapped text ends at %1 and the "
+                                           "bubble's inner edge at %2: %3px "
+                                           "empty after every line")
+                                .arg(ink).arg(inner).arg(inner - ink)));
+        QVERIFY2(rightEdgeIn(quote, d.root) <= inner + 0.6,
+                 "the reply quote leaves its bubble");
+    }
+
     void theActionBarClearsTheReceiptPileOnAShortRow()
     {
         AppController app(AppController::MockBackend);
