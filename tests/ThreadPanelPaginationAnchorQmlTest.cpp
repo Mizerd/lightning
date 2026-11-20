@@ -48,7 +48,7 @@ private:
         QMetaObject::invokeMethod(body, "getText", Q_RETURN_ARG(QString, text),
                                   Q_ARG(int, 0),
                                   Q_ARG(int, body->property("length").toInt()));
-        return text;
+        return text.replace(QChar::LineSeparator, QLatin1Char('\n'));
     }
 
     static QString firstThreadRootId(MockMatrixClient &client,
