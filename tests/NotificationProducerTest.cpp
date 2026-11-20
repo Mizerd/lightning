@@ -8,6 +8,8 @@
 #include <QList>
 #include <QtTest>
 
+#include <algorithm>
+
 #ifdef ENABLE_RUST_SDK_BACKEND
 #include "matrix/RustSdkMatrixClient.h"
 #endif
@@ -728,6 +730,45 @@ private slots:
         listRoom(client, 2);
         QTest::qWait(3000);
         QCOMPARE(sink.highlightGaps.size(), 1);
+#endif
+    }
+
+    void fetchedHistoryReachesActivityOnlyAndHidesNoLaterGap()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        Sink sink;
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        watch(client, sink);
+        listRoom(client, 0);
+        QJsonObject done;
+        done.insert(QStringLiteral("type"), QStringLiteral("initial_sync_done"));
+        client.handleRustEventForTest(done);
+
+        listRoom(client, 1);
+        QTRY_COMPARE_WITH_TIMEOUT(sink.highlightGaps.size(), 1, 5000);
+
+        QJsonObject newest = message(QStringLiteral("$new"), QStringLiteral("newest"));
+        newest.insert(QStringLiteral("timestamp_ms"), 1700000009000.0);
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), newest));
+        const QString preview = client.roomInfo(kRoom).lastMessagePreview;
+        QVERIFY(preview.contains(QStringLiteral("newest")));
+
+        QJsonObject old = message(QStringLiteral("$old"), QStringLiteral("older mention"));
+        old.insert(QStringLiteral("backlog"), true);
+        old.insert(QStringLiteral("fetched"), true);
+        old.insert(QStringLiteral("push_highlight"), true);
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), old));
+        QVERIFY(std::any_of(sink.observed.cbegin(), sink.observed.cend(),
+                            [](const TimelineEvent &e) { return e.eventId == QStringLiteral("$old"); }));
+        QCOMPARE(client.roomInfo(kRoom).lastMessagePreview, preview);
+        for (const TimelineEvent &e : client.timeline(kRoom))
+            QVERIFY2(e.eventId != QStringLiteral("$old"), "fetched history entered the mirror");
+
+        listRoom(client, 2);
+        QTRY_COMPARE_WITH_TIMEOUT(sink.highlightGaps.size(), 2, 5000);
 #endif
     }
 };

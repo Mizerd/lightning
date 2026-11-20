@@ -7368,6 +7368,25 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         return;
     const bool isEdit = timelineEvent.isEdit;
 
+    // History fetched for a skipped highlight: Activity, and a newer preview
+    // only. The mirror and the highlight-gap tracker stay with live sync.
+    if (obj.value(QStringLiteral("fetched")).toBool(false)) {
+        auto roomIt = m_rooms.find(roomId);
+        if (roomIt != m_rooms.end() && !isEdit
+            && roomrecency::raisesRecency(timelineEvent)
+            && timelineEvent.type != TimelineEvent::StateChange
+            && (!roomIt->lastActivity.isValid()
+                || timelineEvent.timestamp > roomIt->lastActivity)) {
+            if (roomrecency::replacesPreview(timelineEvent))
+                setPreviewFrom(*roomIt, timelineEvent);
+            roomIt->raiseActivity(timelineEvent.timestamp);
+            Q_EMIT roomUpdated(roomId);
+        }
+        timelineEvent.senderDisplayName = displayNameFor(roomId, timelineEvent.sender);
+        Q_EMIT liveEventObserved(roomId, timelineEvent);
+        return;
+    }
+
     using matrix::rust_timeline::SyncRoute;
     const bool liveTimeline = m_timelineTracker.activeRoom() == roomId
         || m_timelineTracker.requestedRoom() == roomId;

@@ -7747,9 +7747,10 @@ fn fetch_unread_events(bridge: &RustClient, room_id: OwnedRoomId) -> Result<(), 
         let receipt = room.read_receipts().latest_active.map(|r| r.event_id);
         let verdicts = push_verdict::SyncVerdicts::default();
         for held in unread_tail(messages.chunk, receipt.as_deref(), room.own_user_id()) {
-            let Some(event) = held_event_json(&room, &held, true, &verdicts).await else {
+            let Some(mut event) = held_event_json(&room, &held, true, &verdicts).await else {
                 continue;
             };
+            event["fetched"] = true.into();
             if !timelines.lifecycle_current(lifecycle) {
                 return;
             }
