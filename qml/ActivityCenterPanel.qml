@@ -457,8 +457,18 @@ Dialog {
                 visible: !root.showingThreads
                 storm: true
                 size: "sm"
-                iconName: "radio_button_checked"
+                id: unseenOnlyButton
                 active: !!root.activity && root.activity.unseenOnly === true
+                // The unseen marker the rows carry, not a radio: a filled
+                // radio glyph reads as "on" while the filter is off.
+                Rectangle {
+                    objectName: "activityUnseenOnlyDot"
+                    anchors.centerIn: parent
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: unseenOnlyButton.contentItem.color
+                }
                 Accessible.role: Accessible.CheckBox
                 Accessible.checkable: true
                 Accessible.checked: active
