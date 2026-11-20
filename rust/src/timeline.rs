@@ -6078,8 +6078,13 @@ pub(crate) fn mention_plain_body(markdown: &str) -> String {
         };
         let head = &rest[..mid];
         let after = &rest[mid + TARGET.len()..];
-        let (Some(open), Some(close)) = (head.rfind('['), after.find(')'))
-        else {
+        // The composer backslash-escapes every '[' inside a label.
+        let open = head
+            .match_indices('[')
+            .rev()
+            .map(|(i, _)| i)
+            .find(|&i| head[..i].bytes().rev().take_while(|&b| b == b'\\').count() % 2 == 0);
+        let (Some(open), Some(close)) = (open, after.find(')')) else {
             out.push_str(&rest[..mid + TARGET.len()]);
             rest = after;
             continue;
@@ -8681,6 +8686,10 @@ mod tests {
         assert_eq!(
             mention_plain_body("[@A\\]B](https://matrix.to/#/%40a%3Ax)"),
             "@A]B"
+        );
+        assert_eq!(
+            mention_plain_body("[@Bob \\[away\\]](https://matrix.to/#/%40b%3Ax) [x]"),
+            "@Bob [away] [x]"
         );
         assert_eq!(mention_plain_body("no links"), "no links");
     }
