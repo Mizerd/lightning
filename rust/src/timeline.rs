@@ -424,9 +424,22 @@ struct ThreadTallyEntry {
 struct ThreadTally {
     threads: HashMap<OwnedEventId, ThreadTallyEntry>,
     /// The SDK's list builds each root from its original content and never
-    /// applies an `m.replace`, bundled or live; this is the latest edit.
-    root_edits: HashMap<OwnedEventId, (u64, TimelineItemContent)>,
-    edits_looked_up: HashSet<OwnedEventId>,
+    /// applies an `m.replace`, bundled or live; this is the latest valid edit.
+    root_edits: HashMap<OwnedEventId, RootEdit>,
+    /// Roots whose edits were looked up, kept to validate live edits.
+    roots: HashMap<OwnedEventId, RootRecord>,
+}
+
+struct RootRecord {
+    raw: matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>,
+    encryption: Option<Arc<matrix_sdk::deserialized_responses::EncryptionInfo>>,
+    redacted: bool,
+}
+
+struct RootEdit {
+    ts: u64,
+    edit_id: OwnedEventId,
+    content: TimelineItemContent,
 }
 
 impl ThreadTally {
@@ -449,18 +462,28 @@ impl ThreadTally {
         }
     }
 
-    fn edit_root(&mut self, root: &EventId, ts: u64, content: TimelineItemContent) -> bool {
-        if self.root_edits.get(root).is_some_and(|(known, _)| *known > ts) {
+    fn edit_root(&mut self, root: &EventId, edit: RootEdit) -> bool {
+        if self.roots.get(root).is_some_and(|record| record.redacted)
+            || self.root_edits.get(root).is_some_and(|known| known.ts > edit.ts)
+        {
             return false;
         }
-        self.root_edits.insert(root.to_owned(), (ts, content));
+        self.root_edits.insert(root.to_owned(), edit);
         true
     }
 
     fn corrected(&self, item: &ThreadListItem) -> ThreadListItem {
         let mut out = item.clone();
-        if let Some((_, content)) = self.root_edits.get(&item.root_event.event_id) {
-            out.root_event.content = Some(content.clone());
+        let root = &item.root_event.event_id;
+        let redacted = item.root_event.content.as_ref().is_some_and(|content| {
+            content.as_msglike().is_some_and(|m| matches!(m.kind, MsgLikeKind::Redacted))
+        }) || self.roots.get(root).is_some_and(|record| record.redacted);
+        if redacted {
+            out.root_event.content = Some(TimelineItemContent::MsgLike(
+                matrix_sdk_ui::timeline::MsgLikeContent::redacted(),
+            ));
+        } else if let Some(edit) = self.root_edits.get(root) {
+            out.root_event.content = Some(edit.content.clone());
         }
         if let Some(entry) = self.threads.get(&item.root_event.event_id) {
             let extra = u32::try_from(entry.counted.len()).unwrap_or(u32::MAX);
@@ -3779,10 +3802,21 @@ async fn open_thread_list_task(
     loop {
         let diffs = tokio::select! {
             diffs = stream.next() => diffs,
-            update = next_cache_update(&mut live_edits) => {
-                if apply_live_root_edits(&room, update, &service, &tally).await
-                    && registry.thread_list_current(list_gen, lifecycle)
-                {
+            news = next_cache_update(&mut live_edits) => {
+                let (mut changed, relook) = match news {
+                    Some(update) => apply_live_root_edits(&room, update, &tally).await,
+                    None => {
+                        lock_tally(&tally).roots.clear();
+                        (false, true)
+                    }
+                };
+                if relook {
+                    changed |= look_up_root_edits(&room, &service, &tally).await;
+                }
+                if !registry.thread_list_current(list_gen, lifecycle) {
+                    break;
+                }
+                if changed {
                     emit_thread_list_snapshot(
                         &events, &room_id, list_gen, lifecycle, &service, &tally, false,
                     );
@@ -3822,135 +3856,183 @@ async fn open_thread_list_task(
     }
 }
 
-/// `(target, sender, origin_server_ts)` of an `m.replace` message edit.
-fn replacement_of(event: &serde_json::Value) -> Option<(&str, &str, u64)> {
-    if event.get("type")?.as_str()? != "m.room.message" {
-        return None;
-    }
-    let content = event.get("content")?;
-    content.get("m.new_content")?.as_object()?;
-    let relation = content.get("m.relates_to")?;
-    if relation.get("rel_type")?.as_str()? != "m.replace" {
-        return None;
-    }
-    Some((
-        relation.get("event_id")?.as_str()?,
-        event.get("sender")?.as_str()?,
-        event.get("origin_server_ts")?.as_u64()?,
-    ))
+fn lock_tally(tally: &Mutex<ThreadTally>) -> std::sync::MutexGuard<'_, ThreadTally> {
+    tally.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The edit's timestamp when it is a valid replacement of `root`: only the
-/// root's own sender may edit it.
-fn root_edit_ts(
-    event: &matrix_sdk::deserialized_responses::TimelineEvent,
-    root: &EventId,
-    root_sender: &UserId,
-) -> Option<u64> {
-    let json = event.raw().deserialize_as::<serde_json::Value>().ok()?;
-    let (target, sender, ts) = replacement_of(&json)?;
-    (target == root.as_str() && sender == root_sender.as_str()).then_some(ts)
+fn is_redacted(raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>) -> bool {
+    raw.get_field::<serde_json::Value>("unsigned")
+        .ok()
+        .flatten()
+        .is_some_and(|unsigned| unsigned.get("redacted_because").is_some())
 }
 
-/// The latest edit of a listed root: the server's bundled one (decrypted with
-/// the root by the SDK) and any the event cache holds.
-async fn latest_root_edit(
+/// `(origin_server_ts, event id)` of `edit` when the SDK's own rules accept it
+/// as a replacement of the root.
+fn valid_root_edit(
+    root: &RootRecord,
+    edit: &matrix_sdk::deserialized_responses::TimelineEvent,
+    edit_encryption: Option<&matrix_sdk::deserialized_responses::EncryptionInfo>,
+) -> Option<(u64, OwnedEventId)> {
+    matrix_sdk::check_validity_of_replacement_events(
+        &root.raw,
+        root.encryption.as_deref(),
+        edit.raw(),
+        edit_encryption,
+    )
+    .ok()?;
+    Some((edit.raw().get_field::<u64>("origin_server_ts").ok()??, edit.event_id()?))
+}
+
+/// A listed root and its latest valid edit: the cached replacements and the
+/// server's bundled one, which the SDK decrypts with the root. `None` when the
+/// root could not be read, so the lookup is retried.
+async fn look_up_root(
     room: &matrix_sdk::Room,
     root: &EventId,
-    root_sender: &UserId,
-) -> Option<(u64, TimelineItemContent)> {
-    use matrix_sdk::deserialized_responses::TimelineEvent;
+) -> Option<(RootRecord, Option<RootEdit>)> {
+    use matrix_sdk::deserialized_responses::{TimelineEvent, UnsignedEventLocation};
     use matrix_sdk::ruma::{events::relation::RelationType, serde::Raw};
     let (cache, _handles) = room.event_cache().await.ok()?;
-    let (root_event, mut candidates) = match cache
+    let (root_event, cached) = match cache
         .find_event_with_relations(root, Some(vec![RelationType::Replacement]))
         .await
     {
         Ok(Some(found)) => found,
         _ => (room.event(root, None).await.ok()?, Vec::new()),
     };
+    let record = RootRecord {
+        raw: root_event.raw().clone(),
+        encryption: root_event.encryption_info().cloned(),
+        redacted: is_redacted(root_event.raw()),
+    };
+    if record.redacted {
+        return Some((record, None));
+    }
+    let mut candidates: Vec<_> = cached
+        .into_iter()
+        .map(|event| {
+            let encryption = event.encryption_info().cloned();
+            (event, encryption)
+        })
+        .collect();
     let bundled = root_event
         .raw()
-        .deserialize_as::<serde_json::Value>()
+        .get_field::<serde_json::Value>("unsigned")
         .ok()
-        .and_then(|json| json.pointer("/unsigned/m.relations/m.replace").cloned())
+        .flatten()
+        .and_then(|unsigned| unsigned.pointer("/m.relations/m.replace").cloned())
         .and_then(|edit| Raw::from_json_string(edit.to_string()).ok());
-    candidates.extend(bundled.map(TimelineEvent::from_plaintext));
-    let (ts, edit) = candidates
+    // A bundle can outlive the edit's redaction, which the cache applies.
+    let bundled = match bundled {
+        Some(edit) => match edit.get_field::<OwnedEventId>("event_id").ok().flatten() {
+            Some(id) => match cache.find_event(&id).await {
+                Ok(Some(cached)) if is_redacted(cached.raw()) => None,
+                _ => Some(edit),
+            },
+            None => None,
+        },
+        None => None,
+    };
+    if let Some(bundled) = bundled {
+        let encryption = root_event
+            .kind
+            .unsigned_encryption_map()
+            .and_then(|map| map.get(&UnsignedEventLocation::RelationsReplace))
+            .and_then(|result| result.encryption_info().cloned());
+        candidates.push((TimelineEvent::from_plaintext(bundled), encryption));
+    }
+    let best = candidates
         .into_iter()
-        .filter_map(|event| Some((root_edit_ts(&event, root, root_sender)?, event)))
-        .max_by_key(|(ts, _)| *ts)?;
-    Some((ts, TimelineItemContent::from_event(room, edit).await?))
+        .filter_map(|(event, encryption)| {
+            let (ts, edit_id) = valid_root_edit(&record, &event, encryption.as_deref())?;
+            Some((ts, edit_id, event))
+        })
+        .max_by_key(|(ts, _, _)| *ts);
+    let edit = match best {
+        Some((ts, edit_id, event)) => TimelineItemContent::from_event(room, event)
+            .await
+            .map(|content| RootEdit { ts, edit_id, content }),
+        None => None,
+    };
+    Some((record, edit))
 }
+
+const ROOT_LOOKUPS_IN_FLIGHT: usize = 4;
 
 async fn look_up_root_edits(
     room: &matrix_sdk::Room,
     service: &ThreadListService,
     tally: &Mutex<ThreadTally>,
 ) -> bool {
-    let pending: Vec<(OwnedEventId, OwnedUserId)> = {
-        let mut tally = tally.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pending: Vec<OwnedEventId> = {
+        let tally = lock_tally(tally);
         service
             .items()
             .into_iter()
-            .filter(|item| tally.edits_looked_up.insert(item.root_event.event_id.clone()))
-            .map(|item| (item.root_event.event_id, item.root_event.sender))
+            .map(|item| item.root_event.event_id)
+            .filter(|root| !tally.roots.contains_key(root))
             .collect()
     };
     if pending.is_empty() {
         return false;
     }
-    let found = futures_util::future::join_all(
-        pending.iter().map(|(root, sender)| latest_root_edit(room, root, sender)),
-    )
-    .await;
-    let mut tally = tally.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let found: Vec<_> = futures_util::stream::iter(pending)
+        .map(|root| async move {
+            let found = look_up_root(room, &root).await;
+            (root, found)
+        })
+        .buffer_unordered(ROOT_LOOKUPS_IN_FLIGHT)
+        .collect()
+        .await;
+    let mut tally = lock_tally(tally);
     let mut changed = false;
-    for ((root, _), edit) in pending.iter().zip(found) {
-        if let Some((ts, content)) = edit {
-            changed |= tally.edit_root(root, ts, content);
+    for (root, found) in found {
+        let Some((record, edit)) = found else { continue };
+        tally.roots.insert(root.clone(), record);
+        if let Some(edit) = edit {
+            changed |= tally.edit_root(&root, edit);
         }
     }
     changed
 }
 
+/// The next room event cache update, or `None` when updates were missed.
 async fn next_cache_update(
     live: &mut Option<(
         matrix_sdk::event_cache::RoomEventCacheSubscriber,
         Arc<matrix_sdk::event_cache::EventCacheDropHandles>,
     )>,
-) -> matrix_sdk::event_cache::RoomEventCacheUpdate {
+) -> Option<matrix_sdk::event_cache::RoomEventCacheUpdate> {
     use tokio::sync::broadcast::error::RecvError;
     loop {
         let Some((subscriber, _)) = live.as_mut() else {
             return std::future::pending().await;
         };
         match subscriber.recv().await {
-            Ok(update) => return update,
-            Err(RecvError::Lagged(_)) => continue,
+            Ok(update) => return Some(update),
+            Err(RecvError::Lagged(_)) => return None,
             Err(RecvError::Closed) => *live = None,
         }
     }
 }
 
+/// Applies edits and redactions of listed roots from the room event cache, as
+/// `(changed, a root needs a new lookup)`. A redacted edit drops the root's
+/// record so the lookup recomputes it.
 async fn apply_live_root_edits(
     room: &matrix_sdk::Room,
     update: matrix_sdk::event_cache::RoomEventCacheUpdate,
-    service: &ThreadListService,
     tally: &Mutex<ThreadTally>,
-) -> bool {
+) -> (bool, bool) {
     let matrix_sdk::event_cache::RoomEventCacheUpdate::UpdateTimelineEvents(update) = update
     else {
-        return false;
+        return (false, false);
     };
-    let roots: HashMap<OwnedEventId, OwnedUserId> = service
-        .items()
-        .into_iter()
-        .map(|item| (item.root_event.event_id, item.root_event.sender))
-        .collect();
     let mut changed = false;
+    let mut relook = false;
     for diff in update.diffs {
-        let added = match diff {
+        let added: Vec<_> = match diff {
             VectorDiff::Append { values } | VectorDiff::Reset { values } => {
                 values.into_iter().collect()
             }
@@ -3961,27 +4043,51 @@ async fn apply_live_root_edits(
             _ => Vec::new(),
         };
         for event in added {
-            let Some(root) = event
-                .raw()
-                .deserialize_as::<serde_json::Value>()
-                .ok()
-                .and_then(|json| EventId::parse(replacement_of(&json)?.0).ok())
-            else {
-                continue;
+            let Some(id) = event.event_id() else { continue };
+            let candidate = {
+                let mut guard = lock_tally(tally);
+                let tally = &mut *guard;
+                if is_redacted(event.raw()) {
+                    if let Some(record) = tally.roots.get_mut(&id) {
+                        if !record.redacted {
+                            record.redacted = true;
+                            changed |= tally.root_edits.remove(&id).is_some();
+                        }
+                    } else if let Some(root) = tally
+                        .root_edits
+                        .iter()
+                        .find(|(_, edit)| edit.edit_id == id)
+                        .map(|(root, _)| root.clone())
+                    {
+                        tally.root_edits.remove(&root);
+                        tally.roots.remove(&root);
+                        changed = true;
+                        relook = true;
+                    }
+                    continue;
+                }
+                let target = event
+                    .raw()
+                    .get_field::<serde_json::Value>("content")
+                    .ok()
+                    .flatten()
+                    .and_then(|content| {
+                        EventId::parse(content.pointer("/m.relates_to/event_id")?.as_str()?).ok()
+                    });
+                target.and_then(|target| {
+                    let record = tally.roots.get(&target)?;
+                    let encryption = event.encryption_info().map(|info| &**info);
+                    let (ts, edit_id) = valid_root_edit(record, &event, encryption)?;
+                    Some((target, ts, edit_id))
+                })
             };
-            let Some(ts) = roots
-                .get(&root)
-                .and_then(|sender| root_edit_ts(&event, &root, sender))
-            else {
-                continue;
-            };
+            let Some((target, ts, edit_id)) = candidate else { continue };
             if let Some(content) = TimelineItemContent::from_event(room, event).await {
-                let mut tally = tally.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                changed |= tally.edit_root(&root, ts, content);
+                changed |= lock_tally(tally).edit_root(&target, RootEdit { ts, edit_id, content });
             }
         }
     }
-    changed
+    (changed, relook)
 }
 
 fn emit_thread_list_snapshot(

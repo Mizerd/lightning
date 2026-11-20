@@ -956,6 +956,137 @@ fn media_keys_outlive_a_room_switch_and_keep_their_privacy() {
     assert!(registry.media_from_encrypted_room("$secret"));
 }
 
+async fn open_list(client: &Client) -> (EventQueue, tokio::task::JoinHandle<()>) {
+    let events: EventQueue = Arc::new(Mutex::new(VecDeque::new()));
+    let registry = Arc::new(TimelineRegistry::new(Arc::clone(&events)));
+    registry.thread_list_gen.store(1, Ordering::SeqCst);
+    *registry.active_thread_list.lock().unwrap() = Some(ActiveThreadList {
+        room_id: ROOM.to_owned(),
+        list_gen: 1,
+        service: None,
+        tally: Arc::default(),
+        task: None,
+        pagination_busy: Arc::new(AtomicBool::new(false)),
+    });
+    let lifecycle = registry.lifecycle_gen.load(Ordering::SeqCst);
+    let task = tokio::spawn(open_thread_list_task(
+        registry, client.clone(), ROOM.to_owned(), 1, lifecycle, Arc::clone(&events)));
+    (events, task)
+}
+async fn threaded_client(server: &MatrixMockServer) -> Client {
+    let client = server
+        .client_builder()
+        .on_builder(|b| {
+            b.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: false,
+            })
+        })
+        .build()
+        .await;
+    client.event_cache().subscribe().unwrap();
+    client
+}
+async fn listed_preview(events: &EventQueue, expected: &str) {
+    next_event(events, |v| {
+        v["type"] == "thread_list_reset"
+            && v["items"][0]["root_event_id"] == "$root"
+            && v["items"][0]["root_preview"] == expected
+    })
+    .await;
+}
+fn redaction(id: &str, target: &str, ts: u64) -> serde_json::Value {
+    json!({"type":"m.room.redaction", "event_id":id, "sender":SENDER, "origin_server_ts":ts,
+        "redacts":target, "content":{"redacts":target}})
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_root_edit_that_changes_the_event_type_is_not_shown() {
+    let server = MatrixMockServer::new().await;
+    let client = threaded_client(&server).await;
+    sync(&client, vec![message("$before", "before", 500)], "1").await;
+    let mut root = json!({"type":"m.sticker", "event_id":"$root", "sender":SENDER,
+        "origin_server_ts":1000, "room_id":ROOM,
+        "content":{"body":"cat", "url":"mxc://localhost/cat", "info":{}}});
+    root["unsigned"] = json!({"m.relations": {
+        "m.replace": edit("$bundled", "$root", "not a sticker", 1500)}});
+    server
+        .mock_room_threads()
+        .ok(vec![Raw::from_json_string(root.to_string()).unwrap()], None)
+        .mount()
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(matrix_sdk::deserialized_responses::TimelineEvent::from_plaintext(
+            Raw::from_json_string(root.to_string()).unwrap(),
+        ))
+        .mount()
+        .await;
+    let (events, task) = open_list(&client).await;
+    listed_preview(&events, "[sticker]").await;
+    sync(&client, vec![edit("$live", "$root", "still not a sticker", 3000),
+        message("$barrier", "barrier", 3100)], "2").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let shown = events.lock().unwrap().iter().any(|raw| raw.contains("not a sticker"));
+    assert!(!shown, "an edit of another event type replaced the root");
+    task.abort();
+}
+
+#[test]
+fn an_encrypted_root_takes_only_encrypted_edits() {
+    use matrix_sdk::deserialized_responses::{
+        AlgorithmInfo, EncryptionInfo, TimelineEvent, VerificationLevel, VerificationState,
+    };
+    let raw = |v: serde_json::Value| Raw::from_json_string(v.to_string()).unwrap();
+    let info = EncryptionInfo {
+        sender: matrix_sdk::ruma::owned_user_id!("@alice:localhost"),
+        sender_device: None,
+        forwarder: None,
+        algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+            curve25519_key: "key".to_owned(),
+            sender_claimed_keys: Default::default(),
+            session_id: None,
+        },
+        verification_state: VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+    };
+    let root = |encryption: Option<Arc<EncryptionInfo>>| RootRecord {
+        raw: raw(message("$root", "original", 1000)),
+        encryption,
+        redacted: false,
+    };
+    let plain_edit = TimelineEvent::from_plaintext(raw(edit("$e", "$root", "new", 2000)));
+    assert!(valid_root_edit(&root(None), &plain_edit, None).is_some());
+    let encrypted = root(Some(Arc::new(info.clone())));
+    assert!(valid_root_edit(&encrypted, &plain_edit, None).is_none());
+    assert!(valid_root_edit(&encrypted, &plain_edit, Some(&info)).is_some());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn redactions_of_a_root_and_its_edits_reach_the_thread_list() {
+    let server = MatrixMockServer::new().await;
+    let client = threaded_client(&server).await;
+    let mut root = message("$root", "original", 1000);
+    sync(&client, vec![root.clone(), edit("$first", "$root", "first", 2000)], "1").await;
+    root["room_id"] = json!(ROOM);
+    server
+        .mock_room_threads()
+        .ok(vec![Raw::from_json_string(root.to_string()).unwrap()], None)
+        .mount()
+        .await;
+    let (events, task) = open_list(&client).await;
+    listed_preview(&events, "first").await;
+
+    sync(&client, vec![redaction("$r1", "$first", 3000)], "2").await;
+    listed_preview(&events, "original").await;
+
+    sync(&client, vec![edit("$second", "$root", "second", 4000)], "3").await;
+    listed_preview(&events, "second").await;
+
+    sync(&client, vec![redaction("$r2", "$root", 5000)], "4").await;
+    listed_preview(&events, "[message deleted]").await;
+    task.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_thread_list_shows_the_latest_edit_of_its_root() {
     use matrix_sdk::deserialized_responses::TimelineEvent;
