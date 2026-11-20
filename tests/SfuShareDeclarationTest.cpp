@@ -119,8 +119,17 @@ private slots:
         engine.stop();
     }
 
+    void aClosedSourceNoticeIsWithdrawnByTheNextShareOrAStop_data()
+    {
+        QTest::addColumn<bool>("byStop");
+        QTest::newRow("next share") << false;
+        QTest::newRow("stop") << true;
+    }
+
+    // Only a call's first share is declared to the mock SFU, so each row is a fresh call.
     void aClosedSourceNoticeIsWithdrawnByTheNextShareOrAStop()
     {
+        QFETCH(bool, byStop);
         useHardware(false);
         DeclaringClient client;
         SfuCallController call;
@@ -135,23 +144,17 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!client.calls.isEmpty(), 10000);
         QVERIFY2(client.calls.first().startsWith(QLatin1String("add:")),
                  qPrintable(client.calls.join(QLatin1Char(' '))));
-        const QString cid = client.calls.first().mid(4);
-        const auto closeSource = [&] {
-            notices.clear();
-            Q_EMIT engine.publishFailed(cid, QStringLiteral("screen_share_source_closed"));
-            QVERIFY(!call.screenSharing());
-            QCOMPARE(notices.size(), 1);
-            QVERIFY(!notices.first().first().toString().isEmpty());
-            notices.clear();
-        };
-
-        closeSource();
-        call.stopScreenShare();
+        Q_EMIT engine.publishFailed(client.calls.first().mid(4),
+                                    QStringLiteral("screen_share_source_closed"));
+        QVERIFY(!call.screenSharing());
         QCOMPARE(notices.size(), 1);
-        QCOMPARE(notices.first().first().toString(), QString());
+        QVERIFY(!notices.first().first().toString().isEmpty());
 
-        closeSource();
-        QVERIFY(call.startScreenShare(0));
+        notices.clear();
+        if (byStop)
+            call.stopScreenShare();
+        else
+            QVERIFY(call.startScreenShare(0));
         QVERIFY(!notices.isEmpty());
         QCOMPARE(notices.first().first().toString(), QString());
         engine.stop();
