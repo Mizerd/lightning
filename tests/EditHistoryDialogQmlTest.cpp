@@ -33,6 +33,7 @@ class StubTimeline final : public QObject
 {
     Q_OBJECT
 public:
+    bool spoilers = false;
     Q_INVOKABLE void requestEditHistory(const QString &id)
     {
         QVariantList rows;
@@ -43,13 +44,21 @@ public:
             r[QStringLiteral("redacted")] = false;
             r[QStringLiteral("undecryptable")] = false;
             r[QStringLiteral("timestamp")] = QDateTime::currentDateTime();
-            r[QStringLiteral("formattedBody")] = QString();
-            r[QStringLiteral("body")] = QStringLiteral("Revision %1").arg(i);
+            r[QStringLiteral("formattedBody")] = spoilers
+                ? QStringLiteral("Revision %1 <span data-mx-spoiler>secret</span>").arg(i)
+                : QString();
+            r[QStringLiteral("body")] = spoilers
+                ? QStringLiteral("Revision %1 secret").arg(i)
+                : QStringLiteral("Revision %1").arg(i);
             rows << r;
         }
         Q_EMIT editHistoryReceived(id, true, false, rows);
     }
-    Q_INVOKABLE QString sanitizeHtml(const QString &h) const { return h; }
+    Q_INVOKABLE QString sanitizeHtml(const QString &h) const
+    {
+        return h.contains(QStringLiteral("data-mx-spoiler"))
+            ? QStringLiteral("covered") : h;
+    }
     Q_INVOKABLE QString editDiffHtml(const QString &a, const QString &b, const QString &added,
                                      const QString &removed) const
     {
@@ -166,6 +175,28 @@ private Q_SLOTS:
         }
         QVERIFY2(sawOriginal, qPrintable(seen.join(QLatin1Char('\n'))));
         QVERIFY2(sawDiff, qPrintable(seen.join(QLatin1Char('\n'))));
+        QTest::keyClick(qobject_cast<QQuickWindow *>(m_root), Qt::Key_Escape);
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+    }
+
+    void aRevisionWithASpoilerIsNotDiffed()
+    {
+        m_timeline.spoilers = true;
+        openIt();
+        QList<QQuickItem *> bodies;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *it) {
+            if (it->objectName() == QStringLiteral("editHistoryBody"))
+                bodies << it;
+            for (QQuickItem *c : it->childItems())
+                walk(c);
+        };
+        walk(list());
+        QVERIFY(bodies.size() > 1);
+        for (QQuickItem *body : bodies) {
+            const QString text = body->property("text").toString();
+            QVERIFY2(!text.contains(QStringLiteral("secret")), qPrintable(text));
+        }
+        m_timeline.spoilers = false;
         QTest::keyClick(qobject_cast<QQuickWindow *>(m_root), Qt::Key_Escape);
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
     }

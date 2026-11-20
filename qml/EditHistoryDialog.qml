@@ -50,12 +50,17 @@ Dialog {
             root.revisions = ok ? rows : []
         }
     }
+    // A plain diff cannot keep a spoiler covered.
+    function hasSpoiler(revision) {
+        return /data-mx-spoiler/i.test(revision.formattedBody || "")
+    }
     function diffHtml(i) {
         const cur = revisions[i]
         const prev = i > 0 ? revisions[i - 1] : null
         if (!prev || !timelineModel || !timelineModel.editDiffHtml
                 || cur.redacted || cur.undecryptable || prev.redacted || prev.undecryptable
-                || (prev.body || "") === (cur.body || ""))
+                || (prev.body || "") === (cur.body || "")
+                || hasSpoiler(prev) || hasSpoiler(cur))
             return ""
         return timelineModel.editDiffHtml(prev.body || "", cur.body || "",
                                           String(AppTheme.stormSuccess),

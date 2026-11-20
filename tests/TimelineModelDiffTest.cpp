@@ -218,6 +218,7 @@ private Q_SLOTS:
     void anOrdinaryRoomModelStillAsksWithItsOwnRoomId();
     void markVisibleAsReadNeverSendsARoomReceiptForAThread();
     void copiedMessagesMaskCoveredSpoilersAndSkipUncaptionedMedia();
+    void editHistorySanitizerKeepsSpoilersCovered();
 
 private:
     QString openThreadModel();
@@ -2891,6 +2892,17 @@ void TimelineModelDiffTest::copiedMessagesMaskCoveredSpoilersAndSkipUncaptionedM
     m_model->toggleSpoilers(spoiler.eventId);
     QVERIFY(m_model->plainTextForMessages(all, QStringLiteral("HH:mm"))
                 .contains(QStringLiteral("a secret b")));
+}
+
+void TimelineModelDiffTest::editHistorySanitizerKeepsSpoilersCovered()
+{
+    m_model->setMentionStyle(QString(), QString(), QStringLiteral("#22262e"),
+                             QString(), false);
+    const QString out = m_model->sanitizeHtml(
+        QStringLiteral("a <span data-mx-spoiler>secret</span> b"));
+    QVERIFY2(out.contains(QStringLiteral(
+                 "background-color:#22262e;color:#22262e")),
+             qPrintable(out));
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

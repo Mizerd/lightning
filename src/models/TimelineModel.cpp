@@ -3198,6 +3198,5 @@ QString TimelineModel::sanitizeHtml(const QString &html) const
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
                                   m_codeBackgroundColor, m_underlineMentions,
                                   m_quoteBarColor, m_quoteInkColor,
-                                  m_spoilerCoverColor},
-true);
+                                  m_spoilerCoverColor});
 }
