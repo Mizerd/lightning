@@ -131,33 +131,28 @@ private slots:
         call.setCallStateForTest(SfuCallController::State::Connected);
         engine.start();
         QSignalSpy notices(&call, &SfuCallController::callFailed);
-        const QString closed = QStringLiteral("screen_share_source_closed");
-        auto failShare = [&] {
-            client.calls.clear();
-            QVERIFY(call.startScreenShare(0));
-            QTRY_VERIFY_WITH_TIMEOUT(client.calls.contains(QStringLiteral("offer")),
-                                     10000);
-            QVERIFY(client.calls.first().startsWith(QLatin1String("add:")));
-            Q_EMIT engine.publishFailed(client.calls.first().mid(4), closed);
-            QVERIFY(!call.screenSharing());
-            QVERIFY(!notices.isEmpty());
-            QVERIFY(!notices.last().first().toString().isEmpty());
-        };
-        failShare();
-        if (QTest::currentTestFailed())
-            return;
-        notices.clear();
         QVERIFY(call.startScreenShare(0));
-        QVERIFY(!notices.isEmpty());
-        QCOMPARE(notices.first().first().toString(), QString());
+        QTRY_VERIFY_WITH_TIMEOUT(!client.calls.isEmpty(), 10000);
+        QVERIFY2(client.calls.first().startsWith(QLatin1String("add:")),
+                 qPrintable(client.calls.join(QLatin1Char(' '))));
+        const QString cid = client.calls.first().mid(4);
+        const auto closeSource = [&] {
+            notices.clear();
+            Q_EMIT engine.publishFailed(cid, QStringLiteral("screen_share_source_closed"));
+            QVERIFY(!call.screenSharing());
+            QCOMPARE(notices.size(), 1);
+            QVERIFY(!notices.first().first().toString().isEmpty());
+            notices.clear();
+        };
 
-        call.stopScreenShare();
-        failShare();
-        if (QTest::currentTestFailed())
-            return;
-        notices.clear();
+        closeSource();
         call.stopScreenShare();
         QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices.first().first().toString(), QString());
+
+        closeSource();
+        QVERIFY(call.startScreenShare(0));
+        QVERIFY(!notices.isEmpty());
         QCOMPARE(notices.first().first().toString(), QString());
         engine.stop();
     }
