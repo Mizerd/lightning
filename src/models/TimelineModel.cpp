@@ -3112,6 +3112,29 @@ QString TimelineModel::editDiffHtml(const QString &before, const QString &after,
     return textdiff::html(before, after, added, removed);
 }
 
+QString TimelineModel::renderHtml(const QString &html) const
+{
+    if (html.isEmpty())
+        return {};
+    const QString roomId = m_realRoomId;
+    MatrixClient *client = m_client;
+    const QString sanitized = MessageHtml::sanitize(
+        html,
+        [client, roomId](const QString &userId) {
+            return client ? shownName(client->displayNameFor(roomId, userId),
+                                      userId)
+                          : QString();
+        },
+        m_selfUserId,
+        MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
+                                  m_codeBackgroundColor, m_underlineMentions,
+                                  m_quoteBarColor, m_quoteInkColor},
+        false);
+    return MessageHtml::resolveInlineImages(
+        sanitized, m_inlineImageResolver,
+        [this](const QString &source) { return inlineImageAspect(source); });
+}
+
 QString TimelineModel::sanitizeHtml(const QString &html) const
 {
     if (html.isEmpty())

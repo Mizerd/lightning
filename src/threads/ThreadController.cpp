@@ -1154,7 +1154,7 @@ QVariantMap ThreadController::rootInfo() const
             info.insert(QStringLiteral("body"), event.body);
             if (!event.redacted)
                 info.insert(QStringLiteral("formattedBody"),
-                            m_model.sanitizeHtml(event.formattedBody));
+                            m_model.renderHtml(event.formattedBody));
             info.insert(QStringLiteral("timestamp"), event.timestamp);
             info.insert(QStringLiteral("redacted"), event.redacted);
             info.insert(QStringLiteral("undecryptable"), event.undecryptable);

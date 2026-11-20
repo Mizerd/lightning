@@ -521,6 +521,42 @@ private Q_SLOTS:
                  QStringLiteral("closed: the root"));
     }
 
+    void aRootReadFromTheRoomTimelineKeepsItsSpoilersHidden()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.model()->setMentionStyle(
+            QStringLiteral("#111111"), QStringLiteral("#222222"),
+            QStringLiteral("#333333"), QStringLiteral("#444444"), false);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        const QString threadId = MatrixClient::threadTimelineId(kGeneral, rootId);
+        QList<TimelineEvent> replies = client.timeline(threadId);
+        replies.removeIf([&](const TimelineEvent &e) { return e.eventId == rootId; });
+        client.resetTimelineForTest(threadId, replies, 0);
+        QVERIFY(controller.model()->rowForStableId(rootId) < 0);
+
+        const auto room = client.timeline(kGeneral);
+        int rootIndex = -1;
+        for (int i = 0; i < room.size(); ++i) {
+            if (room.at(i).eventId == rootId)
+                rootIndex = i;
+        }
+        QVERIFY2(rootIndex >= 0, "fixture assumption: the root is a room row");
+        TimelineEvent root = room.at(rootIndex);
+        root.formattedBody = QStringLiteral(
+            "visible <span data-mx-spoiler>secret</span>");
+        client.changeEventAtForTest(kGeneral, rootIndex, root);
+
+        const QString html =
+            controller.rootInfo().value(QStringLiteral("formattedBody")).toString();
+        QVERIFY2(html.contains(QStringLiteral(";color:#333333")), qPrintable(html));
+    }
+
     void mockBackendSupportsThreadTimelines()
     {
         MockMatrixClient client;

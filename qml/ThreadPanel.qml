@@ -118,6 +118,8 @@ Rectangle {
     readonly property string rootBodyHtml: rootIsPlaceholder ? ""
         : (rootData.formattedBody || "") !== "" ? rootData.formattedBody
         : app.linkPreviews.linkifiedBody(rootData.body || "")
+    readonly property bool rootHasHiddenSpoiler:
+        /spoiler:toggle[^>]*><span[^>]*;color:/.test(rootBodyHtml)
     signal openInRoomRequested(string eventId)
     function openRootLink(link) {
         if (link === "spoiler:toggle") {
@@ -842,16 +844,28 @@ Rectangle {
                                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                                 font.weight: AppTheme.weightBold
                             }
+                            // The rendered root with hidden spoilers masked,
+                            // for the one-line view.
+                            TextEdit {
+                                id: rootLineSource
+                                visible: false
+                                textFormat: panel.rootIsPlaceholder
+                                            ? Text.PlainText : Text.RichText
+                                text: panel.rootIsPlaceholder
+                                      ? panel.rootBodyText
+                                      : panel.rootBodyHtml.replace(
+                                            /(spoiler:toggle[^>]*><span[^>]*;color:[^>]*>)[\s\S]*?(<\/span><\/a>)/g,
+                                            "$1\u2588\u2588\u2588$2")
+                            }
                             Label {
                                 objectName: "threadRootCollapsedBody"
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
-                                // The rendered root's text, not its Markdown
-                                // source; reading rootBody.text re-runs this
+                                // Reading rootLineSource.text re-runs this
                                 // when the document changes.
-                                text: (rootBody.text, rootBody.getText(
-                                           0, rootBody.length)
+                                text: (rootLineSource.text, rootLineSource
+                                       .getText(0, rootLineSource.length)
                                        .split(/[\n\u2028\u2029]/)[0])
                                 font.italic: panel.rootData.redacted === true
                                              || panel.rootData.undecryptable === true
@@ -922,7 +936,7 @@ Rectangle {
                         id: rootBody
                         objectName: "threadRootBody"
                         readOnly: true
-                        selectByMouse: true
+                        selectByMouse: !panel.rootHasHiddenSpoiler
                         selectionColor: AppTheme.textSelection
                         selectedTextColor: AppTheme.text
                         textFormat: panel.rootIsPlaceholder ? Text.PlainText

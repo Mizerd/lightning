@@ -296,6 +296,8 @@ public:
     Q_INVOKABLE QString sanitizeHtml(const QString &html) const;
     Q_INVOKABLE QString editDiffHtml(const QString &before, const QString &after,
                                      const QString &added, const QString &removed) const;
+    // As a live row renders it: spoilers hidden, inline images resolved.
+    QString renderHtml(const QString &html) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
     Q_INVOKABLE bool canRedactEvent(const QString &eventId,
                                     bool canRedactOthers = false) const;

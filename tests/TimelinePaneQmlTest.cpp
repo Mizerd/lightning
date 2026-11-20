@@ -4566,6 +4566,67 @@ false);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    void threadRootKeepsItsSpoilersHidden()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.thread()->model()->setMentionStyle(
+            QStringLiteral("#111111"), QStringLiteral("#222222"),
+            QStringLiteral("#333333"), QStringLiteral("#444444"), false);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(roomId, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        const QString threadId = MatrixClient::threadTimelineId(roomId, rootId);
+        const auto thread = mock->timeline(threadId);
+        int rootIndex = -1;
+        for (int i = 0; i < thread.size(); ++i) {
+            if (thread.at(i).eventId == rootId)
+                rootIndex = i;
+        }
+        QVERIFY2(rootIndex >= 0, "fixture assumption: the root is a thread row");
+        TimelineEvent spoiled = thread.at(rootIndex);
+        spoiled.body = QStringLiteral("visible secret");
+        spoiled.formattedBody = QStringLiteral(
+            "visible <span data-mx-spoiler>secret</span>");
+        mock->changeEventAtForTest(threadId, rootIndex, spoiled);
+
+        auto *body = root->findChild<QQuickItem *>(
+            QStringLiteral("threadRootBody"));
+        auto *collapsed = root->findChild<QObject *>(
+            QStringLiteral("threadRootCollapsedBody"));
+        QVERIFY(body && collapsed);
+        QTRY_VERIFY_WITH_TIMEOUT(collapsed->property("text").toString()
+                                     .startsWith(QStringLiteral("visible")),
+                                 kSignalTimeoutMs);
+        QVERIFY2(!collapsed->property("text").toString().contains(
+                     QStringLiteral("secret")),
+                 qPrintable(collapsed->property("text").toString()));
+        QVERIFY(!body->property("selectByMouse").toBool());
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
     void openInRoomRevealsTheRootInBothThreadPlacements()
     {
         AppController controller(AppController::MockBackend);
