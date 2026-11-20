@@ -11531,12 +11531,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>That sticker is already in this room&apos;s stickers</source>
-        <translation>Эта наклейка уже есть в стикерах этой комнаты.</translation>
+        <translation>Этот стикер уже есть в стикерах этой комнаты.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That sticker is already in your stickers</source>
-        <translation>Эта наклейка уже есть в ваших стикерах</translation>
+        <translation>Этот стикер уже есть в ваших стикерах</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -11551,12 +11551,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>You do not have permission to change this room&apos;s stickers.</source>
-        <translation>У вас нет разрешения менять наклейки в этой комнате.</translation>
+        <translation>У вас нет разрешения менять стикеры в этой комнате.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The sticker could not be saved.</source>
-        <translation>Наклейку не удалось сохранить.</translation>
+        <translation>Стикер не удалось сохранить.</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -11748,7 +11748,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Stickers</source>
-        <translation>Наклейки</translation>
+        <translation>Стикеры</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -20121,7 +20121,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
-        <translation>Наклейку не удалось отправить.</translation>
+        <translation>Стикер не удалось отправить.</translation>
     </message>
     <message>
         <location line="-1360"/>
@@ -21012,7 +21012,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>The Sticker and mention filters are not applied to indexed search. Switch to Server to use them.</source>
-        <translation>Фильтры по наклейкам и упоминаниям не применяются к индексированному поиску. Переключитесь на «Сервер», чтобы использовать их.</translation>
+        <translation>Фильтры по стикерам и упоминаниям не применяются к индексированному поиску. Переключитесь на «Сервер», чтобы использовать их.</translation>
     </message>
     <message>
         <location line="+24"/>
@@ -30697,7 +30697,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+1"/>
         <source>Stickers</source>
-        <translation>Наклейки</translation>
+        <translation>Стикеры</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -30712,7 +30712,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+23"/>
         <source>Choose a sticker</source>
-        <translation>Выберите наклейку</translation>
+        <translation>Выберите стикер</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -30722,12 +30722,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+9"/>
         <source>Add a sticker from this computer</source>
-        <translation>Добавить наклейку с этого компьютера</translation>
+        <translation>Добавить стикер с этого компьютера</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Add a sticker</source>
-        <translation>Добавить наклейку</translation>
+        <translation>Добавить стикер</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -30757,7 +30757,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+37"/>
         <source>Use this room&apos;s stickers in every room</source>
-        <translation>Используйте наклейки этой комнаты в каждой комнате.</translation>
+        <translation>Используйте стикеры этой комнаты в каждой комнате.</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -30767,7 +30767,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+7"/>
         <source>A room&apos;s stickers are always available inside that room. This makes them available everywhere else too.</source>
-        <translation>Наклейки комнаты всегда доступны внутри этой комнаты. Это делает их доступными повсюду.</translation>
+        <translation>Стикеры комнаты всегда доступны в этой комнате. Этот параметр делает их доступными и во всех остальных.</translation>
     </message>
     <message>
         <location line="+184"/>
@@ -30792,7 +30792,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+2"/>
         <source>You have no sticker packs</source>
-        <translation>У вас нет стикерпаков</translation>
+        <translation>У вас нет наборов стикеров</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -30812,7 +30812,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+7"/>
         <source>Right-click any sticker in a chat and choose “Add to my stickers” to start your own pack. Packs a room shares appear here too.</source>
-        <translation>Щелкните правой кнопкой мыши любую наклейку в чате и выберите «Добавить в мои стикеры», чтобы создать собственный набор. Здесь также появляются пакеты для совместного проживания в комнате.</translation>
+        <translation>Щёлкните правой кнопкой мыши по любому стикеру в чате и выберите «Добавить в мои стикеры», чтобы начать собственный набор. Здесь также появляются наборы, которыми делятся комнаты.</translation>
     </message>
     <message>
         <location line="+4"/>
