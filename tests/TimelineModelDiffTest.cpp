@@ -217,6 +217,7 @@ private Q_SLOTS:
     void memberHydrationReachesAThreadModel();
     void anOrdinaryRoomModelStillAsksWithItsOwnRoomId();
     void markVisibleAsReadNeverSendsARoomReceiptForAThread();
+    void copiedMessagesMaskCoveredSpoilersAndSkipUncaptionedMedia();
 
 private:
     QString openThreadModel();
@@ -2847,6 +2848,49 @@ void TimelineModelDiffTest::markVisibleAsReadNeverSendsARoomReceiptForAThread()
     m_model->markVisibleAsRead(0, m_model->rowCount() - 1);
     QCOMPARE(m_client->readReceipts.size(), 1);
     QCOMPARE(m_client->readReceipts.first().first, kRoom);
+}
+
+void TimelineModelDiffTest::copiedMessagesMaskCoveredSpoilersAndSkipUncaptionedMedia()
+{
+    auto text = makeEvent(QStringLiteral("$t"), QStringLiteral("hello"));
+    auto spoiler = makeEvent(QStringLiteral("$s"),
+                             QStringLiteral("a secret b"));
+    spoiler.formattedBody =
+        QStringLiteral("a <span data-mx-spoiler=\"why\">secret</span> b");
+    auto bare = makeEvent(QStringLiteral("$m"), QStringLiteral("cat.png"));
+    bare.type = TimelineEvent::Image;
+    bare.mediaFilename = QStringLiteral("cat.png");
+    auto captioned = makeEvent(QStringLiteral("$c"), QStringLiteral("look"));
+    captioned.type = TimelineEvent::Image;
+    captioned.mediaFilename = QStringLiteral("dog.png");
+    auto last = makeEvent(QStringLiteral("$z"), QStringLiteral("bye"));
+    m_client->mirror = { text, spoiler, bare, captioned, last };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->rowCount(), 5);
+
+    const QStringList ids = m_model->messageIdsInRows(0, 4);
+    QVERIFY2(!ids.contains(QStringLiteral("$m")), qPrintable(ids.join(QLatin1Char(','))));
+    QVERIFY(ids.contains(QStringLiteral("$s")));
+    QVERIFY(ids.contains(QStringLiteral("$c")));
+
+    const QStringList all = { text.eventId, spoiler.eventId, bare.eventId,
+                              captioned.eventId, last.eventId };
+    const QString copied =
+        m_model->plainTextForMessages(all, QStringLiteral("HH:mm"));
+    QVERIFY2(!copied.contains(QStringLiteral("secret")), qPrintable(copied));
+    QVERIFY2(!copied.contains(QStringLiteral("cat.png")), qPrintable(copied));
+    QVERIFY2(copied.contains(QStringLiteral("a \u2588\u2588\u2588\u2588\u2588 b")),
+             qPrintable(copied));
+    QVERIFY(copied.contains(QStringLiteral("look")));
+    QVERIFY(copied.contains(QStringLiteral("hello")));
+    QVERIFY(copied.contains(QStringLiteral("bye")));
+    QVERIFY(!m_model->copyTextForEvent(spoiler.eventId).contains(
+        QStringLiteral("secret")));
+    QCOMPARE(m_model->copyTextForEvent(bare.eventId), QString());
+
+    m_model->toggleSpoilers(spoiler.eventId);
+    QVERIFY(m_model->plainTextForMessages(all, QStringLiteral("HH:mm"))
+                .contains(QStringLiteral("a secret b")));
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

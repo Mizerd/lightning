@@ -248,6 +248,9 @@ public:
     Q_INVOKABLE QVariantMap layoutMetadataAt(int row) const;
 
     Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
+    // What a copy of the row carries: covered spoilers masked, and nothing for
+    // media without a caption.
+    Q_INVOKABLE QString copyTextForEvent(const QString &eventId) const;
     Q_INVOKABLE QStringList messageIdsBetween(const QString &firstId,
                                               const QString &secondId) const;
     Q_INVOKABLE QStringList messageIdsInRows(int from, int to) const;

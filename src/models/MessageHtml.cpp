@@ -823,6 +823,18 @@ QString linkifyBareUrls(const QString &text, const QString &linkInk)
 
 }
 
+namespace {
+
+bool isSpoilerSpan(const QString &rawInside)
+{
+    static const QRegularExpression spoilerAttr(
+        QStringLiteral("(?:\\A|\\s)data-mx-spoiler(?:\\s*=|\\s|\\z)"),
+        QRegularExpression::CaseInsensitiveOption);
+    return spoilerAttr.match(rawInside).hasMatch();
+}
+
+}
+
 QString MessageHtml::sanitize(
     const QString &html,
     const std::function<QString(const QString &)> &resolveDisplayName,
@@ -1098,9 +1110,6 @@ QString MessageHtml::sanitize(
             continue;
 
         if (name == QLatin1String("span")) {
-            static const QRegularExpression spoilerAttr(
-                QStringLiteral("(?:\\A|\\s)data-mx-spoiler(?:\\s*=|\\s|\\z)"),
-                QRegularExpression::CaseInsensitiveOption);
             if (t.closing) {
                 if (!spanIsSpoiler.isEmpty() && spanIsSpoiler.takeLast())
                     out += QLatin1String("</span></a>");
@@ -1108,7 +1117,7 @@ QString MessageHtml::sanitize(
                     out += QLatin1String("</span>");
                 continue;
             }
-            const bool spoiler = spoilerAttr.match(t.raw).hasMatch();
+            const bool spoiler = isSpoilerSpan(t.raw);
             const QString &cover = mentionStyle.codeBackground;
             const QString &hiddenCover = mentionStyle.spoilerCover.isEmpty()
                 ? cover : mentionStyle.spoilerCover;
@@ -1258,6 +1267,104 @@ QString MessageHtml::sanitize(
     while (!frames.isEmpty())
         closeTopFrame();
     return markEmoji(out);
+}
+
+QString MessageHtml::plainTextConcealingSpoilers(const QString &html,
+                                                 const QString &placeholder)
+{
+    static constexpr qsizetype kMaxInput = 64 * 1024;
+    const QString in = html.size() > kMaxInput ? html.left(kMaxInput) : html;
+    static const QSet<QString> lineEnders = {
+        QStringLiteral("p"),  QStringLiteral("div"), QStringLiteral("li"),
+        QStringLiteral("h1"), QStringLiteral("h2"),  QStringLiteral("h3"),
+        QStringLiteral("h4"), QStringLiteral("h5"),  QStringLiteral("h6"),
+        QStringLiteral("pre"), QStringLiteral("blockquote"), QStringLiteral("tr"),
+        QStringLiteral("ul"), QStringLiteral("ol"),  QStringLiteral("table"),
+    };
+    static const QRegularExpression whitespace(QStringLiteral("\\s+"));
+    QString out;
+    int dropDepth = 0;
+    int preDepth = 0;
+    int hidden = 0;
+    QList<bool> spans;
+    const auto endLine = [&out]() {
+        if (!out.isEmpty() && !out.endsWith(QLatin1Char('\n')))
+            out += QLatin1Char('\n');
+    };
+    const qsizetype n = in.size();
+    TagScanner scanner(in);
+    qsizetype i = 0;
+    while (i < n) {
+        if (in[i] != QLatin1Char('<')) {
+            qsizetype lt = in.indexOf(QLatin1Char('<'), i);
+            if (lt < 0)
+                lt = n;
+            if (dropDepth == 0 && hidden == 0) {
+                QString chunk = in.mid(i, lt - i);
+                if (preDepth == 0) {
+                    chunk.replace(whitespace, QStringLiteral(" "));
+                    if ((out.isEmpty() || out.endsWith(QLatin1Char('\n')))
+                        && chunk.startsWith(QLatin1Char(' ')))
+                        chunk.remove(0, 1);
+                }
+                out += decodeEntities(chunk);
+            }
+            i = lt;
+            continue;
+        }
+        qsizetype end = 0;
+        const ParsedTag t = scanner.tagAt(i, end);
+        if (!t.valid) {
+            if (dropDepth == 0 && hidden == 0)
+                out += QLatin1Char('<');
+            i += 1;
+            continue;
+        }
+        i = end;
+        if (dropContentTags().contains(t.name)) {
+            if (t.closing) {
+                if (dropDepth > 0)
+                    --dropDepth;
+            } else {
+                ++dropDepth;
+            }
+            continue;
+        }
+        if (dropDepth > 0)
+            continue;
+        if (t.name == QLatin1String("span")) {
+            if (t.closing) {
+                if (!spans.isEmpty() && spans.takeLast())
+                    --hidden;
+                continue;
+            }
+            const bool spoiler = isSpoilerSpan(t.raw);
+            if (spoiler && hidden == 0)
+                out += placeholder;
+            spans.append(spoiler);
+            if (spoiler)
+                ++hidden;
+            continue;
+        }
+        if (hidden > 0)
+            continue;
+        if (t.name == QLatin1String("pre"))
+            preDepth = qMax(0, preDepth + (t.closing ? -1 : 1));
+        if (t.name == QLatin1String("br")) {
+            out += QLatin1Char('\n');
+        } else if (t.name == QLatin1String("img") && !t.closing
+                   && hasEmoticonMarker(t.raw)) {
+            out += decodeEntities(extractAttr(t.raw, QStringLiteral("alt")));
+        } else if (t.closing && (t.name == QLatin1String("td")
+                                 || t.name == QLatin1String("th"))) {
+            out += QLatin1Char(' ');
+        } else if (lineEnders.contains(t.name)) {
+            endLine();
+        }
+    }
+    static const QRegularExpression trailingSpace(QStringLiteral(" +\n"));
+    out.replace(trailingSpace, QStringLiteral("\n"));
+    return out.trimmed();
 }
 
 std::function<double(const QString &source)> MessageHtml::rememberingAspect(

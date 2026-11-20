@@ -2706,6 +2706,33 @@ QString TimelineModel::visibleTextForEvent(const QString &eventId) const
     return event->body;
 }
 
+QString TimelineModel::copyTextForEvent(const QString &eventId) const
+{
+    const QString text = visibleTextForEvent(eventId);
+    if (text.isEmpty())
+        return {};
+    const TimelineEvent *event = eventForId(eventId);
+    const bool isMedia = event->type == TimelineEvent::Image
+        || event->type == TimelineEvent::File
+        || event->type == TimelineEvent::Video
+        || event->type == TimelineEvent::Audio
+        || event->type == TimelineEvent::Sticker;
+    if (isMedia) {
+        const QString body = event->body.trimmed();
+        const QString filename = event->mediaFilename.trimmed();
+        if (body.isEmpty() || filename.isEmpty()
+            || body.compare(filename, Qt::CaseInsensitive) == 0)
+            return {};
+    }
+    if (!m_spoilersRevealed.contains(eventId)
+        && event->formattedBody.contains(QLatin1String("data-mx-spoiler"),
+                                         Qt::CaseInsensitive)) {
+        return MessageHtml::plainTextConcealingSpoilers(
+            event->formattedBody, QStringLiteral("\u2588\u2588\u2588\u2588\u2588"));
+    }
+    return text;
+}
+
 QStringList TimelineModel::messageIdsBetween(const QString &firstId,
                                              const QString &secondId) const
 {
@@ -2725,7 +2752,7 @@ QStringList TimelineModel::messageIdsInRows(int from, int to) const
     QStringList ids;
     for (int row = from; row <= to; ++row) {
         const TimelineEvent &event = m_events.at(row);
-        if (!event.undecryptable && !visibleTextForEvent(event.eventId).isEmpty())
+        if (!event.undecryptable && !copyTextForEvent(event.eventId).isEmpty())
             ids.append(event.eventId);
     }
     return ids;
@@ -2749,7 +2776,7 @@ QString TimelineModel::plainTextForMessages(const QStringList &eventIds,
     QDate lastDay;
     const QDate today = QDate::currentDate();
     for (int i = 0; i < eventIds.size(); ++i) {
-        QString text = normalizedCopyText(visibleTextForEvent(eventIds.at(i)));
+        QString text = normalizedCopyText(copyTextForEvent(eventIds.at(i)));
         if (text.isEmpty())
             continue;
         // A painted fragment the model text cannot account for (a pill, an

@@ -411,6 +411,18 @@ private Q_SLOTS:
         QVERIFY(out.contains(QStringLiteral("href=\"spoiler:toggle\"")));
     }
 
+    void plainTextConcealingSpoilersHidesEverySpoilerRun()
+    {
+        const QString out = MessageHtml::plainTextConcealingSpoilers(
+            QStringLiteral("<mx-reply>quoted secret</mx-reply><p>a &amp; "
+                           "<span data-mx-spoiler=\"r\">secret <b>more</b>"
+                           "<span>nested</span> <a href=\"https://x.example\">"
+                           "link</a></span> b</p><p>c<br>d</p>"
+                           "<span DATA-MX-SPOILER>two</span>"),
+            QStringLiteral("#"));
+        QCOMPARE(out, QStringLiteral("a & # b\nc\nd\n#"));
+    }
+
     void aRevealedSpoilerKeepsTheBackgroundButShowsTheText()
     {
         const MessageHtml::MentionStyle style{

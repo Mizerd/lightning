@@ -26,6 +26,11 @@ QString sanitize(
     const MentionStyle &mentionStyle = {},
     bool revealSpoilers = false);
 
+// Plain text of a formatted body with every spoiler's contents replaced by
+// `placeholder`, for copying a message whose spoilers are still covered.
+QString plainTextConcealingSpoilers(const QString &html,
+                                    const QString &placeholder);
+
 enum class SegmentKind {
     RichText,
     CodeBlock,
