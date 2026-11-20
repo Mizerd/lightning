@@ -757,12 +757,13 @@ private slots:
             m_engine->retranslate();
         });
 
+        // Retried: an item that just became visible keeps its implicit width
+        // until the layout's next polish.
         auto check = [&](const char *step) {
-            QCoreApplication::processEvents();
-            const QStringList bad = overflowingItems();
-            QVERIFY2(bad.isEmpty(),
-                     qPrintable(QLatin1String(step) + QStringLiteral(": ")
-                                + bad.join(QStringLiteral("; "))));
+            QStringList bad;
+            QTRY_VERIFY2((bad = overflowingItems()).isEmpty(),
+                         qPrintable(QLatin1String(step) + QStringLiteral(": ")
+                                    + bad.join(QStringLiteral("; "))));
         };
 
         QVariantMap dm;
