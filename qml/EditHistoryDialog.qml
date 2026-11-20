@@ -50,6 +50,16 @@ Dialog {
             root.revisions = ok ? rows : []
         }
     }
+    function diffHtml(i) {
+        const cur = revisions[i]
+        const prev = i > 0 ? revisions[i - 1] : null
+        if (!prev || !timelineModel || !timelineModel.editDiffHtml
+                || cur.redacted || cur.undecryptable || prev.redacted || prev.undecryptable)
+            return ""
+        return timelineModel.editDiffHtml(prev.body || "", cur.body || "",
+                                          String(AppTheme.stormSuccess),
+                                          String(AppTheme.stormDanger))
+    }
     function timeLabel(ts) {
         if (!ts || typeof ts.getTime !== "function" || isNaN(ts.getTime()))
             return ""
@@ -136,6 +146,8 @@ Dialog {
                 ScrollBar.vertical: AppScrollBar { thin: true }
                 delegate: Rectangle {
                     required property var modelData
+                    required property int index
+                    readonly property string diff: root.diffHtml(index)
                     width: ListView.view.width
                     radius: AppTheme.radiusTile
                     color: modelData.isLatest ? AppTheme.stormInset : "transparent"
@@ -179,24 +191,27 @@ Dialog {
                                 tone: "neutral"
                             }
                         }
-                        // Rendered through the timeline's sanitizer (formatted) or
-                        // as plain text; never raw HTML.
+                        // The diff is escaped plain text; formatted bodies go through the
+                        // timeline's sanitizer; never raw HTML.
                         Label {
+                            objectName: "editHistoryBody"
                             Layout.fillWidth: true
                             wrapMode: Text.Wrap
                             color: AppTheme.stormText
                             font.pixelSize: AppTheme.textBody
-                            textFormat: modelData.formattedBody
-                                        && modelData.formattedBody.length > 0
+                            textFormat: diff.length > 0 || (modelData.formattedBody
+                                                            && modelData.formattedBody.length > 0)
                                         ? Text.RichText : Text.PlainText
                             text: modelData.undecryptable
                                   ? qsTr("This revision could not be decrypted.")
                                   : modelData.redacted
                                     ? qsTr("This revision was deleted.")
-                                    : (modelData.formattedBody
-                                       && modelData.formattedBody.length > 0
-                                       ? root.timelineModel.sanitizeHtml(modelData.formattedBody)
-                                       : modelData.body)
+                                    : diff.length > 0
+                                      ? diff
+                                      : (modelData.formattedBody
+                                         && modelData.formattedBody.length > 0
+                                         ? root.timelineModel.sanitizeHtml(modelData.formattedBody)
+                                         : modelData.body)
                             font.italic: modelData.undecryptable || modelData.redacted
                         }
                     }

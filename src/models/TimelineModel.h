@@ -294,6 +294,8 @@ public:
     Q_INVOKABLE void requestEditHistory(const QString &eventId);
     Q_INVOKABLE void requestEventSource(const QString &eventId);
     Q_INVOKABLE QString sanitizeHtml(const QString &html) const;
+    Q_INVOKABLE QString editDiffHtml(const QString &before, const QString &after,
+                                     const QString &added, const QString &removed) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
     Q_INVOKABLE bool canRedactEvent(const QString &eventId,
                                     bool canRedactOthers = false) const;

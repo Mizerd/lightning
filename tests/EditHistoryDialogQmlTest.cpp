@@ -1,5 +1,8 @@
 
+#include "models/TextDiff.h"
+
 #include <QDateTime>
+#include <functional>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -47,6 +50,11 @@ public:
         Q_EMIT editHistoryReceived(id, true, false, rows);
     }
     Q_INVOKABLE QString sanitizeHtml(const QString &h) const { return h; }
+    Q_INVOKABLE QString editDiffHtml(const QString &a, const QString &b, const QString &added,
+                                     const QString &removed) const
+    {
+        return textdiff::html(a, b, added, removed);
+    }
 Q_SIGNALS:
     void editHistoryReceived(const QString &id, bool ok, bool partial,
                              const QVariantList &rows);
@@ -127,6 +135,38 @@ private Q_SLOTS:
         QTest::keyClick(w, Qt::Key_Home);
         QCOMPARE(l->property("contentY").toReal(), y0);
         QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+    }
+
+    void newerRevisionsShowTheirDiffAgainstThePreviousOne()
+    {
+        openIt();
+        QQuickItem *l = list();
+        QVERIFY(QMetaObject::invokeMethod(l, "positionViewAtBeginning"));
+        QStringList seen;
+        bool sawOriginal = false, sawDiff = false;
+        QList<QQuickItem *> bodies;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *it) {
+            if (it->objectName() == QStringLiteral("editHistoryBody"))
+                bodies << it;
+            for (QQuickItem *c : it->childItems())
+                walk(c);
+        };
+        walk(l);
+        for (QQuickItem *body : bodies) {
+            const QString text = body->property("text").toString();
+            const int format = body->property("textFormat").toInt();
+            seen << QStringLiteral("%1|%2").arg(format).arg(text);
+            if (text == QStringLiteral("Revision 0") && format == Qt::PlainText)
+                sawOriginal = true;
+            if (text.contains(QStringLiteral("line-through")) && text.contains(QStringLiteral(">0<"))
+                && text.contains(QStringLiteral("underline")) && text.contains(QStringLiteral(">1<"))
+                && format == Qt::RichText)
+                sawDiff = true;
+        }
+        QVERIFY2(sawOriginal, qPrintable(seen.join(QLatin1Char('\n'))));
+        QVERIFY2(sawDiff, qPrintable(seen.join(QLatin1Char('\n'))));
+        QTest::keyClick(qobject_cast<QQuickWindow *>(m_root), Qt::Key_Escape);
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
     }
 

@@ -7307,6 +7307,11 @@ if(BUILD_TESTING)
     target_link_libraries(message-html-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME message-html COMMAND message-html-test)
 
+    qt_add_executable(text-diff-test tests/TextDiffTest.cpp src/models/TextDiff.h)
+    target_include_directories(text-diff-test PRIVATE src)
+    target_link_libraries(text-diff-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME text-diff COMMAND text-diff-test)
+
     qt_add_executable(quote-render-test
         tests/QuoteRenderTest.cpp
         src/models/MessageHtml.h

@@ -5,6 +5,7 @@
 #include "matrix/MatrixClient.h"
 #include "matrix/PresentableName.h"
 #include "models/MessageHtml.h"
+#include "models/TextDiff.h"
 #include "models/UserLookup.h"
 #include "profile/UserProfileResolver.h"
 
@@ -3103,6 +3104,12 @@ void TimelineModel::requestEventSource(const QString &eventId)
     if (roomId.isEmpty())
         return;
     m_client->requestEventSource(roomId, eventId);
+}
+
+QString TimelineModel::editDiffHtml(const QString &before, const QString &after,
+                                    const QString &added, const QString &removed) const
+{
+    return textdiff::html(before, after, added, removed);
 }
 
 QString TimelineModel::sanitizeHtml(const QString &html) const
