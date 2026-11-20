@@ -23,8 +23,8 @@ Item {
     property string originStable: ""
     property string currentStable: ""
     property Item originText: null
-    // In originText's coordinates, so it follows the start row when the content scrolls.
-    property point originPoint
+    // A character position in originText, so the start survives scrolling and reflow.
+    property int originPos: 0
     property point lastPoint
     property var touched: []
     readonly property real edge: 40
@@ -46,7 +46,8 @@ Item {
         if (!text)
             return
         originText = text
-        originPoint = text.mapFromItem(null, sp.x, sp.y)
+        var local = text.mapFromItem(null, sp.x, sp.y)
+        originPos = text.positionAt(local.x, local.y)
         lastPoint = sp
         originStable = model.stableIdAt(hit.row)
     }
@@ -73,7 +74,10 @@ Item {
         if (!hit)
             return
         var originItem = itemForRow(origin)
-        var originScene = originText ? originText.mapToItem(null, originPoint.x, originPoint.y) : null
+        var originRect = originText ? originText.positionToRectangle(originPos) : null
+        var originScene = originRect
+            ? originText.mapToItem(null, originRect.x, originRect.y + originRect.height / 2)
+            : null
         if (hit.row === origin) {
             for (var k = 0; k < touched.length; ++k)
                 if (touched[k])
