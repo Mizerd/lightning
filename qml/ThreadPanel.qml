@@ -835,8 +835,10 @@ Rectangle {
                             }
                             Label {
                                 textFormat: Text.PlainText
+                                objectName: "threadRootCollapsedSender"
                                 Layout.minimumWidth: 0
-                                Layout.maximumWidth: Math.ceil(implicitWidth) + 1
+                                Layout.maximumWidth: Math.min(Math.ceil(implicitWidth) + 1,
+                                                              collapsedLineRow.width * 0.6)
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                                 text: panel.rootData.senderDisplayName || ""
@@ -862,6 +864,8 @@ Rectangle {
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
+                                // The body takes what the name leaves, not a share of it.
+                                Layout.preferredWidth: 0
                                 // Reading rootLineSource.text re-runs this
                                 // when the document changes.
                                 text: (rootLineSource.text, rootLineSource
