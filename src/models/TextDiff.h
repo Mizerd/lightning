@@ -115,18 +115,40 @@ inline QString html(const QString &before, const QString &after,
     const QList<Segment> segs = diff(before, after, &ok);
     if (!ok)
         return {};
+    const auto escape = [](const QString &t) {
+        return t.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+    };
     QString out = QStringLiteral("<div style=\"white-space:pre-wrap\">");
+    Op prev = Op::Same;
     for (const Segment &s : segs) {
-        const QString text = s.text.toHtmlEscaped().replace(QLatin1Char('\n'),
-                                                           QStringLiteral("<br>"));
-        if (s.op == Op::Same)
-            out += text;
-        else if (s.op == Op::Added)
-            out += QStringLiteral("<span style=\"color:%1;text-decoration:underline\">%2</span>")
-                       .arg(cssColor(added), text);
-        else
-            out += QStringLiteral("<span style=\"color:%1;text-decoration:line-through\">%2</span>")
-                       .arg(cssColor(removed), text);
+        if (s.op == Op::Same) {
+            out += escape(s.text);
+            prev = Op::Same;
+            continue;
+        }
+        // Spaces at a changed run's edges stay unmarked so the line or underline
+        // covers words only; a whitespace-only change keeps its mark.
+        qsizetype lead = 0;
+        while (lead < s.text.size() && s.text[lead].isSpace())
+            ++lead;
+        qsizetype end = s.text.size();
+        while (end > lead && s.text[end - 1].isSpace())
+            --end;
+        if (lead == end) {
+            lead = 0;
+            end = s.text.size();
+        }
+        // A thin space keeps a removed word and its replacement from reading as one.
+        if (prev != Op::Same && lead == 0)
+            out += QChar(0x2009);
+        out += escape(s.text.left(lead));
+        out += QStringLiteral("<span style=\"color:%1;text-decoration:%2\">%3</span>")
+                   .arg(cssColor(s.op == Op::Added ? added : removed),
+                        s.op == Op::Added ? QStringLiteral("underline")
+                                          : QStringLiteral("line-through"),
+                        escape(s.text.mid(lead, end - lead)));
+        out += escape(s.text.mid(end));
+        prev = end < s.text.size() ? Op::Same : s.op;
     }
     return out + QStringLiteral("</div>");
 }
