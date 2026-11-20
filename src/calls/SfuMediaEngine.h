@@ -411,6 +411,8 @@ public:
     {
         return m_publishedBins.value(cid, nullptr);
     }
+    // False when the bin carries no gate.
+    static bool probeGateOpenForTest(GstElement *bin);
 
     /// Called by the bus sync handler, any thread: a receive bin posted an error. Its pad
     /// is isolated at once (a sink's error flows back upstream and kills the

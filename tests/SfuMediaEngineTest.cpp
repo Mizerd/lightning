@@ -4000,6 +4000,25 @@ true,-1, fds[0]);
         engine.stop();
     }
 
+    void unpublishingAShareClosesItsProbeGateBeforeTheEngineGoes()
+    {
+        const QString cid = QStringLiteral("cid-share");
+        auto *engine = new SfuMediaEngine;
+        engine->setTestSourceMode(true);
+        engine->start();
+        engine->publishVideo(cid, true, 0);
+        GstElement *bin = engine->publishedBinForTest(cid);
+        QVERIFY(bin);
+        gst_object_ref(bin);
+        const auto release = qScopeGuard([bin] { gst_object_unref(bin); });
+        QVERIFY(SfuMediaEngine::probeGateOpenForTest(bin));
+        engine->unpublish(cid);
+        QVERIFY2(!SfuMediaEngine::probeGateOpenForTest(bin),
+                 "an unpublished share can still call into the engine");
+        delete engine;
+        QTest::qWait(300);
+    }
+
     void onlyAPipewireSrcThatKeepsItsFormatsIsOfferedDmaBuf()
     {
         QVERIFY(!SfuMediaEngine::pipewireSrcKeepsFormatOnRenegotiation(

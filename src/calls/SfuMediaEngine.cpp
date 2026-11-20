@@ -90,6 +90,15 @@ constexpr const char kCaptureRetryKey[] = "lightning-capture-retry";
 constexpr const char kLowPriorityKey[] = "lightning-low-priority";
 constexpr const char kProbeGateKey[] = "lightning-probe-gate";
 
+void closeProbeGate(GstElement *bin)
+{
+    if (auto *gate = static_cast<std::shared_ptr<SfuMediaEngine::ProbeGate> *>(
+            g_object_get_data(G_OBJECT(bin), kProbeGateKey))) {
+        std::lock_guard<std::mutex> lock((*gate)->mutex);
+        (*gate)->open = false;
+    }
+}
+
 int captureRetryStamp(GObject *bin)
 {
     const auto *retry = static_cast<std::shared_ptr<ShareCaptureRetry> *>(
@@ -1328,11 +1337,7 @@ true);
             || GST_OBJECT_PARENT(bin) != GST_OBJECT(m_publisher.pipeline)
             || !g_object_get_data(G_OBJECT(bin), kLowPriorityKey))
             continue;
-        if (auto *gate = static_cast<std::shared_ptr<ProbeGate> *>(
-                g_object_get_data(G_OBJECT(bin), kProbeGateKey))) {
-            std::lock_guard<std::mutex> lock((*gate)->mutex);
-            (*gate)->open = false;
-        }
+        closeProbeGate(bin);
         gst_object_ref(bin);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
         m_pendingTeardowns->fetch_add(1);
@@ -6820,6 +6825,9 @@ void SfuMediaEngine::unpublish(const QString &cid)
     if (const QString backup = m_shareBackups.take(cid); !backup.isEmpty())
         unpublish(backup);
     GstElement *bin = m_publishedBins.take(cid);
+    // Its teardown can outlive this engine; a late self-view sample must not reach it.
+    if (bin)
+        closeProbeGate(bin);
     bool deliveredNothing = false;
     if (const auto dead = m_publishWatch.take(cid); dead.state) {
         deliveredNothing = dead.state->captured.load() == 0;
@@ -8713,6 +8721,16 @@ void SfuMediaEngine::handleCaptureEnded(const QString &cid, int captureEpoch)
                          screenShare
                              ? QStringLiteral("screen_share_source_closed")
                              : QStringLiteral("camera_source_closed"));
+}
+
+bool SfuMediaEngine::probeGateOpenForTest(GstElement *bin)
+{
+    auto *gate = static_cast<std::shared_ptr<ProbeGate> *>(
+        g_object_get_data(G_OBJECT(bin), kProbeGateKey));
+    if (!gate)
+        return false;
+    std::lock_guard<std::mutex> lock((*gate)->mutex);
+    return (*gate)->open;
 }
 
 QString SfuMediaEngine::publishedBinPropertyForTest(
