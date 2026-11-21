@@ -950,6 +950,46 @@ private Q_SLOTS:
         QCOMPARE(client.lastCaption, QString());
     }
 
+    void anInlineThreadAttachmentTakesTheTextAsItsCaption()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setSendTextAsCaption(true);
+        composer.setThreadTargetRootId(QStringLiteral("$root:example.org"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("photo.png"), tinyPng())));
+        composer.setText(QStringLiteral("look at this"));
+
+        composer.send();
+        QCOMPARE(client.threadFileSends, 1);
+        QCOMPARE(client.lastThreadRoot, QStringLiteral("$root:example.org"));
+        QCOMPARE(client.lastCaption, QStringLiteral("look at this"));
+        QCOMPARE(composer.text(), QString());
+    }
+
+    // The bytes sends cannot carry a caption with a reply, so a pasted image
+    // keeps its text as a separate reply rather than losing either.
+    void aPastedImageInAReplyKeepsItsTextSeparate()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setSendTextAsCaption(true);
+        QVERIFY(composer.attachments()->addImageData(
+                    tinyPng(), QStringLiteral("image/png"), 1, 1).isEmpty());
+        composer.beginReply(QStringLiteral("$target:example.org"),
+                            QStringLiteral("Alice"), QStringLiteral("hello"),
+                            QString());
+        composer.setText(QStringLiteral("look at this"));
+        composer.send();
+        QCOMPARE(client.byteSends, 1);
+        QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
+    }
+
     void aVideoThatWaitsForItsPosterStillCarriesTheReply()
     {
         FakeClient client;

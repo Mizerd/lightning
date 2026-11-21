@@ -190,6 +190,14 @@ void ThreadController::setImageMetadataMode(const QString &mode)
     Q_EMIT imageMetadataModeChanged();
 }
 
+void ThreadController::setSendTextAsCaption(bool on)
+{
+    if (m_sendTextAsCaption == on)
+        return;
+    m_sendTextAsCaption = on;
+    Q_EMIT sendTextAsCaptionChanged();
+}
+
 void ThreadController::setClient(MatrixClient *client)
 {
     if (m_client == client)
@@ -568,10 +576,24 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
         }
     }
 
+    // The thread's bytes send takes no caption, so only a file or a spoiler
+    // carries the text (MSC2530), and only one this send owns.
+    if (m_sendTextAsCaption && !outBody.isEmpty() && mentionIds.isEmpty()) {
+        for (auto &entry : m_attachments->entries()) {
+            if (entry.state != QLatin1String("queued") || entry.sendRequested
+                || (entry.localPath.isEmpty() && !entry.spoiler))
+                continue;
+            entry.caption = outBody;
+            outBody.clear();
+            break;
+        }
+    }
     const bool dispatched = dispatchAttachments();
     if (outBody.isEmpty()) {
-        if (dispatched)
+        if (dispatched) {
             cancelReply();
+            retireComposerDraft();
+        }
         return;
     }
     sendThreadBody(outBody, mentionIds, QVariantMap());
@@ -867,7 +889,7 @@ void ThreadController::dispatchEntry(AttachmentQueueModel::Entry &entry,
         opId = entry.isSvg ? 0 : m_client->sendSpoilerMedia(
             roomId, rootEventId,
             entry.localPath.isEmpty() ? QString() : sendPath, sendData,
-            entry.fileName, entry.mime, QString(), entry.width, entry.height,
+            entry.fileName, entry.mime, entry.caption, entry.width, entry.height,
             entry.durationMs, entry.animated, entry.poster, entry.posterWidth,
             entry.posterHeight, entry.replyToEventId);
     } else if (entry.localPath.isEmpty()) {
@@ -876,14 +898,14 @@ void ThreadController::dispatchEntry(AttachmentQueueModel::Entry &entry,
             entry.width, entry.height, entry.replyToEventId);
     } else if (entry.isVideo) {
         opId = m_client->sendThreadVideo(
-            roomId, rootEventId, entry.localPath, entry.mime, QString(),
+            roomId, rootEventId, entry.localPath, entry.mime, entry.caption,
             entry.width, entry.height, entry.durationMs, entry.poster,
             entry.posterWidth, entry.posterHeight, entry.replyToEventId);
     } else if (entry.isSvg) {
         opId = 0;
     } else {
         opId = m_client->sendThreadAttachment(
-            roomId, rootEventId, sendPath, entry.mime, QString(),
+            roomId, rootEventId, sendPath, entry.mime, entry.caption,
             entry.width, entry.height, entry.animated, entry.durationMs,
             entry.replyToEventId);
     }

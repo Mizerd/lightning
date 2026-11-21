@@ -42,6 +42,8 @@ class ThreadController : public QObject
                    NOTIFY viewerAtLatestChanged)
     Q_PROPERTY(QString imageMetadataMode READ imageMetadataMode
                    WRITE setImageMetadataMode NOTIFY imageMetadataModeChanged)
+    Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
+                   WRITE setSendTextAsCaption NOTIFY sendTextAsCaptionChanged)
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)
     Q_PROPERTY(QString roomId READ roomId NOTIFY stateChanged)
     Q_PROPERTY(QString rootEventId READ rootEventId NOTIFY stateChanged)
@@ -89,6 +91,8 @@ public:
                                        int contentY);
     QString imageMetadataMode() const { return m_imageMetadataMode; }
     void setImageMetadataMode(const QString &mode);
+    bool sendTextAsCaption() const { return m_sendTextAsCaption; }
+    void setSendTextAsCaption(bool on);
     void setDraftStore(class DraftStore *store) { m_drafts = store; }
     void discardAllAttachments();
 
@@ -194,6 +198,7 @@ public:
 
 Q_SIGNALS:
     void imageMetadataModeChanged();
+    void sendTextAsCaptionChanged();
     void threadReadSent(const QString &roomId, const QString &rootEventId,
                         qint64 timestampMs);
     void supportedChanged();
@@ -239,6 +244,7 @@ private:
     };
     QHash<quint64, VoiceOp> m_voiceOps;
     QString m_imageMetadataMode = QStringLiteral("location");
+    bool m_sendTextAsCaption = false;
     ImageSendPrep m_imagePrep;
 
     MatrixClient *m_client = nullptr;

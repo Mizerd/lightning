@@ -364,6 +364,11 @@ ApplicationWindow {
         property: "imageMetadataMode"
         value: app.settings ? app.settings.imageMetadataMode : "location"
     }
+    Binding {
+        target: app.thread
+        property: "sendTextAsCaption"
+        value: app.settings ? app.settings.sendTextAsCaption : false
+    }
     Connections {
         target: app.composer
         function onComposerModeToggleRequested() {

@@ -326,8 +326,9 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
                                         const QStringList &mentionIds)
 {
     if (!m_sendTextAsCaption || body.isEmpty() || !mentionIds.isEmpty()
-        || !sendThreadRootId().isEmpty() || !m_attachments)
+        || !m_attachments)
         return false;
+    const bool thread = !sendThreadRootId().isEmpty();
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
         auto &entry = entries[row];
@@ -336,10 +337,11 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
         if (entry.state != QLatin1String("queued") || entry.sendRequested
             || (m_preparingForSchedule && entry.posterPending))
             continue;
-        // The plain bytes send has no caption; the room-scoped one takes a
-        // caption but no reply target. Spoiler and scheduled sends take both.
+        // A file send takes a caption with a reply or a thread, and so do
+        // spoiler and scheduled sends. Of the bytes sends only the room-scoped
+        // one takes a caption, and it takes no reply and no thread.
         if (entry.localPath.isEmpty() && !entry.spoiler && !m_preparingForSchedule
-            && (!m_client || !m_client->supportsRoomScopedAttachmentSend()
+            && (thread || !m_client || !m_client->supportsRoomScopedAttachmentSend()
                 || !m_replyingToEventId.isEmpty()))
             continue;
         entry.caption = body;
@@ -396,8 +398,7 @@ QVariantMap MessageComposer::prepareAttachmentsForSchedule(
     if (m_client && !m_roomId.isEmpty() && roomId == m_roomId) {
         const QString caption = captionBody.trimmed();
         m_preparingForSchedule = true;
-        // A thread send never folds its text into a caption (takeTextAsCaption).
-        captioned = threadRootId.isEmpty() && takeTextAsCaption(caption, mentionIds);
+        captioned = takeTextAsCaption(caption, mentionIds);
         auto &entries = m_attachments->entries();
         for (int row = 0; row < entries.size(); ++row) {
             auto &entry = entries[row];

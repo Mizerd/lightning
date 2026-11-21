@@ -1458,6 +1458,34 @@ private Q_SLOTS:
         QCOMPARE(client.threadAttachmentCallsForTest(), 0);
     }
 
+    // MSC2530: with text-as-caption on, the image and its text are one event
+    // sent through the SDK thread path, not an image plus a separate reply.
+    void aThreadAttachmentTakesTheTextAsItsCaption()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setProperty("sendTextAsCaption", true);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QTemporaryFile img(QDir::tempPath()
+                           + QStringLiteral("/lightning-XXXXXX.png"));
+        QVERIFY(img.open());
+        QImage(4, 4, QImage::Format_RGB32).save(img.fileName(), "PNG");
+        controller.addAttachment(QUrl::fromLocalFile(img.fileName()));
+        const int textSends = client.threadTextSendsForTest();
+        controller.setText(QStringLiteral("look at this"));
+        controller.sendText(QStringLiteral("look at this"));
+        QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+        QCOMPARE(client.lastAttachmentCaptionForTest(),
+                 QStringLiteral("look at this"));
+        QCOMPARE(client.threadTextSendsForTest(), textSends);
+        QCOMPARE(controller.text(), QString());
+    }
+
     void threadAttachmentSendsIntoThread()
     {
         MockMatrixClient client;
