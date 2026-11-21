@@ -130,6 +130,9 @@ private Q_SLOTS:
         const QString nested = ActivityModel::previewOf(e);
         QVERIFY2(!nested.contains(QLatin1String("hidden-tail")), qPrintable(nested));
         QVERIFY2(nested.endsWith(QLatin1String("y")), qPrintable(nested));
+
+        e.formattedBody = QStringLiteral("a < b > c");
+        QCOMPARE(ActivityModel::previewOf(e), QStringLiteral("a < b > c"));
     }
 
     void favouritesOnlyKeepsFavouriteRoomsAndFollowsTagChanges()

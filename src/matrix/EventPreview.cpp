@@ -76,6 +76,14 @@ QString htmlPlainText(const QString &html, const QString &placeholder)
         }
         if (spoilerDepth == 0)
             out += QStringView(body).mid(pos, open - pos);
+        const QChar next = open + 1 < body.size() ? body.at(open + 1) : QChar();
+        if (!next.isLetter() && next != QLatin1Char('/') && next != QLatin1Char('!')
+            && next != QLatin1Char('?')) {
+            if (spoilerDepth == 0)
+                out += QLatin1Char('<');
+            pos = open + 1;
+            continue;
+        }
         const qsizetype close = body.indexOf(QLatin1Char('>'), open + 1);
         if (close < 0) {
             if (spoilerDepth == 0)
