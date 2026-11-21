@@ -1898,7 +1898,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Das konvertierte Bild konnte nicht gespeichert werden.</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+82"/>
         <source>The clipboard image is empty.</source>
         <translation>Das Bild in der Zwischenablage ist leer.</translation>
     </message>
@@ -19290,7 +19290,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+202"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+207"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1-Kontakt</translation>
@@ -20036,12 +20036,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2691"/>
+        <location line="+2694"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning konnte die lokale Sitzung dieses Kontos nicht vollständig zurücksetzen. Prüfe die Anwendungsprotokolle und die Dateisystemberechtigungen und versuche es dann erneut.</translation>
     </message>
     <message>
-        <location line="-2705"/>
+        <location line="-2708"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Lokale Lightning-Sitzung neu aufgebaut. Der vorherige Verschlüsselungsspeicher wurde beiseitegelegt, nicht gelöscht, und liegt weiterhin im Datenverzeichnis dieses Kontos. Du kannst dich erneut anmelden.</translation>
     </message>
@@ -20054,7 +20054,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4563"/>
+        <location line="+4566"/>
         <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -20063,22 +20063,22 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4919"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4726"/>
+        <location line="+4729"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
     </message>
     <message>
-        <location line="-4921"/>
+        <location line="-4924"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>An verschlüsselte Räume kann noch nicht gesendet werden: Das verschlüsselte Senden des Rust-SDK ist nicht verifiziert.</translation>
     </message>
     <message>
-        <location line="+766"/>
+        <location line="+769"/>
         <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
@@ -27166,7 +27166,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Anruf-Audio gestoppt: Die Tonausgabe dieses Computers wurde getrennt. Es läuft weiter, sobald wieder eine Ausgabe verfügbar ist; falls nicht, verlasse den Anruf und tritt erneut bei.</translation>
     </message>
     <message>
-        <location line="+2083"/>
+        <location line="+2085"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Der Ton der Bildschirmfreigabe ist aus: Diesem Paket fehlen die nötigen Audioaufnahme-Plugins.</translation>
     </message>
@@ -27236,7 +27236,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Gerade ist nichts zu hören.</translation>
     </message>
     <message>
-        <location line="+370"/>
+        <location line="+371"/>
         <source>The call was declined.</source>
         <translation>Der Anruf wurde abgelehnt.</translation>
     </message>
@@ -32196,7 +32196,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+695"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Anhänge werden von diesem Backend nicht unterstützt.</translation>
@@ -32212,17 +32212,17 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Das Bild aus der Zwischenablage konnte nicht gelesen werden.</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+78"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Die Fotodetails konnten nicht aus diesem Bild entfernt werden, daher wurde es nicht gesendet. Du kannst das unter Einstellungen, Datenschutz ändern.</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+32"/>
         <source>The attachment could not be queued.</source>
         <translation>Der Anhang konnte nicht in die Warteschlange gestellt werden.</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <location line="+26"/>
         <location line="+23"/>
         <source>The voice message could not be sent.</source>
@@ -32235,7 +32235,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+55"/>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Upload fehlgeschlagen. Erneut versuchen oder entfernen.</translation>
     </message>
@@ -32895,7 +32895,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+7028"/>
+        <location filename="../qml/TimelinePane.qml" line="+7074"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -32939,8 +32939,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5840"/>
-        <location line="+5360"/>
+        <location filename="../qml/TimelinePane.qml" line="-5877"/>
+        <location line="+5397"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32964,8 +32964,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="+141"/>
-        <location filename="../qml/TimelinePane.qml" line="-6195"/>
-        <location line="+6832"/>
+        <location filename="../qml/TimelinePane.qml" line="-6232"/>
+        <location line="+6869"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -33019,7 +33019,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6425"/>
+        <location filename="../qml/TimelinePane.qml" line="-6462"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -33145,12 +33145,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3833"/>
+        <location line="+3870"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-3822"/>
+        <location line="-3859"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -33396,14 +33396,14 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Suche konnte nicht abgeschlossen werden.</translation>
     </message>
     <message>
-        <location line="+2708"/>
+        <location line="+2726"/>
         <location line="+27"/>
-        <location line="+436"/>
+        <location line="+455"/>
         <source>Loading older messages…</source>
         <translation>Ältere Nachrichten werden geladen …</translation>
     </message>
     <message>
-        <location line="-435"/>
+        <location line="-454"/>
         <source>Could not load older messages —</source>
         <translation>Ältere Nachrichten konnten nicht geladen werden –</translation>
     </message>
@@ -33418,7 +33418,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Wiederholen</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+128"/>
         <source>Loading conversation…</source>
         <translation>Unterhaltung wird geladen …</translation>
     </message>
@@ -33799,7 +33799,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5395"/>
+        <location line="-5432"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>
@@ -35392,7 +35392,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2435"/>
+        <location filename="../src/main.cpp" line="+2460"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Nativer Qt/QML-Matrix-Client. Backend: --backend={mock,http,rust}. Standard: rust (http in Versionen ohne das Rust-SDK).</translation>
     </message>

@@ -1887,7 +1887,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Gambar hasil konversi tidak dapat disimpan.</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+82"/>
         <source>The clipboard image is empty.</source>
         <translation>Gambar papan klip kosong.</translation>
     </message>
@@ -19216,7 +19216,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+202"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+207"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>Kontak %1</translation>
@@ -19927,12 +19927,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2691"/>
+        <location line="+2694"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning tidak dapat mereset sepenuhnya sesi lokal untuk akun ini. Periksa log aplikasi dan izin sistem berkas, lalu coba lagi.</translation>
     </message>
     <message>
-        <location line="-2705"/>
+        <location line="-2708"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Sesi Lightning lokal telah dibangun ulang. Penyimpanan enkripsi sebelumnya disingkirkan, bukan dihapus, dan masih ada di direktori data akun ini. Anda dapat masuk lagi.</translation>
     </message>
@@ -19945,7 +19945,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4563"/>
+        <location line="+4566"/>
         <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19954,22 +19954,22 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-4919"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4726"/>
+        <location line="+4729"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-4921"/>
+        <location line="-4924"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Belum dapat mengirim ke ruang terenkripsi: pengiriman terenkripsi Rust SDK belum terverifikasi.</translation>
     </message>
     <message>
-        <location line="+766"/>
+        <location line="+769"/>
         <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
@@ -20068,7 +20068,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tindakan jajak pendapat tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="-6523"/>
+        <location line="-6526"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Data akun ini masih digunakan oleh sesi latar belakang. Tunggu sebentar lalu coba lagi.</translation>
     </message>
@@ -20098,7 +20098,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Masukkan kata sandi Anda.</translation>
     </message>
     <message>
-        <location line="+5654"/>
+        <location line="+5657"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Pesan tidak dapat dikirim. Anda dapat mencoba lagi dari tindakan Coba lagi pada pesan.</translation>
     </message>
@@ -27051,7 +27051,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Suara panggilan berhenti: keluaran suara komputer ini terputus. Suara berlanjut saat keluaran tersedia lagi; jika tidak, keluar lalu bergabung kembali ke panggilan.</translation>
     </message>
     <message>
-        <location line="+2083"/>
+        <location line="+2085"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Suara berbagi layar dinonaktifkan: paket ini tidak memiliki plugin penangkapan audio yang diperlukan.</translation>
     </message>
@@ -27121,7 +27121,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Tidak ada yang terdengar sekarang.</translation>
     </message>
     <message>
-        <location line="+370"/>
+        <location line="+371"/>
         <source>The call was declined.</source>
         <translation>Panggilan ditolak.</translation>
     </message>
@@ -27136,7 +27136,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Peserta</translation>
     </message>
     <message>
-        <location line="-4505"/>
+        <location line="-4508"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Ruangan ini dienkripsi, dan panggilan terenkripsi belum tersedia di build ini.</translation>
     </message>
@@ -32050,7 +32050,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+695"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Lampiran tidak didukung pada backend ini.</translation>
@@ -32066,17 +32066,17 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Gambar papan klip tidak dapat dibaca.</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+78"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Detail foto tidak dapat dihapus dari gambar ini, sehingga tidak dikirim. Anda dapat mengubahnya di Pengaturan, Privasi.</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+32"/>
         <source>The attachment could not be queued.</source>
         <translation>Lampiran tidak dapat diantrekan.</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <location line="+26"/>
         <location line="+23"/>
         <source>The voice message could not be sent.</source>
@@ -32089,7 +32089,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Unggahan gagal. Coba lagi atau hapus.</translation>
     </message>
@@ -32730,7 +32730,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+780"/>
+        <location filename="../qml/TimelinePane.qml" line="+789"/>
         <source>Seen by 1 person</source>
         <translation>Dilihat oleh 1 orang</translation>
     </message>
@@ -32749,12 +32749,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+294"/>
-        <location line="+5360"/>
+        <location line="+5397"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5359"/>
+        <location filename="../qml/TimelinePane.qml" line="-5396"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -32856,12 +32856,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3833"/>
+        <location line="+3870"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
     <message>
-        <location line="-3822"/>
+        <location line="-3859"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Tindakan ruang lainnya</translation>
@@ -33107,14 +33107,14 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pencarian tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="+2708"/>
+        <location line="+2726"/>
         <location line="+27"/>
-        <location line="+436"/>
+        <location line="+455"/>
         <source>Loading older messages…</source>
         <translation>Memuat pesan lama…</translation>
     </message>
     <message>
-        <location line="-435"/>
+        <location line="-454"/>
         <source>Could not load older messages —</source>
         <translation>Tidak dapat memuat pesan lama —</translation>
     </message>
@@ -33129,7 +33129,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Coba lagi</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+128"/>
         <source>Loading conversation…</source>
         <translation>Memuat percakapan…</translation>
     </message>
@@ -33485,8 +33485,8 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6655"/>
-        <location line="+6832"/>
+        <location filename="../qml/TimelinePane.qml" line="-6692"/>
+        <location line="+6869"/>
         <source>Room</source>
         <translation>Ruang</translation>
     </message>
@@ -33557,13 +33557,13 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-5947"/>
+        <location line="-5984"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Lihat profil</translation>
     </message>
     <message>
-        <location line="+5179"/>
+        <location line="+5216"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Gambar (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33639,7 +33639,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Lepaskan berkas untuk melampirkannya</translation>
     </message>
     <message>
-        <location line="-5395"/>
+        <location line="-5432"/>
         <source>Join space</source>
         <translation>Gabung ke space</translation>
     </message>
@@ -35231,7 +35231,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2435"/>
+        <location filename="../src/main.cpp" line="+2460"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Klien Matrix Qt/QML asli. Backend: --backend={mock,http,rust}. Bawaan: rust (http pada build tanpa Rust SDK).</translation>
     </message>

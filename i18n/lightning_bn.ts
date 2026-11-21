@@ -1898,7 +1898,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>রূপান্তরিত ছবিটি সংরক্ষণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+82"/>
         <source>The clipboard image is empty.</source>
         <translation>ক্লিপবোর্ডের ছবিটি ফাঁকা।</translation>
     </message>
@@ -19290,7 +19290,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+202"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+207"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1 পরিচিতি</translation>
@@ -20006,12 +20006,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2691"/>
+        <location line="+2694"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning এই অ্যাকাউন্টের স্থানীয় সেশন পুরোপুরি রিসেট করতে পারেনি। অ্যাপ্লিকেশন লগ ও ফাইল সিস্টেমের অনুমতি দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-2705"/>
+        <location line="-2708"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>স্থানীয় Lightning সেশন নতুন করে গড়া হয়েছে। আগের এনক্রিপশন সংরক্ষণ সরিয়ে রাখা হয়েছে, মোছা হয়নি, এবং এখনও এই অ্যাকাউন্টের ডেটা ডিরেক্টরিতে আছে। আপনি আবার সাইন ইন করতে পারেন।</translation>
     </message>
@@ -20024,7 +20024,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4563"/>
+        <location line="+4566"/>
         <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -20033,22 +20033,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4919"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4726"/>
+        <location line="+4729"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-4921"/>
+        <location line="-4924"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>এনক্রিপ্টেড রুমে এখনও পাঠানো যায় না: Rust SDK-এর এনক্রিপ্টেড পাঠানো যাচাই করা হয়নি।</translation>
     </message>
     <message>
-        <location line="+766"/>
+        <location line="+769"/>
         <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
@@ -20147,7 +20147,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভোটের কাজ সম্পন্ন করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-6523"/>
+        <location line="-6526"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>এই অ্যাকাউন্টের ডেটা এখনও একটি ব্যাকগ্রাউন্ড সেশনে ব্যবহৃত হচ্ছে। একটু অপেক্ষা করে আবার চেষ্টা করুন।</translation>
     </message>
@@ -20177,7 +20177,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার পাসওয়ার্ড দিন।</translation>
     </message>
     <message>
-        <location line="+5654"/>
+        <location line="+5657"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>বার্তাটি পাঠানো যায়নি। বার্তার “আবার চেষ্টা করুন” ক্রিয়া থেকে আবার চেষ্টা করতে পারেন।</translation>
     </message>
@@ -27151,7 +27151,7 @@ Note: importing keys does not verify this session.</source>
         <translation>কলের অডিও থেমে গেছে: এই কম্পিউটারের শব্দ আউটপুট বিচ্ছিন্ন হয়েছে। আউটপুট আবার পাওয়া গেলে এটি চালু হবে; না হলে কল ছেড়ে আবার যোগ দিন।</translation>
     </message>
     <message>
-        <location line="+2083"/>
+        <location line="+2085"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>স্ক্রিন শেয়ারের শব্দ বন্ধ আছে: এই প্যাকেজে প্রয়োজনীয় অডিও ক্যাপচার প্লাগইন নেই।</translation>
     </message>
@@ -27221,7 +27221,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এখন কিছুই শোনা যাচ্ছে না।</translation>
     </message>
     <message>
-        <location line="+370"/>
+        <location line="+371"/>
         <source>The call was declined.</source>
         <translation>কলটি প্রত্যাখ্যান করা হয়েছে।</translation>
     </message>
@@ -27236,7 +27236,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অংশগ্রহণকারী</translation>
     </message>
     <message>
-        <location line="-4505"/>
+        <location line="-4508"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>এই রুমটি এনক্রিপ্ট করা হয়েছে, এবং এনক্রিপ্ট করা কল এখনও এই বিল্ডে উপলব্ধ নেই৷</translation>
     </message>
@@ -32196,7 +32196,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+695"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
@@ -32212,17 +32212,17 @@ Note: importing keys does not verify this session.</source>
         <translation>ক্লিপবোর্ডের ছবি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+78"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>এই ছবি থেকে ছবির বিবরণ সরানো যায়নি, তাই এটি পাঠানো হয়নি। সেটিংস, গোপনীয়তায় এটি বদলাতে পারেন।</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+32"/>
         <source>The attachment could not be queued.</source>
         <translation>সংযুক্তিটি সারিতে দেওয়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <location line="+26"/>
         <location line="+23"/>
         <source>The voice message could not be sent.</source>
@@ -32235,7 +32235,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>আপলোড ব্যর্থ। আবার চেষ্টা করুন বা সরান।</translation>
     </message>
@@ -32881,7 +32881,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+780"/>
+        <location filename="../qml/TimelinePane.qml" line="+789"/>
         <source>Seen by 1 person</source>
         <translation>১ জন দেখেছেন</translation>
     </message>
@@ -32901,12 +32901,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+294"/>
-        <location line="+5360"/>
+        <location line="+5397"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5359"/>
+        <location filename="../qml/TimelinePane.qml" line="-5396"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
@@ -33008,12 +33008,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3833"/>
+        <location line="+3870"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
     <message>
-        <location line="-3822"/>
+        <location line="-3859"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>রুমের আরও কাজ</translation>
@@ -33259,14 +33259,14 @@ Note: importing keys does not verify this session.</source>
         <translation>অনুসন্ধান সম্পূর্ণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+2708"/>
+        <location line="+2726"/>
         <location line="+27"/>
-        <location line="+436"/>
+        <location line="+455"/>
         <source>Loading older messages…</source>
         <translation>পুরনো বার্তা লোড হচ্ছে…</translation>
     </message>
     <message>
-        <location line="-435"/>
+        <location line="-454"/>
         <source>Could not load older messages —</source>
         <translation>পুরনো বার্তা লোড করা যায়নি —</translation>
     </message>
@@ -33281,7 +33281,7 @@ Note: importing keys does not verify this session.</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+128"/>
         <source>Loading conversation…</source>
         <translation>আলাপ লোড হচ্ছে…</translation>
     </message>
@@ -33641,8 +33641,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6655"/>
-        <location line="+6832"/>
+        <location filename="../qml/TimelinePane.qml" line="-6692"/>
+        <location line="+6869"/>
         <source>Room</source>
         <translation>রুম</translation>
     </message>
@@ -33717,13 +33717,13 @@ Note: importing keys does not verify this session.</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-5947"/>
+        <location line="-5984"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>প্রোফাইল দেখুন</translation>
     </message>
     <message>
-        <location line="+5179"/>
+        <location line="+5216"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33799,7 +33799,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সংযুক্ত করতে ফাইল ছেড়ে দিন</translation>
     </message>
     <message>
-        <location line="-5395"/>
+        <location line="-5432"/>
         <source>Join space</source>
         <translation>স্পেসে যোগ দিন</translation>
     </message>
@@ -35392,7 +35392,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2435"/>
+        <location filename="../src/main.cpp" line="+2460"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>নেটিভ Qt/QML Matrix ক্লায়েন্ট। ব্যাকএন্ড: --backend={mock,http,rust}। ডিফল্ট: rust (Rust SDK ছাড়া বিল্ডে http)।</translation>
     </message>

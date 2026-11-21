@@ -1898,7 +1898,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>बदली हुई तस्वीर सहेजी नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+82"/>
         <source>The clipboard image is empty.</source>
         <translation>क्लिपबोर्ड की इमेज खाली है।</translation>
     </message>
@@ -19290,7 +19290,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+202"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+207"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1 संपर्क</translation>
@@ -20006,12 +20006,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+50"/>
-        <location line="+2691"/>
+        <location line="+2694"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning इस खाते का स्थानीय सेशन पूरी तरह रीसेट नहीं कर सका। ऐप्लिकेशन लॉग और फ़ाइल सिस्टम की अनुमतियाँ जाँचें, फिर दोबारा कोशिश करें।</translation>
     </message>
     <message>
-        <location line="-2705"/>
+        <location line="-2708"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>स्थानीय Lightning सेशन फिर से बना दिया गया। पिछला एन्क्रिप्शन स्टोर हटाया नहीं गया, सिर्फ़ अलग रख दिया गया है और अब भी इस खाते की डेटा डायरेक्टरी में है। आप दोबारा साइन इन कर सकते हैं।</translation>
     </message>
@@ -20024,7 +20024,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4563"/>
+        <location line="+4566"/>
         <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -20033,22 +20033,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-4919"/>
+        <location line="-4922"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4726"/>
+        <location line="+4729"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-4921"/>
+        <location line="-4924"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>एन्क्रिप्टेड रूम में अभी भेजा नहीं जा सकता: Rust SDK का एन्क्रिप्टेड सेंड सत्यापित नहीं है।</translation>
     </message>
     <message>
-        <location line="+766"/>
+        <location line="+769"/>
         <location line="+2621"/>
         <location line="+64"/>
         <source>The sticker could not be sent.</source>
@@ -20147,7 +20147,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>पोल की कार्रवाई पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="-6523"/>
+        <location line="-6526"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>इस खाते का डेटा अभी किसी बैकग्राउंड सेशन में उपयोग में है। थोड़ी देर रुककर दोबारा कोशिश करें।</translation>
     </message>
@@ -20177,7 +20177,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>अपना पासवर्ड दर्ज करें।</translation>
     </message>
     <message>
-        <location line="+5654"/>
+        <location line="+5657"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>संदेश भेजा नहीं जा सका। आप संदेश के “फिर कोशिश करें” विकल्प से दोबारा भेज सकते हैं।</translation>
     </message>
@@ -27151,7 +27151,7 @@ Note: importing keys does not verify this session.</source>
         <translation>कॉल का ऑडियो रुक गया: इस कंप्यूटर का साउंड आउटपुट डिस्कनेक्ट हो गया। आउटपुट दोबारा उपलब्ध होने पर यह फिर शुरू होता है; न हो तो कॉल छोड़कर फिर शामिल हों।</translation>
     </message>
     <message>
-        <location line="+2083"/>
+        <location line="+2085"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>स्क्रीन शेयर की ध्वनि बंद है: इस पैकेज में आवश्यक ऑडियो कैप्चर प्लगइन नहीं हैं।</translation>
     </message>
@@ -27221,7 +27221,7 @@ Note: importing keys does not verify this session.</source>
         <translation>अभी कुछ भी सुनाई नहीं दे रहा।</translation>
     </message>
     <message>
-        <location line="+370"/>
+        <location line="+371"/>
         <source>The call was declined.</source>
         <translation>कॉल अस्वीकार कर दी गई।</translation>
     </message>
@@ -27236,7 +27236,7 @@ Note: importing keys does not verify this session.</source>
         <translation>प्रतिभागी</translation>
     </message>
     <message>
-        <location line="-4505"/>
+        <location line="-4508"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>यह रूम एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>
@@ -32196,7 +32196,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+695"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>इस बैकएंड पर अटैचमेंट समर्थित नहीं हैं।</translation>
@@ -32212,17 +32212,17 @@ Note: importing keys does not verify this session.</source>
         <translation>क्लिपबोर्ड की इमेज पढ़ी नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+78"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>इस तस्वीर से फ़ोटो विवरण हटाए नहीं जा सके, इसलिए यह नहीं भेजी गई। आप इसे सेटिंग्स, गोपनीयता में बदल सकते हैं।</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+32"/>
         <source>The attachment could not be queued.</source>
         <translation>अटैचमेंट कतार में नहीं जोड़ा जा सका।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <location line="+26"/>
         <location line="+23"/>
         <source>The voice message could not be sent.</source>
@@ -32235,7 +32235,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+55"/>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>अपलोड विफल। फिर से कोशिश करें या हटा दें।</translation>
     </message>
@@ -32881,7 +32881,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+780"/>
+        <location filename="../qml/TimelinePane.qml" line="+789"/>
         <source>Seen by 1 person</source>
         <translation>1 व्यक्ति ने देखा</translation>
     </message>
@@ -32901,12 +32901,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+294"/>
-        <location line="+5360"/>
+        <location line="+5397"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5359"/>
+        <location filename="../qml/TimelinePane.qml" line="-5396"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -33008,12 +33008,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3833"/>
+        <location line="+3870"/>
         <source>Room information</source>
         <translation>कक्ष जानकारी</translation>
     </message>
     <message>
-        <location line="-3822"/>
+        <location line="-3859"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>रूम की और कार्रवाइयाँ</translation>
@@ -33259,14 +33259,14 @@ Note: importing keys does not verify this session.</source>
         <translation>खोज पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="+2708"/>
+        <location line="+2726"/>
         <location line="+27"/>
-        <location line="+436"/>
+        <location line="+455"/>
         <source>Loading older messages…</source>
         <translation>पुराने संदेश लोड हो रहे हैं…</translation>
     </message>
     <message>
-        <location line="-435"/>
+        <location line="-454"/>
         <source>Could not load older messages —</source>
         <translation>पुराने संदेश लोड नहीं हो सके —</translation>
     </message>
@@ -33281,7 +33281,7 @@ Note: importing keys does not verify this session.</source>
         <translation>पुनः प्रयास करें</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+128"/>
         <source>Loading conversation…</source>
         <translation>बातचीत लोड हो रही है…</translation>
     </message>
@@ -33641,8 +33641,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6655"/>
-        <location line="+6832"/>
+        <location filename="../qml/TimelinePane.qml" line="-6692"/>
+        <location line="+6869"/>
         <source>Room</source>
         <translation>कक्ष</translation>
     </message>
@@ -33717,13 +33717,13 @@ Note: importing keys does not verify this session.</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5947"/>
+        <location line="-5984"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
     </message>
     <message>
-        <location line="+5179"/>
+        <location line="+5216"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33799,7 +33799,7 @@ Note: importing keys does not verify this session.</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-5395"/>
+        <location line="-5432"/>
         <source>Join space</source>
         <translation>स्पेस में शामिल हों</translation>
     </message>
@@ -35392,7 +35392,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2435"/>
+        <location filename="../src/main.cpp" line="+2460"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>नेटिव Qt/QML Matrix क्लाइंट। बैकएंड: --backend={mock,http,rust}। डिफ़ॉल्ट: rust (Rust SDK रहित बिल्ड में http)।</translation>
     </message>
