@@ -296,11 +296,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             &AppController::onIdleLiveTrimTimeout);
     connect(this, &AppController::currentRoomIdChanged, &m_idleLiveTrimTimer,
             &QTimer::stop);
-    connect(m_timeline.get(), &QAbstractItemModel::rowsInserted, this, [this] {
-        if (!m_idleLiveTrimTimer.isActive()
-            && m_timeline->rowCount() > historyTrimRowThreshold())
-            m_idleLiveTrimTimer.start(int(kIdleLiveTrimQuietMs));
-    });
+    connect(m_timeline.get(), &QAbstractItemModel::rowsInserted, this,
+            &AppController::armIdleLiveTrim);
     m_composer     = std::make_unique<MessageComposer>(this);
     m_policy       = std::make_unique<PolicyListController>(this);
     m_about        = std::make_unique<AboutController>(this);
@@ -790,6 +787,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_mpris.get(), &MprisServer::refreshMetadata);
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
+    // A reader back at the live edge, or a window losing focus, adds no rows.
+    connect(m_readReceipts.get(), &ReadReceiptCoordinator::inputsChanged, this,
+            &AppController::armIdleLiveTrim);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
     m_mediaBridge->setLinkMediaResolver([this](const QString &mediaKey) {
         return m_linkPreviews ? m_linkPreviews->resolveLinkMedia(mediaKey)
@@ -5657,6 +5657,13 @@ static bool anyPopupOpen()
         }
     }
     return false;
+}
+
+void AppController::armIdleLiveTrim()
+{
+    if (!m_idleLiveTrimTimer.isActive() && m_timeline
+        && m_timeline->rowCount() > historyTrimRowThreshold())
+        m_idleLiveTrimTimer.start(int(kIdleLiveTrimQuietMs));
 }
 
 void AppController::onIdleLiveTrimTimeout()

@@ -887,6 +887,7 @@ public:
     }
     void setInputIdleProbe(std::function<qint64()> probe)
     { m_inputIdleMs = std::move(probe); }
+    bool idleLiveTrimArmed() const { return m_idleLiveTrimTimer.isActive(); }
 
     Q_INVOKABLE void copyImageToClipboard(const QString &mediaKey);
     Q_INVOKABLE void starChatGif(const QString &mediaKey);
@@ -1337,6 +1338,7 @@ private:
     // Published by TimelinePane: state a timeline reset would destroy.
     bool m_idleTrimBlocked = false;
     bool m_timelineWindowActive = true;
+    void armIdleLiveTrim();
     void onIdleLiveTrimTimeout();
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // Generation captured when a crypto-health query is dispatched, so an

@@ -2417,6 +2417,36 @@ false, rows, threshold));
         QVERIFY(!AppController::idleLiveTrimDue(false, q * 10, false, false, false));
     }
 
+    void idleLiveTrimArmsWhenTheReaderReturnsToTheLiveEdge()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, 0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(roomId);
+        const int threshold = controller.historyTrimRowThreshold();
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-90000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < threshold + 50; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$arm%1").arg(i);
+            e.itemId = QStringLiteral("uid-arm%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("arm probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, 0);
+        QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->rowCount() > threshold, 5000);
+        QVERIFY2(!controller.idleLiveTrimArmed(), "a reset adds no rows");
+        controller.readReceipts()->setNearBottom(false);
+        controller.readReceipts()->setNearBottom(true);
+        QVERIFY(controller.idleLiveTrimArmed());
+    }
+
     void idleLiveTrimIsRefusedWhileTheWindowIsActive()
     {
         const qint64 q = AppController::kIdleLiveTrimQuietMs;
