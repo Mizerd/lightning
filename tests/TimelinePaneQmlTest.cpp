@@ -2476,6 +2476,55 @@ false, rows, threshold));
         QVERIFY(!controller.property("idleTrimBlocked").toBool());
     }
 
+    void aSelectionOnATrimmedRowComesBackWhenTheRowDoes()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, 0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        controller.setCurrentRoomId(roomId);
+
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-90000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 60; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$sel%1").arg(i);
+            e.itemId = QStringLiteral("uid-sel%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("selection probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, 0);
+        QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->rowCount() >= 60, 5000);
+        const QString older = QStringLiteral("$sel5");
+        QVERIFY(controller.timeline()->rowForStableId(older) >= 0);
+        QVERIFY(root->setProperty("keyboardSelectedEventId", older));
+        QCOMPARE(controller.pagination()->savedSelection(roomId), older);
+
+        Q_EMIT controller.idleLiveHistoryTrimmed();
+        mock->resetTimelineForTest(roomId, events.mid(40), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->rowForStableId(older) < 0, 5000);
+        QCOMPARE(root->property("keyboardSelectedEventId").toString(), QString());
+
+        mock->resetTimelineForTest(roomId, events, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("resumeSelectedEventId").toString(),
+                                  older, 5000);
+    }
+
     void idleLiveTrimIsRefusedWhileTheWindowIsActive()
     {
         const qint64 q = AppController::kIdleLiveTrimQuietMs;

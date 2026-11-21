@@ -245,9 +245,28 @@ Rectangle {
                     ? app.pagination.savedSelection(app.currentRoomId) : ""
             root.applyReturnSelection()
         }
+        // The idle trim drops older rows; their selection comes back when the reader pages to them.
+        function onIdleLiveHistoryTrimmed() {
+            var saved = app.currentRoomId !== ""
+                    ? app.pagination.savedSelection(app.currentRoomId) : ""
+            if (saved !== "" && app.timeline.rowForStableId(saved) < 0) {
+                if (root.pendingReturnSelection === "")
+                    root.pendingReturnSelection = saved
+            } else {
+                root.selectionAfterTrim = true
+            }
+        }
     }
+    property bool selectionAfterTrim: false
     Connections {
         target: app.timeline
+        function onModelReset() {
+            if (!root.selectionAfterTrim)
+                return
+            root.selectionAfterTrim = false
+            if (app.currentRoomId !== "" && root.pendingReturnSelection === "")
+                root.pendingReturnSelection = app.pagination.savedSelection(app.currentRoomId)
+        }
         function onCountChanged() {
             if (root.keyboardSelectedEventId !== ""
                     && app.timeline.rowForStableId(root.keyboardSelectedEventId) < 0)
