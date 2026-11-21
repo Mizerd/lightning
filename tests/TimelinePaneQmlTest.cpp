@@ -2447,6 +2447,35 @@ false, rows, threshold));
         QVERIFY(controller.idleLiveTrimArmed());
     }
 
+    void aPinnedActionBarDoesNotBlockTheIdleTrim()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, 0);
+        QVERIFY(!roomId.isEmpty());
+        controller.setCurrentRoomId(roomId);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(!controller.property("idleTrimBlocked").toBool());
+        QVERIFY(timeline->setProperty("transientInteractionOwner", QStringLiteral("viewer")));
+        QVERIFY2(controller.property("idleTrimBlocked").toBool(),
+                 "the pane's block binding is not live");
+        QVERIFY(timeline->setProperty("transientInteractionOwner", QString()));
+        QVERIFY(!controller.property("idleTrimBlocked").toBool());
+        QVERIFY(timeline->setProperty("pinnedActionsKey", QStringLiteral("$e:x")));
+        QVERIFY(!controller.property("idleTrimBlocked").toBool());
+    }
+
     void idleLiveTrimIsRefusedWhileTheWindowIsActive()
     {
         const qint64 q = AppController::kIdleLiveTrimQuietMs;

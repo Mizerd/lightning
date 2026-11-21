@@ -4611,7 +4611,6 @@ Rectangle {
                            || app.playback.audibleOwner !== ""
                            || app.eventContext.active
                            || app.forward.selecting
-                           || timeline.pinnedActionsKey !== ""
                            || Object.keys(timeline.expandedStateGroups).some(
                                   function(k) {
                                       return timeline.expandedStateGroups[k] === true

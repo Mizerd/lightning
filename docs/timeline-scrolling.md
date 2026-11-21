@@ -115,8 +115,13 @@ C++ only** (`AppController::onIdleLiveTrimTimeout`, contract-pinned in
 live edge, no input for two minutes, window NOT active (or hidden), no
 account switch, and nothing a reset would destroy (`idleTrimBlocked` from
 the pane: a transient interaction such as the image viewer, audible media,
-the event-context view, forward selection, pinned actions, an expanded state
-group; plus any open popup, checked in C++). **LIVE-VALIDATED PASS**
+the event-context view, forward selection, an expanded state group; plus any
+open popup, checked in C++). **Pinned actions are NOT a block (2026-11-21):** a
+plain left click on any message pins its action bar until Escape or a room
+change, so a reader who once clicked a row kept every loaded row for good —
+measured, the guard trace read `paneBlocked= true` with nothing else open.
+`LIGHTNING_SCROLL_TRACE=1` logs each check's inputs (`idle live-edge trim
+check ...`). **LIVE-VALIDATED PASS**
 (`cachedBefore= 1083 released= true reloadedItems= 19`). The payload
 carries both `trimmed_from` and `trim_shrunk` so a timed-out wait cannot
 look like a successful trim, and the baseline must be sampled BEFORE the
