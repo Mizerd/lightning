@@ -352,9 +352,10 @@ AnchoredPopup {
                         border.width: quickCell.current ? 2 : 0
                         border.color: AppTheme.bolt
                     }
-                    Label {
+                    Text {
                         anchors.centerIn: parent
                         text: quickCell.modelData
+                        color: picker.palette.windowText
                         font.family: app.emojiFontFamily || ""
                         font.pixelSize: 24
                         scale: quickHover.hovered ? 1.18 : 1
@@ -748,16 +749,18 @@ AnchoredPopup {
                                 border.width: cell.activeFocus ? 2 : 0
                                 border.color: AppTheme.bolt
                             }
-                            Label {
+                            // Text, not Label: a Label re-runs its style bindings on every popup open and close.
+                            Text {
                                 anchors.centerIn: parent
                                 text: cell.emoji
+                                color: picker.palette.windowText
                                 // Named, not left to fallback: Qt 6.8 picks a
                                 // monochrome face. Resolved in C++; empty when
                                 // the host has none.
                                 font.family: app.emojiFontFamily || ""
                                 font.pixelSize: AppTheme.emojiGlyphSize
                             }
-                            Label {
+                            Text {
                                 visible: cell.hasSkinTones
                                 anchors.right: parent.right
                                 anchors.bottom: parent.bottom

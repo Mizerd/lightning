@@ -536,6 +536,20 @@ private Q_SLOTS:
         QVERIFY(closed.contains(QStringLiteral("picker.previewName = \"\"")));
         QVERIFY(closed.contains(QStringLiteral("picker.previewCell = null")));
     }
+
+    void gridCellsDrawGlyphsWithTextNotLabel()
+    {
+        const QString src = pickerSource();
+        const QString cell = between(src, QStringLiteral("id: cell"),
+                                     QStringLiteral("id: mouse"));
+        QVERIFY(cell.contains(QStringLiteral("text: cell.emoji")));
+        QVERIFY2(!cell.contains(QStringLiteral("Label {")),
+                 "a Label per cell re-runs its style bindings on every open and close");
+        const QString quick = between(src, QStringLiteral("id: quickCell"),
+                                      QStringLiteral("id: quickHover"));
+        QVERIFY(quick.contains(QStringLiteral("text: quickCell.modelData")));
+        QVERIFY(!quick.contains(QStringLiteral("Label {")));
+    }
 };
 QTEST_MAIN(EmojiPickerContractTest)
 #include "EmojiPickerContractTest.moc"
