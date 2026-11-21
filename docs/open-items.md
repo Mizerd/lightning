@@ -5,8 +5,8 @@
 Fixed on branch `fix-mem-0107`: the idle trim now checks after startup and
 keeps checking without input, `--log-file` rolls to `.1` at 32 MiB, expired
 kept media files are trimmed when the account stores open, the idle live-edge
-trim is armed when the reader returns to the live edge, and the emoji picker's
-per-open growth. Three findings stay open.
+trim is armed when the reader returns to the live edge and is no longer
+blocked by a pinned action bar, and the emoji picker's per-open growth. Three findings stay open.
 
 **Loaded history while the reader stays up in it (~22 MiB per 1,000
 messages).** The row window bounds delegates (297-331 rows throughout), not
@@ -18,13 +18,18 @@ it cannot drop its own oldest rows while the SDK still holds them, and a reset
 under a reader who is up in history is exactly what `docs/timeline-scrolling.md`
 forbids (its one far-jump call site and the idle trim's conditions). This round
 only arms the existing idle trim when the reader comes back to the live edge,
-so the rows go once they are back and away (unit-tested). Live effect: NOT
-TESTED. In the headless sway harness the idle live-edge trim never fired, with
-or without the new arming: a control run that returned to the live edge
-within the two minutes, so the row-insert timer was still armed, hid the window
-and waited 170 s, also kept all 2,131 source rows. Something else in that
-harness keeps `idleLiveTrimDue` false (window activity, `idleTrimBlocked` or a
-popup); not chased. A real cap needs a far-end drop
+so the rows go once they are back and away. The trim itself was
+unreachable for anyone who had clicked a message: a plain left click pins that
+row's action bar until Escape or a room change, and the pane counted a pin as
+state a reset would destroy. The guard trace (`LIGHTNING_SCROLL_TRACE=1`, `idle
+live-edge trim check ...`) read `following= true windowActive= false
+paneBlocked= true` with nothing else open, and 2,131 source rows stayed. With
+the pin cleared by Escape the same run trimmed to 41 rows after two idle
+minutes. A pin no longer blocks the trim. Live, same harness, a click-pinned
+reader who waited 130 s in history, came back by PageDown and left the window:
+before, 2,131 source rows kept and RSS 920 MiB; after, the new arming fired on
+the return, the trim ran two idle minutes later (2,131 -> 41 source rows) and
+the follow-up malloc trim returned 512 MB (RSS 1,158 -> 670 MiB). A real cap needs a far-end drop
 in the SDK mirror (`rust/src/timeline.rs`) that renumbers nothing the pane
 holds; not attempted for this release.
 
