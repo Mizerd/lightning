@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <limits>
 
 namespace lightning::logexport {
 
@@ -438,6 +439,10 @@ bool CappedLogFile::open(OpenMode mode)
     Q_UNUSED(mode)
     if (isOpen())
         return true;
+    // Only a regular file is ever renamed or recreated; a FIFO or device is written uncapped.
+    const QFileInfo info(m_file.fileName());
+    if (info.exists() && (!info.isFile() || info.isSymLink()))
+        m_max = std::numeric_limits<qint64>::max();
     if (!m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
         return false;
     m_file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
@@ -463,7 +468,8 @@ bool CappedLogFile::roll()
     QFile::remove(old);
     if (!QFile::rename(path, old))
         QFile::remove(path);
-    if (!m_file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+    // NewOnly is O_EXCL: never truncate a file we could not move, never follow a planted link.
+    if (!m_file.open(QIODevice::WriteOnly | QIODevice::NewOnly | QIODevice::Text))
         return false;
     m_file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
     m_size = 0;

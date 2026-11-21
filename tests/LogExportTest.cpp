@@ -2,6 +2,12 @@
 
 #include <QDir>
 #include <QFile>
+#include <QScopeGuard>
+#if defined(Q_OS_UNIX)
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #include <QElapsedTimer>
 #include <QMutex>
 #include <QProcess>
@@ -410,6 +416,63 @@ private Q_SLOTS:
         QVERIFY(last.readAll().contains("run-2"));
         QCOMPARE(QFileInfo(path).permissions() & (QFile::ReadOther | QFile::ReadGroup),
                  QFile::Permissions());
+    }
+
+    void aLogFileThatIsAFifoIsNeverRolled()
+    {
+#if defined(Q_OS_UNIX)
+        QTemporaryDir tmp;
+        const QString path = tmp.path() + QStringLiteral("/pipe.log");
+        QVERIFY(::mkfifo(QFile::encodeName(path).constData(), 0600) == 0);
+        const int reader = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_NONBLOCK);
+        QVERIFY(reader >= 0);
+        {
+            lx::CappedLogFile dev(path, 100);
+            QVERIFY(dev.open(QIODevice::WriteOnly));
+            for (int i = 0; i < 10; ++i)
+                QVERIFY(dev.write(QByteArray(60, 'p') + "\n") > 0);
+        }
+        ::close(reader);
+        struct stat st {};
+        QVERIFY(::stat(QFile::encodeName(path).constData(), &st) == 0);
+        QVERIFY2(S_ISFIFO(st.st_mode), "the FIFO was replaced by a regular file");
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".1")));
+#else
+        QSKIP("POSIX FIFOs only");
+#endif
+    }
+
+    void aLogFileThatCannotBeMovedIsNotTruncated()
+    {
+#if defined(Q_OS_UNIX)
+        QTemporaryDir tmp;
+        const QString dir = tmp.path() + QStringLiteral("/ro");
+        QVERIFY(QDir().mkpath(dir));
+        const QString path = dir + QStringLiteral("/run.log");
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(QByteArray("keep-me\n") + QByteArray(200, 'k') + "\n");
+        }
+        QFile::setPermissions(dir, QFile::ReadOwner | QFile::ExeOwner);
+        auto restore = qScopeGuard([&] {
+            QFile::setPermissions(dir, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        });
+        if (QFile::rename(path, path + QStringLiteral(".probe"))) {
+            QFile::rename(path + QStringLiteral(".probe"), path);
+            QSKIP("running with permission to write a read-only directory");
+        }
+        {
+            lx::CappedLogFile dev(path, 100);
+            if (dev.open(QIODevice::WriteOnly))
+                dev.write("after\n");
+        }
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY2(f.readAll().startsWith("keep-me"), "the log was truncated in place");
+#else
+        QSKIP("POSIX permissions only");
+#endif
     }
 
     void aNewSessionNeverOverwritesAnOlderOne()
