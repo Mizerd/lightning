@@ -598,6 +598,16 @@ pub(crate) async fn open_account_stores_with(
     }
     let (media, active) = open_media_in(store_path, &placement.media_store, &config).await?;
     record_active(store_path, active);
+    let kept = placement.kept_files.join(crate::mediafiles::DIR_NAME);
+    let _ = tokio::task::spawn_blocking(move || {
+        crate::mediafiles::trim(
+            &kept,
+            crate::mediafiles::MAX_TOTAL_BYTES,
+            crate::mediafiles::MAX_AGE,
+            std::time::SystemTime::now(),
+        )
+    })
+    .await;
     let cache_dir = store_path.join(crate::cachelayout::CACHE_DIR);
     if placement.event_cache == cache_dir {
         restrict_tree(&cache_dir);
@@ -1235,5 +1245,34 @@ mod tests {
         let (config, probe) = open_in(&store.0, None).await.expect("no context");
         assert_eq!(crate::storeclose::reserve_calls(), before);
         drop((config, probe));
+    }
+
+    #[tokio::test]
+    async fn opening_the_stores_drops_expired_kept_files() {
+        let _labs = crate::labs::LabsTestGuard::off();
+        let store = Store::new("kept-expiry");
+        let (config, probe) = open_in(&store.0, None).await.expect("first open");
+        drop((config, probe));
+        let dir = crate::cachelayout::placement_of(&store.0)
+            .kept_files
+            .join(crate::mediafiles::DIR_NAME);
+        fs::create_dir_all(&dir).unwrap();
+        let stale = dir.join(crate::mediafiles::entry_name("mxc://hs/stale"));
+        let fresh = dir.join(crate::mediafiles::entry_name("mxc://hs/fresh"));
+        fs::write(&stale, b"old").unwrap();
+        fs::write(&fresh, b"new").unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(
+                std::time::SystemTime::now() - crate::mediafiles::MAX_AGE
+                    - std::time::Duration::from_secs(86_400),
+            )
+            .unwrap();
+        let (config, probe) = open_in(&store.0, None).await.expect("second open");
+        drop((config, probe));
+        assert!(!stale.exists(), "an expired kept file survived the open");
+        assert!(fresh.exists());
     }
 }
