@@ -45,6 +45,10 @@ QString markdownFromSanitizedHtml(const QString &sanitizedHtml,
 // body. A body that does not is a fallback, never the message's source.
 bool markdownShowsAs(const QString &markdown, const QString &sanitizedHtml);
 
+// Markdown with the formatted body's paragraphs, lists, quotes and code; the
+// edit seed when the plain body is only a fallback.
+QString markdownOfSanitizedHtml(const QString &sanitizedHtml);
+
 QVariantList spellSkipRanges(const QTextDocument &document);
 bool documentIsBlank(const QTextDocument &document);
 void replaceRange(QTextDocument *document, int start, int length,

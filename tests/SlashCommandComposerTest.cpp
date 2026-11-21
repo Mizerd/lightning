@@ -445,6 +445,30 @@ private Q_SLOTS:
         QCOMPARE(m_composer->text(), QStringLiteral("- a\n- **b**"));
     }
 
+    // The pill now shows a different name than the body was sent with; the
+    // body is still the message's Markdown and must keep its structure.
+    void aRenamedMentionDoesNotTurnTheBodyIntoAFallback()
+    {
+        const QString body = QStringLiteral(
+            "First @Giuseppe Verdi para\n\n- item one\n- item two");
+        m_composer->beginEdit(
+            QStringLiteral("$m"), body,
+            shown(QStringLiteral(
+                "<p>First <a href=\"https://matrix.to/#/@giuseppe:hs\">"
+                "@Giuseppe Verdi</a> para</p>\n<ul>\n<li>item one</li>\n"
+                "<li>item two</li>\n</ul>")));
+        QCOMPARE(m_composer->text(), body);
+    }
+
+    void aSpoilerFollowedByALinkIsOnlyPartlyHidden()
+    {
+        m_composer->beginEdit(
+            QStringLiteral("$p"), QStringLiteral("[Spoiler] link"),
+            shown(QStringLiteral("<span data-mx-spoiler>a</span> "
+                                 "<a href=\"https://example.org\"><span>link</span></a>")));
+        QVERIFY(!m_composer->isEditing());
+    }
+
     void markdownTogglesTheModeAndKeepsNothingToSend()
     {
         QSignalSpy asked(m_composer,

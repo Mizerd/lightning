@@ -2816,12 +2816,15 @@ private slots:
         composer->clear();
         const auto echo = connect(composer, &MessageComposer::mentionRangesChanged,
                                   composer, [composer] { composer->setText(QString()); });
+        QSignalSpy announced(composer, &MessageComposer::textChanged);
         composer->beginEdit(
             QStringLiteral("$mention"), QStringLiteral("yo @Bob there"),
             QStringLiteral("yo <a href=\"mention:@bob:mock.local\">@Bob</a> there"));
         disconnect(echo);
         QCOMPARE(composer->text(), QStringLiteral("yo @Bob there"));
         QCOMPARE(composer->mentionRanges().size(), 1);
+        QVERIFY2(announced.count() >= 2,
+                 "the editor that echoed was never told the text again");
         composer->cancelReplyOrEdit();
     }
 

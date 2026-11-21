@@ -399,4 +399,5 @@ private:
     QTimer m_draftDebounce;
     bool m_restoringDraft = false;
     bool m_seedingEdit = false;
+    bool m_seedEchoSwallowed = false;
 };

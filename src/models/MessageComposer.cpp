@@ -2,6 +2,8 @@
 
 #include <QScopedValueRollback>
 
+#include <utility>
+
 #include <QRegularExpression>
 #include <QSet>
 
@@ -782,8 +784,12 @@ void MessageComposer::setText(const QString &t)
 {
     // While an edit is seeded, an editor echoing its previous text back must
     // not overwrite the message being loaded.
-    if (m_text == t || m_seedingEdit)
+    if (m_text == t)
         return;
+    if (m_seedingEdit) {
+        m_seedEchoSwallowed = true;
+        return;
+    }
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, t);
     m_emoticonRefs = shiftEmoticonRefs(m_emoticonRefs, m_text, t);
     m_text = t;
@@ -897,8 +903,11 @@ void MessageComposer::sendInternal(bool allowCommands)
             SlashCommands::Actions actions;
             actions.send = [this](const QString &b, const QStringList &ids,
                                   const QVariantMap &spec) {
+                QString editBody = b;
+                QVariantMap editSpec = spec;
+                applyOutgoingEmojiWith(editBody, editSpec, selectedEmoticonMap());
                 m_client->editMessage(editTargetTimelineId(), m_editingEventId,
-                                      b, ids, spec);
+                                      editBody, ids, editSpec);
             };
             const SlashCommands::Outcome outcome =
                 SlashCommands::execute(parsed, mentionIds, actions);
@@ -1795,10 +1804,24 @@ SpoilerShape spoilerShapeOf(const QString &sanitizedHtml, QString *inner)
     if (count == 0)
         return SpoilerShape::None;
     const QRegularExpressionMatch m = open.match(html);
-    if (count > 1 || m.capturedStart() != 0 || !html.endsWith(close))
+    if (count > 1 || m.capturedStart() != 0)
         return SpoilerShape::Partial;
-    *inner = html.mid(m.capturedEnd(), html.size() - m.capturedEnd() - close.size());
-    return SpoilerShape::Whole;
+    // The spoiler's own </span> must be the one that ends the message.
+    static const QRegularExpression span(QStringLiteral("<(/?)span\\b[^>]*>"));
+    int depth = 1;
+    auto it = span.globalMatch(html, m.capturedEnd());
+    while (it.hasNext()) {
+        const QRegularExpressionMatch tag = it.next();
+        depth += tag.captured(1).isEmpty() ? 1 : -1;
+        if (depth > 0)
+            continue;
+        if (tag.capturedStart() != html.size() - close.size()
+            || !html.endsWith(close))
+            return SpoilerShape::Partial;
+        *inner = html.mid(m.capturedEnd(), tag.capturedStart() - m.capturedEnd());
+        return SpoilerShape::Whole;
+    }
+    return SpoilerShape::Partial;
 }
 }
 
@@ -1843,7 +1866,7 @@ void MessageComposer::beginEdit(const QString &eventId,
         seedBody = RichComposition::plainTextOfSanitizedHtml(spoilerInner);
     } else if (!sanitizedHtml.isEmpty()
                && !RichComposition::markdownShowsAs(currentBody, sanitizedHtml)) {
-        seedBody = RichComposition::plainTextOfSanitizedHtml(sanitizedHtml);
+        seedBody = RichComposition::markdownOfSanitizedHtml(sanitizedHtml);
     }
     const mention::Recovery recovered = mention::recoverFromBody(seedBody);
     // A /spoiler's text is sent verbatim, so it is never seeded as Markdown.
@@ -1870,6 +1893,8 @@ void MessageComposer::beginEdit(const QString &eventId,
     // that text (empty) back over the seed.
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
+    if (std::exchange(m_seedEchoSwallowed, false))
+        Q_EMIT textChanged(); // an editor that echoed during the load resyncs
     updateCanSend();
 }
 

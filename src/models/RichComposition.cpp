@@ -826,8 +826,15 @@ bool RichComposition::markdownShowsAs(const QString &markdown,
     // A custom emoji is its :shortcode: in the body and an image in the HTML.
     static const QRegularExpression image(QStringLiteral(
         "<img\\b[^>]*?\\btitle=\"([^\"]*)\"[^>]*>"));
+    // A pill shows the member's name NOW; the body holds whatever name (or
+    // bare name, from Element) was current when it was sent. Any text matches.
+    static const QRegularExpression mention(QStringLiteral(
+        "<a href=\"mention:[^\"]*\"[^>]*>.*?</a>"),
+        QRegularExpression::DotMatchesEverythingOption);
+    const QChar hole(0xE000);
     QString html = sanitizedHtml;
     html.replace(image, QStringLiteral("\\1"));
+    html.replace(mention, QString(hole));
     QTextDocument fromMarkdown;
     fromMarkdown.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
     QTextDocument fromHtml;
@@ -835,7 +842,27 @@ bool RichComposition::markdownShowsAs(const QString &markdown,
     const auto words = [](const QTextDocument &document) {
         return comparableText(compose(document).plainBody).remove(QLatin1Char(':'));
     };
-    return words(fromMarkdown) == words(fromHtml);
+    QStringList parts = words(fromHtml).split(hole);
+    for (QString &part : parts)
+        part = QRegularExpression::escape(part);
+    const QRegularExpression shown(
+        QRegularExpression::anchoredPattern(parts.join(QStringLiteral(".*"))),
+        QRegularExpression::DotMatchesEverythingOption);
+    return shown.match(words(fromMarkdown)).hasMatch();
+}
+
+QString RichComposition::markdownOfSanitizedHtml(const QString &sanitizedHtml)
+{
+    static const QRegularExpression mention(QStringLiteral(
+        "<a href=\"mention:[^\"]*\"[^>]*>(.*?)</a>"),
+        QRegularExpression::DotMatchesEverythingOption);
+    QString html = withImageAlts(sanitizedHtml);
+    html.replace(mention, QStringLiteral("\\1"));
+    QTextDocument document;
+    document.setHtml(html);
+    QString markdown = document.toMarkdown(QTextDocument::MarkdownDialectGitHub);
+    markdown.replace(QChar::Nbsp, QLatin1Char(' '));
+    return markdown.trimmed();
 }
 
 QString RichComposition::plainTextOfSanitizedHtml(const QString &sanitizedHtml)
