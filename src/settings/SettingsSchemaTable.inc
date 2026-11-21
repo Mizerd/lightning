@@ -89,5 +89,5 @@
     { QStringLiteral("composerMode"), Kind::String, 0, 0, 3, QStringLiteral("Composer"), 16, { QStringLiteral("rich"), QStringLiteral("markdown") }, QVariant(QStringLiteral("markdown")) },
     { QStringLiteral("spellCheckEnabled"), Kind::Bool, 0, 0, 3, QStringLiteral("Composer"), 0, {  }, QVariant(true) },
     { QStringLiteral("spellCheckLanguage"), Kind::String, 0, 0, 3, QStringLiteral("Composer"), 35, {  }, QVariant(QStringLiteral("")) },
-    { QStringLiteral("sendTextAsCaption"), Kind::Bool, 0, 0, 3, QStringLiteral("Composer"), 0, {  }, QVariant(false) },
+    { QStringLiteral("sendTextAsCaption"), Kind::Bool, 0, 0, 3, QStringLiteral("Composer"), 0, {  }, QVariant(true) },
     { QStringLiteral("emojiShortcodeAutoConvert"), Kind::Bool, 0, 0, 3, QStringLiteral("Composer"), 0, {  }, QVariant(true) },
