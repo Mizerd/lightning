@@ -14849,7 +14849,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+2046"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+1953"/>
         <location line="+991"/>
         <source>Open</source>
         <translation>খুলুন</translation>
@@ -20034,7 +20034,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4566"/>
+        <location line="+4589"/>
         <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -20043,15 +20043,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4922"/>
+        <location line="-4945"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4729"/>
+        <location line="+4752"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-4924"/>
+        <location line="-4947"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20218,7 +20218,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+252"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
         <translation>[এখনও ডিক্রিপ্ট করা যাচ্ছে না]</translation>
@@ -28179,12 +28179,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+95"/>
-        <location line="+131"/>
+        <location line="+132"/>
         <source>Unknown command.</source>
         <translation>অজানা কমান্ড।</translation>
     </message>
     <message>
-        <location line="-129"/>
+        <location line="-130"/>
         <source>/%1 needs arguments: /%1 %2</source>
         <translation>/%1-এর জন্য আর্গুমেন্ট দরকার: /%1 %2</translation>
     </message>
@@ -28199,7 +28199,7 @@ Note: importing keys does not verify this session.</source>
         <translation>/%1 এখান থেকে উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>/join needs a room address (#room:server) or room id.</source>
         <translation>/join-এর জন্য রুমের ঠিকানা (#room:server) বা রুম আইডি দরকার।</translation>
     </message>
@@ -32206,7 +32206,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+736"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>

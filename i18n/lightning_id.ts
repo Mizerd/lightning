@@ -14794,7 +14794,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+2046"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+1953"/>
         <location line="+991"/>
         <source>Open</source>
         <translation>Buka</translation>
@@ -19955,7 +19955,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4566"/>
+        <location line="+4589"/>
         <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -19964,15 +19964,15 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-4922"/>
+        <location line="-4945"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4729"/>
+        <location line="+4752"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-4924"/>
+        <location line="-4947"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20139,7 +20139,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+252"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
         <translation>[belum dapat didekripsi]</translation>
@@ -28079,12 +28079,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+95"/>
-        <location line="+131"/>
+        <location line="+132"/>
         <source>Unknown command.</source>
         <translation>Perintah tidak dikenal.</translation>
     </message>
     <message>
-        <location line="-129"/>
+        <location line="-130"/>
         <source>/%1 needs arguments: /%1 %2</source>
         <translation>/%1 memerlukan argumen: /%1 %2</translation>
     </message>
@@ -28099,7 +28099,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>/%1 tidak tersedia dari sini.</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>/join needs a room address (#room:server) or room id.</source>
         <translation>/join memerlukan alamat ruang (#room:server) atau ID ruang.</translation>
     </message>
@@ -32060,7 +32060,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+736"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Lampiran tidak didukung pada backend ini.</translation>

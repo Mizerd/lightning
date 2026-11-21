@@ -14849,7 +14849,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+2046"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+1953"/>
         <location line="+991"/>
         <source>Open</source>
         <translation>Abrir</translation>
@@ -20034,7 +20034,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+191"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4566"/>
+        <location line="+4589"/>
         <location line="+69"/>
         <location line="+13"/>
         <location line="+47"/>
@@ -20043,15 +20043,15 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-4922"/>
+        <location line="-4945"/>
         <location line="+57"/>
         <location line="+142"/>
-        <location line="+4729"/>
+        <location line="+4752"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconhecida: %1</translation>
     </message>
     <message>
-        <location line="-4924"/>
+        <location line="-4947"/>
         <location line="+57"/>
         <location line="+142"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -20218,7 +20218,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+487"/>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+229"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+252"/>
         <location line="+36"/>
         <source>[unable to decrypt yet]</source>
         <translation>[ainda não é possível desencriptar]</translation>
@@ -28179,12 +28179,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+95"/>
-        <location line="+131"/>
+        <location line="+132"/>
         <source>Unknown command.</source>
         <translation>Comando desconhecido.</translation>
     </message>
     <message>
-        <location line="-129"/>
+        <location line="-130"/>
         <source>/%1 needs arguments: /%1 %2</source>
         <translation>/%1 precisa de argumentos: /%1 %2</translation>
     </message>
@@ -28199,7 +28199,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>/%1 não está disponível daqui.</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>/join needs a room address (#room:server) or room id.</source>
         <translation>/join precisa de um endereço de sala (#sala:servidor) ou de um ID de sala.</translation>
     </message>
@@ -32206,7 +32206,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+736"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Os anexos não são suportados neste backend.</translation>
