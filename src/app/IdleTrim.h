@@ -172,11 +172,14 @@ private:
             const qint64 freeBefore = freeArenaBytes();
             if (freeBefore < 0
                 || static_cast<std::uint64_t>(freeBefore) < kIdleTrimMinFreeBytes) {
-                qDebug("idle trim: skipped, free in arenas %lld MB is below the floor",
-                       static_cast<long long>(freeBefore >> 20));
+                // Once per run of skips: release builds drop qDebug.
+                if (!skipLogged().exchange(true))
+                    qInfo("idle trim: skipped, free in arenas %lld MB is below the floor",
+                          static_cast<long long>(freeBefore >> 20));
                 running() = false;
                 return;
             }
+            skipLogged() = false;
             lastTrimAtMs() = nowMs();
             const qint64 rssBefore = residentBytes();
             const int released = malloc_trim(0);
@@ -189,6 +192,12 @@ private:
             running() = false;
         });
 #endif
+    }
+
+    static std::atomic<bool> &skipLogged()
+    {
+        static std::atomic<bool> flag{false};
+        return flag;
     }
 
     static std::atomic<qint64> &lastTrimAtMs()
