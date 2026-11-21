@@ -1179,7 +1179,11 @@ QString MessageHtml::sanitize(
                 }
                 continue;
             }
-            if (tableEmitted.isEmpty() || tableEmitted.last() < 0) {
+            // Rows and cells belong only to the innermost frame, and only if it
+            // is this table: one closed out of order is flattened.
+            if (tableEmitted.isEmpty() || frames.isEmpty()
+                || frames.last().quote
+                || frames.last().id != tableEmitted.last()) {
                 if (t.closing && (name == QLatin1String("td")
                                   || name == QLatin1String("th")))
                     out += QLatin1Char(' ');

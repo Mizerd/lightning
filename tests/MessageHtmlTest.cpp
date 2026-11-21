@@ -741,6 +741,16 @@ private Q_SLOTS:
                  mixedOut.count(QStringLiteral("</table>")));
         QVERIFY(mixedOut.contains(QStringLiteral("t29 ")));
 
+        const QString orphanRows = sanitize(QStringLiteral(
+            "<blockquote><table></blockquote><tr><td>x</td></tr>"));
+        QVERIFY2(orphanRows.count(QStringLiteral("<tr>")) == 1,
+                 qPrintable(orphanRows));
+        QVERIFY2(tagLeavingItsTable(orphanRows).isEmpty(),
+                 qPrintable(orphanRows));
+        QVERIFY2(!orphanRows.contains(QStringLiteral("<td>")),
+                 qPrintable(orphanRows));
+        QVERIFY(orphanRows.contains(QLatin1Char('x')));
+
         const QString misnested = sanitize(QStringLiteral(
             "<table><tr><td><blockquote>a</td></tr></table>b</blockquote>c"));
         QVERIFY2(tagLeavingItsTable(misnested).isEmpty(),
