@@ -842,13 +842,22 @@ bool RichComposition::markdownShowsAs(const QString &markdown,
     const auto words = [](const QTextDocument &document) {
         return comparableText(compose(document).plainBody).remove(QLatin1Char(':'));
     };
-    QStringList parts = words(fromHtml).split(hole);
-    for (QString &part : parts)
-        part = QRegularExpression::escape(part);
-    const QRegularExpression shown(
-        QRegularExpression::anchoredPattern(parts.join(QStringLiteral(".*"))),
-        QRegularExpression::DotMatchesEverythingOption);
-    return shown.match(words(fromMarkdown)).hasMatch();
+    const QString body = words(fromMarkdown);
+    const QStringList parts = words(fromHtml).split(hole);
+    if (parts.size() == 1)
+        return parts.first() == body;
+    if (!body.startsWith(parts.first()) || !body.endsWith(parts.last()))
+        return false;
+    // Each piece between pills, in order; the leftmost match never loses one.
+    qsizetype at = parts.first().size();
+    const qsizetype end = body.size() - parts.last().size();
+    for (qsizetype i = 1; i + 1 < parts.size(); ++i) {
+        const qsizetype found = body.indexOf(parts.at(i), at);
+        if (found < 0)
+            return false;
+        at = found + parts.at(i).size();
+    }
+    return at <= end;
 }
 
 QString RichComposition::markdownOfSanitizedHtml(const QString &sanitizedHtml)
@@ -860,9 +869,37 @@ QString RichComposition::markdownOfSanitizedHtml(const QString &sanitizedHtml)
     html.replace(mention, QStringLiteral("\\1"));
     QTextDocument document;
     document.setHtml(html);
-    QString markdown = document.toMarkdown(QTextDocument::MarkdownDialectGitHub);
+    // Unfolded, so a pill's name is never split across lines.
+    QString markdown = markdownForPlainBox(document);
     markdown.replace(QChar::Nbsp, QLatin1Char(' '));
-    return markdown.trimmed();
+    // Text that reads as a tag would be sent as HTML; code keeps it literal.
+    QString out;
+    out.reserve(markdown.size());
+    bool fenced = false;
+    const QStringList lines = markdown.split(QLatin1Char('\n'));
+    for (qsizetype i = 0; i < lines.size(); ++i) {
+        const QString &line = lines.at(i);
+        if (i > 0)
+            out += QLatin1Char('\n');
+        if (line.trimmed().startsWith(QLatin1String("```"))) {
+            fenced = !fenced;
+            out += line;
+            continue;
+        }
+        if (fenced || line.startsWith(QLatin1String("    "))) {
+            out += line;
+            continue;
+        }
+        bool inCode = false;
+        for (const QChar c : line) {
+            if (c == QLatin1Char('`'))
+                inCode = !inCode;
+            if (c == QLatin1Char('<') && !inCode && !out.endsWith(QLatin1Char('\\')))
+                out += QLatin1Char('\\');
+            out += c;
+        }
+    }
+    return out.trimmed();
 }
 
 QString RichComposition::plainTextOfSanitizedHtml(const QString &sanitizedHtml)

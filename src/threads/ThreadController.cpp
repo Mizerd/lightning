@@ -582,6 +582,7 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
         const bool bytesCaption = m_client->supportsCaptionedAttachmentBytes();
         for (auto &entry : m_attachments->entries()) {
             if (entry.state != QLatin1String("queued") || entry.sendRequested
+                || entry.isSvg
                 || (entry.localPath.isEmpty() && !entry.spoiler && !bytesCaption))
                 continue;
             entry.caption = outBody;

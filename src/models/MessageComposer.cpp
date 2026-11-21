@@ -337,7 +337,7 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
         // sendRequested: already queued behind an earlier Send, so not this
         // message's; a schedule also leaves a poster-pending row behind.
         if (entry.state != QLatin1String("queued") || entry.sendRequested
-            || (m_preparingForSchedule && entry.posterPending))
+            || entry.isSvg || (m_preparingForSchedule && entry.posterPending))
             continue;
         // File, spoiler and scheduled sends take a caption with any relation.
         // Raw bytes need the captioned bytes send for a reply or a thread; the

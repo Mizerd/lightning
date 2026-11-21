@@ -460,6 +460,23 @@ private Q_SLOTS:
         QCOMPARE(m_composer->text(), body);
     }
 
+    void aLongFallbackParagraphKeepsItsMentionOnOneLine()
+    {
+        const QString words = QStringLiteral("word ").repeated(14);
+        const QString html = MessageHtml::sanitize(
+            QStringLiteral("<p>") + words
+                + QStringLiteral("<a href=\"https://matrix.to/#/@giuseppe:hs\">"
+                                 "@Giuseppe Verdi</a> and a literal &lt;b&gt; tag</p>"),
+            [](const QString &) { return QStringLiteral("Giuseppe Verdi"); }, QString(),
+            {}, true);
+        m_composer->beginEdit(QStringLiteral("$w"), QStringLiteral("fallback"), html);
+        const QString text = m_composer->text();
+        QVERIFY2(!text.contains(QLatin1Char('\n')), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("\\<b")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("\\\\<")), qPrintable(text));
+        QCOMPARE(m_composer->mentionRanges().size(), 1);
+    }
+
     void aSpoilerFollowedByALinkIsOnlyPartlyHidden()
     {
         m_composer->beginEdit(
