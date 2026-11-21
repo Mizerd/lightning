@@ -60,6 +60,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QRandomGenerator>
+#include <QRegularExpression>
 #include <QSet>
 #include <QTextStream>
 #include <QThread>
@@ -5239,12 +5240,15 @@ QueueProbeResult runOneQueueProbe(const QString &spec, bool isControl)
     out.spec = spec;
     out.isControl = isControl;
 
+    // A shipped queue may carry its own name, which would replace ours.
+    QString unnamed = spec;
+    unnamed.remove(QRegularExpression(QStringLiteral("\\bname=\\S+")));
     const QString desc =
         QStringLiteral("audiotestsrc is-live=true samplesperbuffer=480 ! "
                        "audio/x-raw,rate=48000,channels=1 ! %1 name=q ! "
                        "identity name=brake sync=false ! "
                        "fakesink sync=false async=false")
-            .arg(spec);
+            .arg(unnamed.simplified());
 
     GError *error = nullptr;
     GstElement *pipeline =

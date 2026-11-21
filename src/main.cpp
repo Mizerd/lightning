@@ -1765,9 +1765,16 @@ static int printCallMediaStatus()
 #endif
 
     {
+#ifdef Q_OS_WIN
+        // Building the GL chain here opens a GL window, which Wine (CI) aborts
+        // on; a share still probes it when it starts.
+        const bool gpu = SfuMediaEngine::shareGpuScalingRequested()
+            && SfuMediaEngine::missingGpuShareElement().isEmpty();
+#else
         const bool gpu = SfuMediaEngine::shareGpuScalingRequested()
             && SfuMediaEngine::missingGpuShareElement().isEmpty()
             && SfuMediaEngine::gpuShareChainUsable();
+#endif
         const bool hardwareAsked = SfuMediaEngine::shareHardwareEncodeRequested();
         const auto hardware = hardwareAsked
             ? SfuMediaEngine::firstWorkingShareEncoder(
