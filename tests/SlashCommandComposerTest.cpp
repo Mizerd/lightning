@@ -703,5 +703,5 @@ private:
     MessageComposer *m_composer = nullptr;
 };
 
-QTEST_GUILESS_MAIN(SlashCommandComposerTest)
+QTEST_MAIN(SlashCommandComposerTest)
 #include "SlashCommandComposerTest.moc"
