@@ -1,5 +1,56 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-11-21 — OPEN after the RAM and disk audit (binary `9d9f7fe3`)
+
+Fixed on branch `fix-mem-0107`: the idle trim now checks after startup and
+keeps checking without input, `--log-file` rolls to `.1` at 32 MiB, expired
+kept media files are trimmed when the account stores open, the idle live-edge
+trim is armed when the reader returns to the live edge, and the emoji picker's
+per-open growth. Three findings stay open.
+
+**Loaded history while the reader stays up in it (~22 MiB per 1,000
+messages).** The row window bounds delegates (297-331 rows throughout), not
+source rows: 241 -> 5,011 source rows took RSS 523 -> 628 MiB. The only way
+to drop source rows is a model reset through `trimHistoryAndJumpToLive()`
+(matrix-sdk's `shrink_to_last_chunk()` at zero subscribers, then a reload at
+live). `TimelineModel` mirrors the SDK timeline's `VectorDiff`s by index, so
+it cannot drop its own oldest rows while the SDK still holds them, and a reset
+under a reader who is up in history is exactly what `docs/timeline-scrolling.md`
+forbids (its one far-jump call site and the idle trim's conditions). This round
+only arms the existing idle trim when the reader comes back to the live edge,
+so the rows go once they are back and away (unit-tested). Live effect: NOT
+TESTED. In the headless sway harness the idle live-edge trim never fired, with
+or without the new arming: a control run that returned to the live edge
+within the two minutes, so the row-insert timer was still armed, hid the window
+and waited 170 s, also kept all 2,131 source rows. Something else in that
+harness keeps `idleLiveTrimDue` false (window activity, `idleTrimBlocked` or a
+popup); not chased. A real cap needs a far-end drop
+in the SDK mirror (`rust/src/timeline.rs`) that renumbers nothing the pane
+holds; not attempted for this release.
+
+**The SDK event cache has no size or age cap on disk (~1.3 KB per event).**
+matrix-sdk 0.18 offers no store limit. Its supported primitives are
+`RoomEventCache::clear()` (drops a room's persisted chunks and notifies
+observers), `EventCache::clear_all_rooms()` and `EventCacheStore::optimize()`
+(VACUUM); in memory a room with no subscriber already shrinks to its last
+chunk. A cap would be "clear rooms not opened for N days, then VACUUM", which
+needs a recorded last-open time per room and a hook after the first sync in
+`rust/src/lib.rs`/`rooms.rs`. Clearing loses no keys (they are in the crypto
+store) but makes history refetch and re-decrypt, and must never touch the open
+room or one with a thread panel. Not done this release; the manual clear in
+About remains the only shrink.
+
+**The "dependency-heavy bindings" are the QML engine's guard pool, not a few
+bindings.** heaptrack put 38.5 MB at peak under
+`QQmlPropertyCapture::captureNonBindableProperty`/`captureProperty` over 672
+allocations of ~57 KB. Each is one page of `QRecyclePool<QQmlJavaScriptExpressionGuard, 1024>`
+(`qqmlengine_p.h`, `jsExpressionGuardPool`): 1,024 guards of 56 bytes. So the
+peak held ~690,000 live binding dependencies across the instantiated scene
+(about 300 timeline delegates at ~470 bindings each, plus every pane), and the
+pool frees a page only when all its guards are free, so the high-water mark
+stays reserved. There is no single binding to fix; it falls only with fewer
+instantiated delegates or bindings per row.
+
 ## 2026-11-20 — ACCEPTED FOLLOW-UPS from the review of `fix-data-0107`
 
 - The threads-only room badge confirms itself from the room's event cache, so a room the server reports unread (and that the client claims is threads-only) creates its event cache if none exists. Thread replies are counted against our per-thread read receipts by timestamp, not by event order.
