@@ -1033,7 +1033,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7324"/>
+        <location filename="../src/app/AppController.cpp" line="+7354"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1154,7 +1154,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5675"/>
+        <location filename="../src/app/AppController.cpp" line="-5705"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1206,13 +1206,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4251"/>
+        <location line="+4281"/>
         <location line="+821"/>
         <source>Not connected</source>
         <translation>Non connecté</translation>
     </message>
     <message>
-        <location line="-5113"/>
+        <location line="-5143"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
     </message>
@@ -1273,24 +1273,24 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3047"/>
+        <location line="+3077"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning n&apos;a pas pu lire le fichier sélectionné.</translation>
     </message>
     <message>
-        <location line="-3053"/>
+        <location line="-3083"/>
         <source>A room-key import is already in progress.</source>
         <translation>Un import de clés de salon est déjà en cours.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4046"/>
+        <location line="+4076"/>
         <source>Not signed in.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4044"/>
+        <location line="-4074"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
@@ -1310,18 +1310,18 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-4758"/>
-        <location line="+2696"/>
+        <location line="-4761"/>
+        <location line="+2699"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2698"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ceci est une notification de test. Si vous pouvez la lire, les notifications du bureau fonctionnent.</translation>
     </message>
     <message>
-        <location line="+347"/>
+        <location line="+350"/>
         <source>New mentions</source>
         <translation>Nouvelles mentions</translation>
     </message>
@@ -1412,14 +1412,14 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1812"/>
+        <location line="+1842"/>
         <location line="+41"/>
         <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Cette version ne comporte pas de backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1765"/>
+        <location line="-1795"/>
         <source>Choose a local image file.</source>
         <translation>Choisissez un fichier image local.</translation>
     </message>
@@ -1479,7 +1479,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Choisissez un fichier sur cet ordinateur.</translation>
     </message>
     <message>
-        <location line="+398"/>
+        <location line="+428"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Impossible de charger l&apos;image (%1).</translation>
     </message>
@@ -7733,7 +7733,7 @@ Taille : %3</translation>
         <translation>Réagir avec %1</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+50"/>
         <source>Show all emoji</source>
         <translation>Afficher tous les emoji</translation>
     </message>
@@ -7763,7 +7763,7 @@ Taille : %3</translation>
         <translation>Clic droit pour ajouter aux favoris ou les retirer</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>No recently used emoji</source>
         <translation>Aucun émoji utilisé récemment</translation>
     </message>
@@ -32891,7 +32891,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+789"/>
+        <location filename="../qml/TimelinePane.qml" line="+808"/>
         <source>Seen by 1 person</source>
         <translation>Vu par 1 personne</translation>
     </message>
@@ -32911,12 +32911,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+294"/>
-        <location line="+5397"/>
+        <location line="+5396"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5396"/>
+        <location filename="../qml/TimelinePane.qml" line="-5395"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -33018,12 +33018,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3870"/>
+        <location line="+3869"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
     <message>
-        <location line="-3859"/>
+        <location line="-3858"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Autres actions du salon</translation>
@@ -33269,7 +33269,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La recherche n&apos;a pas pu aboutir.</translation>
     </message>
     <message>
-        <location line="+2726"/>
+        <location line="+2725"/>
         <location line="+27"/>
         <location line="+455"/>
         <source>Loading older messages…</source>
@@ -33651,8 +33651,8 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6692"/>
-        <location line="+6869"/>
+        <location filename="../qml/TimelinePane.qml" line="-6691"/>
+        <location line="+6868"/>
         <source>Room</source>
         <translation>Salon</translation>
     </message>
@@ -33727,13 +33727,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-5984"/>
+        <location line="-5983"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
     </message>
     <message>
-        <location line="+5216"/>
+        <location line="+5215"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33809,7 +33809,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
     <message>
-        <location line="-5432"/>
+        <location line="-5431"/>
         <source>Join space</source>
         <translation>Rejoindre l&apos;espace</translation>
     </message>
@@ -35410,7 +35410,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2460"/>
+        <location filename="../src/main.cpp" line="+2458"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>

@@ -1031,12 +1031,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7324"/>
+        <location filename="../src/app/AppController.cpp" line="+7354"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4878"/>
+        <location line="-4908"/>
         <source>Joined %1</source>
         <translation>Joined %1</translation>
     </message>
@@ -1214,13 +1214,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4251"/>
+        <location line="+4281"/>
         <location line="+821"/>
         <source>Not connected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5113"/>
+        <location line="-5143"/>
         <source>Connecting…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1281,24 +1281,24 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3047"/>
+        <location line="+3077"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3053"/>
+        <location line="-3083"/>
         <source>A room-key import is already in progress.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4046"/>
+        <location line="+4076"/>
         <source>Not signed in.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4044"/>
+        <location line="-4074"/>
         <source>Room-key import failed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1318,18 +1318,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4758"/>
-        <location line="+2696"/>
+        <location line="-4761"/>
+        <location line="+2699"/>
         <source>Lightning</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2698"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+347"/>
+        <location line="+350"/>
         <source>New mentions</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1410,14 +1410,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1812"/>
+        <location line="+1842"/>
         <location line="+41"/>
         <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1765"/>
+        <location line="-1795"/>
         <source>Choose a local image file.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1477,7 +1477,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+398"/>
+        <location line="+428"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7729,7 +7729,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+50"/>
         <source>Show all emoji</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7759,7 +7759,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>No recently used emoji</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32871,12 +32871,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+6761"/>
+        <location filename="../qml/TimelinePane.qml" line="+6779"/>
         <source>Only Space admins can change this.</source>
         <translation>Only Space admins can change this.</translation>
     </message>
     <message>
-        <location line="-5972"/>
+        <location line="-5971"/>
         <source>Seen by 1 person</source>
         <translation type="unfinished"></translation>
     </message>
@@ -32896,12 +32896,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+294"/>
-        <location line="+5397"/>
+        <location line="+5396"/>
         <source>Space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5396"/>
+        <location filename="../qml/TimelinePane.qml" line="-5395"/>
         <source>Home</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33003,12 +33003,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3870"/>
+        <location line="+3869"/>
         <source>Room information</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3859"/>
+        <location line="-3858"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -33254,7 +33254,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2726"/>
+        <location line="+2725"/>
         <location line="+27"/>
         <location line="+455"/>
         <source>Loading older messages…</source>
@@ -33636,8 +33636,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6692"/>
-        <location line="+6869"/>
+        <location filename="../qml/TimelinePane.qml" line="-6691"/>
+        <location line="+6868"/>
         <source>Room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33712,13 +33712,13 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5984"/>
+        <location line="-5983"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5216"/>
+        <location line="+5215"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -33789,7 +33789,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5432"/>
+        <location line="-5431"/>
         <source>Join space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -35390,7 +35390,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2460"/>
+        <location filename="../src/main.cpp" line="+2458"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation type="unfinished"></translation>
     </message>

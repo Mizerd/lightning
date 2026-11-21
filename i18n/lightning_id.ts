@@ -1023,7 +1023,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7324"/>
+        <location filename="../src/app/AppController.cpp" line="+7354"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -1143,7 +1143,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Panggilan masuk</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5675"/>
+        <location filename="../src/app/AppController.cpp" line="-5705"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Keluar dibatalkan karena akun berubah. Tidak ada yang diatur ulang.</translation>
     </message>
@@ -1195,13 +1195,13 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4251"/>
+        <location line="+4281"/>
         <location line="+821"/>
         <source>Not connected</source>
         <translation>Tidak terhubung</translation>
     </message>
     <message>
-        <location line="-5113"/>
+        <location line="-5143"/>
         <source>Connecting…</source>
         <translation>Menghubungkan…</translation>
     </message>
@@ -1262,24 +1262,24 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3047"/>
+        <location line="+3077"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning tidak dapat membaca berkas yang dipilih.</translation>
     </message>
     <message>
-        <location line="-3053"/>
+        <location line="-3083"/>
         <source>A room-key import is already in progress.</source>
         <translation>Impor kunci ruang sedang berlangsung.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4046"/>
+        <location line="+4076"/>
         <source>Not signed in.</source>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-4044"/>
+        <location line="-4074"/>
         <source>Room-key import failed.</source>
         <translation>Impor kunci ruang gagal.</translation>
     </message>
@@ -1299,18 +1299,18 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Gunakan tanggal yang valid dengan format YYYY-MM-DD, dengan “Dari” tidak setelah “Sampai”.</translation>
     </message>
     <message>
-        <location line="-4758"/>
-        <location line="+2696"/>
+        <location line="-4761"/>
+        <location line="+2699"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2698"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ini adalah notifikasi uji. Jika Anda dapat membacanya, notifikasi desktop berfungsi.</translation>
     </message>
     <message>
-        <location line="+347"/>
+        <location line="+350"/>
         <source>New mentions</source>
         <translation>Sebutan baru</translation>
     </message>
@@ -1401,14 +1401,14 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1812"/>
+        <location line="+1842"/>
         <location line="+41"/>
         <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Build ini tidak memiliki backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1765"/>
+        <location line="-1795"/>
         <source>Choose a local image file.</source>
         <translation>Pilih berkas gambar lokal.</translation>
     </message>
@@ -1468,7 +1468,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Pilih berkas di komputer ini.</translation>
     </message>
     <message>
-        <location line="+398"/>
+        <location line="+428"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Gambar tidak dapat dimuat (%1).</translation>
     </message>
@@ -7701,7 +7701,7 @@ Ukuran: %3</translation>
         <translation>Beri reaksi %1</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+50"/>
         <source>Show all emoji</source>
         <translation>Tampilkan semua emoji</translation>
     </message>
@@ -7731,7 +7731,7 @@ Ukuran: %3</translation>
         <translation>Klik kanan untuk menambah ke atau menghapus dari favorit</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>No recently used emoji</source>
         <translation>Belum ada emoji yang baru digunakan</translation>
     </message>
@@ -32740,7 +32740,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+789"/>
+        <location filename="../qml/TimelinePane.qml" line="+808"/>
         <source>Seen by 1 person</source>
         <translation>Dilihat oleh 1 orang</translation>
     </message>
@@ -32759,12 +32759,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+294"/>
-        <location line="+5397"/>
+        <location line="+5396"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5396"/>
+        <location filename="../qml/TimelinePane.qml" line="-5395"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -32866,12 +32866,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3870"/>
+        <location line="+3869"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
     <message>
-        <location line="-3859"/>
+        <location line="-3858"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Tindakan ruang lainnya</translation>
@@ -33117,7 +33117,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pencarian tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="+2726"/>
+        <location line="+2725"/>
         <location line="+27"/>
         <location line="+455"/>
         <source>Loading older messages…</source>
@@ -33495,8 +33495,8 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6692"/>
-        <location line="+6869"/>
+        <location filename="../qml/TimelinePane.qml" line="-6691"/>
+        <location line="+6868"/>
         <source>Room</source>
         <translation>Ruang</translation>
     </message>
@@ -33567,13 +33567,13 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-5984"/>
+        <location line="-5983"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>Lihat profil</translation>
     </message>
     <message>
-        <location line="+5216"/>
+        <location line="+5215"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Gambar (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -33649,7 +33649,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Lepaskan berkas untuk melampirkannya</translation>
     </message>
     <message>
-        <location line="-5432"/>
+        <location line="-5431"/>
         <source>Join space</source>
         <translation>Gabung ke space</translation>
     </message>
@@ -35249,7 +35249,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2460"/>
+        <location filename="../src/main.cpp" line="+2458"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Klien Matrix Qt/QML asli. Backend: --backend={mock,http,rust}. Bawaan: rust (http pada build tanpa Rust SDK).</translation>
     </message>

@@ -1034,7 +1034,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+433"/>
-        <location filename="../src/app/AppController.cpp" line="+6361"/>
+        <location filename="../src/app/AppController.cpp" line="+6391"/>
         <location line="+25"/>
         <location line="+562"/>
         <location line="+454"/>
@@ -1042,18 +1042,18 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6799"/>
-        <location line="+2696"/>
+        <location filename="../src/app/AppController.cpp" line="-6832"/>
+        <location line="+2699"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2698"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
     <message>
-        <location line="+347"/>
+        <location line="+350"/>
         <source>New mentions</source>
         <translation>Neue Erwähnungen</translation>
     </message>
@@ -1115,13 +1115,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4251"/>
+        <location line="+4281"/>
         <location line="+821"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5113"/>
+        <location line="-5143"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1177,24 +1177,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3047"/>
+        <location line="+3077"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning konnte die ausgewählte Datei nicht lesen.</translation>
     </message>
     <message>
-        <location line="-3053"/>
+        <location line="-3083"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ein Raumschlüssel-Import läuft bereits.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4046"/>
+        <location line="+4076"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4044"/>
+        <location line="-4074"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1270,14 +1270,14 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1812"/>
+        <location line="+1842"/>
         <location line="+41"/>
         <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Diese Version enthält kein Rust-SDK-Backend.</translation>
     </message>
     <message>
-        <location line="-1765"/>
+        <location line="-1795"/>
         <source>Choose a local image file.</source>
         <translation>Wähle eine lokale Bilddatei aus.</translation>
     </message>
@@ -1352,7 +1352,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Verwende gültige Daten im Format JJJJ-MM-TT, wobei „Von“ nicht nach „Bis“ liegen darf.</translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+394"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Das Bild konnte nicht geladen werden (%1).</translation>
     </message>
@@ -7733,7 +7733,7 @@ Größe: %3</translation>
         <translation>Mit %1 reagieren</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+50"/>
         <source>Show all emoji</source>
         <translation>Alle Emojis anzeigen</translation>
     </message>
@@ -7763,7 +7763,7 @@ Größe: %3</translation>
         <translation>Rechtsklick zum Hinzufügen zu oder Entfernen aus den Favoriten</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>No recently used emoji</source>
         <translation>Keine zuletzt verwendeten Emojis</translation>
     </message>
@@ -32905,7 +32905,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+21"/>
-        <location filename="../qml/TimelinePane.qml" line="+7074"/>
+        <location filename="../qml/TimelinePane.qml" line="+7092"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -32949,8 +32949,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../qml/TimelinePane.qml" line="-5877"/>
-        <location line="+5397"/>
+        <location filename="../qml/TimelinePane.qml" line="-5876"/>
+        <location line="+5396"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -32974,8 +32974,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="+141"/>
-        <location filename="../qml/TimelinePane.qml" line="-6232"/>
-        <location line="+6869"/>
+        <location filename="../qml/TimelinePane.qml" line="-6231"/>
+        <location line="+6868"/>
         <source>Room</source>
         <translation>Raum</translation>
     </message>
@@ -33029,7 +33029,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6462"/>
+        <location filename="../qml/TimelinePane.qml" line="-6461"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -33155,12 +33155,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3870"/>
+        <location line="+3869"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-3859"/>
+        <location line="-3858"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -33406,7 +33406,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Suche konnte nicht abgeschlossen werden.</translation>
     </message>
     <message>
-        <location line="+2726"/>
+        <location line="+2725"/>
         <location line="+27"/>
         <location line="+455"/>
         <source>Loading older messages…</source>
@@ -33809,7 +33809,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-5432"/>
+        <location line="-5431"/>
         <source>Join space</source>
         <translation>Space beitreten</translation>
     </message>
@@ -35410,7 +35410,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2460"/>
+        <location filename="../src/main.cpp" line="+2458"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Nativer Qt/QML-Matrix-Client. Backend: --backend={mock,http,rust}. Standard: rust (http in Versionen ohne das Rust-SDK).</translation>
     </message>

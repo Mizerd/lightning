@@ -1073,7 +1073,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7324"/>
+        <location filename="../src/app/AppController.cpp" line="+7354"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -1198,7 +1198,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-5675"/>
+        <location filename="../src/app/AppController.cpp" line="-5705"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>أُلغي تسجيل الخروج لأن الحساب تغيّر. لم يُعَد ضبط أي شيء.</translation>
     </message>
@@ -1250,13 +1250,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+44"/>
-        <location line="+4251"/>
+        <location line="+4281"/>
         <location line="+821"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-5113"/>
+        <location line="-5143"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1317,24 +1317,24 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3047"/>
+        <location line="+3077"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-3053"/>
+        <location line="-3083"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4046"/>
+        <location line="+4076"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-4044"/>
+        <location line="-4074"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
@@ -1354,18 +1354,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>استخدم تواريخ حقيقية بصيغة YYYY-MM-DD، على ألا يكون «من» بعد «إلى».</translation>
     </message>
     <message>
-        <location line="-4758"/>
-        <location line="+2696"/>
+        <location line="-4761"/>
+        <location line="+2699"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2695"/>
+        <location line="-2698"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>هذا إشعار تجريبي. إن استطعت قراءته فإشعارات سطح المكتب تعمل.</translation>
     </message>
     <message>
-        <location line="+347"/>
+        <location line="+350"/>
         <source>New mentions</source>
         <translation>إشارات جديدة</translation>
     </message>
@@ -1456,14 +1456,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+8"/>
-        <location line="+1812"/>
+        <location line="+1842"/>
         <location line="+41"/>
         <location line="+201"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>هذه النسخة لا تتضمن خلفية Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1765"/>
+        <location line="-1795"/>
         <source>Choose a local image file.</source>
         <translation>اختر ملف صورة محلي.</translation>
     </message>
@@ -1523,7 +1523,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>اختر ملفًا على هذا الحاسوب.</translation>
     </message>
     <message>
-        <location line="+398"/>
+        <location line="+428"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>تعذّر تحميل الصورة (%1).</translation>
     </message>
@@ -7861,7 +7861,7 @@ Size: %3</source>
         <translation>التفاعل بـ %1</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+50"/>
         <source>Show all emoji</source>
         <translation>إظهار كل الرموز التعبيرية</translation>
     </message>
@@ -7891,7 +7891,7 @@ Size: %3</source>
         <translation>انقر بزر الفأرة الأيمن للإضافة إلى المفضلة أو الإزالة منها</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+251"/>
         <source>No recently used emoji</source>
         <translation>لا توجد رموز تعبيرية مستخدمة مؤخرًا</translation>
     </message>
@@ -33495,7 +33495,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+789"/>
+        <location filename="../qml/TimelinePane.qml" line="+808"/>
         <source>Seen by 1 person</source>
         <translation>قرأها شخص واحد</translation>
     </message>
@@ -33519,12 +33519,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-521"/>
         <location filename="../qml/TimelinePane.qml" line="+294"/>
-        <location line="+5397"/>
+        <location line="+5396"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5396"/>
+        <location filename="../qml/TimelinePane.qml" line="-5395"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -33626,12 +33626,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3870"/>
+        <location line="+3869"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-3859"/>
+        <location line="-3858"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>المزيد من إجراءات الغرفة</translation>
@@ -33877,7 +33877,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
     <message>
-        <location line="+2726"/>
+        <location line="+2725"/>
         <location line="+27"/>
         <location line="+455"/>
         <source>Loading older messages…</source>
@@ -34275,8 +34275,8 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+299"/>
-        <location filename="../qml/TimelinePane.qml" line="-6692"/>
-        <location line="+6869"/>
+        <location filename="../qml/TimelinePane.qml" line="-6691"/>
+        <location line="+6868"/>
         <source>Room</source>
         <translation>غرفة</translation>
     </message>
@@ -34367,13 +34367,13 @@ Note: importing keys does not verify this session.</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-5984"/>
+        <location line="-5983"/>
         <location line="+65"/>
         <source>View profile</source>
         <translation>عرض الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+5216"/>
+        <location line="+5215"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>الصور (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -34449,7 +34449,7 @@ Note: importing keys does not verify this session.</source>
         <translation>أفلت الملفات لإرفاقها</translation>
     </message>
     <message>
-        <location line="-5432"/>
+        <location line="-5431"/>
         <source>Join space</source>
         <translation>انضم إلى المساحة</translation>
     </message>
@@ -36054,7 +36054,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2460"/>
+        <location filename="../src/main.cpp" line="+2458"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>
