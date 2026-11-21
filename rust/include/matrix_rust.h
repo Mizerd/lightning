@@ -2371,13 +2371,15 @@ char *mx_rust_thread_send_voice(void *client,
                                  * id fails the send rather than sending a non-reply. */
                                 const char *in_reply_to,
                                 unsigned long long op_id);
-/* Clipboard image path: one bounded byte copy, no temporary file on disk. */
+/* Clipboard image path: one bounded byte copy, no temporary file on disk.
+ * `caption` ("" for none) becomes the MSC2530 caption beside the reply. */
 char *mx_rust_timeline_send_attachment_bytes(void *client,
                                              const char *room_id,
                                              const unsigned char *data,
                                              size_t len,
                                              const char *filename,
                                              const char *mime,
+                                             const char *caption,
                                              unsigned long long width,
                                              unsigned long long height,
                                              /* Event id this send replies to; "" for a plain send. A malformed
@@ -2422,6 +2424,7 @@ char *mx_rust_thread_send_video(void *client,
                                  * id fails the send rather than sending a non-reply. */
                                 const char *in_reply_to,
                                 unsigned long long op_id);
+/* The thread twin of the clipboard path above; `caption` as there. */
 char *mx_rust_thread_send_attachment_bytes(void *client,
                                            const char *room_id,
                                            const char *root_event_id,
@@ -2429,6 +2432,7 @@ char *mx_rust_thread_send_attachment_bytes(void *client,
                                            size_t len,
                                            const char *filename,
                                            const char *mime,
+                                           const char *caption,
                                            unsigned long long width,
                                            unsigned long long height,
                                            /* Event id this send replies to; "" for a plain send. A malformed

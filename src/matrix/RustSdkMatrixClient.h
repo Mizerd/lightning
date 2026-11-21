@@ -753,6 +753,15 @@ public:
                                 int width, int height,
                                 const QString &replyToEventId) override;
     bool supportsRoomScopedAttachmentSend() const override { return true; }
+    bool supportsCaptionedAttachmentBytes() const override { return true; }
+    quint64 sendCaptionedAttachmentBytes(const QString &roomId,
+                                         const QString &threadRootId,
+                                         const QByteArray &bytes,
+                                         const QString &filename,
+                                         const QString &mime,
+                                         const QString &caption,
+                                         int width, int height,
+                                         const QString &replyToEventId) override;
     bool supportsSpoilerMedia() const override { return true; }
     quint64 sendSpoilerMedia(const QString &roomId, const QString &threadRootId,
                              const QString &localPath, const QByteArray &bytes,

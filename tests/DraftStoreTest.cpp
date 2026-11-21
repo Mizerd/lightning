@@ -130,6 +130,24 @@ private Q_SLOTS:
         QCOMPARE(settings.imageMetadataMode(), QStringLiteral("location"));
     }
 
+    void textAsCaptionIsOnUnlessTheUserTurnedItOff()
+    {
+        {
+            SettingsManager settings;
+            QVERIFY(settings.sendTextAsCaption());
+            settings.setSendTextAsCaption(false);
+            QVERIFY(!settings.sendTextAsCaption());
+        }
+        SettingsManager reopened;
+        QVERIFY(!reopened.sendTextAsCaption());
+        {
+            QSettings raw;
+            raw.remove(QStringLiteral("composer/textAsCaption"));
+            raw.sync();
+        }
+        QVERIFY(reopened.sendTextAsCaption());
+    }
+
     void settingsRoundTripRequiresAnActiveAccount()
     {
         DraftFakeSecretStore secrets;

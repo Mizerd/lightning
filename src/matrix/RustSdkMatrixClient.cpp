@@ -10710,7 +10710,7 @@ quint64 RustSdkMatrixClient::sendAttachmentBytes(const QString &roomId,
         m_rustHandle, room.constData(),
         reinterpret_cast<const unsigned char *>(bytes.constData()),
         static_cast<size_t>(bytes.size()), name.constData(),
-        mimeBytes.constData(),
+        mimeBytes.constData(), "",
         static_cast<unsigned long long>(qMax(0, width)),
         static_cast<unsigned long long>(qMax(0, height)), replyBytes.constData(), opId));
     if (!result.isEmpty()) {
@@ -10804,11 +10804,51 @@ quint64 RustSdkMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
         m_rustHandle, room.constData(), root.constData(),
         reinterpret_cast<const unsigned char *>(bytes.constData()),
         static_cast<size_t>(bytes.size()), name.constData(),
-        mimeBytes.constData(),
+        mimeBytes.constData(), "",
         static_cast<unsigned long long>(qMax(0, width)),
         static_cast<unsigned long long>(qMax(0, height)), replyBytes.constData(), opId));
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "thread clipboard attachment send rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::sendCaptionedAttachmentBytes(
+    const QString &roomId, const QString &threadRootId, const QByteArray &bytes,
+    const QString &filename, const QString &mime, const QString &caption,
+    int width, int height, const QString &replyToEventId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || bytes.isEmpty()
+        || mime.isEmpty())
+        return 0;
+    if (threadRootId.isEmpty() && !timelineActiveFor(roomId)) {
+        qCWarning(lcRust) << "attachment send requires the open room timeline";
+        return 0;
+    }
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray root = threadRootId.toUtf8();
+    const QByteArray name = filename.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QByteArray captionBytes = caption.toUtf8();
+    const QByteArray replyBytes = replyToEventId.toUtf8();
+    const auto *data = reinterpret_cast<const unsigned char *>(bytes.constData());
+    const auto size = static_cast<size_t>(bytes.size());
+    const auto w = static_cast<unsigned long long>(qMax(0, width));
+    const auto h = static_cast<unsigned long long>(qMax(0, height));
+    // A thread send never falls back to the room timeline (CLAUDE.md §8).
+    const QString result = takeRustString(threadRootId.isEmpty()
+        ? mx_rust_timeline_send_attachment_bytes(
+              m_rustHandle, room.constData(), data, size, name.constData(),
+              mimeBytes.constData(), captionBytes.constData(), w, h,
+              replyBytes.constData(), opId)
+        : mx_rust_thread_send_attachment_bytes(
+              m_rustHandle, room.constData(), root.constData(), data, size,
+              name.constData(), mimeBytes.constData(), captionBytes.constData(),
+              w, h, replyBytes.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "captioned clipboard attachment send rejected";
         return 0;
     }
     return opId;

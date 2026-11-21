@@ -576,12 +576,13 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
         }
     }
 
-    // The thread's bytes send takes no caption, so only a file or a spoiler
-    // carries the text (MSC2530), and only one this send owns.
+    // The text rides on an attachment this send owns (MSC2530); raw bytes
+    // need a backend whose thread bytes send carries a caption.
     if (m_sendTextAsCaption && !outBody.isEmpty() && mentionIds.isEmpty()) {
+        const bool bytesCaption = m_client->supportsCaptionedAttachmentBytes();
         for (auto &entry : m_attachments->entries()) {
             if (entry.state != QLatin1String("queued") || entry.sendRequested
-                || (entry.localPath.isEmpty() && !entry.spoiler))
+                || (entry.localPath.isEmpty() && !entry.spoiler && !bytesCaption))
                 continue;
             entry.caption = outBody;
             outBody.clear();
@@ -892,6 +893,10 @@ void ThreadController::dispatchEntry(AttachmentQueueModel::Entry &entry,
             entry.fileName, entry.mime, entry.caption, entry.width, entry.height,
             entry.durationMs, entry.animated, entry.poster, entry.posterWidth,
             entry.posterHeight, entry.replyToEventId);
+    } else if (entry.localPath.isEmpty() && !entry.caption.isEmpty()) {
+        opId = m_client->sendCaptionedAttachmentBytes(
+            m_roomId, m_rootEventId, sendData, entry.fileName, entry.mime,
+            entry.caption, entry.width, entry.height, entry.replyToEventId);
     } else if (entry.localPath.isEmpty()) {
         opId = m_client->sendThreadAttachmentBytes(
             roomId, rootEventId, sendData, entry.fileName, entry.mime,

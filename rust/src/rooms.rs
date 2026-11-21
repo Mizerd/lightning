@@ -5256,6 +5256,7 @@ pub(crate) fn send_attachment_bytes(
     bytes: Vec<u8>,
     filename: String,
     mime: String,
+    caption: String,
     width: u64,
     height: u64,
     in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
@@ -5269,12 +5270,13 @@ pub(crate) fn send_attachment_bytes(
     }
     let size = bytes.len() as u64;
     let info = attachment_info(&mime, width, height, size, 0);
+    let caption = if caption.trim().is_empty() { None } else { Some(caption) };
     bridge.timelines.send_attachment(
         &bridge.runtime,
         room_id,
         AttachmentSource::Data { bytes, filename },
         mime,
-        None,
+        caption,
         info,
         None,
         in_reply_to,
@@ -5385,6 +5387,7 @@ pub(crate) fn send_thread_attachment_bytes(
     bytes: Vec<u8>,
     filename: String,
     mime: String,
+    caption: String,
     width: u64,
     height: u64,
     in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
@@ -5398,6 +5401,7 @@ pub(crate) fn send_thread_attachment_bytes(
     }
     let size = bytes.len() as u64;
     let info = attachment_info(&mime, width, height, size, 0);
+    let caption = if caption.trim().is_empty() { None } else { Some(caption) };
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
     };
@@ -5408,7 +5412,7 @@ pub(crate) fn send_thread_attachment_bytes(
         root_event_id,
         AttachmentSource::Data { bytes, filename },
         mime,
-        None,
+        caption,
         info,
         None,
         in_reply_to,
@@ -5871,6 +5875,30 @@ pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A pasted image replying to someone, or in a thread, goes through these;
+    // dropping the caption there split one captioned event into two.
+    #[test]
+    fn the_clipboard_sends_hand_their_caption_to_the_timeline() {
+        let source = include_str!("rooms.rs");
+        for name in [
+            "pub(crate) fn send_attachment_bytes(",
+            "pub(crate) fn send_thread_attachment_bytes(",
+        ] {
+            let body = source
+                .split(name)
+                .nth(1)
+                .unwrap_or_else(|| panic!("{name} is gone"))
+                .split("\n}\n")
+                .next()
+                .unwrap();
+            assert!(body.contains("caption: String,"), "{name} takes no caption");
+            assert!(
+                body.contains("        mime,\n        caption,\n"),
+                "{name} does not pass its caption on"
+            );
+        }
+    }
 
     #[test]
     fn scheduled_content_must_be_a_media_message_with_a_source() {

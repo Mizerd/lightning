@@ -9947,6 +9947,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment_bytes(
     len: usize,
     filename: *const c_char,
     mime: *const c_char,
+    caption: *const c_char,
     width: u64,
     height: u64,
     in_reply_to: *const c_char,
@@ -9958,12 +9959,14 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment_bytes(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let filename = unsafe { cstr_arg(filename) }?;
         let mime = unsafe { cstr_arg(mime) }?;
+        let caption = unsafe { cstr_arg(caption) }?;
         if data.is_null() || len == 0 {
             return Err("attachment data is empty".to_owned());
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
         rooms::send_attachment_bytes(
-            bridge, room_id, bytes, filename, mime, width, height, in_reply_to, op_id,
+            bridge, room_id, bytes, filename, mime, caption, width, height, in_reply_to,
+            op_id,
         )
         .map(|_| String::new())
     })
@@ -10011,6 +10014,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment_bytes(
     len: usize,
     filename: *const c_char,
     mime: *const c_char,
+    caption: *const c_char,
     width: u64,
     height: u64,
     in_reply_to: *const c_char,
@@ -10023,12 +10027,14 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment_bytes(
         let root = unsafe { cstr_arg(root_event_id) }?;
         let filename = unsafe { cstr_arg(filename) }?;
         let mime = unsafe { cstr_arg(mime) }?;
+        let caption = unsafe { cstr_arg(caption) }?;
         if data.is_null() || len == 0 {
             return Err("attachment data is empty".to_owned());
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
         rooms::send_thread_attachment_bytes(
-            bridge, room_id, root, bytes, filename, mime, width, height, in_reply_to, op_id,
+            bridge, room_id, root, bytes, filename, mime, caption, width, height,
+            in_reply_to, op_id,
         )
         .map(|_| String::new())
     })

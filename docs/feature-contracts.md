@@ -2394,6 +2394,20 @@ voice message, send, send options. **2026-09-03, from tester feedback:**
   user. Both composers honour it; a recording in flight keeps its controls
   whatever the setting says, because the pill is the way to stop it.
 
+**Text sent with an attachment is its caption (MSC2530, in the spec since
+Matrix v1.10), on by default since 2026-11-21 (Rokas).** One event carries the
+file and the text, as Element and Element X send it, in the room, in a reply
+and in a thread, from both composers; a thread send still goes through the
+SDK's thread-focused path. The setting (Settings › "Send text with an
+attachment as its caption", `composer/textAsCaption`) defaults to on only while
+unset: a stored false is a user's choice and stays false. The text stays a
+separate message when it carries a mention (the caption is plain text) or when
+nothing in the batch can take it. With several attachments the text rides on
+the first one this send owns. A pasted image (raw bytes) takes its caption
+through `sendCaptionedAttachmentBytes`, the clipboard twins of the file sends
+with a caption argument; a pasted image with no relation keeps the room-scoped
+send, which works without the room's timeline open.
+
 A picker button TOGGLES. The pickers carry `Popup.CloseOnPressOutside` and the
 icon that opens them is outside, so a second press closed the panel and the
 button's own click — which arrives on the RELEASE — opened it again. The popup

@@ -166,6 +166,15 @@ public:
                                  const QString &caption, int width, int height,
                                  bool animated, qint64 durationMs,
                                  const QString &replyToEventId) override;
+    bool supportsCaptionedAttachmentBytes() const override { return true; }
+    quint64 sendCaptionedAttachmentBytes(const QString &roomId,
+                                         const QString &threadRootId,
+                                         const QByteArray &bytes,
+                                         const QString &filename,
+                                         const QString &mime,
+                                         const QString &caption,
+                                         int width, int height,
+                                         const QString &replyToEventId) override;
     quint64 sendThreadAttachmentBytes(const QString &roomId,
                                       const QString &rootEventId,
                                       const QByteArray &bytes,

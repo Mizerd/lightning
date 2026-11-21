@@ -337,12 +337,14 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
         if (entry.state != QLatin1String("queued") || entry.sendRequested
             || (m_preparingForSchedule && entry.posterPending))
             continue;
-        // A file send takes a caption with a reply or a thread, and so do
-        // spoiler and scheduled sends. Of the bytes sends only the room-scoped
-        // one takes a caption, and it takes no reply and no thread.
+        // File, spoiler and scheduled sends take a caption with any relation.
+        // Raw bytes need the captioned bytes send for a reply or a thread; the
+        // room-scoped send takes a caption but no relation.
+        const bool related = thread || !m_replyingToEventId.isEmpty();
         if (entry.localPath.isEmpty() && !entry.spoiler && !m_preparingForSchedule
-            && (thread || !m_client || !m_client->supportsRoomScopedAttachmentSend()
-                || !m_replyingToEventId.isEmpty()))
+            && (!m_client
+                || (related ? !m_client->supportsCaptionedAttachmentBytes()
+                            : !m_client->supportsRoomScopedAttachmentSend())))
             continue;
         entry.caption = body;
         return true;
@@ -510,6 +512,10 @@ void MessageComposer::dispatchAttachment(int row)
         const QString &root = entry.threadRootId;
         if (entry.isSvg)
             opId = 0;
+        else if (entry.localPath.isEmpty() && !caption.isEmpty())
+            opId = m_client->sendCaptionedAttachmentBytes(
+                m_roomId, root, sendData, entry.fileName, entry.mime, caption,
+                entry.width, entry.height, entry.replyToEventId);
         else if (entry.localPath.isEmpty())
             opId = m_client->sendThreadAttachmentBytes(
                 m_roomId, root, sendData, entry.fileName, entry.mime,
@@ -524,6 +530,11 @@ void MessageComposer::dispatchAttachment(int row)
                 m_roomId, root, sendPath, entry.mime, caption, entry.width,
                 entry.height, entry.animated, entry.durationMs,
                 entry.replyToEventId);
+    } else if (entry.localPath.isEmpty() && !caption.isEmpty()
+               && !entry.replyToEventId.isEmpty()) {
+        opId = m_client->sendCaptionedAttachmentBytes(
+            m_roomId, QString(), sendData, entry.fileName, entry.mime, caption,
+            entry.width, entry.height, entry.replyToEventId);
     } else if (entry.localPath.isEmpty() && !caption.isEmpty()) {
         opId = m_client->sendAttachmentBytesToRoom(
             m_roomId, sendData, entry.fileName, entry.mime, caption,

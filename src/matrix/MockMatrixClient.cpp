@@ -694,6 +694,22 @@ quint64 MockMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
                                   replyToEventId);
 }
 
+quint64 MockMatrixClient::sendCaptionedAttachmentBytes(
+    const QString &roomId, const QString &threadRootId, const QByteArray &bytes,
+    const QString &filename, const QString &mime, const QString &caption,
+    int width, int height, const QString &replyToEventId)
+{
+    Q_UNUSED(width); Q_UNUSED(height);
+    const quint64 op = threadRootId.isEmpty()
+        ? appendRoomAttachment(roomId, filename, mime, replyToEventId)
+        : appendThreadAttachment(roomId, threadRootId, filename, mime,
+                                 replyToEventId);
+    if (!threadRootId.isEmpty())
+        m_lastThreadAttachmentBytes = bytes;
+    m_lastAttachmentCaption = caption;
+    return op;
+}
+
 quint64 MockMatrixClient::appendRoomAttachment(const QString &roomId,
                                                const QString &fileName,
                                                const QString &mime,

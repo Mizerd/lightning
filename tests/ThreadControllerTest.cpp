@@ -1486,6 +1486,32 @@ private Q_SLOTS:
         QCOMPARE(controller.text(), QString());
     }
 
+    void aPastedThreadImageTakesTheTextAsItsCaption()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setProperty("sendTextAsCaption", true);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QImage image(4, 4, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"));
+        QVERIFY(controller.attachments()->addImageData(
+                    png, QStringLiteral("image/png"), 4, 4).isEmpty());
+        const int textSends = client.threadTextSendsForTest();
+        controller.setText(QStringLiteral("pasted"));
+        controller.sendText(QStringLiteral("pasted"));
+        QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+        QCOMPARE(client.lastAttachmentCaptionForTest(), QStringLiteral("pasted"));
+        QCOMPARE(client.threadTextSendsForTest(), textSends);
+    }
+
     void threadAttachmentSendsIntoThread()
     {
         MockMatrixClient client;

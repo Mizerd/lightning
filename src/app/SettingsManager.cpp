@@ -4869,7 +4869,8 @@ void SettingsManager::setAutocorrectMode(int mode)
 
 bool SettingsManager::sendTextAsCaption() const
 {
-    return m_store->value(kTextAsCaption, false).toBool();
+    // On unless the user turned it off: a stored false is their choice.
+    return m_store->value(kTextAsCaption, true).toBool();
 }
 
 void SettingsManager::setSendTextAsCaption(bool v)

@@ -185,6 +185,23 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    bool captionedBytes = false;
+    int captionedByteSends = 0;
+    QString lastCaptionedRoot;
+    bool supportsCaptionedAttachmentBytes() const { return captionedBytes; }
+    quint64 sendCaptionedAttachmentBytes(const QString &, const QString &root,
+                                         const QByteArray &bytes, const QString &,
+                                         const QString &, const QString &caption,
+                                         int, int, const QString &replyTo)
+    {
+        ++captionedByteSends;
+        lastCaptionedRoot = root;
+        lastBytes = bytes;
+        lastCaption = caption;
+        lastReplyTo = replyTo;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
     QByteArray lastBytes;
     quint64 sendAttachmentBytes(const QString &, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
@@ -970,8 +987,34 @@ private Q_SLOTS:
         QCOMPARE(composer.text(), QString());
     }
 
-    // The bytes sends cannot carry a caption with a reply, so a pasted image
-    // keeps its text as a separate reply rather than losing either.
+    void aPastedImageInAReplyOrThreadIsOneCaptionedEvent()
+    {
+        for (const QString &root : { QString(), QStringLiteral("$root:example.org") }) {
+            FakeClient client;
+            client.captionedBytes = true;
+            MessageComposer composer;
+            composer.setClient(&client);
+            composer.setRoomId(QStringLiteral("!room:example.org"));
+            composer.setSendTextAsCaption(true);
+            composer.setThreadTargetRootId(root);
+            QVERIFY(composer.attachments()->addImageData(
+                        tinyPng(), QStringLiteral("image/png"), 1, 1).isEmpty());
+            composer.beginReply(QStringLiteral("$target:example.org"),
+                                QStringLiteral("Alice"), QStringLiteral("hello"),
+                                QString(), root);
+            composer.setText(QStringLiteral("look at this"));
+            composer.send();
+            QCOMPARE(client.captionedByteSends, 1);
+            QCOMPARE(client.byteSends, 0);
+            QCOMPARE(client.lastCaptionedRoot, root);
+            QCOMPARE(client.lastCaption, QStringLiteral("look at this"));
+            QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
+            QCOMPARE(composer.text(), QString());
+        }
+    }
+
+    // A backend without the captioned bytes send keeps the text as its own
+    // reply rather than losing either.
     void aPastedImageInAReplyKeepsItsTextSeparate()
     {
         FakeClient client;
