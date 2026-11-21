@@ -507,6 +507,26 @@ private Q_SLOTS:
                  "copyableText no longer refuses an undecryptable row");
     }
 
+    void copiedRowTextIsTheMaskedCopyText()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+        static const QRegularExpression rawCopy(QStringLiteral(
+            "copyToClipboard\\(\\s*root\\.timelineModel\\.visibleTextForEvent"));
+        QVERIFY2(!rawCopy.match(delegate).hasMatch(),
+                 "a copy path reads the unmasked body");
+        static const QRegularExpression maskedCopy(QStringLiteral(
+            "copyToClipboard\\(\\s*root\\.timelineModel\\.copyTextForEvent\\("
+            "\\s*root\\.menuEventId\\)"));
+        QCOMPARE(delegate.count(maskedCopy), 2);
+        const int gate = delegate.indexOf(
+            QStringLiteral("readonly property bool copyableText:"));
+        QVERIFY(gate >= 0);
+        QVERIFY2(delegate.mid(gate, 300).contains(QStringLiteral(
+                     "copyTextForEvent(root.menuEventId).length > 0")),
+                 "Copy text is offered for a row whose copy text is empty");
+    }
+
     void deleteTakesTheModeratorGrantFromTheSdk()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

@@ -69,7 +69,7 @@ Item {
     readonly property bool copyableText:
         model.undecryptable !== true
         && root.menuEventId !== ""
-        && root.timelineModel.visibleTextForEvent(root.menuEventId).length > 0
+        && root.timelineModel.copyTextForEvent(root.menuEventId).length > 0
     readonly property bool canRedactOthers:
         !!app.openRoomPermissions
         && app.openRoomPermissions.roomId === app.currentRoomId
@@ -341,7 +341,8 @@ Item {
             return true
         var id = model.eventId || ""
         return id !== "" && id !== root.timelineView.suppressRootEventId
-            && root.timelineModel.visibleTextForEvent(id).toLowerCase()
+            && (root.timelineModel.copyTextForEvent(id)
+                || root.timelineModel.visibleTextForEvent(id)).toLowerCase()
                 .indexOf(root.timelineView.threadSearchQuery.trim().toLowerCase()) >= 0
     }
     visible: roomActivityVisible && !suppressedAsThreadRoot && !dividerSuppressed
@@ -3805,7 +3806,7 @@ Item {
             return
         if (root.copyableText)
             root.copyToClipboard(
-                root.timelineModel.visibleTextForEvent(root.menuEventId))
+                root.timelineModel.copyTextForEvent(root.menuEventId))
     }
     function copyMessages() {
         if (root.copyDragSelection())
@@ -4039,7 +4040,7 @@ Item {
                 onActivated: {
                     if (root.copyableText) {
                         root.copyToClipboard(
-                            root.timelineModel.visibleTextForEvent(
+                            root.timelineModel.copyTextForEvent(
                                 root.menuEventId))
                         moreMenu.close()
                     }
