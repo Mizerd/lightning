@@ -24,8 +24,10 @@ Q_SIGNALS:
     void uploaded(const QString &localPath, const QString &mxcUri);
     void downloaded(const QString &mxcUri, const QString &localPath);
     void failed(const QString &target, const QString &reason);
+    void noticeReported(const QString &message);
 
 private:
     static QString localPathFromUrl(const QUrl &url);
+    bool refuseWithNotice(const QUrl &url);
     MatrixClient *m_client = nullptr;
 };

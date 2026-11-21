@@ -778,6 +778,10 @@ ApplicationWindow {
         target: app
         function onNoticeReported(message) { infoToast.show(message) }
     }
+    Connections {
+        target: app.media
+        function onNoticeReported(message) { infoToast.show(message) }
+    }
     Rectangle {
         id: softwareRendererNotice
         objectName: "softwareRendererNotice"

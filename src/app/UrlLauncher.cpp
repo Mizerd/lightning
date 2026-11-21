@@ -1,5 +1,6 @@
 #include "app/UrlLauncher.h"
 
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QProcess>
 #include <QRegularExpression>
@@ -40,26 +41,33 @@ QProcessEnvironment childEnvironment()
     return env;
 }
 
-namespace {
-
-// A Matrix media URL may carry a credential (an access_token query, or an
-// authenticated media endpoint) that must not leave through the browser.
 bool isCredentialBearingMatrixUrl(const QUrl &url)
 {
     static const QRegularExpression mediaPath(
-        QStringLiteral("/_matrix/(?:media|client/[^/]*/media)(?:/|$)"),
+        QStringLiteral("/_matrix/(?:client/(?:[^/]+/)+)?media(?:/|$)"),
         QRegularExpression::CaseInsensitiveOption);
     if (mediaPath.match(url.path(QUrl::FullyDecoded)).hasMatch())
         return true;
-    const QUrlQuery query(url);
-    for (const auto &item : query.queryItems(QUrl::FullyDecoded)) {
-        if (item.first.compare(QLatin1String("access_token"),
-                               Qt::CaseInsensitive) == 0)
-            return true;
+    for (const QUrlQuery &query :
+         {QUrlQuery(url), QUrlQuery(url.fragment(QUrl::FullyEncoded))}) {
+        for (const auto &item : query.queryItems(QUrl::FullyDecoded)) {
+            if (item.first.compare(QLatin1String("access_token"),
+                                   Qt::CaseInsensitive) == 0)
+                return true;
+        }
     }
     return false;
 }
 
+QString refusalNotice(const QUrl &url)
+{
+    const QString scheme = url.scheme().toLower();
+    if ((scheme == QLatin1String("http") || scheme == QLatin1String("https"))
+        && isCredentialBearingMatrixUrl(url))
+        return QCoreApplication::translate(
+            "UrlLauncher",
+            "This link points at Matrix media and can't be opened in a browser.");
+    return {};
 }
 
 bool isOpenableExternally(const QUrl &url)

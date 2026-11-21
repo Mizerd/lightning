@@ -47,12 +47,25 @@ void MediaManager::openExternal(const QUrl &url)
     // lightning::urls::openExternally.
     // Web links only, like openWebUrl: this is reachable from QML with a
     // model-supplied URL, and the launcher refuses anything else anyway.
+    if (refuseWithNotice(url))
+        return;
     if (matrix::link_preview::isSafeExternalUrl(url))
         lightning::urls::openExternally(url);
 }
 
 void MediaManager::openWebUrl(const QUrl &url)
 {
+    if (refuseWithNotice(url))
+        return;
     if (matrix::link_preview::isSafeExternalUrl(url))
         lightning::urls::openExternally(url);
+}
+
+bool MediaManager::refuseWithNotice(const QUrl &url)
+{
+    const QString notice = lightning::urls::refusalNotice(url);
+    if (notice.isEmpty())
+        return false;
+    Q_EMIT noticeReported(notice);
+    return true;
 }
