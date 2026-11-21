@@ -12,8 +12,10 @@ ToolTip {
     // Centred on the actual width: the Basic style centres the unwrapped one,
     // which pushes a capped, wrapping tooltip far off its anchor.
     x: parent ? Math.round((parent.width - width) / 2) : 0
-    // The same chrome SharedToolTipGuard gives the attached tooltips.
-    Component.onCompleted: {
+    // The same chrome SharedToolTipGuard gives the attached tooltips. Applied
+    // on show: touching the background at completion made every tooltip build
+    // it up front and wheel delivery grew with the loaded rows.
+    onAboutToShow: {
         if (background && background.radius !== undefined)
             background.radius = Qt.binding(() => AppTheme.radiusMd)
         if (background && background.border !== undefined)
