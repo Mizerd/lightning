@@ -1175,10 +1175,15 @@ Item {
 
     readonly property var liveReactions: model.reactions || []
     property var shownReactions: []
+    property string shownReactionsJson: "[]"
+    // Qt 6.8 returns a live reference to the model's list; holding it made the
+    // compare read the new data and never reassign, so keep a copy.
     function refreshReactions() {
-        var next = root.liveReactions
-        if (JSON.stringify(next) !== JSON.stringify(shownReactions))
-            shownReactions = next
+        var json = JSON.stringify(root.liveReactions)
+        if (json !== shownReactionsJson) {
+            shownReactionsJson = json
+            shownReactions = JSON.parse(json)
+        }
     }
     onLiveReactionsChanged: refreshReactions()
 
