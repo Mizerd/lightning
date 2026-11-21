@@ -5,6 +5,9 @@
 - The threads-only room badge confirms itself from the room's event cache, so a room the server reports unread (and that the client claims is threads-only) creates its event cache if none exists. Thread replies are counted against our per-thread read receipts by timestamp, not by event order.
 - A skipped mention is fetched only when the highlight-gap tracker reports it; the tracker's first count after start-up and a room with backlog in the window report nothing, so those mentions still miss Activity.
 - A real change to the thread list (a re-sort after new activity) still replaces the QVariantList model and scrolls the list to its top; keeping the place there needs a list model or a contentY restore in the thread list QML.
+- L5: fetched events that fail to decrypt are dropped (`held_event_json` returns `None`): no Activity row and no late-decryption retry for them.
+- L6: `mx_rust_fetch_unread_events` has no per-room in-flight guard; it is bounded by the 2 s gap window and the 20 s timeout.
+- L7: `fill_spoiler` records an answer for every rendered event (an O(512) retain under a process-wide mutex, which can push quote answers out); a lookup in flight can write a stale answer after `forget_replied_spoiler`; the cache is shared across accounts (harmless, event ids are unique).
 
 ## 2026-11-18 — FIXED (GitHub #51): a deep saved position restores through `/context`
 
