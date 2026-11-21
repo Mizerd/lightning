@@ -7679,7 +7679,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+82"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+87"/>
         <source>Edit history</source>
         <translation>История правок</translation>
     </message>
@@ -8094,7 +8094,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2786"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2814"/>
         <source>Voice message</source>
         <translation>Голосовое сообщение</translation>
     </message>
@@ -11452,7 +11452,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Масштаб интерфейса %1 % — вступит в силу после перезапуска</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+91"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
         <translation>Lightning рисует на процессоре, а не на видеокарте, поэтому прокрутка может быть медленной. Это часто бывает с AppImage на NixOS.</translation>
     </message>
@@ -11613,7 +11613,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+617"/>
+        <location filename="../qml/MainScreen.qml" line="+627"/>
         <source>Resize room list</source>
         <translation>Изменить размер списка комнат</translation>
     </message>
@@ -13061,7 +13061,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1225"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1226"/>
         <source>Today</source>
         <translation>Сегодня</translation>
     </message>
@@ -32964,7 +32964,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1637"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1665"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 сменил(а) отображаемое имя с «%2» на «%3» и сменил(а) аватар.</translation>
     </message>
@@ -34517,6 +34517,14 @@ Note: importing keys does not verify this session.</source>
         <location line="+9"/>
         <source>Retry</source>
         <translation>Повторить</translation>
+    </message>
+</context>
+<context>
+    <name>UrlLauncher</name>
+    <message>
+        <location filename="../src/app/UrlLauncher.cpp" line="+67"/>
+        <source>This link points at Matrix media and can&apos;t be opened in a browser.</source>
+        <translation>Эта ссылка ведёт на медиафайл Matrix и не может быть открыта в браузере.</translation>
     </message>
 </context>
 <context>

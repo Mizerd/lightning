@@ -7615,7 +7615,7 @@ Ukuran: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+82"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+87"/>
         <source>Edit history</source>
         <translation>Riwayat suntingan</translation>
     </message>
@@ -8026,7 +8026,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2786"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2814"/>
         <source>Voice message</source>
         <translation>Pesan suara</translation>
     </message>
@@ -11366,7 +11366,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Zoom antarmuka %1% — berlaku setelah dimulai ulang</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+91"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
         <translation>Lightning menggambar memakai CPU, bukan kartu grafis Anda, sehingga gulir mungkin lambat. Ini umum terjadi pada AppImage di NixOS.</translation>
     </message>
@@ -11527,7 +11527,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+617"/>
+        <location filename="../qml/MainScreen.qml" line="+627"/>
         <source>Resize room list</source>
         <translation>Ubah ukuran daftar ruang</translation>
     </message>
@@ -12967,7 +12967,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1225"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1226"/>
         <source>Today</source>
         <translation>Hari ini</translation>
     </message>
@@ -32662,7 +32662,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1637"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1665"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 mengubah nama tampilannya dari “%2” menjadi “%3” dan mengubah avatarnya.</translation>
     </message>
@@ -34195,6 +34195,14 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <location line="+9"/>
         <source>Retry</source>
         <translation>Coba lagi</translation>
+    </message>
+</context>
+<context>
+    <name>UrlLauncher</name>
+    <message>
+        <location filename="../src/app/UrlLauncher.cpp" line="+67"/>
+        <source>This link points at Matrix media and can&apos;t be opened in a browser.</source>
+        <translation>Tautan ini mengarah ke media Matrix dan tidak dapat dibuka di peramban.</translation>
     </message>
 </context>
 <context>

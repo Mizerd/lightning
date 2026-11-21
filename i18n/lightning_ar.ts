@@ -7775,7 +7775,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+82"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+87"/>
         <source>Edit history</source>
         <translation>سجلّ التعديلات</translation>
     </message>
@@ -8196,7 +8196,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2786"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2814"/>
         <source>Voice message</source>
         <translation>رسالة صوتية</translation>
     </message>
@@ -11581,7 +11581,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تكبير الواجهة %1% — يسري بعد إعادة التشغيل</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+91"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
         <translation>يرسم Lightning على المعالج لا على بطاقة الرسوميات، لذا قد يكون التمرير بطيئًا. هذا شائع مع AppImage على NixOS.</translation>
     </message>
@@ -11742,7 +11742,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+617"/>
+        <location filename="../qml/MainScreen.qml" line="+627"/>
         <source>Resize room list</source>
         <translation>تغيير حجم قائمة الغرف</translation>
     </message>
@@ -13202,7 +13202,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1225"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1226"/>
         <source>Today</source>
         <translation>اليوم</translation>
     </message>
@@ -33417,7 +33417,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1637"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1665"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>غيّر %1 اسمه الظاهر من «%2» إلى «%3» وغيّر صورته الرمزية.</translation>
     </message>
@@ -35000,6 +35000,14 @@ Note: importing keys does not verify this session.</source>
         <location line="+9"/>
         <source>Retry</source>
         <translation>إعادة المحاولة</translation>
+    </message>
+</context>
+<context>
+    <name>UrlLauncher</name>
+    <message>
+        <location filename="../src/app/UrlLauncher.cpp" line="+67"/>
+        <source>This link points at Matrix media and can&apos;t be opened in a browser.</source>
+        <translation>يشير هذا الرابط إلى وسائط Matrix ولا يمكن فتحه في المتصفح.</translation>
     </message>
 </context>
 <context>

@@ -7647,7 +7647,7 @@ Tamaño: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+82"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+87"/>
         <source>Edit history</source>
         <translation>Historial de ediciones</translation>
     </message>
@@ -8060,7 +8060,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2786"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2814"/>
         <source>Voice message</source>
         <translation>Mensaje de voz</translation>
     </message>
@@ -11409,7 +11409,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Zoom de la interfaz %1 %: se aplica al reiniciar</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+91"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
         <translation>Lightning dibuja con la CPU, no con tu tarjeta gráfica, así que el desplazamiento puede ir lento. Es habitual con el AppImage en NixOS.</translation>
     </message>
@@ -11570,7 +11570,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+617"/>
+        <location filename="../qml/MainScreen.qml" line="+627"/>
         <source>Resize room list</source>
         <translation>Cambiar el tamaño de la lista de salas</translation>
     </message>
@@ -13014,7 +13014,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1225"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1226"/>
         <source>Today</source>
         <translation>Hoy</translation>
     </message>
@@ -32813,7 +32813,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1637"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1665"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 cambió su nombre visible de «%2» a «%3» y cambió su avatar.</translation>
     </message>
@@ -34356,6 +34356,14 @@ Nota: importar claves no verifica esta sesión.</translation>
         <location line="+9"/>
         <source>Retry</source>
         <translation>Reintentar</translation>
+    </message>
+</context>
+<context>
+    <name>UrlLauncher</name>
+    <message>
+        <location filename="../src/app/UrlLauncher.cpp" line="+67"/>
+        <source>This link points at Matrix media and can&apos;t be opened in a browser.</source>
+        <translation>Este enlace apunta a contenido multimedia de Matrix y no se puede abrir en un navegador.</translation>
     </message>
 </context>
 <context>

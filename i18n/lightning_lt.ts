@@ -7679,7 +7679,7 @@ Dydis: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+82"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+87"/>
         <source>Edit history</source>
         <translation>Redagavimo istorija</translation>
     </message>
@@ -8094,7 +8094,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2786"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2814"/>
         <source>Voice message</source>
         <translation>Balso žinutė</translation>
     </message>
@@ -11452,7 +11452,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Sąsajos mastelio keitimas %1% – įsigalios paleidus iš naujo</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+91"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
         <translation>„Lightning“ piešia procesoriumi, o ne vaizdo plokšte, todėl slinkimas gali būti lėtas. Tai įprasta naudojant AppImage sistemoje NixOS.</translation>
     </message>
@@ -11613,7 +11613,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+617"/>
+        <location filename="../qml/MainScreen.qml" line="+627"/>
         <source>Resize room list</source>
         <translation>Keisti kambarių sąrašo dydį</translation>
     </message>
@@ -13061,7 +13061,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1225"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1226"/>
         <source>Today</source>
         <translation>Šiandien</translation>
     </message>
@@ -32964,7 +32964,7 @@ Pastaba: importavus raktus šis seansas nepatvirtinamas.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1637"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1665"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 pakeitė rodomą pavadinimą iš „%2“ į „%3“ ir pakeitė savo avatarą.</translation>
     </message>
@@ -34517,6 +34517,14 @@ Pastaba: importavus raktus šis seansas nepatvirtinamas.</translation>
         <location line="+9"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
+    </message>
+</context>
+<context>
+    <name>UrlLauncher</name>
+    <message>
+        <location filename="../src/app/UrlLauncher.cpp" line="+67"/>
+        <source>This link points at Matrix media and can&apos;t be opened in a browser.</source>
+        <translation>Ši nuoroda veda į Matrix mediją ir negali būti atidaryta naršyklėje.</translation>
     </message>
 </context>
 <context>

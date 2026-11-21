@@ -7647,7 +7647,7 @@ Größe: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+82"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+87"/>
         <source>Edit history</source>
         <translation>Bearbeitungsverlauf</translation>
     </message>
@@ -8060,7 +8060,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2786"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2814"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -11409,7 +11409,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Oberflächenzoom %1 % – wirkt nach einem Neustart</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+91"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
         <translation>Lightning zeichnet mit der CPU statt mit deiner Grafikkarte, daher kann das Scrollen langsam sein. Das ist beim AppImage unter NixOS üblich.</translation>
     </message>
@@ -11570,7 +11570,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+617"/>
+        <location filename="../qml/MainScreen.qml" line="+627"/>
         <source>Resize room list</source>
         <translation>Raumliste in der Größe ändern</translation>
     </message>
@@ -13014,7 +13014,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+449"/>
+        <location filename="../qml/MessageDelegate.qml" line="+450"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -32813,7 +32813,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1637"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1665"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 hat den Anzeigenamen von „%2“ in „%3“ geändert und den Avatar geändert.</translation>
     </message>
@@ -34356,6 +34356,14 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+9"/>
         <source>Retry</source>
         <translation>Wiederholen</translation>
+    </message>
+</context>
+<context>
+    <name>UrlLauncher</name>
+    <message>
+        <location filename="../src/app/UrlLauncher.cpp" line="+67"/>
+        <source>This link points at Matrix media and can&apos;t be opened in a browser.</source>
+        <translation>Dieser Link verweist auf Matrix-Medien und kann nicht im Browser geöffnet werden.</translation>
     </message>
 </context>
 <context>
