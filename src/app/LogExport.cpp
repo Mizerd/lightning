@@ -423,6 +423,66 @@ qint64 RollingLogDevice::writeData(const char *data, qint64 len)
     return written;
 }
 
+CappedLogFile::CappedLogFile(const QString &path, qint64 maxBytes, QObject *parent)
+    : QIODevice(parent), m_file(path), m_max(maxBytes)
+{
+}
+
+CappedLogFile::~CappedLogFile()
+{
+    close();
+}
+
+bool CappedLogFile::open(OpenMode mode)
+{
+    Q_UNUSED(mode)
+    if (isOpen())
+        return true;
+    if (!m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        return false;
+    m_file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+    m_size = m_file.size();
+    if (m_size >= m_max && !roll())
+        return false;
+    return QIODevice::open(QIODevice::WriteOnly);
+}
+
+void CappedLogFile::close()
+{
+    if (m_file.isOpen())
+        m_file.close();
+    if (isOpen())
+        QIODevice::close();
+}
+
+bool CappedLogFile::roll()
+{
+    const QString path = m_file.fileName();
+    const QString old = path + QStringLiteral(".1");
+    m_file.close();
+    QFile::remove(old);
+    if (!QFile::rename(path, old))
+        QFile::remove(path);
+    if (!m_file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+        return false;
+    m_file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+    m_size = 0;
+    return true;
+}
+
+qint64 CappedLogFile::writeData(const char *data, qint64 len)
+{
+    if (len <= 0)
+        return 0;
+    if (!m_file.isOpen() || (m_size >= m_max && !roll()))
+        return -1;
+    const qint64 written = m_file.write(data, len);
+    m_file.flush();
+    if (written > 0)
+        m_size += written;
+    return written;
+}
+
 QByteArray readRecentLog(const QString &directory, qint64 maxBytes,
                          int *fileCount)
 {

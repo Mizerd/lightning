@@ -320,15 +320,13 @@ void installLogFile(const QString &path)
             << "refusing --log-file: the path is a symbolic link\n";
         return;
     }
-    auto *file = new QFile(path);
-    if (!file->open(QIODevice::WriteOnly | QIODevice::Append
-                    | QIODevice::Text)) {
+    auto *file = new lightning::logexport::CappedLogFile(path);
+    if (!file->open(QIODevice::WriteOnly)) {
         QTextStream(stderr)
             << "could not open --log-file for writing: " << path << '\n';
         delete file;
         return;
     }
-    file->setPermissions(QFile::ReadOwner | QFile::WriteOwner);
     auto *sink = new AsyncLogSink(std::unique_ptr<QIODevice>(file));
     sink->writeVerbatim(QStringLiteral(
         "# Lightning debug log. Contains Matrix user ids and local file "

@@ -13,6 +13,7 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QFile>
 #include <QIODevice>
 #include <QList>
 #include <QString>
@@ -88,6 +89,32 @@ private:
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;
+};
+
+// --log-file: appends to one user-named path, rolled once to PATH.1 at the cap.
+class CappedLogFile : public QIODevice
+{
+public:
+    static constexpr qint64 kDefaultMaxBytes = 32 * 1024 * 1024;
+
+    explicit CappedLogFile(const QString &path, qint64 maxBytes = kDefaultMaxBytes,
+                           QObject *parent = nullptr);
+    ~CappedLogFile() override;
+
+    bool open(OpenMode mode) override;
+    void close() override;
+    bool isSequential() const override { return true; }
+
+protected:
+    qint64 readData(char *, qint64) override { return -1; }
+    qint64 writeData(const char *data, qint64 len) override;
+
+private:
+    bool roll();
+
+    QFile m_file;
+    qint64 m_max;
+    qint64 m_size = 0;
 };
 
 QByteArray readRecentLog(const QString &directory, qint64 maxBytes,

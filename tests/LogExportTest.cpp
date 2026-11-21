@@ -391,6 +391,27 @@ private Q_SLOTS:
         QVERIFY(lx::RollingLogDevice::logFiles(tmp.path()).size() <= 3);
     }
 
+    void theLogFileRollsOnceAtItsCap()
+    {
+        QTemporaryDir tmp;
+        const QString path = tmp.path() + QStringLiteral("/run.log");
+        for (int run = 0; run < 3; ++run) {
+            lx::CappedLogFile dev(path, 1000);
+            QVERIFY(dev.open(QIODevice::WriteOnly));
+            for (int i = 0; i < 40; ++i)
+                QVERIFY(dev.write(QByteArray("run-") + QByteArray::number(run)
+                                  + QByteArray(95, '.') + "\n") > 0);
+        }
+        QVERIFY(QFileInfo(path).size() <= 1100);
+        QVERIFY(QFileInfo(path + QStringLiteral(".1")).size() <= 1100);
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".2")));
+        QFile last(path);
+        QVERIFY(last.open(QIODevice::ReadOnly));
+        QVERIFY(last.readAll().contains("run-2"));
+        QCOMPARE(QFileInfo(path).permissions() & (QFile::ReadOther | QFile::ReadGroup),
+                 QFile::Permissions());
+    }
+
     void aNewSessionNeverOverwritesAnOlderOne()
     {
         QTemporaryDir tmp;
