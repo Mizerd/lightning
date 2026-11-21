@@ -161,7 +161,33 @@ private slots:
         const qint64 idle = trim.msSinceInput();
         QVERIFY2(idle <= sincePress.elapsed(), "a key press did not count as input");
     }
+
+    void aCheckIsArmedAtStartupWithoutInput()
+    {
+#if defined(LIGHTNING_IDLE_TRIM)
+        lightning::IdleTrim trim;
+        QVERIFY(trim.checkArmed());
+#else
+        QSKIP("glibc only");
+#endif
+    }
+
+    void aCheckThatRanArmsTheNextOne()
+    {
+#if defined(LIGHTNING_IDLE_TRIM)
+        struct Probe : lightning::IdleTrim
+        {
+            using lightning::IdleTrim::onTimeout;
+        } trim;
+        trim.onTimeout();
+        QVERIFY(trim.checkArmed());
+        trim.onTimeout();
+        QVERIFY(trim.checkArmed());
+#else
+        QSKIP("glibc only");
+#endif
+    }
 };
 
-QTEST_APPLESS_MAIN(AllocatorPolicyTest)
+QTEST_GUILESS_MAIN(AllocatorPolicyTest)
 #include "AllocatorPolicyTest.moc"

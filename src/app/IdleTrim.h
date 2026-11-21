@@ -12,6 +12,7 @@
 #include <QtLogging>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
@@ -68,6 +69,9 @@ public:
         m_timer.setSingleShot(true);
         QObject::connect(&m_timer, &QTimer::timeout, this, [this] { onTimeout(); });
         m_sinceInput.start();
+#if defined(LIGHTNING_IDLE_TRIM)
+        m_timer.start(static_cast<int>(kIdleTrimQuietMs));
+#endif
     }
 
     void noteActivity()
@@ -85,10 +89,12 @@ public:
     void requestTrim()
     {
 #if defined(LIGHTNING_IDLE_TRIM)
-        if (!m_timer.isActive())
+        if (!m_timer.isActive() || m_timer.remainingTime() > 5000)
             m_timer.start(5000);
 #endif
     }
+
+    bool checkArmed() const { return m_timer.isActive(); }
 
     static qint64 freeArenaBytes()
     {
@@ -118,17 +124,7 @@ protected:
         return QObject::eventFilter(watched, event);
     }
 
-private:
-    static bool anyWindowShown()
-    {
-        for (QWindow *w : QGuiApplication::topLevelWindows()) {
-            if (w->isVisible() && w->visibility() != QWindow::Minimized
-                && w->visibility() != QWindow::Hidden)
-                return true;
-        }
-        return false;
-    }
-
+    // Always re-arms, so an idle session keeps being checked without input.
     void onTimeout()
     {
 #if defined(LIGHTNING_IDLE_TRIM)
@@ -141,15 +137,26 @@ private:
         // decide here; the free-bytes floor is checked by the job, on the pool
         // thread, immediately before the trim.
         s.freeArenaBytes = std::numeric_limits<qint64>::max();
-        s.msSinceLastTrim = m_haveTrimmed ? m_sinceTrim.elapsed() : -1;
-        if (shouldIdleTrim(s)) {
+        const qint64 last = lastTrimAtMs().load();
+        s.msSinceLastTrim = last < 0 ? -1 : nowMs() - last;
+        qint64 wait = kIdleTrimMinGapMs;
+        if (shouldIdleTrim(s))
             runTrim();
-            return;
-        }
-        const qint64 wait = idleTrimWaitMs(s);
-        if (wait >= 0)
-            m_timer.start(static_cast<int>(qMax<qint64>(wait, 1000)));
+        else if (const qint64 w = idleTrimWaitMs(s); w >= 0)
+            wait = qMax<qint64>(w, 1000);
+        m_timer.start(static_cast<int>(wait));
 #endif
+    }
+
+private:
+    static bool anyWindowShown()
+    {
+        for (QWindow *w : QGuiApplication::topLevelWindows()) {
+            if (w->isVisible() && w->visibility() != QWindow::Minimized
+                && w->visibility() != QWindow::Hidden)
+                return true;
+        }
+        return false;
     }
 
     void runTrim()
@@ -157,8 +164,6 @@ private:
 #if defined(LIGHTNING_IDLE_TRIM)
         if (running().exchange(true))
             return;
-        m_haveTrimmed = true;
-        m_sinceTrim.restart();
         QThreadPool::globalInstance()->start([] {
             if (CallAllocatorHold::activeCalls() > 0) {
                 running() = false;
@@ -167,9 +172,12 @@ private:
             const qint64 freeBefore = freeArenaBytes();
             if (freeBefore < 0
                 || static_cast<std::uint64_t>(freeBefore) < kIdleTrimMinFreeBytes) {
+                qDebug("idle trim: skipped, free in arenas %lld MB is below the floor",
+                       static_cast<long long>(freeBefore >> 20));
                 running() = false;
                 return;
             }
+            lastTrimAtMs() = nowMs();
             const qint64 rssBefore = residentBytes();
             const int released = malloc_trim(0);
             const qint64 rssAfter = residentBytes();
@@ -181,6 +189,19 @@ private:
             running() = false;
         });
 #endif
+    }
+
+    static std::atomic<qint64> &lastTrimAtMs()
+    {
+        static std::atomic<qint64> at{-1};
+        return at;
+    }
+
+    static qint64 nowMs()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
     }
 
     static std::atomic<bool> &running()
@@ -202,8 +223,6 @@ private:
 
     QTimer m_timer;
     QElapsedTimer m_sinceInput;
-    QElapsedTimer m_sinceTrim;
-    bool m_haveTrimmed = false;
 };
 
 }
