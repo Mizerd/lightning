@@ -1,5 +1,17 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-11-21 — OPEN from the 0.10.7 package and real-server tests
+
+- Resend requests are sent with no loss: a received share logs `rtx` climbing with `rtxOk=0` and duplicates arriving (Linux and Windows receivers), ~30/s. Likely the pinned 40 ms retry firing on late-but-not-lost packets. Upstream NACK load and a misleading "Resend requests" count; not a media fault.
+- `rtp stats ... kind=audio` reports the video jitterbuffer's loss (bundled session counter); diagnostic label only.
+- When an H.264 share stops, the SFU's blank frames are logged as decrypt failures (`bad-iv-length`, tailBase62); the server-frame detector covers audio, not H.264 video.
+- Signing in while the homeserver rate-limits logins (429) shows "Signing in…" with no explanation for minutes.
+- The sender's own room-list preview of a captioned image shows the filename, the other side shows the caption.
+- A fresh test DM's room-list preview read "Unable to decrypt" for a call event.
+- The per-user MSI registers its Add/Remove entry under HKLM.
+- The AppImage bundles only libgstvpx: `LIGHTNING_SHARE_ENCODER=hardware` cannot pick nvh264enc/VA there.
+- Toast click routing on Windows not re-tested (the rig runner runs elevated); last live PASS 2026-09-12.
+
 ## 2026-11-21 — OPEN after the RAM and disk audit (binary `9d9f7fe3`)
 
 Fixed on branch `fix-mem-0107`: the idle trim now checks after startup and
