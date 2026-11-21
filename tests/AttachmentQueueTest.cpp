@@ -503,7 +503,7 @@ private Q_SLOTS:
         QCOMPARE(client.fileSends, 0);
         QCOMPARE(client.lastThreadRoot, QStringLiteral("$root:example.org"));
         QCOMPARE(client.lastReplyTo, QStringLiteral("$reply:example.org"));
-        QCOMPARE(client.lastCaption, QString());
+        QCOMPARE(client.lastCaption, QStringLiteral("edited"));
         QCOMPARE(client.lastMime, QStringLiteral("image/png"));
     }
 
