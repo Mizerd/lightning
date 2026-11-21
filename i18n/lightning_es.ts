@@ -11394,7 +11394,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12459,7 +12459,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Este backend no admite archivos adjuntos.</translation>
@@ -12475,12 +12475,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se ha podido leer la imagen del portapapeles.</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>No se pudieron quitar los datos de foto de esta imagen, así que no se envió. Puedes cambiarlo en Ajustes, Privacidad.</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation>No se ha podido poner el adjunto en cola.</translation>
     </message>
@@ -12503,9 +12503,19 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Ha fallado la subida. Reintenta o quita el adjunto.</translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation>Una edición no puede estar vacía. Elimina el mensaje en su lugar.</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Este mensaje es demasiado largo para enviarlo (%1 KB; el límite es de unos %2 KB). Acórtalo o divídelo en varios mensajes.</translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
+        <translation>Parte de este mensaje está oculta como spoiler, así que no se puede editar aquí.</translation>
     </message>
 </context>
 <context>
@@ -14120,7 +14130,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
@@ -32196,7 +32206,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Este backend no admite archivos adjuntos.</translation>
@@ -32217,7 +32227,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudieron quitar los datos de foto de esta imagen, así que no se envió. Puedes cambiarlo en Ajustes, Privacidad.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation>No se pudo poner el archivo adjunto en la cola.</translation>
     </message>

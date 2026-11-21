@@ -11383,7 +11383,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12448,7 +12448,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation type="unfinished"></translation>
@@ -12464,12 +12464,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12492,8 +12492,18 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -14109,7 +14119,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation type="unfinished"></translation>
@@ -32176,7 +32186,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation type="unfinished"></translation>
@@ -32197,7 +32207,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation type="unfinished"></translation>
     </message>

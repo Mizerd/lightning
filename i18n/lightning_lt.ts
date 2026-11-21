@@ -11437,7 +11437,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12506,7 +12506,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
@@ -12522,12 +12522,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Nuotraukos informacijos iš šio paveikslėlio pašalinti nepavyko, todėl jis neišsiųstas. Tai galite pakeisti nustatymuose, skiltyje Privatumas.</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
@@ -12550,9 +12550,19 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation>Taisymas negali būti tuščias. Verčiau ištrinkite žinutę.</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Ši žinutė per ilga, kad ją būtų galima išsiųsti (%1 KB; riba – apie %2 KB). Sutrumpinkite ją arba padalykite į kelias žinutes.</translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
+        <translation>Dalis šios žinutės paslėpta kaip spoileris, todėl jos čia redaguoti negalima.</translation>
     </message>
 </context>
 <context>
@@ -14175,7 +14185,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
@@ -32342,7 +32352,7 @@ Pastaba: importavus raktus šis seansas nepatvirtinamas.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
@@ -32363,7 +32373,7 @@ Pastaba: importavus raktus šis seansas nepatvirtinamas.</translation>
         <translation>Nuotraukos informacijos iš šio paveikslėlio pašalinti nepavyko, todėl jis neišsiųstas. Tai galite pakeisti nustatymuose, skiltyje Privatumas.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>

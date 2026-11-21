@@ -11394,7 +11394,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12459,7 +12459,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Anhänge werden von diesem Backend nicht unterstützt.</translation>
@@ -12475,12 +12475,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Das Bild aus der Zwischenablage konnte nicht gelesen werden.</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Die Fotodetails konnten nicht aus diesem Bild entfernt werden, daher wurde es nicht gesendet. Du kannst das unter Einstellungen, Datenschutz ändern.</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation>Der Anhang konnte nicht in die Warteschlange gestellt werden.</translation>
     </message>
@@ -12503,9 +12503,19 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Upload fehlgeschlagen. Erneut versuchen oder entfernen.</translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation>Eine Bearbeitung darf nicht leer sein. Lösche die Nachricht stattdessen.</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Diese Nachricht ist zu lang zum Senden (%1 KB; das Limit liegt bei etwa %2 KB). Kürze sie oder teile sie auf mehrere Nachrichten auf.</translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
+        <translation>Ein Teil dieser Nachricht ist als Spoiler verborgen, daher kann sie hier nicht bearbeitet werden.</translation>
     </message>
 </context>
 <context>
@@ -14120,7 +14130,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
@@ -32196,7 +32206,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Anhänge werden von diesem Backend nicht unterstützt.</translation>
@@ -32217,7 +32227,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Fotodetails konnten nicht aus diesem Bild entfernt werden, daher wurde es nicht gesendet. Du kannst das unter Einstellungen, Datenschutz ändern.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation>Der Anhang konnte nicht in die Warteschlange gestellt werden.</translation>
     </message>

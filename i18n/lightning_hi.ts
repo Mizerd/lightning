@@ -11394,7 +11394,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12459,7 +12459,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>इस बैकएंड पर अटैचमेंट समर्थित नहीं हैं।</translation>
@@ -12475,12 +12475,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>क्लिपबोर्ड की इमेज पढ़ी नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>इस तस्वीर से फ़ोटो विवरण हटाए नहीं जा सके, इसलिए यह नहीं भेजी गई। आप इसे सेटिंग्स, गोपनीयता में बदल सकते हैं।</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation>अटैचमेंट कतार में नहीं लगाया जा सका।</translation>
     </message>
@@ -12503,9 +12503,19 @@ Signing out and signing in again is the only fix.</source>
         <translation>अपलोड विफल। फिर कोशिश करें या हटाएं।</translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation>संपादन खाली नहीं हो सकता। इसके बजाय संदेश हटाएँ।</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>यह संदेश भेजने के लिए बहुत लंबा है (%1 KB; सीमा लगभग %2 KB है)। इसे छोटा करें या कई संदेशों में बाँटें।</translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
+        <translation>इस संदेश का एक हिस्सा स्पॉइलर के रूप में छिपा है, इसलिए इसे यहाँ संपादित नहीं किया जा सकता।</translation>
     </message>
 </context>
 <context>
@@ -14120,7 +14130,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
@@ -32196,7 +32206,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>इस बैकएंड पर अटैचमेंट समर्थित नहीं हैं।</translation>
@@ -32217,7 +32227,7 @@ Note: importing keys does not verify this session.</source>
         <translation>इस तस्वीर से फ़ोटो विवरण हटाए नहीं जा सके, इसलिए यह नहीं भेजी गई। आप इसे सेटिंग्स, गोपनीयता में बदल सकते हैं।</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation>अटैचमेंट कतार में नहीं जोड़ा जा सका।</translation>
     </message>

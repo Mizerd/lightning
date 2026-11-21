@@ -11394,7 +11394,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12459,7 +12459,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Les pièces jointes ne sont pas prises en charge par ce backend.</translation>
@@ -12475,12 +12475,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>L&apos;image du presse-papiers n&apos;a pas pu être lue.</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Les données de localisation de la photo n&apos;ont pas pu être retirées de cette image, elle n&apos;a donc pas été envoyée. Vous pouvez modifier cela dans Paramètres, Confidentialité.</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation>La pièce jointe n&apos;a pas pu être mise en file d&apos;attente.</translation>
     </message>
@@ -12503,9 +12503,19 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec de l&apos;envoi. Réessayez ou supprimez.</translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation>Une modification ne peut pas être vide. Supprimez plutôt le message.</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Ce message est trop long pour être envoyé (%1 Ko ; la limite est d&apos;environ %2 Ko). Raccourcissez-le ou répartissez-le en plusieurs messages.</translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
+        <translation>Une partie de ce message est masquée comme spoiler, il ne peut donc pas être modifié ici.</translation>
     </message>
 </context>
 <context>
@@ -14120,7 +14130,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
@@ -32196,7 +32206,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Les pièces jointes ne sont pas prises en charge par ce backend.</translation>
@@ -32217,7 +32227,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Les détails de la photo n&apos;ont pas pu être retirés de cette image, elle n&apos;a donc pas été envoyée. Vous pouvez modifier cela dans Paramètres, Confidentialité.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation>La pièce jointe n&apos;a pas pu être mise en file d&apos;attente.</translation>
     </message>

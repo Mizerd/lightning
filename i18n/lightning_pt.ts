@@ -11394,7 +11394,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12459,7 +12459,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Os anexos não são suportados neste backend.</translation>
@@ -12475,12 +12475,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Não foi possível ler a imagem da área de transferência.</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>Não foi possível remover os dados da fotografia desta imagem, por isso não foi enviada. Pode alterar isto em Definições, Privacidade.</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation>Não foi possível colocar o anexo na fila.</translation>
     </message>
@@ -12503,9 +12503,19 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>O envio falhou. Tente novamente ou remova.</translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation>Uma edição não pode estar vazia. Em vez disso, elimine a mensagem.</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Esta mensagem é demasiado longa para ser enviada (%1 KB; o limite é cerca de %2 KB). Encurte-a ou divida-a em várias mensagens.</translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
+        <translation>Parte desta mensagem está oculta como spoiler, por isso não pode ser editada aqui.</translation>
     </message>
 </context>
 <context>
@@ -14120,7 +14130,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconhecida: %1</translation>
@@ -32196,7 +32206,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Os anexos não são suportados neste backend.</translation>
@@ -32217,7 +32227,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Não foi possível remover os dados da fotografia desta imagem, por isso não foi enviada. Pode alterar isto em Definições, Privacidade.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation>Não foi possível colocar o anexo na fila.</translation>
     </message>

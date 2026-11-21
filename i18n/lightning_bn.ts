@@ -11394,7 +11394,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+467"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12459,7 +12459,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+219"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+223"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
@@ -12475,12 +12475,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>ক্লিপবোর্ডের ছবি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+192"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
         <translation>এই ছবি থেকে ছবির বিবরণ সরানো যায়নি, তাই এটি পাঠানো হয়নি। সেটিংস, গোপনীয়তায় এটি বদলাতে পারেন।</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>The attachment could not be queued.</source>
         <translation>সংযুক্তিটি সারিতে দেওয়া যায়নি।</translation>
     </message>
@@ -12503,9 +12503,19 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপলোড ব্যর্থ। আবার চেষ্টা করুন বা সরান।</translation>
     </message>
     <message>
-        <location line="+313"/>
+        <location line="+90"/>
+        <source>An edit cannot be empty. Delete the message instead.</source>
+        <translation>সম্পাদনা খালি হতে পারে না। পরিবর্তে বার্তাটি মুছে ফেলুন।</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>এই বার্তাটি পাঠানোর জন্য খুব বড় (%1 KB; সীমা প্রায় %2 KB)। এটি ছোট করুন অথবা কয়েকটি বার্তায় ভাগ করুন।</translation>
+    </message>
+    <message>
+        <location line="+713"/>
+        <source>Part of this message is hidden as a spoiler, so it cannot be edited here.</source>
+        <translation>এই বার্তার একটি অংশ স্পয়লার হিসেবে লুকানো, তাই এটি এখানে সম্পাদনা করা যাবে না।</translation>
     </message>
 </context>
 <context>
@@ -14120,7 +14130,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+46"/>
-        <location line="+652"/>
+        <location line="+668"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
@@ -32196,7 +32206,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+708"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+732"/>
         <location line="+13"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
@@ -32217,7 +32227,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এই ছবি থেকে ছবির বিবরণ সরানো যায়নি, তাই এটি পাঠানো হয়নি। সেটিংস, গোপনীয়তায় এটি বদলাতে পারেন।</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <source>The attachment could not be queued.</source>
         <translation>সংযুক্তিটি সারিতে দেওয়া যায়নি।</translation>
     </message>
