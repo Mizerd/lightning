@@ -430,6 +430,35 @@ private Q_SLOTS:
         QCOMPARE(swallowed, QStringLiteral("# after @bob"));
     }
 
+    void nothingInsideACoveredSpoilerDrawsThroughItsCover()
+    {
+        const MessageHtml::MentionStyle style{
+            QString(), QString(), QStringLiteral("#22262e"), false,
+            QStringLiteral("#445566"), QStringLiteral("#778899")};
+        const QString src = QStringLiteral(
+            "<span data-mx-spoiler>a <blockquote>quoted</blockquote>"
+            "<table><tr><td>cell</td></tr></table>"
+            "\U0001F600 &#x1F600; @ "
+            "<img data-mx-emoticon src=\"mxc://s.example/abc\" alt=\":x:\">"
+            "</span>");
+        const QString covered =
+            MessageHtml::sanitize(src, nullptr, QString(), style, false);
+        QVERIFY2(!covered.contains(QStringLiteral("<table")), qPrintable(covered));
+        QVERIFY2(!covered.contains(QStringLiteral("#778899")), qPrintable(covered));
+        QVERIFY2(!covered.contains(QStringLiteral("<img")), qPrintable(covered));
+        QVERIFY2(!covered.contains(QStringLiteral("&#x1F600;")), qPrintable(covered));
+        for (const QChar c : covered)
+            QVERIFY2(!c.isSurrogate(), qPrintable(covered));
+        QVERIFY(covered.contains(QStringLiteral("quoted")));
+        QVERIFY(covered.contains(QStringLiteral("cell")));
+
+        const QString revealed =
+            MessageHtml::sanitize(src, nullptr, QString(), style, true);
+        QVERIFY2(revealed.contains(QStringLiteral("<table")), qPrintable(revealed));
+        QVERIFY2(revealed.contains(QStringLiteral("<img")), qPrintable(revealed));
+        QVERIFY(revealed.contains(QStringLiteral("\U0001F600")));
+    }
+
     void aRevealedSpoilerKeepsTheBackgroundButShowsTheText()
     {
         const MessageHtml::MentionStyle style{

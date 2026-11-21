@@ -825,6 +825,29 @@ QString linkifyBareUrls(const QString &text, const QString &linkInk)
 
 namespace {
 
+// Covered text keeps its slab colour, but a colour emoji glyph ignores the
+// text colour, so every emoji-capable cluster is drawn as a plain square.
+QString maskCoveredText(const QString &decoded)
+{
+    QString out;
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, decoded);
+    qsizetype at = 0;
+    while (at < decoded.size()) {
+        qsizetype next = finder.toNextBoundary();
+        if (next <= at)
+            next = decoded.size();
+        const QStringView cluster = QStringView(decoded).mid(at, next - at);
+        QList<char32_t> cps;
+        for (const char32_t cp : cluster.toUcs4())
+            cps.append(cp);
+        const bool emoji = clusterCouldBeEmoji(cps)
+            || (!cps.isEmpty() && cps.first() > 0xFFFFu);
+        out += emoji ? QStringLiteral("\u25A0") : cluster.toString();
+        at = next;
+    }
+    return out.toHtmlEscaped();
+}
+
 bool isSpoilerSpan(const QString &rawInside)
 {
     static const QRegularExpression spoilerAttr(
@@ -908,7 +931,9 @@ QString MessageHtml::sanitize(
                 lt = n;
             if (dropDepth == 0 && mentionSwallow == 0) {
                 const QString chunk = in.mid(i, lt - i);
-                if (anchorEmitted.isEmpty() && codeDepth == 0
+                if (!revealSpoilers && spanIsSpoiler.contains(true)) {
+                    out += maskCoveredText(decodeEntities(chunk));
+                } else if (anchorEmitted.isEmpty() && codeDepth == 0
                     && !spanIsSpoiler.contains(true)) {
                     out += linkifyBareUrls(
                         chunk,
@@ -962,6 +987,11 @@ QString MessageHtml::sanitize(
         if (name == QLatin1String("img")) {
             if (t.closing)
                 continue;
+            if (!revealSpoilers && spanIsSpoiler.contains(true)) {
+                if (hasEmoticonMarker(t.raw))
+                    out += QStringLiteral("\u25A0");
+                continue;
+            }
             if (!hasEmoticonMarker(t.raw))
                 continue;
             const QString src = extractAttr(t.raw, QStringLiteral("src"));
@@ -1032,7 +1062,7 @@ QString MessageHtml::sanitize(
                     disp = disp.mid(1);
                 if (disp.isEmpty())
                     disp = localpart(mentionUser);
-                out += (QStringLiteral("@") + disp).toHtmlEscaped();
+                out += maskCoveredText(QStringLiteral("@") + disp);
                 ++mentionSwallow;
                 continue;
             }
@@ -1158,7 +1188,8 @@ QString MessageHtml::sanitize(
             if (name == QLatin1String("table")) {
                 if (!t.closing) {
                     const bool withinBound = tableFrames() < kMaxTableDepth
-                        && frames.size() < kMaxFrameDepth;
+                        && frames.size() < kMaxFrameDepth
+                        && (revealSpoilers || !spanIsSpoiler.contains(true));
                     if (!withinBound) {
                         tableEmitted.append(-1);
                         separateFlattened();
@@ -1182,6 +1213,7 @@ QString MessageHtml::sanitize(
             // Rows and cells belong only to the innermost frame, and only if it
             // is this table: one closed out of order is flattened.
             if (tableEmitted.isEmpty() || frames.isEmpty()
+                || (!revealSpoilers && spanIsSpoiler.contains(true))
                 || frames.last().quote
                 || frames.last().id != tableEmitted.last()) {
                 if (t.closing && (name == QLatin1String("td")
@@ -1235,7 +1267,9 @@ QString MessageHtml::sanitize(
                 // Quick's text paints no border, so QuoteBars draws the bar
                 // from the table's border-color; an empty bar cell would add
                 // a blank line to every copied selection.
-                if (frames.size() >= kMaxFrameDepth) {
+                // A quote's own ink would draw through a covering spoiler.
+                if (frames.size() >= kMaxFrameDepth
+                    || (!revealSpoilers && spanIsSpoiler.contains(true))) {
                     quoteEmitted.append(-1);
                     separateFlattened();
                     continue;
