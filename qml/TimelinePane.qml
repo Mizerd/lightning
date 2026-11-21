@@ -5270,6 +5270,11 @@ Rectangle {
                 // A click on message text focuses that read-only TextEdit,
                 // which would swallow typing; hand it back to the view.
                 onReleased: (modifiers) => {
+                    for (var it = timeline.Window.activeFocusItem; it;
+                         it = it.parent) {
+                        if (it === timeline.Overlay.overlay)
+                            return
+                    }
                     if (!(modifiers & Qt.ShiftModifier))
                         root.leaveKeyboardSelection()
                     var focused = timeline.Window.activeFocusItem

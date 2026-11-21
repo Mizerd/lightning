@@ -4710,7 +4710,7 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
         return false;
     if (m_screenSharing)
         stopScreenShare();
-    withdrawNotice(m_shareNotice);
+    withdrawNotice(std::exchange(m_shareNotice, {}));
 #ifdef Q_OS_LINUX
     m_shareSourceReusable = pipewireFd < 0
         && (windowHandle != 0 || captureRect.isValid());
@@ -5256,7 +5256,7 @@ QString SfuCallController::shareAudioStatusText(const ShareAudioStatusInput &in)
 void SfuCallController::stopScreenShare()
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
-    withdrawNotice(m_shareNotice);
+    withdrawNotice(std::exchange(m_shareNotice, {}));
     if (!m_screenSharing || m_engine.isNull())
         return;
     unpublishTrack(m_screenCid);
