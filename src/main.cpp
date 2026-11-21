@@ -1765,16 +1765,10 @@ static int printCallMediaStatus()
 #endif
 
     {
-#ifdef Q_OS_WIN
-        // Building the GL chain here opens a GL window, which Wine (CI) aborts
-        // on; a share still probes it when it starts.
+        // Not running the GL chain here: it aborts under Wine and segfaults in
+        // a GPU-less snap; a share still probes it when it starts.
         const bool gpu = SfuMediaEngine::shareGpuScalingRequested()
             && SfuMediaEngine::missingGpuShareElement().isEmpty();
-#else
-        const bool gpu = SfuMediaEngine::shareGpuScalingRequested()
-            && SfuMediaEngine::missingGpuShareElement().isEmpty()
-            && SfuMediaEngine::gpuShareChainUsable();
-#endif
         const bool hardwareAsked = SfuMediaEngine::shareHardwareEncodeRequested();
         const auto hardware = hardwareAsked
             ? SfuMediaEngine::firstWorkingShareEncoder(
@@ -1793,6 +1787,7 @@ static int printCallMediaStatus()
                       "encoder works here)"
                     : " (default; LIGHTNING_SHARE_ENCODER=hardware tries "
                       "hardware H.264)")
+            << (gpu ? "; GPU scaling is confirmed when a share starts" : "")
             << "\n";
     }
 
