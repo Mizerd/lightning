@@ -1273,8 +1273,9 @@ QString MessageHtml::sanitize(
     return markEmoji(out);
 }
 
-QString MessageHtml::plainTextConcealingSpoilers(const QString &html,
-                                                 const QString &placeholder)
+QString MessageHtml::plainTextConcealingSpoilers(
+    const QString &html, const QString &placeholder,
+    const std::function<QString(const QString &userId)> &resolveDisplayName)
 {
     static constexpr qsizetype kMaxInput = 64 * 1024;
     const QString in = html.size() > kMaxInput ? html.left(kMaxInput) : html;
@@ -1290,6 +1291,7 @@ QString MessageHtml::plainTextConcealingSpoilers(const QString &html,
     int dropDepth = 0;
     int preDepth = 0;
     int hidden = 0;
+    int mentionSwallow = 0;
     QList<bool> spans;
     const auto endLine = [&out]() {
         if (!out.isEmpty() && !out.endsWith(QLatin1Char('\n')))
@@ -1303,7 +1305,7 @@ QString MessageHtml::plainTextConcealingSpoilers(const QString &html,
             qsizetype lt = in.indexOf(QLatin1Char('<'), i);
             if (lt < 0)
                 lt = n;
-            if (dropDepth == 0 && hidden == 0) {
+            if (dropDepth == 0 && hidden == 0 && mentionSwallow == 0) {
                 QString chunk = in.mid(i, lt - i);
                 if (preDepth == 0) {
                     chunk.replace(whitespace, QStringLiteral(" "));
@@ -1319,7 +1321,7 @@ QString MessageHtml::plainTextConcealingSpoilers(const QString &html,
         qsizetype end = 0;
         const ParsedTag t = scanner.tagAt(i, end);
         if (!t.valid) {
-            if (dropDepth == 0 && hidden == 0)
+            if (dropDepth == 0 && hidden == 0 && mentionSwallow == 0)
                 out += QLatin1Char('<');
             i += 1;
             continue;
@@ -1335,6 +1337,36 @@ QString MessageHtml::plainTextConcealingSpoilers(const QString &html,
             continue;
         }
         if (dropDepth > 0)
+            continue;
+        // A mention's contents are swallowed exactly as sanitize() does, so a
+        // tag inside one cannot close a spoiler early.
+        if (t.name == QLatin1String("a")) {
+            if (t.closing) {
+                if (mentionSwallow > 0)
+                    --mentionSwallow;
+                continue;
+            }
+            if (mentionSwallow > 0) {
+                ++mentionSwallow;
+                continue;
+            }
+            const QString user = userIdFromLink(extractHref(t.raw));
+            if (user.isEmpty())
+                continue;
+            if (hidden == 0) {
+                QString disp =
+                    resolveDisplayName ? resolveDisplayName(user) : QString();
+                if (disp == user)
+                    disp.clear();
+                if (disp.startsWith(QLatin1Char('@')))
+                    disp = disp.mid(1);
+                out += QLatin1Char('@')
+                    + (disp.isEmpty() ? localpart(user) : disp);
+            }
+            ++mentionSwallow;
+            continue;
+        }
+        if (mentionSwallow > 0)
             continue;
         if (t.name == QLatin1String("span")) {
             if (t.closing) {

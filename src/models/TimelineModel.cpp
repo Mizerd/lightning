@@ -2728,7 +2728,8 @@ QString TimelineModel::copyTextForEvent(const QString &eventId) const
         && event->formattedBody.contains(QLatin1String("data-mx-spoiler"),
                                          Qt::CaseInsensitive)) {
         return MessageHtml::plainTextConcealingSpoilers(
-            event->formattedBody, QStringLiteral("\u2588\u2588\u2588\u2588\u2588"));
+            event->formattedBody, QStringLiteral("\u2588\u2588\u2588\u2588\u2588"),
+            [this](const QString &userId) { return mentionNameFor(userId, false); });
     }
     return text;
 }

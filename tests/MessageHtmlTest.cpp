@@ -421,6 +421,13 @@ private Q_SLOTS:
                            "<span DATA-MX-SPOILER>two</span>"),
             QStringLiteral("#"));
         QCOMPARE(out, QStringLiteral("a & # b\nc\nd\n#"));
+
+        const QString swallowed = MessageHtml::plainTextConcealingSpoilers(
+            QStringLiteral("<span data-mx-spoiler><a href=\"https://matrix.to/#/"
+                           "@u:s\"></span></a>SECRET</span> after "
+                           "<a href=\"https://matrix.to/#/@bob:s\">Bobby</a>"),
+            QStringLiteral("#"));
+        QCOMPARE(swallowed, QStringLiteral("# after @bob"));
     }
 
     void aRevealedSpoilerKeepsTheBackgroundButShowsTheText()

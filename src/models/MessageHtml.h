@@ -28,8 +28,9 @@ QString sanitize(
 
 // Plain text of a formatted body with every spoiler's contents replaced by
 // `placeholder`, for copying a message whose spoilers are still covered.
-QString plainTextConcealingSpoilers(const QString &html,
-                                    const QString &placeholder);
+QString plainTextConcealingSpoilers(
+    const QString &html, const QString &placeholder,
+    const std::function<QString(const QString &userId)> &resolveDisplayName = {});
 
 enum class SegmentKind {
     RichText,
