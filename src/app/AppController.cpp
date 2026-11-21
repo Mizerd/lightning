@@ -5639,7 +5639,7 @@ bool AppController::trimHistoryAndJumpToLive()
 #endif
 }
 
-static bool anyPopupOpen()
+static QObject *firstOpenPopup()
 {
     for (QWindow *w : QGuiApplication::topLevelWindows()) {
         auto *window = qobject_cast<QQuickWindow *>(w);
@@ -5652,18 +5652,26 @@ static bool anyPopupOpen()
                 QObject *popup = item->parent();
                 if (item->isVisible() && popup && popup->inherits("QQuickPopup")
                     && !popup->inherits("QQuickToolTip"))
-                    return true;
+                    return popup;
             }
         }
     }
-    return false;
+    return nullptr;
+}
+
+static bool anyPopupOpen()
+{
+    return firstOpenPopup() != nullptr;
 }
 
 void AppController::armIdleLiveTrim()
 {
     if (!m_idleLiveTrimTimer.isActive() && m_timeline
-        && m_timeline->rowCount() > historyTrimRowThreshold())
+        && m_timeline->rowCount() > historyTrimRowThreshold()) {
         m_idleLiveTrimTimer.start(int(kIdleLiveTrimQuietMs));
+        if (qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE"))
+            qCInfo(lcApp) << "idle live-edge trim armed rows=" << m_timeline->rowCount();
+    }
 }
 
 void AppController::onIdleLiveTrimTimeout()
@@ -5673,6 +5681,19 @@ void AppController::onIdleLiveTrimTimeout()
     const qint64 idle = m_inputIdleMs();
     const bool following = m_readReceipts->nearBottom();
     const bool blocked = m_idleTrimBlocked || anyPopupOpen();
+    static const bool trace = qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE");
+    if (trace) {
+        QObject *popup = firstOpenPopup();
+        qCInfo(lcApp) << "idle live-edge trim check following=" << following
+                      << "idleMs=" << idle << "windowActive=" << m_timelineWindowActive
+                      << "paneBlocked=" << m_idleTrimBlocked << "popup="
+                      << (popup ? popup->metaObject()->className() : "-")
+                      << (popup ? popup->objectName() : QString())
+                      << "switching=" << m_accountSwitching
+                      << "rows=" << (m_timeline ? m_timeline->rowCount() : -1)
+                      << "paginationBusy=" << (m_pagination && m_pagination->busy())
+                      << "threadOpen=" << (m_thread && (m_thread->active() || m_thread->listOpen()));
+    }
     if (!idleLiveTrimDue(following, idle, m_timelineWindowActive, blocked,
                          m_accountSwitching)) {
         // Only a short quiet period is worth waiting out; anything else waits
@@ -5688,6 +5709,8 @@ void AppController::onIdleLiveTrimTimeout()
         if (m_pagination)
             m_pagination->saveFollowingLatest(m_currentRoomId);
         Q_EMIT idleLiveHistoryTrimmed();
+    } else if (trace) {
+        qCInfo(lcApp) << "idle live-edge trim refused by historyTrimAllowed";
     }
 }
 
