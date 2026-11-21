@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(lightning
-    VERSION 0.10.6
+    VERSION 0.10.7
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
@@ -17,7 +17,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
-set(APP_VERSION_LABEL "0.10.6")
+set(APP_VERSION_LABEL "0.10.7")
 
 # Build metadata surfaced by `lightning-matrix --build-info` (never secrets).
 # The source SHA comes from git at configure time; packaging may override it.
