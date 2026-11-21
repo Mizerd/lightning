@@ -430,6 +430,8 @@ struct ThreadTally {
     roots: HashMap<OwnedEventId, RootRecord>,
     /// Threads started while the list is open: the SDK only updates listed ones.
     fresh: Vec<(ThreadListItem, HashSet<OwnedEventId>)>,
+    /// Fresh roots that could not be read, retried only after a backoff.
+    failed_roots: HashMap<OwnedEventId, std::time::Instant>,
 }
 
 struct RootRecord {
@@ -4142,6 +4144,9 @@ async fn list_event(
     })
 }
 
+const FRESH_ROOT_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+const FRESH_ROOT_FAILURES_KEPT: usize = 256;
+
 /// Lists threads whose first replies arrive while the list is open.
 async fn adopt_new_threads(
     room: &matrix_sdk::Room,
@@ -4172,7 +4177,11 @@ async fn adopt_new_threads(
         }
         let Some(latest) = list_event(room, &reply).await else { continue };
         let known = lock_tally(tally).fresh.iter().any(|(item, _)| item.root_event.event_id == root);
-        if !known {
+        let backing_off = lock_tally(tally)
+            .failed_roots
+            .get(&root)
+            .is_some_and(|at| at.elapsed() < FRESH_ROOT_RETRY);
+        if !known && !backing_off {
             // The server's copy bundles the thread's real reply count; an old
             // thread whose history we never loaded must not read as one reply.
             let fetched = tokio::time::timeout(
@@ -4192,11 +4201,19 @@ async fn adopt_new_threads(
                     .as_u64()
             });
             let root_event = match fetched {
-                Some(event) => event,
-                None => match room.load_or_fetch_event(&root, None).await {
-                    Ok(event) => event,
-                    Err(_) => continue,
+                Some(event) => Some(event),
+                None => match room.event_cache().await {
+                    Ok((cache, _handles)) => cache.find_event(&root).await.ok().flatten(),
+                    Err(_) => None,
                 },
+            };
+            let Some(root_event) = root_event else {
+                let mut guard = lock_tally(tally);
+                if guard.failed_roots.len() >= FRESH_ROOT_FAILURES_KEPT {
+                    guard.failed_roots.clear();
+                }
+                guard.failed_roots.insert(root.clone(), std::time::Instant::now());
+                continue;
             };
             let Some(root_item) = list_event(room, &root_event).await else { continue };
             let num_replies = u32::try_from(bundled.unwrap_or(0)).unwrap_or(u32::MAX);
