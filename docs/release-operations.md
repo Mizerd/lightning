@@ -23,6 +23,7 @@ pipelines.
 | 0.10.4 | `fd5aedfe` | **project 6** 351, green first attempt (Flathub PR #5); bar PASSED IN FULL 2026-11-02: 11 links, signature verified, 11 mirror assets; Windows snapshot 350 | `docs/releases/v0.10.4.md` |
 | 0.10.5 | `2b63840b` | **project 6** 410, first release built on gitlab.com runners, first ARM64 packages (Flathub PR #6); `mirror-release-to-gitlab-com` red (script 644) and completed by hand, fixed in `c0a40cc5`; bar PASSED IN FULL 2026-11-08: 16 links, signature verified, 15 GitHub assets | `docs/releases/v0.10.5.md` |
 | 0.10.6 | `61642b3c` | **project 6** 459, 18/18 (Flathub PR #7); 458 at `1114f2aa` died in `config-tests` (lane test inherited the release's `BUILD_MACOS_PACKAGES`), nothing published, fixed in `61642b3c`; bar PASSED IN FULL 2026-11-16: 16 links, signature verified, 15 GitHub assets | `docs/releases/v0.10.6.md` |
+| 0.10.7 | `33fe56b4` | **project 6** 461, 18/18 (Flathub PR #8); 460 at `c780f693` died in `config-tests` (`cargo-sources.json` stale after the rustls bump), nothing published, fixed in `33fe56b4`; bar PASSED IN FULL 2026-11-21: 16 links, signature verified, 15 GitHub assets | `docs/releases/v0.10.7.md` |
 | 0.10.3 | `485ec7e2` | **project 6** 349, **30/30 green first attempt** (Flathub PR #4); bar PASSED IN FULL 2026-11-01: 11 links, signature verified, one-field copy rejected, 11 mirror assets, tag peels to the release commit | `docs/releases/v0.10.3.md` |
 | 0.10.2 | `a32229a6` | **project 6** 344, **30/30 green first attempt** (Flathub PR #3) | `docs/releases/v0.10.2.md` |
 | 0.10.1 | `712ed6dd` | **project 6** 315, 30/30 | `docs/releases/v0.10.1.md` |
@@ -352,6 +353,10 @@ reach the lane and a release lane fails in its `resolve-source`.
   stale-but-200 reads so both halves are covered. Diagnose it by asking the
   API and the public URL separately: if they disagree, it is the edge.
 
+- **Run every `config-tests` command locally under the release variables
+  before triggering.** Two of the last three releases lost their first pipeline
+  to that gate (458, 460), each time on a file the release commit's own checks
+  never read. The job's `script:` list in `.gitlab-ci.yml` is the checklist.
 - **Trigger variables must be a JSON body.** `glab api --input` without
   an explicit `-H "Content-Type: application/json"` returns **HTTP 415**.
   And passing them as form fields (`-f "variables[0][key]=..."`) is

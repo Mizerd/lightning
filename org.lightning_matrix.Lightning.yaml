@@ -291,8 +291,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/lightning-matrix/lightning.git
-        tag: v0.10.6
-        commit: 61642b3c9a716d29ba3631e0992fd6147c63c859
+        tag: v0.10.7
+        commit: 33fe56b49d454ec234ff6a77037936f1ed01e9bf
         x-checker-data:
           type: git
           tag-pattern: '^v([\d.]+)$'

@@ -26,12 +26,12 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.10.6** (`v0.10.6` -> `61642b3c`),
-tagged 2026-11-16 by **project 6** pipeline **459**, 18/18 (Flathub PR #7).
-Pipeline 458 (at `1114f2aa`) died in `config-tests` with nothing published: the
-lane test leaked the release's `BUILD_MACOS_PACKAGES`; `61642b3c` fixes it.
-Notes in `docs/releases/v0.10.6.md`. **Verification bar PASSED IN FULL on
-2026-11-16** (16 links, signature verified, 15 GitHub assets). Before it:
+Latest published release: **Lightning 0.10.7** (`v0.10.7` -> `33fe56b4`),
+tagged 2026-11-21 by **project 6** pipeline **461**, 18/18 (Flathub PR #8).
+Pipeline 460 (at `c780f693`) died in `config-tests` with nothing published: the
+rustls bump changed `Cargo.lock` without regenerating `cargo-sources.json`;
+`33fe56b4` fixes it. Notes in `docs/releases/v0.10.7.md`. **Verification bar
+PASSED IN FULL on 2026-11-21** (16 links, signature verified, 15 GitHub assets). Before it: 0.10.6 (`61642b3c`, pipeline 459),
 0.10.5 (`2b63840b`, pipeline 410, first on gitlab.com runners and first ARM64),
 0.10.4 (`fd5aedfe`, pipeline 351),
 0.10.3 (`485ec7e2`, pipeline 349,
@@ -43,7 +43,7 @@ pipeline opened the Flathub PR itself). Round record: `docs/round-history.md`.
 half-land — **and there is a SIXTH it does NOT compare, the AppStream
 metainfo; see §14.** The root Flathub manifest is a SEVENTH, re-pinned to
 the new tag after each release (`test-flathub-manifest-pin.py` waits for it);
-it names `v0.10.6` / `61642b3c…`. Media from encrypted rooms is kept
+it names `v0.10.7` / `33fe56b4…`. Media from encrypted rooms is kept
 encrypted at rest (a per-account key in the keyring; §6's plaintext rule
 holds for media).
 
